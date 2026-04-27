@@ -1,4 +1,4 @@
-import type { OpCode, Category, RoutingStatus, ProductStatus, OpMeta, CatMeta, StatusMeta } from '../types'
+import type { OpCode, Category, MaterialGroup, RoutingStatus, ProductStatus, OpMeta, CatMeta, MatGroupMeta, StatusMeta } from '../types'
 
 export const OP_META: Record<OpCode, OpMeta> = {
   CUT:      { label: 'ตัด (CUT)',          icon: 'Scissors',       color: '#C8202A' },
@@ -36,6 +36,23 @@ export const PRODUCT_STATUS_META: Record<ProductStatus, StatusMeta> = {
   Active:        { label: 'อนุมัติแล้ว',   bg: '#EAF3DE', text: '#27500A', border: 'transparent', icon: 'CheckCircle' },
   Rejected:      { label: 'ปฏิเสธ',       bg: '#FCEBEB', text: '#8A1520', border: 'transparent', icon: 'XCircle' },
   Blocked:       { label: 'ระงับส่ง',     bg: '#FCEBEB', text: '#5C0D15', border: '#EE9B9B', icon: 'Ban' },
+}
+
+// ── Material Group Meta (13 groups per BDT Product Master) ────
+export const MAT_GROUP_META: Record<MaterialGroup, MatGroupMeta> = {
+  PLATE:          { label: 'แผ่นเหล็ก',          label_en: 'Steel Plate',          color: '#185FA5', icon: 'Square' },
+  HR_SHAPE:       { label: 'Hot Roll Shape',       label_en: 'HR Shape',             color: '#1F1F1F', icon: 'Minus' },
+  COLDFORM:       { label: 'Cold Form',            label_en: 'Cold Form Shape',      color: '#64748B', icon: 'AlignJustify' },
+  PIPE_TUBE:      { label: 'ท่อเหล็ก',            label_en: 'Pipe & Tube',          color: '#14B8A6', icon: 'Circle' },
+  FLAT_ROUND_BAR: { label: 'Flat / Round Bar',    label_en: 'Bar Stock',            color: '#6366F1', icon: 'Minus' },
+  COIL:           { label: 'Steel Coil',           label_en: 'Steel Coil',           color: '#8B4513', icon: 'RefreshCw' },
+  BOLT_NUT:       { label: 'Bolt & Nut',           label_en: 'Fasteners',            color: '#F59E0B', icon: 'Settings2' },
+  WELD_CONSUMABLE:{ label: 'Weld Consumable',      label_en: 'Welding Consumable',   color: '#BA7517', icon: 'Flame' },
+  PAINT_COAT:     { label: 'สี / Coating',         label_en: 'Paint & Coating',      color: '#8B5CF6', icon: 'Paintbrush2' },
+  BUILDING_COMP:  { label: 'Building Component',   label_en: 'Building Component',   color: '#639922', icon: 'Home' },
+  ACCESSORY:      { label: 'Steel Accessory',      label_en: 'Steel Accessory',      color: '#C8202A', icon: 'Wrench' },
+  SPARE_PART:     { label: 'Spare Part',           label_en: 'Spare Part',           color: '#854F0B', icon: 'Package' },
+  FIXED_ASSET:    { label: 'Fixed Asset',          label_en: 'Machine / Fixed Asset',color: '#3A3A3A', icon: 'Factory' },
 }
 
 // keep backward compat alias

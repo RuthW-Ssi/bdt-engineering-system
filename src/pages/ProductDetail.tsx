@@ -1,15 +1,18 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Pencil, Send, MoreHorizontal, GitBranch, FileText, Box, ExternalLink, Clock, CheckCircle, XCircle } from 'lucide-react'
+import { ArrowLeft, Pencil, Send, MoreHorizontal, GitBranch, FileText, Box, ExternalLink, Clock, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import * as Icons from 'lucide-react'
-import { mockProducts } from '../data/mockProducts'
 import { mockRoutingSteps } from '../data/mock'
 import { mockBomTree } from '../data/mockBom'
 import { CAT_META, PRODUCT_STATUS_META } from '../data/meta'
+import type { ProductAttributes } from '../types'
 import { ProductStatusPill } from '../components/ui/ProductStatusPill'
 import { OpBadge } from '../components/ui/OpBadge'
 import { fmtTime } from '../data/utils'
 import type { BomNode } from '../types'
+import { useMaterial, useActionSubmit } from '../hooks/useMaterials'
+import { STATE_TO_PRODUCT_STATUS } from '../api/types'
+import type { ProductStatus } from '../types'
 
 const TABS = ['ภาพรวม', 'Routing', 'BOM', 'Versions', 'ประวัติ']
 const TAB_BADGES: Record<string, string> = {
@@ -60,16 +63,47 @@ export function ProductDetail() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('ภาพรวม')
   const [submitOpen, setSubmitOpen] = useState(false)
+  const [submitError, setSubmitError] = useState('')
 
-  const product = mockProducts.find(p => p.product_code === code)
-  if (!product) return (
+  const { data: mat, isLoading, isError } = useMaterial(code ?? '')
+  const { mutateAsync: doSubmit, isPending: submitting } = useActionSubmit(code ?? '')
+
+  if (isLoading) return (
+    <div className="flex items-center justify-center gap-2" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
+      <Loader2 size={20} className="animate-spin" />กำลังโหลด...
+    </div>
+  )
+
+  if (isError || !mat) return (
     <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
       ไม่พบชิ้นงาน {code}
     </div>
   )
 
-  const catMeta = CAT_META[product.category]
-  const statusMeta = PRODUCT_STATUS_META[product.status]
+  // Map DTO → legacy shape for compatibility with existing UI
+  const uiStatus = (STATE_TO_PRODUCT_STATUS[mat.state] as ProductStatus) ?? 'Draft'
+  const product = {
+    product_code: mat.default_code,
+    name_th: mat.name,
+    name_en: mat.description_sale,
+    category: 'Part' as const,
+    material_group: undefined,
+    status: uiStatus,
+    version: mat.version,
+    uom: mat.uom?.name ?? '',
+    odoo_ref_id: mat.odoo_ref_id,
+    attributes: mat.attributes as ProductAttributes,
+    spec: {
+      drawing_ref: mat.drawing_ref,
+      total_weight_kg: mat.total_weight_kg,
+      description: mat.description_sale,
+    },
+    updated_at: new Date(mat.write_date).toLocaleDateString('th-TH'),
+    updated_by: mat.write_user?.name ?? '-',
+  }
+
+  const catMeta = CAT_META['Part']
+  const statusMeta = PRODUCT_STATUS_META[uiStatus]
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const CatIcon = (Icons as any)[catMeta.icon] as React.ComponentType<{ size?: number; color?: string }> | undefined
 
@@ -380,10 +414,29 @@ export function ProductDetail() {
                 <span style={{ color: '#8A1520' }}>ผู้ส่ง:</span><span>somchai.k@ssi-steel.com</span>
               </div>
             </div>
+            {submitError && (
+              <div className="rounded-lg mb-3" style={{ padding: 10, background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
+                {submitError}
+              </div>
+            )}
             <div className="flex justify-end gap-2">
-              <button onClick={() => setSubmitOpen(false)} className="rounded-md hover:bg-chrome-50" style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>ยกเลิก</button>
-              <button className="flex items-center gap-1.5 rounded-md text-white" style={{ padding: '10px 18px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}>
-                <Send size={14} />ยืนยันส่ง
+              <button onClick={() => { setSubmitOpen(false); setSubmitError('') }} className="rounded-md hover:bg-chrome-50" style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>ยกเลิก</button>
+              <button
+                disabled={submitting}
+                onClick={async () => {
+                  try {
+                    await doSubmit()
+                    setSubmitOpen(false)
+                    setSubmitError('')
+                  } catch (e: any) {
+                    setSubmitError(e?.response?.data?.message ?? 'เกิดข้อผิดพลาด')
+                  }
+                }}
+                className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-60"
+                style={{ padding: '10px 18px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
+              >
+                {submitting ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                ยืนยันส่ง
               </button>
             </div>
           </div>

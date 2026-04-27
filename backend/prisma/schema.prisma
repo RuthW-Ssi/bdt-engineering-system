@@ -1,0 +1,130 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── 🟦 Standard Odoo: res_users (stub) ───────────────────────
+model res_users {
+  id                  Int       @id @default(autoincrement())
+  login               String    @unique @db.VarChar(60)
+  name                String    @db.VarChar(120)
+  active              Boolean   @default(true)
+
+  materials_created   materials[] @relation("create_user")
+  materials_written   materials[] @relation("write_user")
+  messages            mail_message[]
+}
+
+// ── 🟦 Standard Odoo: uom_category + uom_uom ─────────────────
+model uom_category {
+  id    Int       @id @default(autoincrement())
+  name  String    @db.VarChar(40)
+  uoms  uom_uom[]
+}
+
+model uom_uom {
+  id           Int          @id @default(autoincrement())
+  name         String       @db.VarChar(40)
+  category_id  Int
+  category     uom_category @relation(fields: [category_id], references: [id])
+  factor       Decimal      @default(1) @db.Decimal(12, 6)
+  uom_type     String       @default("reference") @db.VarChar(10)
+  rounding     Decimal      @default(0.01) @db.Decimal(12, 6)
+  active       Boolean      @default(true)
+  odoo_ref_id  String?      @db.VarChar(40)
+
+  materials_uom     materials[] @relation("uom")
+  materials_uom_po  materials[] @relation("uom_po")
+}
+
+// ── 🟦 Standard Odoo: account_account ────────────────────────
+model account_account {
+  id           Int       @id @default(autoincrement())
+  code         String    @unique @db.VarChar(10)
+  name         String    @db.VarChar(120)
+  account_type String    @db.VarChar(40)
+  active       Boolean   @default(true)
+
+  categories   product_category[]
+}
+
+// ── 🟨 Hybrid: product_category (Odoo tree + BDT extension) ──
+model product_category {
+  id                Int               @id @default(autoincrement())
+  name              String            @db.VarChar(80)
+  parent_id         Int?
+  parent            product_category?  @relation("CategoryTree", fields: [parent_id], references: [id])
+  children          product_category[] @relation("CategoryTree")
+  complete_name     String?           @db.VarChar(200)
+  group_no          String?           @db.VarChar(10)
+  prefix_5          String?           @unique @db.Char(5)
+  account_id        Int?
+  account           account_account?  @relation(fields: [account_id], references: [id])
+  needs_criticality Boolean           @default(false)
+  active            Boolean           @default(true)
+  odoo_ref_id       String?           @db.VarChar(40)
+
+  materials         materials[]
+}
+
+// ── 🟦/🟨/🟥 materials ────────────────────────────────────────
+model materials {
+  id               Int              @id @default(autoincrement())
+  default_code     String           @unique @db.Char(10)
+  name             String           @db.VarChar(200)
+  description_sale String           @db.VarChar(200)
+  categ_id         Int
+  category         product_category @relation(fields: [categ_id], references: [id])
+  uom_id           Int
+  uom              uom_uom          @relation("uom", fields: [uom_id], references: [id])
+  uom_po_id        Int?
+  uom_po           uom_uom?         @relation("uom_po", fields: [uom_po_id], references: [id])
+  type             String           @default("product") @db.VarChar(20)
+  state            String           @default("draft") @db.VarChar(20)
+  active           Boolean          @default(true)
+  version          String?          @db.VarChar(10)
+  substitute_for   Int?
+  substitute_ref   materials?       @relation("SubstituteMaterials", fields: [substitute_for], references: [id])
+  substitutes      materials[]      @relation("SubstituteMaterials")
+  substitute_seq   Int?             @db.SmallInt
+  priority         String?          @db.Char(1)
+  criticality      String?          @db.VarChar(2)
+  attributes       Json             @default("{}")
+  drawing_ref      String?          @db.VarChar(60)
+  bim_object_id    String?          @db.VarChar(80)
+  total_weight_kg  Decimal?         @db.Decimal(12, 3)
+  odoo_ref_id      String?          @db.VarChar(40)
+  create_uid       Int
+  create_user      res_users        @relation("create_user", fields: [create_uid], references: [id])
+  create_date      DateTime         @default(now()) @db.Timestamptz
+  write_uid        Int
+  write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
+  write_date       DateTime         @default(now()) @db.Timestamptz
+
+  messages         mail_message[]
+}
+
+// ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
+model part_code_seq {
+  prefix_5  String @id @db.Char(5)
+  next_run  Int    @default(1)
+}
+
+// ── 🟦 Standard Odoo: mail_message (audit log) ───────────────
+model mail_message {
+  id           BigInt    @id @default(autoincrement())
+  model        String    @db.VarChar(60)
+  res_id       Int
+  material     materials @relation(fields: [res_id], references: [id])
+  message_type String    @db.VarChar(20)
+  subject      String?   @db.VarChar(200)
+  body         String?   @db.Text
+  tracking     Json?
+  author_id    Int?
+  author       res_users? @relation(fields: [author_id], references: [id])
+  date         DateTime  @default(now()) @db.Timestamptz
+}

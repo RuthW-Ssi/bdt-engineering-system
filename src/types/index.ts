@@ -4,6 +4,37 @@ export type OpCode = 'CUT' | 'WELD' | 'DRILL' | 'PAINT' | 'QC' | 'BEND' | 'GRIND
 // ── Categories ────────────────────────────────────────────────
 export type Category = 'Assembly' | 'SubAssembly' | 'Part' | 'Plate' | 'ShapeStock' | 'OtherMat' | 'Consumable' | 'Coil'
 
+// ── Material Groups (13 groups per BDT Product Master standard) ──
+export type MaterialGroup =
+  | 'PLATE'           // แผ่นเหล็ก (Steel Plate)
+  | 'HR_SHAPE'        // Hot Roll Shape (H-Beam, I-Beam, Channel, Angle)
+  | 'COLDFORM'        // Cold Form Shape (C-Section, Z-Section, Lipped Channel)
+  | 'PIPE_TUBE'       // ท่อเหล็ก (Steel Pipe & Tube)
+  | 'FLAT_ROUND_BAR'  // Flat Bar & Round Bar
+  | 'COIL'            // Steel Coil
+  | 'BOLT_NUT'        // Bolt, Nut, Washer (Fasteners)
+  | 'WELD_CONSUMABLE' // Welding Consumable (ลวดเชื่อม, Flux, Gas)
+  | 'PAINT_COAT'      // Paint & Coating (สี, สารเคลือบ)
+  | 'BUILDING_COMP'   // Building Component (Purlin, Girt, Roof Sheet, Cladding)
+  | 'ACCESSORY'       // Steel Accessory (Anchor Bolt, Base Plate, Gusset)
+  | 'SPARE_PART'      // Spare Part (อะไหล่เครื่องจักร — ต้องระบุ Criticality)
+  | 'FIXED_ASSET'     // Fixed Asset / Machine (เครื่องจักรการผลิต)
+
+// ── Product Attributes (physical & material properties per BDT naming convention) ──
+export interface ProductAttributes {
+  grade?: string         // Material grade: SS400, SM520, A36, S235, G550 etc.
+  height_h?: number      // H = Height (mm) — H-Beam, I-Beam
+  width_b?: number       // B = Width / Flange Width (mm)
+  web_tw?: number        // TW = Thickness Web (mm)
+  flange_tf?: number     // TF = Thickness Flange (mm)
+  thickness_t?: number   // T = Thickness (mm) — Plate, Flat Bar, Sheet
+  diameter_d?: number    // D = Diameter (mm) — Pipe, Round Bar, Bolt
+  lip_c?: number         // C = Lip Length (mm) — Cold Form only
+  length_mm?: number     // Standard length (mm)
+  width_mm?: number      // Width (mm) — Plate, Sheet, Coil
+  weight_per_m?: number  // Weight per metre (kg/m) — auto-calculated field
+}
+
 // ── Statuses ──────────────────────────────────────────────────
 export type ProductStatus = 'Draft' | 'PendingReview' | 'Active' | 'Rejected' | 'Blocked'
 export type RoutingStatus = 'Active' | 'Draft' | 'PendingReview' | 'Rejected'
@@ -11,18 +42,22 @@ export type RoutingStatus = 'Active' | 'Draft' | 'PendingReview' | 'Rejected'
 // ── Meta interfaces ───────────────────────────────────────────
 export interface OpMeta { label: string; icon: string; color: string }
 export interface CatMeta { color: string; icon: string; label: string }
+export interface MatGroupMeta { label: string; label_en: string; color: string; icon: string }
 export interface StatusMeta { label: string; bg: string; text: string; border: string; icon: string }
 
 // ── Product ───────────────────────────────────────────────────
 export interface Product {
-  product_code: string
+  product_code: string      // 10-char code: [5-char group prefix] + [5-digit run no.]
   name_th: string
-  name_en: string
+  name_en: string           // UPPERCASE English: "<Main Name> <Spec> <Dimensions>"
   category: Category
+  material_group?: MaterialGroup
   status: ProductStatus
   version: string | null
-  uom: string
+  uom: string               // Standard unit: KG, M, PCS, SET, SHEET, etc.
   odoo_ref_id: string | null
+  substitute_for?: string | null  // Part Code ของวัสดุที่ถูกแทนที่
+  attributes?: ProductAttributes
   spec: {
     drawing_ref: string | null
     total_weight_kg: number | null
