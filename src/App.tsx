@@ -4,6 +4,7 @@ import { RoutingList } from './pages/RoutingList'
 import { RoutingEditor } from './pages/RoutingEditor'
 import { ProductList } from './pages/ProductList'
 import { ProductDetail } from './pages/ProductDetail'
+import { MaterialList } from './pages/MaterialList'
 import { BomEditor } from './pages/BomEditor'
 import { BomDiffReview } from './pages/BomDiffReview'
 
@@ -20,11 +21,13 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/products" replace />} />
+          <Route index element={<Navigate to="/engineer-products" replace />} />
           <Route path="/dashboard" element={<Placeholder title="Dashboard" />} />
           <Route path="/projects" element={<Placeholder title="Projects" />} />
-          <Route path="/products" element={<ProductList />} />
-          <Route path="/products/:code" element={<ProductDetail />} />
+          <Route path="/engineer-products" element={<ProductList />} />
+          <Route path="/engineer-products/:code" element={<ProductDetail />} />
+          <Route path="/materials" element={<MaterialList />} />
+          <Route path="/materials/:code" element={<ProductDetail />} />
           <Route path="/bom/:code" element={<BomEditor />} />
           <Route path="/bom/:code/diff" element={<BomDiffReview />} />
           <Route path="/routings" element={<RoutingList />} />

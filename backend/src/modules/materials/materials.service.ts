@@ -273,7 +273,7 @@ export class MaterialsService {
       .findUnique({ where: { default_code }, select: { id: true } })
       .then(mat => {
         if (!mat) throw new NotFoundException(`Material ${default_code} not found`)
-        return this.mail.thread(mat.id)
+        return this.mail.thread('material', mat.id)
       })
   }
 }

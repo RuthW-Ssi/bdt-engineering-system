@@ -17,6 +17,12 @@ model res_users {
   materials_created   materials[] @relation("create_user")
   materials_written   materials[] @relation("write_user")
   messages            mail_message[]
+
+  // Sprint 2: Project + Product relations
+  projects_created    project[] @relation("project_create")
+  projects_written    project[] @relation("project_write")
+  products_created    products[] @relation("product_create")
+  products_written    products[] @relation("product_write")
 }
 
 // ── 🟦 Standard Odoo: uom_category + uom_uom ─────────────────
@@ -69,6 +75,7 @@ model product_category {
   odoo_ref_id       String?           @db.VarChar(40)
 
   materials         materials[]
+  products          products[]
 }
 
 // ── 🟦/🟨/🟥 materials ────────────────────────────────────────
@@ -104,8 +111,6 @@ model materials {
   write_uid        Int
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
-
-  messages         mail_message[]
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -114,12 +119,13 @@ model part_code_seq {
   next_run  Int    @default(1)
 }
 
-// ── 🟦 Standard Odoo: mail_message (audit log) ───────────────
+// ── 🟦 Standard Odoo: mail_message (audit log — polymorphic) ─
+// Sprint 2: Refactored to polymorphic — model+res_id generic reference
+// Supports: 'material', 'product', 'project' (and future models)
 model mail_message {
   id           BigInt    @id @default(autoincrement())
   model        String    @db.VarChar(60)
   res_id       Int
-  material     materials @relation(fields: [res_id], references: [id])
   message_type String    @db.VarChar(20)
   subject      String?   @db.VarChar(200)
   body         String?   @db.Text
@@ -127,4 +133,212 @@ model mail_message {
   author_id    Int?
   author       res_users? @relation(fields: [author_id], references: [id])
   date         DateTime  @default(now()) @db.Timestamptz
+
+  @@index([model, res_id])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 2: Product Layer
+// ═══════════════════════════════════════════════════════════════
+
+// ── 🟦 Project ──────────────────────────────────────────────────
+model project {
+  id                Int        @id @default(autoincrement())
+  project_code      String     @unique @db.VarChar(20)
+  name              String     @db.VarChar(200)
+  customer_id       Int?
+  start_date        DateTime?  @db.Date
+  target_handover   DateTime?  @db.Date
+  state             String     @default("lead") @db.VarChar(20)
+  active            Boolean    @default(true)
+  odoo_ref_id       String?    @db.VarChar(40)
+  create_uid        Int
+  create_user       res_users  @relation("project_create", fields: [create_uid], references: [id])
+  create_date       DateTime   @default(now()) @db.Timestamptz
+  write_uid         Int
+  write_user        res_users  @relation("project_write", fields: [write_uid], references: [id])
+  write_date        DateTime   @default(now()) @db.Timestamptz
+
+  zones             project_zone[]
+  products          products[]
+  project_costs     project_product_cost[]
+}
+
+// ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
+model project_zone {
+  id                       Int       @id @default(autoincrement())
+  project_id               Int
+  project                  project   @relation(fields: [project_id], references: [id])
+  code                     String    @db.VarChar(20)
+  label                    String    @db.VarChar(80)
+  zone_type                String    @db.VarChar(20)
+  erection_sequence        Int?
+  target_erection_start    DateTime? @db.Date
+  target_erection_end      DateTime? @db.Date
+  crane_assignment         String?   @db.VarChar(60)
+  notes                    String?   @db.Text
+  active                   Boolean   @default(true)
+
+  products                 products[]
+
+  @@unique([project_id, code])
+}
+
+// ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
+model mark_prefix_master {
+  code            String   @id @db.VarChar(10)
+  label           String   @db.VarChar(40)
+  category        String   @db.VarChar(20)
+  part_type_code  String   @db.Char(1)
+  active          Boolean  @default(true)
+
+  products        products[]
+  tekla_mappings  tekla_prefix_mapping[]
+}
+
+// ── 🟥 Tekla Prefix Mapping (F26 / PD-33) ──────────────────────
+model tekla_prefix_mapping {
+  tekla_type       String             @id @db.VarChar(10)
+  bdt_mark_prefix  String             @db.VarChar(10)
+  bdt_prefix       mark_prefix_master @relation(fields: [bdt_mark_prefix], references: [code])
+  confidence       String             @db.VarChar(10)
+  source           String?            @db.VarChar(80)
+  notes            String?            @db.Text
+}
+
+// ── 🟦/🟨/🟥 Products (single-table inheritance, F4 / PD-01) ───
+model products {
+  id                       Int       @id @default(autoincrement())
+  product_code             String    @unique @db.VarChar(20)
+  engineering_code         String?   @unique @db.VarChar(20)
+  item_code                String?   @unique @db.Char(10)
+  odoo_compliance_status   String    @default("NEW") @db.VarChar(20)
+  name                     String    @db.VarChar(200)
+  categ_id                 Int
+  category                 product_category @relation(fields: [categ_id], references: [id])
+  product_type             String    @db.VarChar(20)
+  odoo_type                String    @default("product") @db.VarChar(10)
+  procure_method           String    @default("make_to_order") @db.VarChar(20)
+  state                    String    @default("draft") @db.VarChar(20)
+  active                   Boolean   @default(true)
+  sale_ok                  Boolean   @default(false)
+  purchase_ok              Boolean   @default(false)
+  sales_price              Decimal   @default(1.0) @db.Decimal(12, 2)
+
+  // Cost components (4-component, 3 levels — F7)
+  cost_raw_material        Decimal?  @db.Decimal(12, 2)
+  cost_transport           Decimal?  @db.Decimal(12, 2)
+  cost_production          Decimal?  @db.Decimal(12, 2)
+  cost_warehouse           Decimal?  @db.Decimal(12, 2)
+  // standard_cost_total = computed via DB GENERATED column (in raw SQL migration)
+
+  // Standard-only fields
+  master_drawing_id        Int?
+  variant_attributes       Json?
+  stock_policy             String?   @db.VarChar(20)
+  reorder_min              Decimal?  @db.Decimal(12, 3)
+  reorder_max              Decimal?  @db.Decimal(12, 3)
+
+  // Custom-only fields
+  project_id               Int?
+  project                  project?  @relation(fields: [project_id], references: [id])
+  erection_zone_id         Int?
+  erection_zone            project_zone? @relation(fields: [erection_zone_id], references: [id])
+  mark_prefix              String?   @db.VarChar(10)
+  mark                     mark_prefix_master? @relation(fields: [mark_prefix], references: [code])
+  mark_number              String?   @db.VarChar(20)
+  shop_drawing_id          Int?
+  revision                 String?   @db.VarChar(10)
+  engineer_hours_est       Decimal?  @db.Decimal(8, 2)
+  engineer_hours_act       Decimal?  @db.Decimal(8, 2)
+
+  // Promotion lineage
+  promoted_from_id         Int?
+  promoted_from            products? @relation("Promotion", fields: [promoted_from_id], references: [id])
+  promoted_descendants     products[] @relation("Promotion")
+  promoted_date            DateTime? @db.Timestamptz
+  legacy_codes             String[]
+
+  // Engineering attributes
+  attributes               Json      @default("{}")
+
+  // Odoo sync
+  odoo_ref_id              String?   @db.VarChar(40)
+
+  // Audit
+  create_uid               Int
+  create_user              res_users @relation("product_create", fields: [create_uid], references: [id])
+  create_date              DateTime  @default(now()) @db.Timestamptz
+  write_uid                Int
+  write_user               res_users @relation("product_write", fields: [write_uid], references: [id])
+  write_date               DateTime  @default(now()) @db.Timestamptz
+
+  variants                 product_variant[]
+  promotion_requests_src   promotion_request[] @relation("source_custom")
+  promotion_requests_tgt   promotion_request[] @relation("target_standard")
+  project_costs            project_product_cost[]
+}
+
+// ── 🟨 Product Variant (lazy-create — PD-10) ────────────────────
+model product_variant {
+  id                  Int      @id @default(autoincrement())
+  parent_product_id   Int
+  parent              products @relation(fields: [parent_product_id], references: [id])
+  variant_code        String   @unique @db.VarChar(40)
+  attribute_values    Json
+  cost_extra          Decimal  @default(0) @db.Decimal(12, 2)
+  active              Boolean  @default(true)
+}
+
+// ── 🟥 Project Product Cost (per-project actuals) ────────────────
+model project_product_cost {
+  id                       Int       @id @default(autoincrement())
+  product_id               Int
+  product                  products  @relation(fields: [product_id], references: [id])
+  project_id               Int
+  project                  project   @relation(fields: [project_id], references: [id])
+  cost_raw_material        Decimal?  @db.Decimal(12, 2)
+  cost_transport           Decimal?  @db.Decimal(12, 2)
+  cost_production          Decimal?  @db.Decimal(12, 2)
+  cost_warehouse           Decimal?  @db.Decimal(12, 2)
+  variance_vs_standard     Decimal?  @db.Decimal(8, 4)
+  snapshotted_at           DateTime  @default(now()) @db.Timestamptz
+
+  @@unique([product_id, project_id])
+}
+
+// ── 🟥 Promotion Request (skeleton — full workflow Sprint 4) ────
+model promotion_request {
+  id                            Int       @id @default(autoincrement())
+  source_custom_product_id      Int
+  source                        products  @relation("source_custom", fields: [source_custom_product_id], references: [id])
+  target_standard_product_id    Int?
+  target                        products? @relation("target_standard", fields: [target_standard_product_id], references: [id])
+  requestor_id                  Int
+  state                         String    @default("draft") @db.VarChar(20)
+  promotion_mode                String?   @db.VarChar(20)
+  reason                        String?   @db.Text
+  reuse_evidence_count          Int?
+  similar_product_ids           Int[]
+  proposed_variant_matrix       Json?
+  proposed_standard_cost        Json?
+  proposed_sale_ok              Boolean?
+  proposed_purchase_ok          Boolean?
+  cost_reviewer_id              Int?
+  cost_reviewed_at              DateTime? @db.Timestamptz
+  approver_id                   Int?
+  approved_at                   DateTime? @db.Timestamptz
+  done_at                       DateTime? @db.Timestamptz
+  rejection_reason              String?   @db.Text
+  create_date                   DateTime  @default(now()) @db.Timestamptz
+}
+
+// ── 🟦 Steel Grade master (for HY370 + others — PD-36) ──────────
+model steel_grade {
+  code         String   @id @db.VarChar(20)
+  standard     String?  @db.VarChar(20)
+  yield_mpa    Decimal? @db.Decimal(6, 1)
+  tensile_mpa  Decimal? @db.Decimal(6, 1)
+  notes        String?  @db.Text
+  active       Boolean  @default(true)
 }

@@ -7,22 +7,24 @@ export interface TrackingField {
   new_value: unknown
 }
 
+export type AuditModel = 'material' | 'product' | 'project'
+
 @Injectable()
 export class MailMessageService {
   constructor(private readonly prisma: PrismaService) {}
 
   async log(opts: {
+    model?: AuditModel
     res_id: number
     message_type: 'notification' | 'comment' | 'audit'
     subject?: string
     body?: string
     tracking?: TrackingField[]
     author_id?: number
-    tx?: Parameters<PrismaService['mail_message']['create']>[0]['data'] extends infer _D ? any : any
   }) {
     return this.prisma.mail_message.create({
       data: {
-        model: 'material',
+        model: opts.model ?? 'material',
         res_id: opts.res_id,
         message_type: opts.message_type,
         subject: opts.subject,
@@ -33,9 +35,9 @@ export class MailMessageService {
     })
   }
 
-  async thread(res_id: number) {
+  async thread(model: AuditModel, res_id: number) {
     return this.prisma.mail_message.findMany({
-      where: { model: 'material', res_id },
+      where: { model, res_id },
       orderBy: { date: 'asc' },
     })
   }

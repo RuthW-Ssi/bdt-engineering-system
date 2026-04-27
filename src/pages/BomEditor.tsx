@@ -213,7 +213,7 @@ export function BomEditor() {
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)' }}>
       {/* Page Header */}
       <div className="bg-white flex items-center sticky top-14 z-40 border-b-2 border-chrome-100 px-4 gap-3" style={{ height: 56, flexShrink: 0 }}>
-        <button onClick={() => navigate(`/products/${code}`)} className="flex items-center justify-center rounded-md hover:bg-chrome-50" style={{ width: 32, height: 32, color: '#8E8E8E' }}>
+        <button onClick={() => navigate(`/engineer-products/${code}`)} className="flex items-center justify-center rounded-md hover:bg-chrome-50" style={{ width: 32, height: 32, color: '#8E8E8E' }}>
           <ArrowLeft size={16} />
         </button>
         <span className="font-mono" style={{ fontSize: 14, fontWeight: 600 }}>{code}</span>

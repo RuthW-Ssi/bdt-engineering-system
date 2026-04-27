@@ -1,273 +1,262 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Search, Plus, MoreHorizontal, ArrowUpDown, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
-import { PRODUCT_STATUS_META } from '../data/meta'
-import { ProductStatusPill } from '../components/ui/ProductStatusPill'
-import { useMaterials } from '../hooks/useMaterials'
-import { MaterialRegisterModal } from './MaterialRegisterModal'
-import type { ProductStatus } from '../types'
-import type { MaterialDTO } from '../api/types'
-import { STATE_TO_PRODUCT_STATUS } from '../api/types'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Search, Plus, MoreHorizontal, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
+import { useProducts } from '../hooks/useProducts'
+import { useProjects } from '../hooks/useProjects'
+import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
+import { ProductStatePill } from '../components/product/ProductStatePill'
+import { NewStandardProductModal } from '../components/product/NewStandardProductModal'
+import { NewCustomProductModal } from '../components/product/NewCustomProductModal'
+import type { ProductDTO, ProductType, ProductState } from '../api/types'
+import { PRODUCT_STATE_LABELS, PRODUCT_STATE_COLORS } from '../api/types'
 
-const STATUSES: ProductStatus[] = ['Draft', 'PendingReview', 'Active', 'Rejected', 'Blocked']
-const STATE_REVERSE: Record<string, string> = {
-  Draft: 'draft',
-  PendingReview: 'to_approve',
-  Active: 'confirmed',
-  Rejected: 'cancel',
-  Blocked: 'blocked',
-}
-
+const STATES: ProductState[] = ['draft', 'in_design', 'in_review', 'approved', 'released', 'obsolete']
 const PAGE_SIZE = 20
-
-type SortKey = 'write_date' | 'default_code'
 
 export function ProductList() {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
-  const [filterStatuses, setFilterStatuses] = useState<Set<ProductStatus>>(new Set())
-  const [sortKey] = useState<SortKey>('write_date')
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [page, setPage] = useState(1)
-  const [showRegister, setShowRegister] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const stateFilter = filterStatuses.size === 1
-    ? STATE_REVERSE[Array.from(filterStatuses)[0]]
-    : undefined
+  const tab = (searchParams.get('tab') as ProductType) || 'standard'
+  const stateFilter = searchParams.get('state') || ''
+  const searchQ = searchParams.get('q') || ''
+  const projectFilter = searchParams.get('project_id') || ''
+  const pageParam = parseInt(searchParams.get('page') || '1')
 
-  const { data, isLoading, isError } = useMaterials({
-    q: search || undefined,
-    state: stateFilter,
-    page,
+  const [showModal, setShowModal] = useState<'standard' | 'custom' | null>(null)
+
+  const { data: projectsData } = useProjects({ limit: 100 })
+  const projects = projectsData?.items ?? []
+
+  const { data, isLoading, isError } = useProducts({
+    product_type: tab,
+    state: stateFilter || undefined,
+    q: searchQ || undefined,
+    project_id: projectFilter ? parseInt(projectFilter) : undefined,
+    page: pageParam,
     limit: PAGE_SIZE,
   })
 
-  const items: MaterialDTO[] = data?.items ?? []
+  const items: ProductDTO[] = data?.items ?? []
   const total = data?.total ?? 0
   const totalPages = data?.pages ?? 1
 
-  const toggleStatus = (s: ProductStatus) => {
-    setFilterStatuses(prev => {
-      const n = new Set(prev)
-      n.has(s) ? n.delete(s) : n.add(s)
-      return n
-    })
-    setPage(1)
+  const setParam = (key: string, value: string) => {
+    const p = new URLSearchParams(searchParams)
+    if (value) p.set(key, value)
+    else p.delete(key)
+    if (key !== 'page') p.set('page', '1')
+    setSearchParams(p)
   }
 
-  const allSelected = items.length > 0 && items.every(p => selected.has(p.default_code))
-  const toggleAll = () => {
-    if (allSelected) setSelected(prev => { const n = new Set(prev); items.forEach(p => n.delete(p.default_code)); return n })
-    else setSelected(prev => { const n = new Set(prev); items.forEach(p => n.add(p.default_code)); return n })
+  const markDisplay = (p: ProductDTO) => {
+    const parts = [p.erection_zone?.code, p.mark_prefix, p.mark_number].filter(Boolean)
+    return parts.join('-') || '-'
   }
-  const toggleRow = (code: string) =>
-    setSelected(prev => { const n = new Set(prev); n.has(code) ? n.delete(code) : n.add(code); return n })
-
-  const hasFilters = filterStatuses.size > 0 || !!search
-  const clearFilters = () => { setFilterStatuses(new Set()); setSearch(''); setPage(1) }
-
-  const toUiStatus = (state: string): ProductStatus =>
-    (STATE_TO_PRODUCT_STATUS[state] as ProductStatus) ?? 'Draft'
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-56px)]">
-      {/* Page Header */}
-      <div className="bg-white flex items-center justify-between sticky top-14 z-40 border-b border-chrome-100 px-6" style={{ height: 56 }}>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+      {/* Header */}
+      <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
         <div className="flex items-center gap-3">
-          <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Materials</span>
+          <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Engineer Products</span>
           <span style={{ color: '#C2C2C2' }}>·</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
             {isLoading ? '...' : `${total} รายการ`}
           </span>
         </div>
-        <button
-          onClick={() => setShowRegister(true)}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
-        >
-          <Plus size={14} />เพิ่มชิ้นงาน
+        <button onClick={() => setShowModal(tab)} className="flex items-center gap-1.5 rounded-md text-white"
+          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: tab === 'standard' ? '#0C447C' : '#B45309' }}>
+          <Plus size={14} />เพิ่ม {tab === 'standard' ? 'Standard' : 'Custom'} Product
         </button>
       </div>
 
-      {/* Filter Bar */}
-      <div className="sticky z-30 border-b border-chrome-100" style={{ top: 110, background: '#F5F5F5' }}>
+      {/* Tabs + Filters */}
+      <div className="border-b border-chrome-100" style={{ background: '#F5F5F5', flexShrink: 0 }}>
+        {/* Type tabs */}
+        <div className="flex px-6" style={{ borderBottom: '1px solid #E0E0E0' }}>
+          {(['standard', 'custom'] as ProductType[]).map(t => (
+            <button key={t} onClick={() => setParam('tab', t)}
+              style={{
+                padding: '10px 20px', fontSize: 13, fontWeight: tab === t ? 600 : 400,
+                color: tab === t ? (t === 'standard' ? '#0C447C' : '#B45309') : '#8E8E8E',
+                borderBottom: `2px solid ${tab === t ? (t === 'standard' ? '#0C447C' : '#B45309') : 'transparent'}`,
+              }}>
+              {t === 'standard' ? 'Standard' : 'Custom'}
+            </button>
+          ))}
+        </div>
+
+        {/* Search + State filter */}
         <div className="flex items-center gap-2 px-6" style={{ height: 44, borderBottom: '1px solid #E0E0E0' }}>
           <div className="relative">
             <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
-            <input
-              className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
+            <input className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
               style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 240 }}
               placeholder="ค้นหารหัส / ชื่อ..."
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }}
-            />
+              value={searchQ} onChange={e => setParam('q', e.target.value)} />
           </div>
-          {hasFilters && (
-            <button onClick={clearFilters} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>ล้างตัวกรอง</button>
+          {tab === 'custom' && (
+            <select className="border border-chrome-200 rounded-md bg-white focus:outline-none"
+              style={{ height: 32, padding: '0 8px', fontSize: 12, borderColor: projectFilter ? '#B45309' : '#E0E0E0', minWidth: 160 }}
+              value={projectFilter} onChange={e => setParam('project_id', e.target.value)}>
+              <option value="">ทุก Project</option>
+              {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)}
+            </select>
+          )}
+          {(stateFilter || searchQ || projectFilter) && (
+            <button onClick={() => { setParam('state', ''); setParam('q', ''); setParam('project_id', '') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>ล้างตัวกรอง</button>
           )}
           <span className="flex-1" />
-          {!isLoading && (
-            <span style={{ fontSize: 12, color: '#8E8E8E' }}>
-              หน้า {page} / {totalPages} · {total} รายการ
-            </span>
-          )}
+          {!isLoading && <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {pageParam} / {totalPages} · {total} รายการ</span>}
         </div>
 
-        {/* Status chips */}
+        {/* State chips */}
         <div className="flex items-center gap-1.5 flex-wrap" style={{ padding: '8px 24px' }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>สถานะ:</span>
-          {STATUSES.map(st => {
-            const m = PRODUCT_STATUS_META[st]
-            const active = filterStatuses.has(st)
+          {STATES.map(st => {
+            const colors = PRODUCT_STATE_COLORS[st]
+            const active = stateFilter === st
             return (
-              <button
-                key={st}
-                onClick={() => toggleStatus(st)}
+              <button key={st} onClick={() => setParam('state', active ? '' : st)}
                 className="inline-flex items-center gap-1 rounded-full transition-all"
                 style={{
-                  padding: '3px 10px',
-                  fontSize: 12,
-                  fontWeight: 500,
-                  background: active ? m.bg : 'white',
-                  color: active ? m.text : '#555',
-                  border: `${active ? 2 : 1}px solid ${active ? m.text : '#E0E0E0'}`,
-                }}
-              >
-                {m.label}
+                  padding: '3px 10px', fontSize: 12, fontWeight: 500,
+                  background: active ? colors.bg : 'white', color: active ? colors.text : '#555',
+                  border: `${active ? 2 : 1}px solid ${active ? colors.text : '#E0E0E0'}`,
+                }}>
+                {PRODUCT_STATE_LABELS[st]}
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-white flex-1">
-        {/* Header */}
-        <div style={{ display: 'grid', gridTemplateColumns: '40px 160px 1fr 180px 100px 140px 48px', alignItems: 'center', padding: '0 12px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
-          <label className="flex items-center justify-center cursor-pointer">
-            <input type="checkbox" checked={allSelected} onChange={toggleAll} className="w-4 h-4 rounded" style={{ accentColor: '#C8202A' }} />
-          </label>
-          {[
-            { label: 'รหัสชิ้นงาน', key: 'default_code' as SortKey },
-            { label: 'ชื่อชิ้นงาน', key: null },
-            { label: 'กลุ่มวัสดุ', key: null },
-            { label: 'สถานะ', key: null },
-            { label: 'อัปเดต', key: 'write_date' as SortKey },
-            { label: '', key: null },
-          ].map((col, i) => (
-            <div
-              key={i}
-              className="flex items-center gap-1"
-              style={{ fontSize: 11, fontWeight: 600, color: sortKey === col.key ? '#1F1F1F' : '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}
-            >
-              {col.label}
-              {col.key && <ArrowUpDown size={11} style={{ opacity: 0.4 }} />}
-            </div>
-          ))}
+      {/* Table — only this area scrolls */}
+      <div className="bg-white flex-1" style={{ overflowY: 'auto', minHeight: 0 }}>
+        {/* Column Header — sticky within scroll container */}
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 10,
+          display: 'grid',
+          gridTemplateColumns: tab === 'standard'
+            ? '140px 1fr 140px 120px 100px 120px 48px'
+            : '140px 1fr 160px 120px 100px 120px 48px',
+          alignItems: 'center', padding: '0 12px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0',
+        }}>
+          {tab === 'standard' ? (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>รหัส</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>ชื่อ</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Eng. Code</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>กลุ่ม</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>สถานะ</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>อัปเดต</div>
+              <div />
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>รหัส</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>ชื่อ</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Project / Mark</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>กลุ่ม</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>สถานะ</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>อัปเดต</div>
+              <div />
+            </>
+          )}
         </div>
 
-        {/* Loading state */}
+        {/* Loading */}
         {isLoading && (
           <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
-            <Loader2 size={20} className="animate-spin" />
-            กำลังโหลดข้อมูล...
+            <Loader2 size={20} className="animate-spin" />กำลังโหลดข้อมูล...
           </div>
         )}
 
-        {/* Error state */}
+        {/* Error */}
         {isError && !isLoading && (
           <div className="flex flex-col items-center justify-center gap-2" style={{ padding: 64, color: '#C8202A', fontSize: 13 }}>
-            <div>ไม่สามารถโหลดข้อมูลได้ — ตรวจสอบว่า backend กำลังทำงาน</div>
+            ไม่สามารถโหลดข้อมูลได้ — ตรวจสอบว่า backend กำลังทำงาน
           </div>
         )}
 
-        {/* Empty state */}
+        {/* Empty */}
         {!isLoading && !isError && items.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
             <Search size={32} style={{ opacity: 0.3 }} />
-            <div>ไม่พบชิ้นงานที่ตรงกับเงื่อนไข</div>
-            {hasFilters && (
-              <button onClick={clearFilters} className="text-steel-600 hover:underline" style={{ fontSize: 13 }}>ล้างตัวกรองทั้งหมด</button>
-            )}
+            <div>ไม่พบ Product ที่ตรงกับเงื่อนไข</div>
           </div>
         )}
 
         {/* Rows */}
-        {!isLoading && !isError && items.map(p => {
-          const uiStatus = toUiStatus(p.state)
-          const isSelected = selected.has(p.default_code)
-          return (
-            <div
-              key={p.default_code}
-              onClick={() => navigate(`/products/${p.default_code}`)}
-              className="cursor-pointer transition-colors"
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '40px 160px 1fr 180px 100px 140px 48px',
-                alignItems: 'center',
-                padding: '0 12px',
-                height: 52,
-                borderBottom: '1px solid #E0E0E0',
-                background: isSelected ? '#EEF6FF' : p.state === 'blocked' ? '#FFF8F8' : 'white',
-              }}
-              onMouseEnter={e => { if (!isSelected) (e.currentTarget as HTMLElement).style.background = '#FAFAFA' }}
-              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = isSelected ? '#EEF6FF' : p.state === 'blocked' ? '#FFF8F8' : 'white' }}
-            >
-              {/* Checkbox */}
-              <label className="flex items-center justify-center cursor-pointer" onClick={e => e.stopPropagation()}>
-                <input type="checkbox" checked={isSelected} onChange={() => toggleRow(p.default_code)} className="w-4 h-4 rounded" style={{ accentColor: '#C8202A' }} />
-              </label>
+        {!isLoading && !isError && items.map(p => (
+          <div key={p.product_code} onClick={() => navigate(`/engineer-products/${p.product_code}`)}
+            className="cursor-pointer transition-colors hover:bg-chrome-50"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: tab === 'standard'
+                ? '140px 1fr 140px 120px 100px 120px 48px'
+                : '140px 1fr 160px 120px 100px 120px 48px',
+              alignItems: 'center', padding: '0 12px', height: 52, borderBottom: '1px solid #E0E0E0',
+            }}>
+            {/* Code */}
+            <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{p.product_code}</div>
 
-              {/* Code */}
-              <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{p.default_code}</div>
-
-              {/* Name */}
-              <div className="min-w-0 pr-4">
-                <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{p.name}</div>
-                <div className="truncate" style={{ fontSize: 12, color: '#8E8E8E' }}>{p.description_sale}</div>
-              </div>
-
-              {/* Category */}
-              <div style={{ fontSize: 12, color: '#555' }}>
-                {p.category?.name ?? `categ #${p.categ_id}`}
-              </div>
-
-              {/* Status */}
-              <div><ProductStatusPill status={uiStatus} /></div>
-
-              {/* Updated */}
-              <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-                <div>{new Date(p.write_date).toLocaleDateString('th-TH')}</div>
-                <div style={{ fontSize: 11, color: '#C2C2C2' }}>{p.write_user?.name ?? '-'}</div>
-              </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-center" onClick={e => e.stopPropagation()}>
-                <button className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
-                  <MoreHorizontal size={16} />
-                </button>
-              </div>
+            {/* Name */}
+            <div className="min-w-0 pr-4">
+              <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{p.name}</div>
             </div>
-          )
-        })}
+
+            {/* Standard: Eng Code / Custom: Project+Mark */}
+            {tab === 'standard' ? (
+              <div className="font-mono" style={{ fontSize: 12, color: p.engineering_code ? '#555' : '#C2C2C2' }}>
+                {p.engineering_code ?? '—'}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12 }}>
+                <div style={{ color: '#555' }}>{p.project?.project_code ?? '—'}</div>
+                <div className="font-mono" style={{ color: '#B45309', fontWeight: 500 }}>{markDisplay(p)}</div>
+              </div>
+            )}
+
+            {/* Category */}
+            <div style={{ fontSize: 12, color: '#555' }}>{p.category?.name ?? '-'}</div>
+
+            {/* State */}
+            <div><ProductStatePill state={p.state} /></div>
+
+            {/* Updated */}
+            <div style={{ fontSize: 12, color: '#8E8E8E' }}>
+              <div>{new Date(p.write_date).toLocaleDateString('th-TH')}</div>
+              <div style={{ fontSize: 11, color: '#C2C2C2' }}>{p.write_user?.name ?? '-'}</div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-center" onClick={e => e.stopPropagation()}>
+              <button className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
+                <MoreHorizontal size={16} />
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* Pagination */}
+      {/* Pagination — always at bottom */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-chrome-100 px-6 bg-white" style={{ height: 44 }}>
-          <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {page} / {totalPages} · {total} รายการ</span>
+        <div className="flex items-center justify-between border-t border-chrome-100 px-6 bg-white" style={{ height: 44, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {pageParam} / {totalPages} · {total} รายการ</span>
           <div className="flex items-center gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            <button onClick={() => setParam('page', String(Math.max(1, pageParam - 1)))} disabled={pageParam === 1}
               className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-40" style={{ width: 32, height: 32 }}>
               <ChevronLeft size={16} />
             </button>
             {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map(p => (
-              <button key={p} onClick={() => setPage(p)} className="flex items-center justify-center rounded font-mono"
-                style={{ width: 32, height: 32, fontSize: 13, background: page === p ? '#C8202A' : 'transparent', color: page === p ? 'white' : '#555' }}>
+              <button key={p} onClick={() => setParam('page', String(p))} className="flex items-center justify-center rounded font-mono"
+                style={{ width: 32, height: 32, fontSize: 13, background: pageParam === p ? '#C8202A' : 'transparent', color: pageParam === p ? 'white' : '#555' }}>
                 {p}
               </button>
             ))}
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            <button onClick={() => setParam('page', String(Math.min(totalPages, pageParam + 1)))} disabled={pageParam === totalPages}
               className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-40" style={{ width: 32, height: 32 }}>
               <ChevronRight size={16} />
             </button>
@@ -275,23 +264,14 @@ export function ProductList() {
         </div>
       )}
 
-      {/* Bulk action bar */}
-      {selected.size > 0 && (
-        <div className="fixed flex items-center gap-3 rounded-xl shadow-modal"
-          style={{ bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#1F1F1F', color: 'white', padding: '10px 20px', zIndex: 50, fontSize: 13 }}>
-          <span>เลือก <span className="font-semibold">{selected.size}</span> รายการ</span>
-          <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-          <button onClick={() => setSelected(new Set())} className="hover:text-chrome-200" style={{ color: '#8E8E8E' }}>ยกเลิก</button>
-        </div>
-      )}
-
-      {/* Status bar */}
-      <div className="flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ height: 32, fontSize: 12, color: '#8E8E8E' }}>
+      {/* Status bar — always at bottom */}
+      <div className="flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ height: 32, fontSize: 12, color: '#8E8E8E', flexShrink: 0 }}>
         {isLoading ? 'กำลังโหลด...' : `แสดง ${items.length} จาก ${total} รายการ`}
       </div>
 
-      {/* Material Register Modal */}
-      {showRegister && <MaterialRegisterModal onClose={() => setShowRegister(false)} />}
+      {/* Modals */}
+      {showModal === 'standard' && <NewStandardProductModal onClose={() => setShowModal(null)} />}
+      {showModal === 'custom' && <NewCustomProductModal onClose={() => setShowModal(null)} />}
     </div>
   )
 }
