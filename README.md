@@ -1,6 +1,7 @@
-# BDT App — Material Master Module
+# BDT App — Engineer Management System
 
 > **Monolith** — React 19 (Vite) + NestJS 10 + PostgreSQL 16, 1 repo, 1 deployment
+> **Sprint 3**: BOM (multi-level, 3-view foundation) + Shop Drawings (revision lifecycle + file storage)
 
 ## Quick Start
 
@@ -45,16 +46,66 @@ bdt-app/                        ← Monolith root
 │   └── types/                  ← TypeScript types
 ├── backend/                    ← NestJS 10
 │   ├── prisma/
-│   │   ├── schema.prisma       ← Odoo-compatible schema
-│   │   └── seed.ts             ← 20 UoMs, 7+ categories, admin user
+│   │   ├── schema.prisma       ← Odoo-compatible schema (Sprint 1–3)
+│   │   └── seed.ts             ← UoMs, categories, products, BOM, drawings
 │   └── src/modules/
-│       ├── materials/          ← Core domain (CRUD + validators + part code)
+│       ├── materials/          ← Sprint 1: Material Register
+│       ├── products/           ← Sprint 2: Standard/Custom products
+│       ├── boms/               ← Sprint 3: BOM CRUD + explosion + state machine
+│       ├── drawings/           ← Sprint 3: Shop Drawing lifecycle
+│       ├── file-storage/       ← Sprint 3: Local driver (S3 swap Sprint 5)
 │       ├── master-data/        ← UoMs, Categories
 │       ├── mail/               ← Audit log (mail_message pattern)
-│       └── identity/           ← x-user-id stub (Sprint 3 → JWT)
+│       └── identity/           ← x-user-id stub (JWT Sprint 4)
 ├── docker-compose.yml
 └── nginx.conf
 ```
+
+---
+
+## API Endpoints (Sprint 3 — current)
+
+### BOM
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/products/:code/boms` | Create BOM version (state=draft) |
+| `GET` | `/api/v1/products/:code/boms` | List BOM versions |
+| `GET` | `/api/v1/boms/:id` | Get BOM detail with lines |
+| `GET` | `/api/v1/boms/:id/explode` | Multi-level flat explosion + scrap rollup |
+| `GET` | `/api/v1/boms/:id/aggregate` | Explode + aggregate by material |
+| `PATCH` | `/api/v1/boms/:id` | Update BOM meta (draft only) |
+| `DELETE` | `/api/v1/boms/:id` | Soft-delete (draft only) |
+| `POST` | `/api/v1/boms/:id/lines` | Add line (XOR material_id / sub_product_id) |
+| `PATCH` | `/api/v1/boms/:id/lines/:lineId` | Update line (draft only) |
+| `DELETE` | `/api/v1/boms/:id/lines/:lineId` | Remove line (draft only) |
+| `POST` | `/api/v1/boms/:id/action_activate` | draft → active (deactivates previous) |
+| `POST` | `/api/v1/boms/:id/action_obsolete` | → obsolete |
+
+### Drawings
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/drawings` | Create drawing |
+| `GET` | `/api/v1/drawings` | List drawings (`?product_code=&state=&drawing_type=`) |
+| `GET` | `/api/v1/drawings/:id` | Detail with all revisions |
+| `PATCH` | `/api/v1/drawings/:id` | Update (draft only) |
+| `POST` | `/api/v1/drawings/:id/revisions` | Add revision (auto A→B→C→IFC→AB) |
+| `GET` | `/api/v1/drawings/:id/revisions` | Full revision history |
+| `POST` | `/api/v1/drawings/:id/action_submit_review` | draft → in_review |
+| `POST` | `/api/v1/drawings/:id/action_approve` | in_review → approved |
+| `POST` | `/api/v1/drawings/:id/action_reject` | in_review → draft |
+| `POST` | `/api/v1/drawings/:id/action_release` | approved → released (sets retention_until) |
+| `POST` | `/api/v1/drawings/:id/action_supersede` | released → superseded |
+| `POST` | `/api/v1/drawings/:id/action_obsolete` | → obsolete |
+
+### File Storage
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/file-storage/presigned-upload` | Get upload URL |
+| `GET` | `/api/v1/file-storage/download?key=` | Download file (local driver) |
+| `POST` | `/api/v1/file-storage/upload?key=` | Upload file (local driver) |
 
 ---
 
@@ -106,11 +157,11 @@ Key decisions for Sprint 1:
 
 ## Sprint Roadmap
 
-| Sprint | Theme |
-|--------|-------|
-| ✅ **1** | Backend scaffold + Material Register API + Frontend wiring |
-| 2 | Approval flow + Warehouse run number + Substitute Part |
-| 3 | Master extension (full 13 groups) + RBAC (JWT + res_groups) |
-| 4 | ECO versioning + BIM/Dashboard |
-| 5 | Odoo XML-RPC integration |
-| 6 | Reporting + Bulk import (Excel) |
+| Sprint | Theme | Status |
+|--------|-------|--------|
+| **1** | Backend scaffold + Material Register API + Frontend wiring | ✅ Done |
+| **2** | Products (Standard/Custom) + Projects + Mark system | ✅ Done |
+| **3** | BOM (multi-level + 3-view) + Shop Drawings + FileStorage | ✅ Done |
+| **4** | ECO module + Routings + 3-BOM promotion full workflow | Planned |
+| **5** | Tekla import adapter + S3/MinIO + Odoo XML-RPC sync | Planned |
+| **6** | Reporting + BOM cost rollup + Bulk import (Excel) | Planned |

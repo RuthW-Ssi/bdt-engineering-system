@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, FileText, Box, XCircle, CheckCircle, PlusCircle, MinusCircle, Edit, Equal, Download, Tag, Clock } from 'lucide-react'
 import * as Icons from 'lucide-react'
-import { mockBomDiff } from '../data/mockBom'
 import { CAT_META } from '../data/meta'
 import type { BomDiffNode, DiffState } from '../types'
+import { useBomDiff } from '../hooks/useBomDiff'
 
 const STATE_BADGE: Record<DiffState, string> = { added: '+', removed: '−', modified: '~', unchanged: '=' }
 const STATE_LABEL: Record<DiffState, string> = { added: 'เพิ่มใหม่', removed: 'ลบออก', modified: 'แก้ไข', unchanged: 'ไม่เปลี่ยน' }
@@ -101,7 +101,10 @@ export function BomDiffReview() {
   const [rejectReason, setRejectReason] = useState('อื่นๆ (ระบุ)')
   const [rejectDetail, setRejectDetail] = useState('')
 
-  const stats = { added: 1, modified: 1, removed: 1, unchanged: 3 }
+  const { bomList, diffNodes, fromVersionId, toVersionId, setFromVersionId, setToVersionId, loading, stats } = useBomDiff(code)
+
+  const fromBom = bomList.find(b => b.id === fromVersionId)
+  const toBom = bomList.find(b => b.id === toVersionId)
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)' }}>
@@ -135,14 +138,24 @@ export function BomDiffReview() {
       {/* Diff toolbar */}
       <div className="flex items-center gap-3 border-b border-chrome-100 px-5" style={{ height: 44, background: '#F5F5F5', flexShrink: 0 }}>
         <span style={{ fontSize: 12, color: '#8E8E8E' }}>เปรียบ</span>
-        <select className="border border-chrome-200 rounded bg-white" style={{ height: 28, padding: '0 8px', fontSize: 12 }}>
-          <option>v1.0.0</option>
+        <select
+          className="border border-chrome-200 rounded bg-white"
+          style={{ height: 28, padding: '0 8px', fontSize: 12 }}
+          value={fromVersionId ?? ''}
+          onChange={e => setFromVersionId(Number(e.target.value))}
+        >
+          <option value="">— (ใหม่)</option>
+          {bomList.map(b => <option key={b.id} value={b.id}>v{b.version} ({b.state})</option>)}
         </select>
         <ArrowLeft size={14} style={{ transform: 'rotate(180deg)', color: '#8E8E8E' }} />
-        <select className="border border-steel-200 rounded bg-steel-50" style={{ height: 28, padding: '0 8px', fontSize: 12, color: '#185FA5', fontWeight: 500 }}>
-          <option>v2.0.0</option>
+        <select
+          className="border border-steel-200 rounded bg-steel-50"
+          style={{ height: 28, padding: '0 8px', fontSize: 12, color: '#185FA5', fontWeight: 500 }}
+          value={toVersionId ?? ''}
+          onChange={e => setToVersionId(Number(e.target.value))}
+        >
+          {bomList.map(b => <option key={b.id} value={b.id}>v{b.version} ({b.state})</option>)}
         </select>
-        <span style={{ background: '#E6F1FB', color: '#185FA5', padding: '1px 6px', borderRadius: 999, fontSize: 10, fontWeight: 700 }}>ใหม่</span>
         <span style={{ width: 1, height: 16, background: '#C2C2C2' }} />
         <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#639922', fontWeight: 500 }}><PlusCircle size={13} />{stats.added} เพิ่ม</span>
         <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#BA7517', fontWeight: 500 }}><Edit size={13} />{stats.modified} แก้ไข</span>
@@ -164,16 +177,23 @@ export function BomDiffReview() {
           <div className="flex gap-2 mb-4">
             <div className="flex items-center gap-2 rounded-lg border border-chrome-100 px-3 py-2" style={{ background: 'white' }}>
               <Tag size={14} style={{ color: '#185FA5' }} />
-              <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#185FA5' }}>v2.0.0</span>
+              <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#185FA5' }}>
+                {toBom ? `v${toBom.version}` : '—'}
+              </span>
               <span style={{ fontSize: 12, color: '#555' }}>— ปัจจุบัน</span>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-chrome-100 px-3 py-2" style={{ background: '#FAFAFA' }}>
-              <Clock size={14} style={{ color: '#8E8E8E' }} />
-              <span className="font-mono" style={{ fontSize: 13, fontWeight: 500, color: '#8E8E8E' }}>v1.0.0</span>
-              <span style={{ fontSize: 12, color: '#8E8E8E' }}>— ก่อนหน้า</span>
-            </div>
+            {fromBom && (
+              <div className="flex items-center gap-2 rounded-lg border border-chrome-100 px-3 py-2" style={{ background: '#FAFAFA' }}>
+                <Clock size={14} style={{ color: '#8E8E8E' }} />
+                <span className="font-mono" style={{ fontSize: 13, fontWeight: 500, color: '#8E8E8E' }}>v{fromBom.version}</span>
+                <span style={{ fontSize: 12, color: '#8E8E8E' }}>— ก่อนหน้า</span>
+              </div>
+            )}
           </div>
-          <DiffRow node={mockBomDiff} hideUnchanged={hideUnchanged} />
+          {loading
+            ? <div className="flex items-center justify-center py-12" style={{ color: '#8E8E8E', gap: 8, fontSize: 13 }}><span>กำลังโหลด diff...</span></div>
+            : diffNodes.map(node => <DiffRow key={node.id} node={node} hideUnchanged={hideUnchanged} />)
+          }
         </div>
       </div>
 
@@ -184,7 +204,7 @@ export function BomDiffReview() {
         <span className="flex items-center gap-1.5" style={{ color: '#EE9B9B' }}><MinusCircle size={13} />{stats.removed} ลบ</span>
         <span className="flex items-center gap-1.5" style={{ color: '#555' }}><Equal size={13} />{stats.unchanged} ไม่เปลี่ยน</span>
         <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        <span style={{ color: '#555' }}>เปรียบ v1.0.0 → v2.0.0</span>
+        <span style={{ color: '#555' }}>เปรียบ {fromBom ? `v${fromBom.version}` : 'ใหม่'} → {toBom ? `v${toBom.version}` : '—'}</span>
         <span className="flex-1" />
         <span className="inline-flex items-center justify-center rounded-full font-mono" style={{ width: 24, height: 24, background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 600 }}>NP</span>
         <span style={{ color: '#8E8E8E' }}>nuch.p</span>

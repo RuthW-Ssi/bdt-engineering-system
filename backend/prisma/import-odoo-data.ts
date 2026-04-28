@@ -99,10 +99,10 @@ async function main() {
   const defaultUomId = uomByName['Each'] ?? 1
 
   // ══════════════════════════════════════════════════════════
-  // FILE 1: odoo-product-template.xlsx
+  // FILE 1: odoo-material-template.xlsx  (materials + main-structure products)
   // ══════════════════════���═══════════════════════════════════
-  console.log('\n=== Reading odoo-product-template.xlsx ===')
-  const wb1 = XLSX.readFile(path.join(docDir, 'odoo-product-template.xlsx'))
+  console.log('\n=== Reading odoo-material-template.xlsx ===')
+  const wb1 = XLSX.readFile(path.join(docDir, 'odoo-material-template.xlsx'))
   const rows1: Record<string, unknown>[] = XLSX.utils.sheet_to_json(wb1.Sheets[wb1.SheetNames[0]])
 
   let matInserted = 0, matSkipped = 0

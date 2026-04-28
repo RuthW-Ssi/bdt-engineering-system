@@ -23,7 +23,16 @@ model res_users {
   projects_written    project[] @relation("project_write")
   products_created    products[] @relation("product_create")
   products_written    products[] @relation("product_write")
+
+  // Sprint 3: BOM + Drawing audit
+  boms_created        product_bom[] @relation("bom_create")
+  boms_written        product_bom[] @relation("bom_write")
+  drawings_created    shop_drawing[] @relation("drawing_create")
+  drawings_written    shop_drawing[] @relation("drawing_write")
+  revisions_created   drawing_revision[] @relation("revision_create")
+  drawing_approvals   drawing_revision[] @relation("DrawingApprover")
 }
+
 
 // ── 🟦 Standard Odoo: uom_category + uom_uom ─────────────────
 model uom_category {
@@ -45,6 +54,8 @@ model uom_uom {
 
   materials_uom     materials[] @relation("uom")
   materials_uom_po  materials[] @relation("uom_po")
+  bom_lines         product_bom_line[] @relation("BomLineUom")
+  bom_headers       product_bom[] @relation("bom_uom")
 }
 
 // ── 🟦 Standard Odoo: account_account ────────────────────────
@@ -111,11 +122,19 @@ model materials {
   write_uid        Int
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
+
+  bom_lines        product_bom_line[] @relation("BomLineMaterial")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
 model part_code_seq {
   prefix_5  String @id @db.Char(5)
+  next_run  Int    @default(1)
+}
+
+// ── 🟥 Custom: product_code_seq (STD / CUS product counter) ──
+model product_code_seq {
+  kind      String @id @db.VarChar(10)
   next_run  Int    @default(1)
 }
 
@@ -162,6 +181,8 @@ model project {
   zones             project_zone[]
   products          products[]
   project_costs     project_product_cost[]
+  boms              product_bom[] @relation("ProjectBom")
+  drawings          shop_drawing[] @relation("ProjectDrawings")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -234,6 +255,7 @@ model products {
 
   // Standard-only fields
   master_drawing_id        Int?
+  master_drawing           shop_drawing? @relation("MasterDrawingProduct", fields: [master_drawing_id], references: [id])
   variant_attributes       Json?
   stock_policy             String?   @db.VarChar(20)
   reorder_min              Decimal?  @db.Decimal(12, 3)
@@ -248,6 +270,7 @@ model products {
   mark                     mark_prefix_master? @relation(fields: [mark_prefix], references: [code])
   mark_number              String?   @db.VarChar(20)
   shop_drawing_id          Int?
+  shop_drawing_ref         shop_drawing? @relation("ShopDrawingProduct", fields: [shop_drawing_id], references: [id])
   revision                 String?   @db.VarChar(10)
   engineer_hours_est       Decimal?  @db.Decimal(8, 2)
   engineer_hours_act       Decimal?  @db.Decimal(8, 2)
@@ -277,6 +300,9 @@ model products {
   promotion_requests_src   promotion_request[] @relation("source_custom")
   promotion_requests_tgt   promotion_request[] @relation("target_standard")
   project_costs            project_product_cost[]
+  boms                     product_bom[] @relation("ProductBom")
+  sub_product_bom_lines    product_bom_line[] @relation("SubProductInBom")
+  drawings                 shop_drawing[] @relation("ProductDrawings")
 }
 
 // ── 🟨 Product Variant (lazy-create — PD-10) ────────────────────
@@ -341,4 +367,120 @@ model steel_grade {
   tensile_mpa  Decimal? @db.Decimal(6, 1)
   notes        String?  @db.Text
   active       Boolean  @default(true)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 3: BOM + Drawings
+// ═══════════════════════════════════════════════════════════════
+
+// ── 🟦 Product BOM header (mrp.bom — Sprint 3 full spec) ────────
+model product_bom {
+  id                 Int       @id @default(autoincrement())
+  product_id         Int
+  product            products  @relation("ProductBom", fields: [product_id], references: [id])
+  version            String    @default("1.0.0") @db.VarChar(20)
+  bom_view           String    @default("eBOM") @db.VarChar(10)
+  owner_role         String    @default("engineering") @db.VarChar(20)
+  state              String    @default("draft") @db.VarChar(20)
+  product_qty        Decimal   @default(1.0) @db.Decimal(12, 3)
+  product_uom_id     Int
+  product_uom        uom_uom   @relation("bom_uom", fields: [product_uom_id], references: [id])
+  bom_type           String    @default("normal") @db.VarChar(20)
+  effective_from     DateTime? @db.Date
+  effective_to       DateTime? @db.Date
+  cloned_from_bom_id Int?
+  cloned_from        product_bom?  @relation("BomLineage", fields: [cloned_from_bom_id], references: [id])
+  cloned_descendants product_bom[] @relation("BomLineage")
+  eco_id             Int?
+  notes              String?   @db.Text
+  project_id         Int?
+  project            project?  @relation("ProjectBom", fields: [project_id], references: [id])
+  odoo_ref_id        String?   @db.VarChar(40)
+  create_uid         Int
+  create_user        res_users @relation("bom_create", fields: [create_uid], references: [id])
+  create_date        DateTime  @default(now()) @db.Timestamptz
+  write_uid          Int
+  write_user         res_users @relation("bom_write", fields: [write_uid], references: [id])
+  write_date         DateTime  @default(now()) @db.Timestamptz
+
+  lines              product_bom_line[]
+}
+
+// ── 🟦 BOM Line (mrp.bom.line + steel extensions) ───────────────
+model product_bom_line {
+  id                 Int          @id @default(autoincrement())
+  bom_id             Int
+  bom                product_bom  @relation(fields: [bom_id], references: [id], onDelete: Cascade)
+  sequence           Int          @default(10)
+  // EXACTLY ONE of material_id or sub_product_id (CHECK constraint via manual SQL)
+  material_id        Int?
+  material           materials?   @relation("BomLineMaterial", fields: [material_id], references: [id])
+  sub_product_id     Int?
+  sub_product        products?    @relation("SubProductInBom", fields: [sub_product_id], references: [id])
+  product_qty        Decimal      @db.Decimal(12, 3)
+  product_uom_id     Int
+  product_uom        uom_uom      @relation("BomLineUom", fields: [product_uom_id], references: [id])
+  scrap_pct          Decimal      @default(0) @db.Decimal(6, 2)
+  attribute_value_ids Json?
+  cutting_length_mm  Decimal?     @db.Decimal(10, 1)
+  weight_per_unit_kg Decimal?     @db.Decimal(10, 3)
+  note               String?      @db.Text
+  // Steel-specific (imported from Tekla/XLS)
+  part_mark          String?      @db.VarChar(30)
+  profile            String?      @db.VarChar(60)
+  grade              String?      @db.VarChar(20)
+  length_mm          Decimal?     @db.Decimal(10, 2)
+  area_m2            Decimal?     @db.Decimal(10, 4)
+}
+
+// ── 🟥 Shop Drawing (steel-domain — not in Odoo) ─────────────────
+model shop_drawing {
+  id                      Int       @id @default(autoincrement())
+  drawing_number          String    @unique @db.VarChar(40)
+  drawing_type            String    @db.VarChar(10)
+  product_id              Int
+  product                 products  @relation("ProductDrawings", fields: [product_id], references: [id])
+  project_id              Int?
+  project                 project?  @relation("ProjectDrawings", fields: [project_id], references: [id])
+  current_revision        String?   @db.VarChar(5)
+  state                   String    @default("draft") @db.VarChar(20)
+  cad_source              String    @default("other") @db.VarChar(20)
+  generalized_from_id     Int?
+  generalized_from        shop_drawing?  @relation("DrawingLineage", fields: [generalized_from_id], references: [id])
+  generalized_descendants shop_drawing[] @relation("DrawingLineage")
+  retention_until         DateTime? @db.Date
+  odoo_ref_id             String?   @db.VarChar(40)
+  create_uid              Int
+  create_user             res_users @relation("drawing_create", fields: [create_uid], references: [id])
+  create_date             DateTime  @default(now()) @db.Timestamptz
+  write_uid               Int
+  write_user              res_users @relation("drawing_write", fields: [write_uid], references: [id])
+  write_date              DateTime  @default(now()) @db.Timestamptz
+
+  revisions               drawing_revision[]
+  master_products         products[] @relation("MasterDrawingProduct")
+  shop_products           products[] @relation("ShopDrawingProduct")
+}
+
+// ── 🟥 Drawing Revision (A→B→C→IFC→AB lifecycle) ────────────────
+model drawing_revision {
+  id                    Int          @id @default(autoincrement())
+  drawing_id            Int
+  drawing               shop_drawing @relation(fields: [drawing_id], references: [id], onDelete: Cascade)
+  revision              String       @db.VarChar(5)
+  sequence              Int
+  change_summary        String?      @db.Text
+  file_url              String       @db.VarChar(500)
+  file_size_bytes       BigInt?
+  file_mime_type        String?      @db.VarChar(60)
+  file_checksum_sha256  String?      @db.VarChar(64)
+  approved_uid          Int?
+  approver              res_users?   @relation("DrawingApprover", fields: [approved_uid], references: [id])
+  approved_date         DateTime?    @db.Timestamptz
+  is_current            Boolean      @default(false)
+  create_uid            Int
+  create_user           res_users    @relation("revision_create", fields: [create_uid], references: [id])
+  create_date           DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([drawing_id, revision])
 }

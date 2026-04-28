@@ -1,11 +1,12 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, RotateCcw, RotateCw, GitBranch, Layers, CheckCircle2, AlertCircle, Plus, ChevronRight, ChevronDown, GripVertical, Edit2, Copy, Trash2 } from 'lucide-react'
+import { ArrowLeft, RotateCcw, RotateCw, GitBranch, Layers, CheckCircle2, AlertCircle, Plus, ChevronRight, ChevronDown, GripVertical, Edit2, Copy, Trash2, Loader2, Zap } from 'lucide-react'
 import * as Icons from 'lucide-react'
-import { mockBomTree } from '../data/mockBom'
 import { CAT_META } from '../data/meta'
 import { genId } from '../data/utils'
 import type { BomNode, Category } from '../types'
+import { useBom } from '../hooks/useBom'
+import { activateBom } from '../api/boms'
 
 type ValidateState = null | 'pass' | 'fail'
 
@@ -180,21 +181,31 @@ function duplicateNode(tree: BomNode, id: string): BomNode {
   return { ...tree, children: newChildren }
 }
 
-function countNodes(node: BomNode): number {
-  return 1 + node.children.reduce((a, c) => a + countNodes(c), 0)
-}
-
 // ── Main Page ─────────────────────────────────────────────────
 export function BomEditor() {
   const { code } = useParams<{ code: string }>()
   const navigate = useNavigate()
-  const [tree, setTree] = useState<BomNode>({ ...mockBomTree, level: 0 })
+  const { bom, tree: apiTree, loading, error, refresh, updateLineQty, deleteLineById } = useBom(code)
+  const [tree, setTree] = useState<BomNode>({ id: 'empty', code: code ?? '', name: '', category: 'Assembly' as Category, qty: 1, uom: 'EA', scrap_pct: 0, level: 0, expanded: true, children: [] })
   const [selected, setSelected] = useState<string | null>(null)
   const [validateState, setValidateState] = useState<ValidateState>(null)
   const [sidePanelTab, setSidePanelTab] = useState<'validation' | 'detail' | 'stats'>('validation')
 
-  const totalNodes = countNodes(tree)
-  const maxDepth = 4
+  // Sync local tree when API data loads or refreshes
+  useEffect(() => { if (apiTree) setTree(apiTree) }, [apiTree])
+
+  const totalWeightKg = bom?.lines.reduce((sum, l) => {
+    const w = l.weight_per_unit_kg ? Number(l.weight_per_unit_kg) * Number(l.product_qty) : 0
+    return sum + w
+  }, 0) ?? 0
+  const bomState = bom?.state ?? 'draft'
+  const bomStateLabel: Record<string, string> = { draft: 'Draft', active: 'Active', obsolete: 'Obsolete' }
+  const bomStateStyle: Record<string, { bg: string; text: string; border: string }> = {
+    draft:    { bg: '#FAEEDA', text: '#854F0B', border: '#FAC775' },
+    active:   { bg: '#EAF3DE', text: '#27500A', border: '#C0DD97' },
+    obsolete: { bg: '#F5F5F5', text: '#555555', border: '#C2C2C2' },
+  }
+  const stateStyle = bomStateStyle[bomState] ?? bomStateStyle.draft
 
   const selectedNode = (() => {
     function find(n: BomNode): BomNode | null {
@@ -209,6 +220,70 @@ export function BomEditor() {
     setValidateState(ERRORS.length > 0 ? 'fail' : 'pass')
   }
 
+  // Extract lineId from node id like 'line-123'
+  function getLineId(nodeId: string): number | null {
+    const m = nodeId.match(/^line-(\d+)$/)
+    return m ? parseInt(m[1]) : null
+  }
+
+  async function handleQtyChange(nodeId: string, qty: number) {
+    const lineId = getLineId(nodeId)
+    if (lineId !== null) {
+      await updateLineQty(lineId, qty)
+    } else {
+      setTree(t => updateQty(t, nodeId, qty))
+    }
+  }
+
+  const [activating, setActivating] = useState(false)
+  async function handleActivate() {
+    if (!bom) return
+    setActivating(true)
+    try {
+      await activateBom(bom.id)
+      await refresh()
+    } finally {
+      setActivating(false)
+    }
+  }
+
+  async function handleDelete(nodeId: string) {
+    const lineId = getLineId(nodeId)
+    if (lineId !== null) {
+      await deleteLineById(lineId)
+    } else {
+      setTree(t => deleteNode(t, nodeId))
+    }
+  }
+
+  if (loading && !bom) {
+    return (
+      <div className="flex flex-col items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E', gap: 12 }}>
+        <Loader2 size={28} className="animate-spin" />
+        <span style={{ fontSize: 13 }}>กำลังโหลด BOM...</span>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#C8202A', gap: 12 }}>
+        <AlertCircle size={28} />
+        <span style={{ fontSize: 13 }}>{error}</span>
+        <button onClick={refresh} className="rounded-md" style={{ padding: '6px 16px', fontSize: 12, background: '#F5F5F5', border: '1px solid #C2C2C2', cursor: 'pointer' }}>ลองใหม่</button>
+      </div>
+    )
+  }
+
+  if (!bom) {
+    return (
+      <div className="flex flex-col items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E', gap: 12 }}>
+        <GitBranch size={28} style={{ opacity: 0.3 }} />
+        <span style={{ fontSize: 13 }}>ยังไม่มี BOM สำหรับ {code}</span>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)' }}>
       {/* Page Header */}
@@ -219,15 +294,22 @@ export function BomEditor() {
         <span className="font-mono" style={{ fontSize: 14, fontWeight: 600 }}>{code}</span>
         <span style={{ color: '#C2C2C2' }}>·</span>
         <span style={{ fontSize: 13, color: '#8E8E8E' }}>BOM Editor</span>
-        <span style={{ background: '#FAEEDA', color: '#854F0B', border: '1px solid #FAC775', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>Draft</span>
+        <span style={{ background: stateStyle.bg, color: stateStyle.text, border: `1px solid ${stateStyle.border}`, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>{bomStateLabel[bomState]}</span>
+        {bom && <span className="font-mono" style={{ fontSize: 11, color: '#8E8E8E' }}>v{bom.version}</span>}
 
         <div className="hidden md:flex items-center gap-2 mx-auto" style={{ fontSize: 12, color: '#8E8E8E' }}>
-          <GitBranch size={14} />{totalNodes} รายการ · น้ำหนักรวม 2,840.5 kg
+          <GitBranch size={14} />{tree.children.length} รายการ{totalWeightKg > 0 ? ` · น้ำหนักรวม ${totalWeightKg.toLocaleString('th', { maximumFractionDigits: 1 })} kg` : ''}
         </div>
 
         <div className="flex items-center gap-1.5 ml-auto">
-          <button className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 32, height: 32, color: '#8E8E8E', border: '1px solid #E0E0E0' }}>
-            <RotateCcw size={14} />
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="flex items-center justify-center rounded hover:bg-chrome-50"
+            style={{ width: 32, height: 32, color: '#8E8E8E', border: '1px solid #E0E0E0' }}
+            title="รีเฟรช"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
           </button>
           <button className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 32, height: 32, color: '#8E8E8E', border: '1px solid #E0E0E0' }}>
             <RotateCw size={14} />
@@ -246,10 +328,22 @@ export function BomEditor() {
           </button>
           <button
             className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, background: validateState === 'pass' ? '#C8202A' : '#C8202A', opacity: validateState === 'pass' ? 1 : 0.4, cursor: validateState === 'pass' ? 'pointer' : 'not-allowed' }}
+            style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, background: '#C8202A', opacity: validateState === 'pass' ? 1 : 0.4, cursor: validateState === 'pass' ? 'pointer' : 'not-allowed' }}
           >
             ส่งตรวจสอบ
           </button>
+          {bomState === 'draft' && (
+            <button
+              onClick={handleActivate}
+              disabled={activating || loading}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, background: '#185FA5', opacity: activating ? 0.6 : 1, cursor: activating ? 'wait' : 'pointer' }}
+              title="Activate BOM"
+            >
+              {activating ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+              Activate
+            </button>
+          )}
         </div>
       </div>
 
@@ -273,9 +367,9 @@ export function BomEditor() {
               selected={selected}
               onSelect={setSelected}
               onToggle={id => setTree(t => toggleNode(t, id))}
-              onQtyChange={(id, qty) => setTree(t => updateQty(t, id, qty))}
+              onQtyChange={handleQtyChange}
               onAdd={parentId => setTree(t => addChild(t, parentId))}
-              onDelete={id => setTree(t => deleteNode(t, id))}
+              onDelete={handleDelete}
               onDuplicate={id => setTree(t => duplicateNode(t, id))}
             />
             {/* Add root sibling */}
@@ -373,10 +467,10 @@ export function BomEditor() {
             {sidePanelTab === 'stats' && (
               <div className="flex flex-col gap-3">
                 {[
-                  { label: 'จำนวนรายการทั้งหมด', value: `${totalNodes} items`, icon: <GitBranch size={14} /> },
-                  { label: 'ความลึกสูงสุด', value: `${maxDepth} ชั้น`, icon: <Layers size={14} /> },
-                  { label: 'น้ำหนักรวม', value: '2,840.5 kg', icon: <CheckCircle2 size={14} /> },
-                  { label: 'Work Centers', value: '4 แห่ง', icon: <CheckCircle2 size={14} /> },
+                  { label: 'จำนวนรายการทั้งหมด', value: `${tree.children.length} รายการ`, icon: <GitBranch size={14} /> },
+                  { label: 'ความลึกสูงสุด', value: '1 ชั้น', icon: <Layers size={14} /> },
+                  { label: 'น้ำหนักรวม', value: totalWeightKg > 0 ? `${totalWeightKg.toLocaleString('th', { maximumFractionDigits: 1 })} kg` : '—', icon: <CheckCircle2 size={14} /> },
+                  { label: 'BOM Version', value: bom?.version ?? '—', icon: <CheckCircle2 size={14} /> },
                 ].map(s => (
                   <div key={s.label} className="flex items-center justify-between rounded-md border border-chrome-100" style={{ padding: '10px 14px' }}>
                     <span className="flex items-center gap-2" style={{ fontSize: 13, color: '#555' }}>{s.icon}{s.label}</span>
@@ -391,16 +485,15 @@ export function BomEditor() {
 
       {/* Status bar */}
       <div className="flex items-center" style={{ height: 40, background: '#1F1F1F', color: 'white', padding: '0 20px', gap: 16, fontSize: 12, flexShrink: 0 }}>
-        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><GitBranch size={14} />{totalNodes} รายการ</span>
+        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><GitBranch size={14} />{tree.children.length} รายการ</span>
         <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}>น้ำหนักรวม 2,840.5 kg</span>
-        <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><Layers size={14} />{maxDepth} ชั้น</span>
+        {totalWeightKg > 0 && <><span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}>น้ำหนักรวม {totalWeightKg.toLocaleString('th', { maximumFractionDigits: 1 })} kg</span><span style={{ width: 1, height: 16, background: '#3A3A3A' }} /></>}
+        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><Layers size={14} />1 ชั้น</span>
         <span className="flex-1" />
         {validateState === 'fail' && <span className="flex items-center gap-1.5" style={{ color: '#EE9B9B' }}><AlertCircle size={13} />มี {ERRORS.length} Errors</span>}
         {validateState === 'pass' && <span className="flex items-center gap-1.5" style={{ color: '#86C04B' }}><CheckCircle2 size={13} />ตรวจสอบแล้ว</span>}
         <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        <span style={{ color: '#555' }}>บันทึกล่าสุด 2 นาทีที่แล้ว</span>
+        <span style={{ color: '#555' }}>{bom ? `v${bom.version} · ${bomStateLabel[bomState]}` : 'ไม่มี BOM'}</span>
       </div>
     </div>
   )

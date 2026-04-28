@@ -11,6 +11,10 @@ import { MarkPrefixModule } from './modules/mark-prefix-master/mark-prefix.modul
 import { ProjectsModule } from './modules/projects/projects.module'
 import { ProjectZonesModule } from './modules/project-zones/project-zones.module'
 import { ProductsModule } from './modules/products/products.module'
+// Sprint 3
+import { BomsModule } from './modules/boms/boms.module'
+import { DrawingsModule } from './modules/drawings/drawings.module'
+import { FileStorageModule } from './modules/file-storage/file-storage.module'
 
 @Module({
   imports: [
@@ -26,6 +30,10 @@ import { ProductsModule } from './modules/products/products.module'
     ProjectsModule,
     ProjectZonesModule,
     ProductsModule,
+    // Sprint 3
+    BomsModule,
+    DrawingsModule,
+    FileStorageModule,
   ],
 })
 export class AppModule {}
