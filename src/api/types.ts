@@ -109,6 +109,9 @@ export interface ProductDTO {
   mark_prefix: string | null
   mark_number: string | null
   engineer_hours_est: string | null
+  // Sprint 4.2: Routing
+  routing_template_id: number | null
+  has_custom_routing: boolean
   // Shared
   attributes: Record<string, unknown>
   odoo_ref_id: string | null

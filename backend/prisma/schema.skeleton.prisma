@@ -115,6 +115,8 @@ model mrp_workorder_skeleton {
   qty_scrapped            Decimal   @default(0) @db.Decimal(12, 3)
   // Operator
   operator_uid            Int?                                      // ✅ res_users (Sprint 1)
+  // Sprint 5 — reserved: snapshot of routing activity at WO creation time
+  activity_snapshot       Json?                                     // ⏳ Sprint 5: copy of routing_activity_template fields at plan-time
   // Audit
   create_uid              Int
   create_date             DateTime  @default(now()) @db.Timestamptz
@@ -194,15 +196,37 @@ model mrp_workcenter_productivity_loss_skeleton {
 //   Practice: governs BOM + Routing + Drawing changes after release
 // ────────────────────────────────────────────────────────────────────────────
 
-// 🟦 Engineering Change Order (Odoo mrp.eco)
+// 🟦 Engineering Change Order (Odoo mrp.eco — RICHER scope per GAP_ANALYSIS_ECO_VERSIONING_BULK.md §5)
 //    Required to modify BOM/routing/drawing after state=active.
 //    Sprint 3 BOM has eco_id INT (nullable) — this fills it.
+//    Sprint 4.2 product_routing_override has eco_id — this fills it.
 model mrp_eco_skeleton {
   id                      Int       @id @default(autoincrement())
   name                    String    @unique @db.VarChar(40)         // 'ECO-2026-001'
   type                    String    @db.VarChar(20)                 // bom|routing|drawing|product|hybrid
   state                   String    @default("draft") @db.VarChar(20)  // draft|review|approved|in_progress|done|rejected
-  // Subject
+  // RICHER SCOPE (extends from simple type — D-decisions in 4.2)
+  //   'template'         — affects routing_template (all bound products inherit unless overridden)
+  //   'activity_template'— affects single routing_activity_template (all uses)
+  //   'override_single'  — single product_routing_override
+  //   'override_bulk'    — multiple overrides via scope_criteria (Sprint 4.3 endpoint)
+  //   'custom_routing'   — affects single product's custom_routing
+  //   'product'          — product master change (Sprint 2)
+  //   'bom'              — bom change (Sprint 3)
+  //   'drawing'          — drawing revision (Sprint 3)
+  //   'hybrid'           — multi-subject
+  scope_type              String?   @db.VarChar(30)
+  scope_target_ids        Int[]                                      // template_id(s), activity_id(s), product_id(s), depending on scope_type
+  scope_criteria          Json?                                      // for 'override_bulk' — match criteria from gap analysis §4.3
+  // OVERRIDE SURVIVAL POLICY (D11 — applies when scope_type='template'|'activity_template')
+  override_policy         String    @default("survive") @db.VarChar(20)  // 'survive' | 'reset' | 'reset_matching'
+  reset_overrides_json    Json?                                      // populated post-apply: [{product_id, activity_id, old_value, restored:false}]
+  // VERSIONING (D12)
+  bumps_version           Boolean   @default(false)                  // does this ECO publish a new template/activity version?
+  before_version          String?   @db.VarChar(20)                  // captured at apply
+  after_version           String?   @db.VarChar(20)
+  before_after_diff       Json?                                      // structured diff of fields changed
+  // Subject (legacy single-FK fields kept for back-compat with simpler ECO types)
   product_id              Int?                                      // ✅ products
   bom_id                  Int?                                      // ✅ product_bom (Sprint 3)
   routing_id              Int?                                      // ⏳ mrp_routing_workcenter (Sprint 4)

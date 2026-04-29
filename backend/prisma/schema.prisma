@@ -9,92 +9,100 @@ datasource db {
 
 // ── 🟦 Standard Odoo: res_users (stub) ───────────────────────
 model res_users {
-  id                  Int       @id @default(autoincrement())
-  login               String    @unique @db.VarChar(60)
-  name                String    @db.VarChar(120)
-  active              Boolean   @default(true)
+  id     Int     @id @default(autoincrement())
+  login  String  @unique @db.VarChar(60)
+  name   String  @db.VarChar(120)
+  active Boolean @default(true)
 
-  materials_created   materials[] @relation("create_user")
-  materials_written   materials[] @relation("write_user")
-  messages            mail_message[]
+  materials_created materials[]    @relation("create_user")
+  materials_written materials[]    @relation("write_user")
+  messages          mail_message[]
 
   // Sprint 2: Project + Product relations
-  projects_created    project[] @relation("project_create")
-  projects_written    project[] @relation("project_write")
-  products_created    products[] @relation("product_create")
-  products_written    products[] @relation("product_write")
+  projects_created project[]  @relation("project_create")
+  projects_written project[]  @relation("project_write")
+  products_created products[] @relation("product_create")
+  products_written products[] @relation("product_write")
 
   // Sprint 3: BOM + Drawing audit
-  boms_created        product_bom[] @relation("bom_create")
-  boms_written        product_bom[] @relation("bom_write")
-  drawings_created    shop_drawing[] @relation("drawing_create")
-  drawings_written    shop_drawing[] @relation("drawing_write")
-  revisions_created   drawing_revision[] @relation("revision_create")
-  drawing_approvals   drawing_revision[] @relation("DrawingApprover")
+  boms_created      product_bom[]      @relation("bom_create")
+  boms_written      product_bom[]      @relation("bom_write")
+  drawings_created  shop_drawing[]     @relation("drawing_create")
+  drawings_written  shop_drawing[]     @relation("drawing_write")
+  revisions_created drawing_revision[] @relation("revision_create")
+  drawing_approvals drawing_revision[] @relation("DrawingApprover")
 
   // Sprint 4: Routing audit
-  workcenters_created        mrp_workcenter[] @relation("wc_create")
-  workcenters_written        mrp_workcenter[] @relation("wc_write")
-  routing_wc_created         mrp_routing_workcenter[] @relation("rwc_create")
-  routing_wc_written         mrp_routing_workcenter[] @relation("rwc_write")
+  workcenters_created        mrp_workcenter[]            @relation("wc_create")
+  workcenters_written        mrp_workcenter[]            @relation("wc_write")
+  routing_wc_created         mrp_routing_workcenter[]    @relation("rwc_create")
+  routing_wc_written         mrp_routing_workcenter[]    @relation("rwc_write")
   activity_templates_created routing_activity_template[] @relation("act_create")
   activity_templates_written routing_activity_template[] @relation("act_write")
-}
 
+  // Sprint 4.2: Routing Option 3 audit
+  routing_templates_created routing_template[]         @relation("rt_create")
+  routing_templates_written routing_template[]         @relation("rt_write")
+  routing_overrides_created product_routing_override[] @relation("ovr_create")
+  routing_overrides_written product_routing_override[] @relation("ovr_write")
+  custom_routings_created   custom_routing[]           @relation("cr_create")
+  custom_routings_written   custom_routing[]           @relation("cr_write")
+}
 
 // ── 🟦 Standard Odoo: uom_category + uom_uom ─────────────────
 model uom_category {
-  id    Int       @id @default(autoincrement())
-  name  String    @db.VarChar(40)
-  uoms  uom_uom[]
+  id   Int       @id @default(autoincrement())
+  name String    @db.VarChar(40)
+  uoms uom_uom[]
 }
 
 model uom_uom {
-  id           Int          @id @default(autoincrement())
-  name         String       @db.VarChar(40)
-  category_id  Int
-  category     uom_category @relation(fields: [category_id], references: [id])
-  factor       Decimal      @default(1) @db.Decimal(12, 6)
-  uom_type     String       @default("reference") @db.VarChar(10)
-  rounding     Decimal      @default(0.01) @db.Decimal(12, 6)
-  active       Boolean      @default(true)
-  odoo_ref_id  String?      @db.VarChar(40)
+  id          Int          @id @default(autoincrement())
+  name        String       @db.VarChar(40)
+  category_id Int
+  category    uom_category @relation(fields: [category_id], references: [id])
+  factor      Decimal      @default(1) @db.Decimal(12, 6)
+  uom_type    String       @default("reference") @db.VarChar(10)
+  rounding    Decimal      @default(0.01) @db.Decimal(12, 6)
+  active      Boolean      @default(true)
+  odoo_ref_id String?      @db.VarChar(40)
 
-  materials_uom     materials[] @relation("uom")
-  materials_uom_po  materials[] @relation("uom_po")
-  bom_lines         product_bom_line[] @relation("BomLineUom")
-  bom_headers       product_bom[] @relation("bom_uom")
+  materials_uom    materials[]        @relation("uom")
+  materials_uom_po materials[]        @relation("uom_po")
+  bom_lines        product_bom_line[] @relation("BomLineUom")
+  bom_headers      product_bom[]      @relation("bom_uom")
 }
 
 // ── 🟦 Standard Odoo: account_account ────────────────────────
 model account_account {
-  id           Int       @id @default(autoincrement())
-  code         String    @unique @db.VarChar(10)
-  name         String    @db.VarChar(120)
-  account_type String    @db.VarChar(40)
-  active       Boolean   @default(true)
+  id           Int     @id @default(autoincrement())
+  code         String  @unique @db.VarChar(10)
+  name         String  @db.VarChar(120)
+  account_type String  @db.VarChar(40)
+  active       Boolean @default(true)
 
-  categories   product_category[]
+  categories product_category[]
 }
 
 // ── 🟨 Hybrid: product_category (Odoo tree + BDT extension) ──
 model product_category {
-  id                Int               @id @default(autoincrement())
-  name              String            @db.VarChar(80)
+  id                Int                @id @default(autoincrement())
+  name              String             @db.VarChar(80)
   parent_id         Int?
   parent            product_category?  @relation("CategoryTree", fields: [parent_id], references: [id])
   children          product_category[] @relation("CategoryTree")
-  complete_name     String?           @db.VarChar(200)
-  group_no          String?           @db.VarChar(10)
-  prefix_5          String?           @unique @db.Char(5)
+  complete_name     String?            @db.VarChar(200)
+  group_no          String?            @db.VarChar(10)
+  prefix_5          String?            @unique @db.Char(5)
   account_id        Int?
-  account           account_account?  @relation(fields: [account_id], references: [id])
-  needs_criticality Boolean           @default(false)
-  active            Boolean           @default(true)
-  odoo_ref_id       String?           @db.VarChar(40)
+  account           account_account?   @relation(fields: [account_id], references: [id])
+  needs_criticality Boolean            @default(false)
+  active            Boolean            @default(true)
+  odoo_ref_id       String?            @db.VarChar(40)
 
   materials         materials[]
   products          products[]
+  routing_templates routing_template[]
 }
 
 // ── 🟦/🟨/🟥 materials ────────────────────────────────────────
@@ -131,35 +139,35 @@ model materials {
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines        product_bom_line[] @relation("BomLineMaterial")
+  bom_lines product_bom_line[] @relation("BomLineMaterial")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
 model part_code_seq {
-  prefix_5  String @id @db.Char(5)
-  next_run  Int    @default(1)
+  prefix_5 String @id @db.Char(5)
+  next_run Int    @default(1)
 }
 
 // ── 🟥 Custom: product_code_seq (STD / CUS product counter) ──
 model product_code_seq {
-  kind      String @id @db.VarChar(10)
-  next_run  Int    @default(1)
+  kind     String @id @db.VarChar(10)
+  next_run Int    @default(1)
 }
 
 // ── 🟦 Standard Odoo: mail_message (audit log — polymorphic) ─
 // Sprint 2: Refactored to polymorphic — model+res_id generic reference
 // Supports: 'material', 'product', 'project' (and future models)
 model mail_message {
-  id           BigInt    @id @default(autoincrement())
-  model        String    @db.VarChar(60)
+  id           BigInt     @id @default(autoincrement())
+  model        String     @db.VarChar(60)
   res_id       Int
-  message_type String    @db.VarChar(20)
-  subject      String?   @db.VarChar(200)
-  body         String?   @db.Text
+  message_type String     @db.VarChar(20)
+  subject      String?    @db.VarChar(200)
+  body         String?    @db.Text
   tracking     Json?
   author_id    Int?
   author       res_users? @relation(fields: [author_id], references: [id])
-  date         DateTime  @default(now()) @db.Timestamptz
+  date         DateTime   @default(now()) @db.Timestamptz
 
   @@index([model, res_id])
 }
@@ -170,216 +178,218 @@ model mail_message {
 
 // ── 🟦 Project ──────────────────────────────────────────────────
 model project {
-  id                Int        @id @default(autoincrement())
-  project_code      String     @unique @db.VarChar(20)
-  name              String     @db.VarChar(200)
-  customer_id       Int?
-  start_date        DateTime?  @db.Date
-  target_handover   DateTime?  @db.Date
-  state             String     @default("lead") @db.VarChar(20)
-  active            Boolean    @default(true)
-  odoo_ref_id       String?    @db.VarChar(40)
-  create_uid        Int
-  create_user       res_users  @relation("project_create", fields: [create_uid], references: [id])
-  create_date       DateTime   @default(now()) @db.Timestamptz
-  write_uid         Int
-  write_user        res_users  @relation("project_write", fields: [write_uid], references: [id])
-  write_date        DateTime   @default(now()) @db.Timestamptz
+  id              Int       @id @default(autoincrement())
+  project_code    String    @unique @db.VarChar(20)
+  name            String    @db.VarChar(200)
+  customer_id     Int?
+  start_date      DateTime? @db.Date
+  target_handover DateTime? @db.Date
+  state           String    @default("lead") @db.VarChar(20)
+  active          Boolean   @default(true)
+  odoo_ref_id     String?   @db.VarChar(40)
+  create_uid      Int
+  create_user     res_users @relation("project_create", fields: [create_uid], references: [id])
+  create_date     DateTime  @default(now()) @db.Timestamptz
+  write_uid       Int
+  write_user      res_users @relation("project_write", fields: [write_uid], references: [id])
+  write_date      DateTime  @default(now()) @db.Timestamptz
 
-  zones             project_zone[]
-  products          products[]
-  project_costs     project_product_cost[]
-  boms              product_bom[] @relation("ProjectBom")
-  drawings          shop_drawing[] @relation("ProjectDrawings")
+  zones         project_zone[]
+  products      products[]
+  project_costs project_product_cost[]
+  boms          product_bom[]          @relation("ProjectBom")
+  drawings      shop_drawing[]         @relation("ProjectDrawings")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
 model project_zone {
-  id                       Int       @id @default(autoincrement())
-  project_id               Int
-  project                  project   @relation(fields: [project_id], references: [id])
-  code                     String    @db.VarChar(20)
-  label                    String    @db.VarChar(80)
-  zone_type                String    @db.VarChar(20)
-  erection_sequence        Int?
-  target_erection_start    DateTime? @db.Date
-  target_erection_end      DateTime? @db.Date
-  crane_assignment         String?   @db.VarChar(60)
-  notes                    String?   @db.Text
-  active                   Boolean   @default(true)
+  id                    Int       @id @default(autoincrement())
+  project_id            Int
+  project               project   @relation(fields: [project_id], references: [id])
+  code                  String    @db.VarChar(20)
+  label                 String    @db.VarChar(80)
+  zone_type             String    @db.VarChar(20)
+  erection_sequence     Int?
+  target_erection_start DateTime? @db.Date
+  target_erection_end   DateTime? @db.Date
+  crane_assignment      String?   @db.VarChar(60)
+  notes                 String?   @db.Text
+  active                Boolean   @default(true)
 
-  products                 products[]
+  products products[]
 
   @@unique([project_id, code])
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
 model mark_prefix_master {
-  code            String   @id @db.VarChar(10)
-  label           String   @db.VarChar(40)
-  category        String   @db.VarChar(20)
-  part_type_code  String   @db.Char(1)
-  active          Boolean  @default(true)
+  code           String  @id @db.VarChar(10)
+  label          String  @db.VarChar(40)
+  category       String  @db.VarChar(20)
+  part_type_code String  @db.Char(1)
+  active         Boolean @default(true)
 
-  products        products[]
-  tekla_mappings  tekla_prefix_mapping[]
+  products       products[]
+  tekla_mappings tekla_prefix_mapping[]
 }
 
 // ── 🟥 Tekla Prefix Mapping (F26 / PD-33) ──────────────────────
 model tekla_prefix_mapping {
-  tekla_type       String             @id @db.VarChar(10)
-  bdt_mark_prefix  String             @db.VarChar(10)
-  bdt_prefix       mark_prefix_master @relation(fields: [bdt_mark_prefix], references: [code])
-  confidence       String             @db.VarChar(10)
-  source           String?            @db.VarChar(80)
-  notes            String?            @db.Text
+  tekla_type      String             @id @db.VarChar(10)
+  bdt_mark_prefix String             @db.VarChar(10)
+  bdt_prefix      mark_prefix_master @relation(fields: [bdt_mark_prefix], references: [code])
+  confidence      String             @db.VarChar(10)
+  source          String?            @db.VarChar(80)
+  notes           String?            @db.Text
 }
 
 // ── 🟦/🟨/🟥 Products (single-table inheritance, F4 / PD-01) ───
 model products {
-  id                       Int       @id @default(autoincrement())
-  product_code             String    @unique @db.VarChar(20)
-  engineering_code         String?   @unique @db.VarChar(20)
-  item_code                String?   @unique @db.Char(10)
-  odoo_compliance_status   String    @default("NEW") @db.VarChar(20)
-  name                     String    @db.VarChar(200)
-  categ_id                 Int
-  category                 product_category @relation(fields: [categ_id], references: [id])
-  product_type             String    @db.VarChar(20)
-  odoo_type                String    @default("product") @db.VarChar(10)
-  procure_method           String    @default("make_to_order") @db.VarChar(20)
-  state                    String    @default("draft") @db.VarChar(20)
-  active                   Boolean   @default(true)
-  sale_ok                  Boolean   @default(false)
-  purchase_ok              Boolean   @default(false)
-  sales_price              Decimal   @default(1.0) @db.Decimal(12, 2)
+  id                     Int              @id @default(autoincrement())
+  product_code           String           @unique @db.VarChar(20)
+  engineering_code       String?          @unique @db.VarChar(20)
+  item_code              String?          @unique @db.Char(10)
+  odoo_compliance_status String           @default("NEW") @db.VarChar(20)
+  name                   String           @db.VarChar(200)
+  categ_id               Int
+  category               product_category @relation(fields: [categ_id], references: [id])
+  product_type           String           @db.VarChar(20)
+  odoo_type              String           @default("product") @db.VarChar(10)
+  procure_method         String           @default("make_to_order") @db.VarChar(20)
+  state                  String           @default("draft") @db.VarChar(20)
+  active                 Boolean          @default(true)
+  sale_ok                Boolean          @default(false)
+  purchase_ok            Boolean          @default(false)
+  sales_price            Decimal          @default(1.0) @db.Decimal(12, 2)
 
   // Cost components (4-component, 3 levels — F7)
-  cost_raw_material        Decimal?  @db.Decimal(12, 2)
-  cost_transport           Decimal?  @db.Decimal(12, 2)
-  cost_production          Decimal?  @db.Decimal(12, 2)
-  cost_warehouse           Decimal?  @db.Decimal(12, 2)
+  cost_raw_material Decimal? @db.Decimal(12, 2)
+  cost_transport    Decimal? @db.Decimal(12, 2)
+  cost_production   Decimal? @db.Decimal(12, 2)
+  cost_warehouse    Decimal? @db.Decimal(12, 2)
   // standard_cost_total = computed via DB GENERATED column (in raw SQL migration)
 
   // Standard-only fields
-  master_drawing_id        Int?
-  master_drawing           shop_drawing? @relation("MasterDrawingProduct", fields: [master_drawing_id], references: [id])
-  variant_attributes       Json?
-  stock_policy             String?   @db.VarChar(20)
-  reorder_min              Decimal?  @db.Decimal(12, 3)
-  reorder_max              Decimal?  @db.Decimal(12, 3)
+  master_drawing_id  Int?
+  master_drawing     shop_drawing? @relation("MasterDrawingProduct", fields: [master_drawing_id], references: [id])
+  variant_attributes Json?
+  stock_policy       String?       @db.VarChar(20)
+  reorder_min        Decimal?      @db.Decimal(12, 3)
+  reorder_max        Decimal?      @db.Decimal(12, 3)
 
   // Custom-only fields
-  project_id               Int?
-  project                  project?  @relation(fields: [project_id], references: [id])
-  erection_zone_id         Int?
-  erection_zone            project_zone? @relation(fields: [erection_zone_id], references: [id])
-  mark_prefix              String?   @db.VarChar(10)
-  mark                     mark_prefix_master? @relation(fields: [mark_prefix], references: [code])
-  mark_number              String?   @db.VarChar(20)
-  shop_drawing_id          Int?
-  shop_drawing_ref         shop_drawing? @relation("ShopDrawingProduct", fields: [shop_drawing_id], references: [id])
-  revision                 String?   @db.VarChar(10)
-  engineer_hours_est       Decimal?  @db.Decimal(8, 2)
-  engineer_hours_act       Decimal?  @db.Decimal(8, 2)
+  project_id         Int?
+  project            project?            @relation(fields: [project_id], references: [id])
+  erection_zone_id   Int?
+  erection_zone      project_zone?       @relation(fields: [erection_zone_id], references: [id])
+  mark_prefix        String?             @db.VarChar(10)
+  mark               mark_prefix_master? @relation(fields: [mark_prefix], references: [code])
+  mark_number        String?             @db.VarChar(20)
+  shop_drawing_id    Int?
+  shop_drawing_ref   shop_drawing?       @relation("ShopDrawingProduct", fields: [shop_drawing_id], references: [id])
+  revision           String?             @db.VarChar(10)
+  engineer_hours_est Decimal?            @db.Decimal(8, 2)
+  engineer_hours_act Decimal?            @db.Decimal(8, 2)
 
   // Promotion lineage
-  promoted_from_id         Int?
-  promoted_from            products? @relation("Promotion", fields: [promoted_from_id], references: [id])
-  promoted_descendants     products[] @relation("Promotion")
-  promoted_date            DateTime? @db.Timestamptz
-  legacy_codes             String[]
+  promoted_from_id     Int?
+  promoted_from        products?  @relation("Promotion", fields: [promoted_from_id], references: [id])
+  promoted_descendants products[] @relation("Promotion")
+  promoted_date        DateTime?  @db.Timestamptz
+  legacy_codes         String[]
 
   // Engineering attributes
-  attributes               Json      @default("{}")
+  attributes Json @default("{}")
 
-  // Sprint 4: Routing
-  active_routing_id          Int?
-  active_routing             mrp_routing_workcenter? @relation("ProductActiveRouting", fields: [active_routing_id], references: [id])
+  // Sprint 4.2: Routing Option 3
+  routing_template_id Int?
+  routing_template    routing_template?          @relation("ProductTemplateBind", fields: [routing_template_id], references: [id])
+  has_custom_routing  Boolean                    @default(false)
+  custom_routing      custom_routing?            @relation("ProductCustomRouting")
+  routing_overrides   product_routing_override[] @relation("ProductOverrides")
 
   // Odoo sync
-  odoo_ref_id              String?   @db.VarChar(40)
+  odoo_ref_id String? @db.VarChar(40)
 
   // Audit
-  create_uid               Int
-  create_user              res_users @relation("product_create", fields: [create_uid], references: [id])
-  create_date              DateTime  @default(now()) @db.Timestamptz
-  write_uid                Int
-  write_user               res_users @relation("product_write", fields: [write_uid], references: [id])
-  write_date               DateTime  @default(now()) @db.Timestamptz
+  create_uid  Int
+  create_user res_users @relation("product_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_user  res_users @relation("product_write", fields: [write_uid], references: [id])
+  write_date  DateTime  @default(now()) @db.Timestamptz
 
-  variants                 product_variant[]
-  promotion_requests_src   promotion_request[] @relation("source_custom")
-  promotion_requests_tgt   promotion_request[] @relation("target_standard")
-  project_costs            project_product_cost[]
-  boms                     product_bom[] @relation("ProductBom")
-  sub_product_bom_lines    product_bom_line[] @relation("SubProductInBom")
-  drawings                 shop_drawing[] @relation("ProductDrawings")
-  routing_operations       mrp_routing_workcenter[] @relation("ProductRouting")
+  variants               product_variant[]
+  promotion_requests_src promotion_request[]    @relation("source_custom")
+  promotion_requests_tgt promotion_request[]    @relation("target_standard")
+  project_costs          project_product_cost[]
+  boms                   product_bom[]          @relation("ProductBom")
+  sub_product_bom_lines  product_bom_line[]     @relation("SubProductInBom")
+  drawings               shop_drawing[]         @relation("ProductDrawings")
 }
 
 // ── 🟨 Product Variant (lazy-create — PD-10) ────────────────────
 model product_variant {
-  id                  Int      @id @default(autoincrement())
-  parent_product_id   Int
-  parent              products @relation(fields: [parent_product_id], references: [id])
-  variant_code        String   @unique @db.VarChar(40)
-  attribute_values    Json
-  cost_extra          Decimal  @default(0) @db.Decimal(12, 2)
-  active              Boolean  @default(true)
+  id                Int      @id @default(autoincrement())
+  parent_product_id Int
+  parent            products @relation(fields: [parent_product_id], references: [id])
+  variant_code      String   @unique @db.VarChar(40)
+  attribute_values  Json
+  cost_extra        Decimal  @default(0) @db.Decimal(12, 2)
+  active            Boolean  @default(true)
 }
 
 // ── 🟥 Project Product Cost (per-project actuals) ────────────────
 model project_product_cost {
-  id                       Int       @id @default(autoincrement())
-  product_id               Int
-  product                  products  @relation(fields: [product_id], references: [id])
-  project_id               Int
-  project                  project   @relation(fields: [project_id], references: [id])
-  cost_raw_material        Decimal?  @db.Decimal(12, 2)
-  cost_transport           Decimal?  @db.Decimal(12, 2)
-  cost_production          Decimal?  @db.Decimal(12, 2)
-  cost_warehouse           Decimal?  @db.Decimal(12, 2)
-  variance_vs_standard     Decimal?  @db.Decimal(8, 4)
-  snapshotted_at           DateTime  @default(now()) @db.Timestamptz
+  id                   Int      @id @default(autoincrement())
+  product_id           Int
+  product              products @relation(fields: [product_id], references: [id])
+  project_id           Int
+  project              project  @relation(fields: [project_id], references: [id])
+  cost_raw_material    Decimal? @db.Decimal(12, 2)
+  cost_transport       Decimal? @db.Decimal(12, 2)
+  cost_production      Decimal? @db.Decimal(12, 2)
+  cost_warehouse       Decimal? @db.Decimal(12, 2)
+  variance_vs_standard Decimal? @db.Decimal(8, 4)
+  snapshotted_at       DateTime @default(now()) @db.Timestamptz
 
   @@unique([product_id, project_id])
 }
 
 // ── 🟥 Promotion Request (skeleton — full workflow Sprint 4) ────
 model promotion_request {
-  id                            Int       @id @default(autoincrement())
-  source_custom_product_id      Int
-  source                        products  @relation("source_custom", fields: [source_custom_product_id], references: [id])
-  target_standard_product_id    Int?
-  target                        products? @relation("target_standard", fields: [target_standard_product_id], references: [id])
-  requestor_id                  Int
-  state                         String    @default("draft") @db.VarChar(20)
-  promotion_mode                String?   @db.VarChar(20)
-  reason                        String?   @db.Text
-  reuse_evidence_count          Int?
-  similar_product_ids           Int[]
-  proposed_variant_matrix       Json?
-  proposed_standard_cost        Json?
-  proposed_sale_ok              Boolean?
-  proposed_purchase_ok          Boolean?
-  cost_reviewer_id              Int?
-  cost_reviewed_at              DateTime? @db.Timestamptz
-  approver_id                   Int?
-  approved_at                   DateTime? @db.Timestamptz
-  done_at                       DateTime? @db.Timestamptz
-  rejection_reason              String?   @db.Text
-  create_date                   DateTime  @default(now()) @db.Timestamptz
+  id                         Int       @id @default(autoincrement())
+  source_custom_product_id   Int
+  source                     products  @relation("source_custom", fields: [source_custom_product_id], references: [id])
+  target_standard_product_id Int?
+  target                     products? @relation("target_standard", fields: [target_standard_product_id], references: [id])
+  requestor_id               Int
+  state                      String    @default("draft") @db.VarChar(20)
+  promotion_mode             String?   @db.VarChar(20)
+  reason                     String?   @db.Text
+  reuse_evidence_count       Int?
+  similar_product_ids        Int[]
+  proposed_variant_matrix    Json?
+  proposed_standard_cost     Json?
+  proposed_sale_ok           Boolean?
+  proposed_purchase_ok       Boolean?
+  cost_reviewer_id           Int?
+  cost_reviewed_at           DateTime? @db.Timestamptz
+  approver_id                Int?
+  approved_at                DateTime? @db.Timestamptz
+  done_at                    DateTime? @db.Timestamptz
+  rejection_reason           String?   @db.Text
+  create_date                DateTime  @default(now()) @db.Timestamptz
 }
 
 // ── 🟦 Steel Grade master (for HY370 + others — PD-36) ──────────
 model steel_grade {
-  code         String   @id @db.VarChar(20)
-  standard     String?  @db.VarChar(20)
-  yield_mpa    Decimal? @db.Decimal(6, 1)
-  tensile_mpa  Decimal? @db.Decimal(6, 1)
-  notes        String?  @db.Text
-  active       Boolean  @default(true)
+  code        String   @id @db.VarChar(20)
+  standard    String?  @db.VarChar(20)
+  yield_mpa   Decimal? @db.Decimal(6, 1)
+  tensile_mpa Decimal? @db.Decimal(6, 1)
+  notes       String?  @db.Text
+  active      Boolean  @default(true)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -388,115 +398,115 @@ model steel_grade {
 
 // ── 🟦 Product BOM header (mrp.bom — Sprint 3 full spec) ────────
 model product_bom {
-  id                 Int       @id @default(autoincrement())
+  id                 Int           @id @default(autoincrement())
   product_id         Int
-  product            products  @relation("ProductBom", fields: [product_id], references: [id])
-  version            String    @default("1.0.0") @db.VarChar(20)
-  bom_view           String    @default("eBOM") @db.VarChar(10)
-  owner_role         String    @default("engineering") @db.VarChar(20)
-  state              String    @default("draft") @db.VarChar(20)
-  product_qty        Decimal   @default(1.0) @db.Decimal(12, 3)
+  product            products      @relation("ProductBom", fields: [product_id], references: [id])
+  version            String        @default("1.0.0") @db.VarChar(20)
+  bom_view           String        @default("eBOM") @db.VarChar(10)
+  owner_role         String        @default("engineering") @db.VarChar(20)
+  state              String        @default("draft") @db.VarChar(20)
+  product_qty        Decimal       @default(1.0) @db.Decimal(12, 3)
   product_uom_id     Int
-  product_uom        uom_uom   @relation("bom_uom", fields: [product_uom_id], references: [id])
-  bom_type           String    @default("normal") @db.VarChar(20)
-  effective_from     DateTime? @db.Date
-  effective_to       DateTime? @db.Date
+  product_uom        uom_uom       @relation("bom_uom", fields: [product_uom_id], references: [id])
+  bom_type           String        @default("normal") @db.VarChar(20)
+  effective_from     DateTime?     @db.Date
+  effective_to       DateTime?     @db.Date
   cloned_from_bom_id Int?
   cloned_from        product_bom?  @relation("BomLineage", fields: [cloned_from_bom_id], references: [id])
   cloned_descendants product_bom[] @relation("BomLineage")
   eco_id             Int?
-  notes              String?   @db.Text
+  notes              String?       @db.Text
   project_id         Int?
-  project            project?  @relation("ProjectBom", fields: [project_id], references: [id])
-  odoo_ref_id        String?   @db.VarChar(40)
+  project            project?      @relation("ProjectBom", fields: [project_id], references: [id])
+  odoo_ref_id        String?       @db.VarChar(40)
   create_uid         Int
-  create_user        res_users @relation("bom_create", fields: [create_uid], references: [id])
-  create_date        DateTime  @default(now()) @db.Timestamptz
+  create_user        res_users     @relation("bom_create", fields: [create_uid], references: [id])
+  create_date        DateTime      @default(now()) @db.Timestamptz
   write_uid          Int
-  write_user         res_users @relation("bom_write", fields: [write_uid], references: [id])
-  write_date         DateTime  @default(now()) @db.Timestamptz
+  write_user         res_users     @relation("bom_write", fields: [write_uid], references: [id])
+  write_date         DateTime      @default(now()) @db.Timestamptz
 
-  lines              product_bom_line[]
+  lines product_bom_line[]
 }
 
 // ── 🟦 BOM Line (mrp.bom.line + steel extensions) ───────────────
 model product_bom_line {
-  id                 Int          @id @default(autoincrement())
-  bom_id             Int
-  bom                product_bom  @relation(fields: [bom_id], references: [id], onDelete: Cascade)
-  sequence           Int          @default(10)
+  id                  Int                     @id @default(autoincrement())
+  bom_id              Int
+  bom                 product_bom             @relation(fields: [bom_id], references: [id], onDelete: Cascade)
+  sequence            Int                     @default(10)
   // EXACTLY ONE of material_id or sub_product_id (CHECK constraint via manual SQL)
-  material_id        Int?
-  material           materials?   @relation("BomLineMaterial", fields: [material_id], references: [id])
-  sub_product_id     Int?
-  sub_product        products?    @relation("SubProductInBom", fields: [sub_product_id], references: [id])
-  product_qty        Decimal      @db.Decimal(12, 3)
-  product_uom_id     Int
-  product_uom        uom_uom      @relation("BomLineUom", fields: [product_uom_id], references: [id])
-  scrap_pct          Decimal      @default(0) @db.Decimal(6, 2)
+  material_id         Int?
+  material            materials?              @relation("BomLineMaterial", fields: [material_id], references: [id])
+  sub_product_id      Int?
+  sub_product         products?               @relation("SubProductInBom", fields: [sub_product_id], references: [id])
+  product_qty         Decimal                 @db.Decimal(12, 3)
+  product_uom_id      Int
+  product_uom         uom_uom                 @relation("BomLineUom", fields: [product_uom_id], references: [id])
+  scrap_pct           Decimal                 @default(0) @db.Decimal(6, 2)
   attribute_value_ids Json?
-  cutting_length_mm  Decimal?     @db.Decimal(10, 1)
-  weight_per_unit_kg Decimal?     @db.Decimal(10, 3)
-  note               String?      @db.Text
+  cutting_length_mm   Decimal?                @db.Decimal(10, 1)
+  weight_per_unit_kg  Decimal?                @db.Decimal(10, 3)
+  note                String?                 @db.Text
   // Steel-specific (imported from Tekla/XLS)
-  part_mark          String?      @db.VarChar(30)
-  profile            String?      @db.VarChar(60)
-  grade              String?      @db.VarChar(20)
-  length_mm          Decimal?     @db.Decimal(10, 2)
-  area_m2            Decimal?     @db.Decimal(10, 4)
+  part_mark           String?                 @db.VarChar(30)
+  profile             String?                 @db.VarChar(60)
+  grade               String?                 @db.VarChar(20)
+  length_mm           Decimal?                @db.Decimal(10, 2)
+  area_m2             Decimal?                @db.Decimal(10, 4)
   // Sprint 4 / Sprint 5: BOM line ↔ Routing operation linkage (populated by Sprint 5 import)
-  operation_id       Int?
-  operation          mrp_routing_workcenter? @relation("BomLineOp", fields: [operation_id], references: [id])
+  operation_id        Int?
+  operation           mrp_routing_workcenter? @relation("BomLineOp", fields: [operation_id], references: [id])
 }
 
 // ── 🟥 Shop Drawing (steel-domain — not in Odoo) ─────────────────
 model shop_drawing {
-  id                      Int       @id @default(autoincrement())
-  drawing_number          String    @unique @db.VarChar(40)
-  drawing_type            String    @db.VarChar(10)
+  id                      Int            @id @default(autoincrement())
+  drawing_number          String         @unique @db.VarChar(40)
+  drawing_type            String         @db.VarChar(10)
   product_id              Int
-  product                 products  @relation("ProductDrawings", fields: [product_id], references: [id])
+  product                 products       @relation("ProductDrawings", fields: [product_id], references: [id])
   project_id              Int?
-  project                 project?  @relation("ProjectDrawings", fields: [project_id], references: [id])
-  current_revision        String?   @db.VarChar(5)
-  state                   String    @default("draft") @db.VarChar(20)
-  cad_source              String    @default("other") @db.VarChar(20)
+  project                 project?       @relation("ProjectDrawings", fields: [project_id], references: [id])
+  current_revision        String?        @db.VarChar(5)
+  state                   String         @default("draft") @db.VarChar(20)
+  cad_source              String         @default("other") @db.VarChar(20)
   generalized_from_id     Int?
   generalized_from        shop_drawing?  @relation("DrawingLineage", fields: [generalized_from_id], references: [id])
   generalized_descendants shop_drawing[] @relation("DrawingLineage")
-  retention_until         DateTime? @db.Date
-  odoo_ref_id             String?   @db.VarChar(40)
+  retention_until         DateTime?      @db.Date
+  odoo_ref_id             String?        @db.VarChar(40)
   create_uid              Int
-  create_user             res_users @relation("drawing_create", fields: [create_uid], references: [id])
-  create_date             DateTime  @default(now()) @db.Timestamptz
+  create_user             res_users      @relation("drawing_create", fields: [create_uid], references: [id])
+  create_date             DateTime       @default(now()) @db.Timestamptz
   write_uid               Int
-  write_user              res_users @relation("drawing_write", fields: [write_uid], references: [id])
-  write_date              DateTime  @default(now()) @db.Timestamptz
+  write_user              res_users      @relation("drawing_write", fields: [write_uid], references: [id])
+  write_date              DateTime       @default(now()) @db.Timestamptz
 
-  revisions               drawing_revision[]
-  master_products         products[] @relation("MasterDrawingProduct")
-  shop_products           products[] @relation("ShopDrawingProduct")
+  revisions       drawing_revision[]
+  master_products products[]         @relation("MasterDrawingProduct")
+  shop_products   products[]         @relation("ShopDrawingProduct")
 }
 
 // ── 🟥 Drawing Revision (A→B→C→IFC→AB lifecycle) ────────────────
 model drawing_revision {
-  id                    Int          @id @default(autoincrement())
-  drawing_id            Int
-  drawing               shop_drawing @relation(fields: [drawing_id], references: [id], onDelete: Cascade)
-  revision              String       @db.VarChar(5)
-  sequence              Int
-  change_summary        String?      @db.Text
-  file_url              String       @db.VarChar(500)
-  file_size_bytes       BigInt?
-  file_mime_type        String?      @db.VarChar(60)
-  file_checksum_sha256  String?      @db.VarChar(64)
-  approved_uid          Int?
-  approver              res_users?   @relation("DrawingApprover", fields: [approved_uid], references: [id])
-  approved_date         DateTime?    @db.Timestamptz
-  is_current            Boolean      @default(false)
-  create_uid            Int
-  create_user           res_users    @relation("revision_create", fields: [create_uid], references: [id])
-  create_date           DateTime     @default(now()) @db.Timestamptz
+  id                   Int          @id @default(autoincrement())
+  drawing_id           Int
+  drawing              shop_drawing @relation(fields: [drawing_id], references: [id], onDelete: Cascade)
+  revision             String       @db.VarChar(5)
+  sequence             Int
+  change_summary       String?      @db.Text
+  file_url             String       @db.VarChar(500)
+  file_size_bytes      BigInt?
+  file_mime_type       String?      @db.VarChar(60)
+  file_checksum_sha256 String?      @db.VarChar(64)
+  approved_uid         Int?
+  approver             res_users?   @relation("DrawingApprover", fields: [approved_uid], references: [id])
+  approved_date        DateTime?    @db.Timestamptz
+  is_current           Boolean      @default(false)
+  create_uid           Int
+  create_user          res_users    @relation("revision_create", fields: [create_uid], references: [id])
+  create_date          DateTime     @default(now()) @db.Timestamptz
 
   @@unique([drawing_id, revision])
 }
@@ -507,165 +517,319 @@ model drawing_revision {
 
 // ── 🟨 Work Center (Odoo mrp.workcenter + ISA-95/Siemens enrichment) ──
 model mrp_workcenter {
-  id                       Int       @id @default(autoincrement())
-  code                     String    @unique @db.VarChar(20)
-  name                     String    @db.VarChar(60)
-  sequence                 Int       @default(10)
-  active                   Boolean   @default(true)
+  id                       Int              @id @default(autoincrement())
+  code                     String           @unique @db.VarChar(20)
+  name                     String           @db.VarChar(60)
+  sequence                 Int              @default(10)
+  active                   Boolean          @default(true)
   // Capacity & calendar
-  capacity                 Decimal   @default(1.0) @db.Decimal(8, 2)
-  working_hours_per_week   Decimal   @default(40)  @db.Decimal(6, 2)
-  time_efficiency          Decimal   @default(100) @db.Decimal(5, 2)
-  time_start               Decimal   @default(0)   @db.Decimal(8, 2)
-  time_stop                Decimal   @default(0)   @db.Decimal(8, 2)
+  capacity                 Decimal          @default(1.0) @db.Decimal(8, 2)
+  working_hours_per_week   Decimal          @default(40) @db.Decimal(6, 2)
+  time_efficiency          Decimal          @default(100) @db.Decimal(5, 2)
+  time_start               Decimal          @default(0) @db.Decimal(8, 2)
+  time_stop                Decimal          @default(0) @db.Decimal(8, 2)
   // OEE — ISA-95 A × P × Q split
-  oee_target               Decimal   @default(90)  @db.Decimal(5, 2)
-  availability             Decimal   @default(100) @db.Decimal(5, 2)
-  performance              Decimal   @default(100) @db.Decimal(5, 2)
-  quality                  Decimal   @default(100) @db.Decimal(5, 2)
+  oee_target               Decimal          @default(90) @db.Decimal(5, 2)
+  availability             Decimal          @default(100) @db.Decimal(5, 2)
+  performance              Decimal          @default(100) @db.Decimal(5, 2)
+  quality                  Decimal          @default(100) @db.Decimal(5, 2)
   // BDT-custom: Labor Mix JSONB {operator, skilled, group_head} in %
-  labor_mix                Json      @default("{\"operator\":100,\"skilled\":0,\"group_head\":0}")
+  labor_mix                Json             @default("{\"operator\":100,\"skilled\":0,\"group_head\":0}")
   // Cost components (THB/min)
-  labor_cost_per_min       Decimal   @default(0) @db.Decimal(10, 4)
-  electricity_cost_per_min Decimal   @default(0) @db.Decimal(10, 4)
-  consumable_cost_per_min  Decimal   @default(0) @db.Decimal(10, 4)
-  overhead_cost_per_min    Decimal   @default(0) @db.Decimal(10, 4)
+  labor_cost_per_min       Decimal          @default(0) @db.Decimal(10, 4)
+  electricity_cost_per_min Decimal          @default(0) @db.Decimal(10, 4)
+  consumable_cost_per_min  Decimal          @default(0) @db.Decimal(10, 4)
+  overhead_cost_per_min    Decimal          @default(0) @db.Decimal(10, 4)
   // Capacity per period snapshot {kg_per_month, m_per_month, pc_per_month}
   capacity_per_period      Json?
   // ISA-95 hierarchy
   parent_id                Int?
   parent                   mrp_workcenter?  @relation("WCParent", fields: [parent_id], references: [id])
   children                 mrp_workcenter[] @relation("WCParent")
-  resource_type            String    @default("workcenter") @db.VarChar(20)
-  shared_resource_tag      String?   @db.VarChar(40)
+  resource_type            String           @default("workcenter") @db.VarChar(20)
+  shared_resource_tag      String?          @db.VarChar(40)
   // Audit
-  odoo_ref_id              String?   @db.VarChar(40)
+  odoo_ref_id              String?          @db.VarChar(40)
   create_uid               Int
-  create_user              res_users @relation("wc_create", fields: [create_uid], references: [id])
-  create_date              DateTime  @default(now()) @db.Timestamptz
+  create_user              res_users        @relation("wc_create", fields: [create_uid], references: [id])
+  create_date              DateTime         @default(now()) @db.Timestamptz
   write_uid                Int
-  write_user               res_users @relation("wc_write", fields: [write_uid], references: [id])
-  write_date               DateTime  @default(now()) @db.Timestamptz
+  write_user               res_users        @relation("wc_write", fields: [write_uid], references: [id])
+  write_date               DateTime         @default(now()) @db.Timestamptz
 
-  routing_workcenters      mrp_routing_workcenter[]
-  activity_templates       routing_activity_template[]
+  routing_workcenters  mrp_routing_workcenter[]
+  activity_templates   routing_activity_template[]
+  // Sprint 4.2
+  override_workcenters product_routing_override[]  @relation("OverrideWC")
+  custom_ops           custom_routing_op[]         @relation("CustomOpWC")
+  custom_activities    custom_routing_activity[]   @relation("CustomActWC")
 }
 
-// ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — one row per step) ──
+// ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — Sprint 4.2: bound to template) ──
 model mrp_routing_workcenter {
-  id                  Int             @id @default(autoincrement())
-  // null product_id = template row (Main / Accessory / False)
-  product_id          Int?
-  product             products?       @relation("ProductRouting", fields: [product_id], references: [id])
-  routing_template    String?         @db.VarChar(20)
-  name                String          @db.VarChar(60)
-  op_code             String          @db.VarChar(30)
-  sequence            Int             @default(10)
-  workcenter_id       Int
-  workcenter          mrp_workcenter  @relation(fields: [workcenter_id], references: [id])
+  id                Int              @id @default(autoincrement())
+  // Sprint 4.2: bound to routing_template (no more per-product rows)
+  template_id       Int
+  template          routing_template @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  name              String           @db.VarChar(60)
+  op_code           String           @db.VarChar(30)
+  sequence          Int              @default(10)
+  workcenter_id     Int
+  workcenter        mrp_workcenter   @relation(fields: [workcenter_id], references: [id])
   // Time (Odoo-compat)
-  time_cycle          Decimal         @default(0) @db.Decimal(10, 4)
-  time_cycle_manual   Decimal?        @db.Decimal(10, 4)
-  time_mode           String          @default("formula") @db.VarChar(10)
+  time_cycle        Decimal          @default(0) @db.Decimal(10, 4)
+  time_cycle_manual Decimal?         @db.Decimal(10, 4)
+  time_mode         String           @default("formula") @db.VarChar(10)
   // BDT-custom
-  routing_view        String          @default("eRoute") @db.VarChar(10)
-  state               String          @default("draft") @db.VarChar(20)
-  // Computed cache
-  last_computed_at    DateTime?       @db.Timestamptz
-  cache_key           String?         @db.VarChar(64)
+  routing_view      String           @default("eRoute") @db.VarChar(10)
+  // Computed cache (template-level — averaged across all bound products)
+  last_computed_at  DateTime?        @db.Timestamptz
+  cache_key         String?          @db.VarChar(64)
   // Dependencies (Sprint 5+)
-  blocked_by_op_ids   Int[]
+  blocked_by_op_ids Int[]
   // Audit
-  create_uid          Int
-  create_user         res_users       @relation("rwc_create", fields: [create_uid], references: [id])
-  create_date         DateTime        @default(now()) @db.Timestamptz
-  write_uid           Int
-  write_user          res_users       @relation("rwc_write", fields: [write_uid], references: [id])
-  write_date          DateTime        @default(now()) @db.Timestamptz
+  create_uid        Int
+  create_user       res_users        @relation("rwc_create", fields: [create_uid], references: [id])
+  create_date       DateTime         @default(now()) @db.Timestamptz
+  write_uid         Int
+  write_user        res_users        @relation("rwc_write", fields: [write_uid], references: [id])
+  write_date        DateTime         @default(now()) @db.Timestamptz
 
-  activities          routing_step_activity[]
-  active_for_products products[]      @relation("ProductActiveRouting")
-  bom_lines           product_bom_line[] @relation("BomLineOp")
+  op_activities routing_op_activity[]
+  bom_lines     product_bom_line[]    @relation("BomLineOp")
 
-  @@index([product_id])
-  @@index([routing_template])
-  @@unique([product_id, sequence], map: "ux_routing_op_seq_per_product")
+  @@unique([template_id, sequence], map: "ux_routing_op_seq_per_template")
+  @@index([template_id])
 }
 
 // ── 🟥 Activity Template (BDT-custom — sub-operation granularity) ──
 model routing_activity_template {
-  id                  Int       @id @default(autoincrement())
-  op_code             String    @db.VarChar(30)
-  description         String    @db.VarChar(200)
-  sequence            Int       @default(10)
-  include_idle        Boolean   @default(false)
+  id                  Int                    @id @default(autoincrement())
+  op_code             String                 @db.VarChar(30)
+  description         String                 @db.VarChar(200)
+  sequence            Int                    @default(10)
+  include_idle        Boolean                @default(false)
   // Primary formula param
-  per_minute          Decimal   @db.Decimal(10, 4)
-  formula_param_code  String    @db.VarChar(40)
-  formula_param       routing_formula_param @relation("Param1", fields: [formula_param_code], references: [code])
-  std_measure         Decimal   @db.Decimal(12, 4)
-  unit                String    @db.VarChar(20)
+  per_minute          Decimal                @db.Decimal(10, 4)
+  formula_param_code  String                 @db.VarChar(40)
+  formula_param       routing_formula_param  @relation("Param1", fields: [formula_param_code], references: [code])
+  std_measure         Decimal                @db.Decimal(12, 4)
+  unit                String                 @db.VarChar(20)
   // Secondary param (welding multi-ratio)
-  formula_param_code2 String?   @db.VarChar(40)
+  formula_param_code2 String?                @db.VarChar(40)
   formula_param2      routing_formula_param? @relation("Param2", fields: [formula_param_code2], references: [code])
-  std_measure2        Decimal?  @db.Decimal(12, 4)
-  unit2               String?   @db.VarChar(20)
+  std_measure2        Decimal?               @db.Decimal(12, 4)
+  unit2               String?                @db.VarChar(20)
   // Resourcing
-  manpower            Decimal   @default(1) @db.Decimal(4, 2)
+  manpower            Decimal                @default(1) @db.Decimal(4, 2)
   workcenter_id       Int
-  workcenter          mrp_workcenter @relation(fields: [workcenter_id], references: [id])
-  equipment_ref       String?   @db.VarChar(120)
-  consumable_note     String?   @db.VarChar(200)
-  utilities_note      String?   @db.VarChar(40)
+  workcenter          mrp_workcenter         @relation(fields: [workcenter_id], references: [id])
+  equipment_ref       String?                @db.VarChar(120)
+  consumable_note     String?                @db.VarChar(200)
+  utilities_note      String?                @db.VarChar(40)
   // Versioning
-  version             String    @default("1.0") @db.VarChar(20)
-  active              Boolean   @default(true)
-  source              String    @default("xlsx_seed") @db.VarChar(20)
+  version             String                 @default("1.0") @db.VarChar(20)
+  active              Boolean                @default(true)
+  source              String                 @default("xlsx_seed") @db.VarChar(20)
   // Audit
   create_uid          Int
-  create_user         res_users @relation("act_create", fields: [create_uid], references: [id])
-  create_date         DateTime  @default(now()) @db.Timestamptz
+  create_user         res_users              @relation("act_create", fields: [create_uid], references: [id])
+  create_date         DateTime               @default(now()) @db.Timestamptz
   write_uid           Int
-  write_user          res_users @relation("act_write", fields: [write_uid], references: [id])
-  write_date          DateTime  @default(now()) @db.Timestamptz
+  write_user          res_users              @relation("act_write", fields: [write_uid], references: [id])
+  write_date          DateTime               @default(now()) @db.Timestamptz
 
-  steps               routing_step_activity[]
+  op_activities routing_op_activity[]
+  overrides     product_routing_override[]
 
   @@index([op_code])
 }
 
-// ── Per-routing-step instance (per-product override without mutating template) ──
-model routing_step_activity {
-  id                    Int       @id @default(autoincrement())
+// ── Op-Activity Junction (template op → activity template, sequence-ordered) ──
+model routing_op_activity {
+  id                    Int                       @id @default(autoincrement())
   routing_workcenter_id Int
-  routing_workcenter    mrp_routing_workcenter @relation(fields: [routing_workcenter_id], references: [id], onDelete: Cascade)
+  routing_workcenter    mrp_routing_workcenter    @relation(fields: [routing_workcenter_id], references: [id], onDelete: Cascade)
   activity_template_id  Int
   activity_template     routing_activity_template @relation(fields: [activity_template_id], references: [id])
-  sequence              Int       @default(10)
-  // Override fields (null = inherit from template)
-  per_minute_override   Decimal?  @db.Decimal(10, 4)
-  std_measure_override  Decimal?  @db.Decimal(12, 4)
-  manpower_override     Decimal?  @db.Decimal(4, 2)
-  // Computed cache
-  last_cycle_time_min   Decimal?  @db.Decimal(10, 4)
-  last_input_snapshot   Json?
-  last_computed_at      DateTime? @db.Timestamptz
+  sequence              Int                       @default(10)
 
-  @@index([routing_workcenter_id])
+  @@unique([routing_workcenter_id, sequence])
+  @@index([activity_template_id])
 }
 
 // ── 🟥 Formula Parameter Registry (BDT-custom cycle-time formulas) ──
 model routing_formula_param {
-  code                String    @id @db.VarChar(40)
-  description         String    @db.VarChar(200)
-  formula_expression  String    @db.VarChar(400)
-  inputs_required     String[]
-  return_unit         String    @db.VarChar(20)
-  applies_to_groups   String[]
-  active              Boolean   @default(true)
-  create_date         DateTime  @default(now()) @db.Timestamptz
-  write_date          DateTime  @default(now()) @db.Timestamptz
+  code               String   @id @db.VarChar(40)
+  description        String   @db.VarChar(200)
+  formula_expression String   @db.VarChar(400)
+  inputs_required    String[]
+  return_unit        String   @db.VarChar(20)
+  applies_to_groups  String[]
+  active             Boolean  @default(true)
+  create_date        DateTime @default(now()) @db.Timestamptz
+  write_date         DateTime @default(now()) @db.Timestamptz
 
-  templates_primary   routing_activity_template[] @relation("Param1")
-  templates_secondary routing_activity_template[] @relation("Param2")
+  templates_primary           routing_activity_template[] @relation("Param1")
+  templates_secondary         routing_activity_template[] @relation("Param2")
+  // Sprint 4.2
+  custom_activities_primary   custom_routing_activity[]   @relation("CustomActParam1")
+  custom_activities_secondary custom_routing_activity[]   @relation("CustomActParam2")
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 4.2: Routing Option 3 — Template + Override + Custom
+// ═══════════════════════════════════════════════════════════════
+
+// ── 🟦 Routing Template (shared recipe across many products) ─────
+model routing_template {
+  id                      Int               @id @default(autoincrement())
+  code                    String            @unique @db.VarChar(20) // 'Main' | 'Accessory' | 'False'
+  name                    String            @db.VarChar(60)
+  description             String?           @db.Text
+  version                 String            @default("1.0") @db.VarChar(10)
+  state                   String            @default("active") @db.VarChar(20)
+  active                  Boolean           @default(true)
+  applies_to_product_type String?           @db.VarChar(20) // 'standard'|'custom'|null = both
+  applies_to_categ_id     Int?
+  applies_to_categ        product_category? @relation(fields: [applies_to_categ_id], references: [id])
+  // Audit
+  create_uid              Int
+  create_user             res_users         @relation("rt_create", fields: [create_uid], references: [id])
+  create_date             DateTime          @default(now()) @db.Timestamptz
+  write_uid               Int
+  write_user              res_users         @relation("rt_write", fields: [write_uid], references: [id])
+  write_date              DateTime          @default(now()) @db.Timestamptz
+
+  operations             mrp_routing_workcenter[]
+  binding_rules          routing_template_binding_rule[]
+  bound_products         products[]                      @relation("ProductTemplateBind")
+  custom_routings_cloned custom_routing[]                @relation("CustomFromTemplate")
+
+  @@index([state])
+}
+
+// ── 🟨 Product Routing Override (sparse — only when product differs from template) ──
+model product_routing_override {
+  id                     Int                       @id @default(autoincrement())
+  product_id             Int
+  product                products                  @relation("ProductOverrides", fields: [product_id], references: [id], onDelete: Cascade)
+  activity_template_id   Int
+  activity_template      routing_activity_template @relation(fields: [activity_template_id], references: [id])
+  // Sparse override fields (null = inherit from template)
+  override_per_minute    Decimal?                  @db.Decimal(10, 4)
+  override_std_measure   Decimal?                  @db.Decimal(12, 4)
+  override_manpower      Decimal?                  @db.Decimal(4, 2)
+  override_workcenter_id Int?
+  override_workcenter    mrp_workcenter?           @relation("OverrideWC", fields: [override_workcenter_id], references: [id])
+  reason                 String?                   @db.Text
+  eco_id                 Int? // ⏳ Sprint 5 mrp_eco FK
+  // Audit
+  create_uid             Int
+  create_user            res_users                 @relation("ovr_create", fields: [create_uid], references: [id])
+  create_date            DateTime                  @default(now()) @db.Timestamptz
+  write_uid              Int
+  write_user             res_users                 @relation("ovr_write", fields: [write_uid], references: [id])
+  write_date             DateTime                  @default(now()) @db.Timestamptz
+
+  @@unique([product_id, activity_template_id], map: "ux_one_override_per_pair")
+  @@index([product_id])
+  @@index([activity_template_id])
+}
+
+// ── 🟥 Custom Routing (escape hatch — Class C products with unique ops) ──
+model custom_routing {
+  id                      Int               @id @default(autoincrement())
+  product_id              Int               @unique
+  product                 products          @relation("ProductCustomRouting", fields: [product_id], references: [id], onDelete: Cascade)
+  name                    String            @db.VarChar(60)
+  description             String?           @db.Text
+  version                 String            @default("1.0") @db.VarChar(10)
+  state                   String            @default("draft") @db.VarChar(20)
+  cloned_from_template_id Int?
+  cloned_from_template    routing_template? @relation("CustomFromTemplate", fields: [cloned_from_template_id], references: [id])
+  eco_id                  Int? // ⏳ Sprint 5
+  // Audit
+  create_uid              Int
+  create_user             res_users         @relation("cr_create", fields: [create_uid], references: [id])
+  create_date             DateTime          @default(now()) @db.Timestamptz
+  write_uid               Int
+  write_user              res_users         @relation("cr_write", fields: [write_uid], references: [id])
+  write_date              DateTime          @default(now()) @db.Timestamptz
+
+  ops custom_routing_op[]
+
+  @@index([cloned_from_template_id])
+  @@index([state])
+}
+
+model custom_routing_op {
+  id                Int            @id @default(autoincrement())
+  custom_routing_id Int
+  custom_routing    custom_routing @relation(fields: [custom_routing_id], references: [id], onDelete: Cascade)
+  sequence          Int
+  name              String         @db.VarChar(60)
+  op_code           String         @db.VarChar(30)
+  workcenter_id     Int
+  workcenter        mrp_workcenter @relation("CustomOpWC", fields: [workcenter_id], references: [id])
+  time_mode         String         @default("formula") @db.VarChar(10)
+  time_cycle_manual Decimal?       @db.Decimal(10, 4)
+  blocked_by_op_ids Int[]
+
+  activities custom_routing_activity[]
+
+  @@unique([custom_routing_id, sequence])
+  @@index([workcenter_id])
+}
+
+model custom_routing_activity {
+  id                  Int                    @id @default(autoincrement())
+  op_id               Int
+  op                  custom_routing_op      @relation(fields: [op_id], references: [id], onDelete: Cascade)
+  sequence            Int                    @default(10)
+  description         String                 @db.VarChar(200)
+  include_idle        Boolean                @default(false)
+  per_minute          Decimal                @db.Decimal(10, 4)
+  formula_param_code  String                 @db.VarChar(40)
+  formula_param       routing_formula_param  @relation("CustomActParam1", fields: [formula_param_code], references: [code])
+  std_measure         Decimal                @db.Decimal(12, 4)
+  unit                String                 @db.VarChar(20)
+  formula_param_code2 String?                @db.VarChar(40)
+  formula_param2      routing_formula_param? @relation("CustomActParam2", fields: [formula_param_code2], references: [code])
+  std_measure2        Decimal?               @db.Decimal(12, 4)
+  unit2               String?                @db.VarChar(20)
+  manpower            Decimal                @default(1) @db.Decimal(4, 2)
+  workcenter_id       Int
+  workcenter          mrp_workcenter         @relation("CustomActWC", fields: [workcenter_id], references: [id])
+  equipment_ref       String?                @db.VarChar(120)
+  consumable_note     String?                @db.VarChar(200)
+  utilities_note      String?                @db.VarChar(40)
+
+  @@unique([op_id, sequence])
+  @@index([workcenter_id])
+}
+
+// ── 🟨 Template Binding Rule (engineer-editable, priority-ordered rule chain) ──
+model routing_template_binding_rule {
+  id                  Int              @id @default(autoincrement())
+  priority            Int              @default(100) // lower = higher priority
+  description         String?          @db.Text
+  // Match criteria (AND — all set fields must match)
+  match_product_type  String?          @db.VarChar(20) // 'standard' | 'custom'
+  match_mark_prefix   String?          @db.VarChar(10)
+  match_categ_id      Int?
+  match_attr_path     String?          @db.VarChar(60) // e.g. 'attributes.material_group'
+  match_attr_value    String?          @db.VarChar(60)
+  // Action
+  routing_template_id Int
+  routing_template    routing_template @relation(fields: [routing_template_id], references: [id])
+  active              Boolean          @default(true)
+  // Audit (lightweight — no user FK to keep seed simple)
+  create_uid          Int              @default(1)
+  create_date         DateTime         @default(now()) @db.Timestamptz
+  write_uid           Int              @default(1)
+  write_date          DateTime         @default(now()) @db.Timestamptz
+
+  @@index([priority, active])
+  @@index([routing_template_id])
 }

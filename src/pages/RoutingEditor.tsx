@@ -2,27 +2,12 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core'
-import {
-  SortableContext,
-  verticalListSortingStrategy,
-  useSortable,
-  arrayMove,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
-import {
   ArrowLeft, Play, ArchiveX, RefreshCw, Clock, Layers,
   ChevronDown, ChevronRight, AlertCircle, Loader2, Info,
-  Trash2, Edit2, Check, X, RotateCcw, GripVertical, Pencil,
+  Edit2, Check, X, RotateCcw, Pencil, ExternalLink,
 } from 'lucide-react'
 import { useRouting, useStdCost } from '../hooks/useRoutings'
-import { updateActivityOverride, deleteStepActivity } from '../api/routings'
+import { upsertRoutingOverride, deleteRoutingOverride } from '../api/routings'
 import type { RoutingOpDTO, StepActivityDTO } from '../api/routings'
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -95,11 +80,10 @@ function TraceTooltip({ act, onClose }: { act: StepActivityDTO; onClose: () => v
 // ── Activity Row ───────────────────────────────────────────────
 
 function ActivityRow({
-  act, editMode, opId, productCode, routingKey,
+  act, editMode, productCode, routingKey,
 }: {
   act: StepActivityDTO
   editMode: boolean
-  opId: number
   productCode: string
   routingKey: unknown[]
 }) {
@@ -116,24 +100,17 @@ function ActivityRow({
   const [vals, setVals]           = useState({ per_minute: '', std_measure: '', manpower: '' })
 
   const saveMut = useMutation({
-    mutationFn: () => updateActivityOverride(productCode, opId, act.id, {
-      per_minute_override:  parseFloat(vals.per_minute)  || null,
-      std_measure_override: parseFloat(vals.std_measure) || null,
-      manpower_override:    parseFloat(vals.manpower)    || null,
+    mutationFn: () => upsertRoutingOverride(productCode, act.activity_template_id, {
+      override_per_minute:  parseFloat(vals.per_minute)  || null,
+      override_std_measure: parseFloat(vals.std_measure) || null,
+      override_manpower:    parseFloat(vals.manpower)    || null,
     }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: routingKey }); setEditing(false) },
   })
 
   const resetMut = useMutation({
-    mutationFn: () => updateActivityOverride(productCode, opId, act.id, {
-      per_minute_override: null, std_measure_override: null, manpower_override: null,
-    }),
+    mutationFn: () => deleteRoutingOverride(productCode, act.activity_template_id),
     onSuccess: () => qc.invalidateQueries({ queryKey: routingKey }),
-  })
-
-  const deleteMut = useMutation({
-    mutationFn: () => deleteStepActivity(productCode, opId, act.id),
-    onSuccess:  () => qc.invalidateQueries({ queryKey: routingKey }),
   })
 
   const startEdit = () => {
@@ -152,9 +129,9 @@ function ActivityRow({
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           {[
-            { label: `Rate (min/${tpl.unit})`, key: 'per_minute' },
-            { label: `Std measure (${tpl.unit})`, key: 'std_measure' },
-            { label: 'Manpower (คน)', key: 'manpower' },
+            { label: `Rate (min/${tpl.unit})`, key: 'per_minute' as const },
+            { label: `Std measure (${tpl.unit})`, key: 'std_measure' as const },
+            { label: 'Manpower (คน)', key: 'manpower' as const },
           ].map(f => (
             <div key={f.key}>
               <div style={{ fontSize: 10, color: '#8E8E8E', marginBottom: 2 }}>{f.label}</div>
@@ -204,8 +181,10 @@ function ActivityRow({
         <span style={{ background: '#F0F4FF', color: '#185FA5', borderRadius: 4, padding: '1px 6px', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>
           {tpl.formula_param_code}
         </span>
-        {hasOverride && (
-          <span style={{ background: '#FFF8E1', color: '#F57F17', borderRadius: 4, padding: '1px 5px', fontSize: 10, flexShrink: 0 }}>override</span>
+        {hasOverride ? (
+          <span style={{ background: '#FFF8E1', color: '#F57F17', borderRadius: 4, padding: '1px 5px', fontSize: 10, flexShrink: 0 }}>Overridden</span>
+        ) : (
+          <span style={{ background: '#F5F5F5', color: '#8E8E8E', borderRadius: 4, padding: '1px 5px', fontSize: 10, flexShrink: 0 }}>Inherited</span>
         )}
       </div>
 
@@ -239,7 +218,7 @@ function ActivityRow({
               onClick={startEdit}
               className="flex items-center justify-center rounded hover:bg-chrome-100"
               style={{ width: 20, height: 20 }}
-              title="Override values"
+              title="Override values for this product"
             >
               <Edit2 size={11} style={{ color: '#8E8E8E' }} />
             </button>
@@ -259,114 +238,61 @@ function ActivityRow({
                 : <RotateCcw size={11} style={{ color: '#F57F17' }} />}
             </button>
           )}
-
-          {/* Delete activity — edit mode */}
-          {editMode && (
-            <button
-              onClick={() => { if (confirm(`ลบ "${tpl.description}"?`)) deleteMut.mutate() }}
-              disabled={deleteMut.isPending}
-              className="flex items-center justify-center rounded hover:bg-red-50"
-              style={{ width: 20, height: 20 }}
-              title="Remove activity"
-            >
-              {deleteMut.isPending
-                ? <Loader2 size={11} className="animate-spin" style={{ color: '#C8202A' }} />
-                : <Trash2 size={11} style={{ color: '#C8202A' }} />}
-            </button>
-          )}
         </div>
       </div>
     </div>
   )
 }
 
-// ── Sortable Op Card ───────────────────────────────────────────
+// ── Op Card ────────────────────────────────────────────────────
 
-function SortableOpCard({
-  op, expanded, onToggle, editMode, onDelete, productCode, routingKey,
+function OpCard({
+  op, expanded, onToggle, editMode, productCode, routingKey,
 }: {
   op: RoutingOpDTO
   expanded: boolean
   onToggle: () => void
   editMode: boolean
-  onDelete: () => void
   productCode: string
   routingKey: unknown[]
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: op.id })
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 10 : undefined,
-  }
-
   const wcColor = WC_COLOR[op.workcenter.code] ?? '#555'
   const timeMin = Number(op.time_cycle)
 
   return (
-    <div ref={setNodeRef} style={{ ...style, border: '1px solid #E0E0E0', borderRadius: 8, marginBottom: 8, overflow: 'hidden', background: 'white' }}>
+    <div style={{ border: '1px solid #E0E0E0', borderRadius: 8, marginBottom: 8, overflow: 'hidden', background: 'white' }}>
       {/* Op header */}
-      <div className="flex items-center" style={{ padding: '8px 12px 8px 8px' }}>
-        {/* Drag handle — only in edit mode */}
-        {editMode ? (
-          <div
-            {...attributes}
-            {...listeners}
-            className="flex items-center justify-center cursor-grab active:cursor-grabbing mr-2"
-            style={{ width: 24, height: 32, flexShrink: 0, color: '#C2C2C2' }}
-          >
-            <GripVertical size={16} />
+      <button
+        className="flex items-center w-full text-left hover:opacity-80 transition-opacity"
+        style={{ padding: '8px 12px' }}
+        onClick={onToggle}
+      >
+        {expanded
+          ? <ChevronDown size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />
+          : <ChevronRight size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />}
+
+        <span style={{ background: wcColor, color: 'white', borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 700, flexShrink: 0, marginLeft: 8 }}>
+          {op.workcenter.code}
+        </span>
+
+        <div className="flex-1 min-w-0 mx-3">
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>{op.name}</span>
+          <span className="ml-2" style={{ fontSize: 11, color: '#8E8E8E' }}>seq {op.sequence}</span>
+        </div>
+
+        <div className="flex items-center gap-4" style={{ flexShrink: 0 }}>
+          <div className="text-right">
+            <div style={{ fontSize: 11, color: '#8E8E8E' }}>Activities</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#3A3A3A' }}>{op.activities.length}</div>
           </div>
-        ) : (
-          <div style={{ width: 8 }} />
-        )}
-
-        {/* Expand toggle */}
-        <button
-          className="flex items-center gap-3 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
-          onClick={onToggle}
-        >
-          {expanded
-            ? <ChevronDown size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />
-            : <ChevronRight size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />}
-
-          <span style={{ background: wcColor, color: 'white', borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-            {op.workcenter.code}
-          </span>
-
-          <div className="flex-1 min-w-0">
-            <span style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>{op.name}</span>
-            <span className="ml-2" style={{ fontSize: 11, color: '#8E8E8E' }}>seq {op.sequence}</span>
-          </div>
-
-          <div className="flex items-center gap-4 mr-2" style={{ flexShrink: 0 }}>
-            <div className="text-right">
-              <div style={{ fontSize: 11, color: '#8E8E8E' }}>Activities</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#3A3A3A' }}>{op.activities.length}</div>
-            </div>
-            <div className="text-right">
-              <div style={{ fontSize: 11, color: '#8E8E8E' }}>Cycle Time</div>
-              <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: timeMin > 0 ? '#185FA5' : '#8E8E8E' }}>
-                {timeMin > 0 ? fmtTime(timeMin) : '—'}
-              </div>
+          <div className="text-right">
+            <div style={{ fontSize: 11, color: '#8E8E8E' }}>Cycle Time</div>
+            <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: timeMin > 0 ? '#185FA5' : '#8E8E8E' }}>
+              {timeMin > 0 ? fmtTime(timeMin) : '—'}
             </div>
           </div>
-        </button>
-
-        {/* Delete op — edit mode only */}
-        {editMode && (
-          <button
-            onClick={e => { e.stopPropagation(); onDelete() }}
-            className="flex items-center justify-center rounded hover:bg-red-50"
-            style={{ width: 28, height: 28, flexShrink: 0 }}
-            title="ลบ operation นี้"
-          >
-            <Trash2 size={14} style={{ color: '#C8202A' }} />
-          </button>
-        )}
-      </div>
+        </div>
+      </button>
 
       {/* Activity list */}
       {expanded && (
@@ -384,7 +310,6 @@ function SortableOpCard({
                 key={a.id}
                 act={a}
                 editMode={editMode}
-                opId={op.id}
                 productCode={productCode}
                 routingKey={routingKey}
               />
@@ -404,19 +329,11 @@ export function RoutingEditor() {
 
   const [expandedOps, setExpandedOps]   = useState<Set<number>>(new Set())
   const [editMode, setEditMode]         = useState(false)
-  const [localOps, setLocalOps]         = useState<RoutingOpDTO[]>([])
   const [recomputeResult, setRecomputeResult] = useState<string | null>(null)
-  const [saving, setSaving]             = useState(false)
 
   const routingKey = ['routing', code]
-  const { routing, state, totalTimeMin, loading, error, activate, obsolete, recompute, deleteOp, reorderOps } = useRouting(code)
+  const { routing, state, totalTimeMin, loading, error, activate, obsolete, recompute } = useRouting(code)
   const { stdCost, recompute: recomputeCost } = useStdCost(code)
-
-  const isDraft = state === 'draft'
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-  )
 
   const toggleOp = (id: number) =>
     setExpandedOps(prev => {
@@ -424,53 +341,6 @@ export function RoutingEditor() {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-
-  // Enter edit mode — snapshot current op order
-  const handleEnterEdit = () => {
-    setLocalOps([...routing])
-    setEditMode(true)
-  }
-
-  // Cancel edit — discard local reorder
-  const handleCancelEdit = () => {
-    setEditMode(false)
-    setLocalOps([])
-  }
-
-  // Save reorder to backend
-  const handleSaveEdit = async () => {
-    setSaving(true)
-    try {
-      const items = localOps.map((op, idx) => ({ id: op.id, sequence: (idx + 1) * 10 }))
-      await reorderOps.mutateAsync(items)
-      setEditMode(false)
-      setLocalOps([])
-    } catch (e: any) {
-      alert(e.response?.data?.message ?? 'บันทึกไม่สำเร็จ')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    setLocalOps(prev => {
-      const oldIdx = prev.findIndex(o => o.id === active.id)
-      const newIdx = prev.findIndex(o => o.id === over.id)
-      return arrayMove(prev, oldIdx, newIdx)
-    })
-  }
-
-  const handleDeleteOp = async (opId: number, opName: string) => {
-    if (!confirm(`ลบ operation "${opName}" ออกจาก routing นี้?`)) return
-    try {
-      await deleteOp.mutateAsync(opId)
-      setLocalOps(prev => prev.filter(o => o.id !== opId))
-    } catch (e: any) {
-      alert(e.response?.data?.message ?? 'ลบไม่สำเร็จ')
-    }
-  }
 
   const handleActivate = async () => {
     try { await activate.mutateAsync() }
@@ -493,9 +363,6 @@ export function RoutingEditor() {
       alert(e.response?.data?.message ?? 'คำนวณไม่สำเร็จ')
     }
   }
-
-  // ops to render — use local order while editing, server order otherwise
-  const displayOps = editMode ? localOps : routing
 
   if (loading) return (
     <div className="flex items-center justify-center" style={{ height: '60vh' }}>
@@ -524,17 +391,27 @@ export function RoutingEditor() {
           </button>
           <div>
             <span className="font-mono" style={{ fontSize: 15, fontWeight: 700, color: '#1F1F1F' }}>{code}</span>
-            {routing[0] && <span style={{ fontSize: 13, color: '#555', marginLeft: 8 }}>{routing[0].workcenter?.name ?? ''}</span>}
+            {routing[0] && <span style={{ fontSize: 13, color: '#555', marginLeft: 8 }}>{routing[0].routing_template ?? ''}</span>}
           </div>
           {state && <StatePill state={state} />}
           {editMode && (
             <span style={{ background: '#FFF8E1', color: '#854F0B', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
-              โหมดแก้ไข
+              โหมด Override
             </span>
           )}
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Custom Routing — structural changes */}
+          <button
+            onClick={() => navigate(`/products/${code}/custom-routing`)}
+            className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
+            style={{ height: 32, padding: '0 12px', fontSize: 12, fontWeight: 500, color: '#E65100' }}
+            title="เพิ่ม/ลบ operations หรือ activities"
+          >
+            <ExternalLink size={13} /> Custom Routing
+          </button>
+
           {/* Recompute */}
           {!editMode && (
             <button
@@ -550,39 +427,26 @@ export function RoutingEditor() {
             </button>
           )}
 
-          {/* Edit / Save / Cancel */}
-          {isDraft && !editMode && (
+          {/* Override mode toggle — available regardless of template state */}
+          {!editMode ? (
             <button
-              onClick={handleEnterEdit}
+              onClick={() => setEditMode(true)}
               className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
               style={{ height: 32, padding: '0 12px', fontSize: 12, fontWeight: 500, color: '#555' }}
             >
-              <Pencil size={13} /> แก้ไข
+              <Pencil size={13} /> Override
+            </button>
+          ) : (
+            <button
+              onClick={() => setEditMode(false)}
+              className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
+              style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}
+            >
+              <Check size={13} /> เสร็จ
             </button>
           )}
 
-          {editMode && (
-            <>
-              <button
-                onClick={handleCancelEdit}
-                className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
-                style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}
-              >
-                <X size={13} /> ยกเลิก
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={saving}
-                className="flex items-center gap-1.5 rounded-md text-white"
-                style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
-              >
-                {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                บันทึกลำดับ
-              </button>
-            </>
-          )}
-
-          {/* Activate / Obsolete — only when not editing */}
+          {/* Activate / Obsolete */}
           {!editMode && state === 'draft' && (
             <button
               onClick={handleActivate}
@@ -608,56 +472,36 @@ export function RoutingEditor() {
         </div>
       </div>
 
-      {/* Edit mode hint banner */}
+      {/* Override mode hint banner */}
       {editMode && (
         <div className="flex items-center gap-2" style={{ background: '#FFF8E1', borderBottom: '1px solid #FFE082', padding: '8px 24px', fontSize: 12, color: '#854F0B' }}>
-          <GripVertical size={14} />
-          ลาก operation เพื่อเรียงลำดับใหม่ • แก้ไข / ลบ activity ได้จากแต่ละแถว • กด "บันทึกลำดับ" เมื่อเสร็จ
+          <Pencil size={13} />
+          คลิก ✎ บน activity เพื่อ override ค่าเฉพาะ product นี้ • คลิก ↺ เพื่อคืนค่าจาก template • การเปลี่ยน ops/activities ใช้ Custom Routing
         </div>
       )}
 
       {/* Recompute success banner */}
       {recomputeResult && (
         <div className="flex items-center gap-2" style={{ background: '#EAF5E9', borderBottom: '1px solid #C8E6C9', padding: '8px 24px', fontSize: 13, color: '#2E7D32' }}>
-          <Info size={14} />{recomputeResult}
+          <RefreshCw size={14} />{recomputeResult}
         </div>
       )}
 
       <div className="flex flex-1 min-h-0">
         {/* Left — Operations list */}
         <div className="flex-1 overflow-y-auto" style={{ padding: 20 }}>
-          {displayOps.length === 0 ? (
+          {routing.length === 0 ? (
             <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
               ยังไม่มี routing operations สำหรับ {code}
             </div>
-          ) : editMode ? (
-            /* Drag-and-drop context — active in edit mode */
-            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={displayOps.map(o => o.id)} strategy={verticalListSortingStrategy}>
-                {displayOps.map(op => (
-                  <SortableOpCard
-                    key={op.id}
-                    op={op}
-                    expanded={expandedOps.has(op.id)}
-                    onToggle={() => toggleOp(op.id)}
-                    editMode={editMode}
-                    onDelete={() => handleDeleteOp(op.id, op.name)}
-                    productCode={code!}
-                    routingKey={routingKey}
-                  />
-                ))}
-              </SortableContext>
-            </DndContext>
           ) : (
-            /* View mode — plain list */
-            displayOps.map(op => (
-              <SortableOpCard
+            routing.map(op => (
+              <OpCard
                 key={op.id}
                 op={op}
                 expanded={expandedOps.has(op.id)}
                 onToggle={() => toggleOp(op.id)}
-                editMode={false}
-                onDelete={() => {}}
+                editMode={editMode}
                 productCode={code!}
                 routingKey={routingKey}
               />

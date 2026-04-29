@@ -38,7 +38,7 @@ function PreviewModal({ template, onClose }: {
   template: ActivityTemplateDTO
   onClose: () => void
 }) {
-  const { data: params } = useFormulaParams()
+  useFormulaParams()
 
   const fp = template.formula_param
   const requiredInputs: string[] = fp?.inputs_required ?? []

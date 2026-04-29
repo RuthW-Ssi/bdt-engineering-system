@@ -10,6 +10,9 @@ import { ActivityTemplatesService } from './services/activity-templates.service'
 import { FormulaService } from './services/formula.service'
 import { CycleTimeService } from './services/cycle-time.service'
 import { StdCostService } from './services/std-cost.service'
+import { TemplateBindingService } from './services/template-binding.service'
+import { OverrideService } from './services/override.service'
+import { CustomRoutingService } from './services/custom-routing.service'
 
 @Module({
   imports: [PrismaModule, MailModule, IdentityModule],
@@ -21,7 +24,10 @@ import { StdCostService } from './services/std-cost.service'
     FormulaService,
     CycleTimeService,
     StdCostService,
+    TemplateBindingService,
+    OverrideService,
+    CustomRoutingService,
   ],
-  exports: [RoutingService, FormulaService, CycleTimeService, StdCostService],
+  exports: [RoutingService, FormulaService, CycleTimeService, StdCostService, OverrideService],
 })
 export class RoutingsModule {}
