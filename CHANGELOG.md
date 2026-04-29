@@ -62,7 +62,7 @@
 
 - **Routings Module** (`backend/src/modules/routings/`) — `mrp_workcenter`, `mrp_routing_workcenter`, `routing_step_activity`, `routing_activity_template`, `routing_formula_param` tables
 - **Work Center master** — OEE targets (availability × performance × quality), labor mix JSONB, per-minute cost components (labor/electricity/consumable/overhead), capacity per period (kg/m/pc per month)
-- **Activity Template master** — 923 templates imported from xlsx; each links op_code + workcenter + formula_param; paginated GET with `op_code` / `workcenter_id` filter
+- **Activity Template master** — 41 templates imported from xlsx; each links op_code + workcenter + formula_param; paginated GET with `op_code` / `workcenter_id` filter
 - **Formula Param master** — 19 formula params; safe expression evaluator via `expr-eval` (whitelist operators only); `preview` endpoint returns computed cycle time for given product attributes
 - **Cycle Time service** — `compute(productId, force=false)`; walks routing operations → activities → evaluates formula with product attributes; writes `last_cycle_time_min` + `last_input_snapshot` per step; caches per `cache_key` hash; `force=true` bypasses cache
 - **Std Cost service** — `compute(productId)`; multiplies cycle time per work center × per-minute cost rates → `cost_per_op[]` + `total_production_cost`

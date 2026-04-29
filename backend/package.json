@@ -11,6 +11,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node prisma/seed.ts",
+    "seed:routing": "ts-node prisma/seed-routing.ts",
     "import:odoo": "ts-node prisma/import-odoo-data.ts",
     "import:routing-xlsx": "ts-node prisma/import-routing-xlsx.ts",
     "test": "jest",
