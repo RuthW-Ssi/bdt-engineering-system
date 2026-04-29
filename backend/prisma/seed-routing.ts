@@ -29,9 +29,33 @@ const TEMPLATE_OPS = [
   { op_code: 'painting',        name: 'Painting & Blasting', sequence: 50 },
 ]
 
+async function ensureCustomDemoProduct(mainTplId: number) {
+  // สร้าง CUS-00001 เพื่อ demo custom routing ใน Path B (ถ้ายังไม่มี)
+  await prisma.products.upsert({
+    where: { product_code: 'CUS-00001' },
+    update: { routing_template_id: mainTplId },
+    create: {
+      product_code:   'CUS-00001',
+      name:           'WH-CO-1 COLUMN (Demo)',
+      categ_id:       24,           // Main Structures
+      product_type:   'custom',
+      mark_prefix:    'C',
+      mark_number:    'CO-1',
+      project_id:     1,
+      attributes:     { weight_kg: 2500, product_length: 6000, product_area: 18, product_perimeter: 1.2, part_quan: 12, assembly_point: 8, buildup_weight: 2500, buildup_perimeter: 1.2, buildup_weldingpoint: 24 },
+      routing_template_id: mainTplId,
+      create_uid:     ADMIN_UID,
+      write_uid:      ADMIN_UID,
+    },
+  })
+  console.log('✓ CUS-00001 upserted → Main template')
+}
+
 async function bindDemoProducts(mainTplId: number) {
+  await ensureCustomDemoProduct(mainTplId)
+
   const demoProducts = await prisma.products.findMany({
-    where: { routing_template_id: { not: mainTplId } },
+    where: { routing_template_id: { not: mainTplId }, product_type: 'standard' },
     orderBy: { id: 'asc' },
     take: 3,
   })

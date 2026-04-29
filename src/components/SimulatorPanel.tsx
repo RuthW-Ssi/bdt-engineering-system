@@ -13,6 +13,43 @@ interface SimulatorPanelProps {
 
 const LS_KEY = (templateId: number) => `simulator_attrs_${templateId}`
 
+const UNIT_MAP: Record<string, string> = {
+  // camelCase vars from Excel formulas
+  sumWeight:              'kg',
+  Length:                 'mm',
+  Width:                  'mm',
+  Hight:                  'mm',
+  count_part:             'pcs',
+  part:                   'pcs',
+  sumNet_surface_area:    'm²',
+  pipe_perimeter:         'm',
+  // snake_case vars
+  weight_kg:              'kg',
+  buildup_weight:         'kg',
+  product_length:         'mm',
+  product_area:           'm²',
+  product_perimeter:      'm',
+  buildup_perimeter:      'm',
+  section_perimeter:      'm',
+  product_welding_length: 'm',
+  part_quan:              'pcs',
+  assembly_point:         'pt',
+  buildup_weldingpoint:   'pt',
+  buildup_weldingsize:    'mm',
+}
+
+function inferUnit(key: string): string {
+  if (UNIT_MAP[key]) return UNIT_MAP[key]
+  const low = key.toLowerCase()
+  if (low.includes('weight') || low.endsWith('_kg'))     return 'kg'
+  if (low.includes('area') || low.endsWith('_area'))     return 'm²'
+  if (low.includes('perimeter') || low.includes('length')) return 'm'
+  if (low.includes('width') || low.includes('height') || low.includes('hight') || low.includes('thick')) return 'mm'
+  if (low.includes('count') || low.includes('quan') || low.includes('_part')) return 'pcs'
+  if (low.includes('point') || low.includes('joint'))    return 'pt'
+  return ''
+}
+
 export function SimulatorPanel({ templateId, templateCode, productAttributes }: SimulatorPanelProps) {
   const [mode, setMode] = useState<'product' | 'manual'>('product')
   const [manualAttrs, setManualAttrs] = useState<Record<string, string>>({})
@@ -146,22 +183,28 @@ export function SimulatorPanel({ templateId, templateCode, productAttributes }: 
         {mode === 'manual' && (
           <div style={{ marginBottom: 12 }}>
             {requiredAttrs && requiredAttrs.length > 0 ? (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px', gap: '4px 8px', alignItems: 'center' }}>
-                {requiredAttrs.map(a => (
-                  <>
-                    <label key={a.key + '-lbl'} style={{ fontSize: 12, color: '#555' }} title={`Used by: ${a.used_by.join(', ')}`}>
-                      {a.key}
-                    </label>
-                    <input
-                      key={a.key + '-inp'}
-                      type="number"
-                      step="any"
-                      value={manualAttrs[a.key] ?? ''}
-                      onChange={e => setManualAttrs(m => ({ ...m, [a.key]: e.target.value }))}
-                      style={{ padding: '3px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 3, width: '100%' }}
-                    />
-                  </>
-                ))}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 32px', gap: '4px 6px', alignItems: 'center' }}>
+                {requiredAttrs.map(a => {
+                  const unit = inferUnit(a.key)
+                  return (
+                    <>
+                      <label key={a.key + '-lbl'} style={{ fontSize: 12, color: '#555' }} title={`Used by: ${a.used_by.join(', ')}`}>
+                        {a.key}
+                      </label>
+                      <input
+                        key={a.key + '-inp'}
+                        type="number"
+                        step="any"
+                        value={manualAttrs[a.key] ?? ''}
+                        onChange={e => setManualAttrs(m => ({ ...m, [a.key]: e.target.value }))}
+                        style={{ padding: '3px 6px', fontSize: 12, border: '1px solid #ddd', borderRadius: 3, width: '100%' }}
+                      />
+                      <span key={a.key + '-unit'} style={{ fontSize: 11, color: '#888', whiteSpace: 'nowrap' }}>
+                        {unit}
+                      </span>
+                    </>
+                  )
+                })}
               </div>
             ) : (
               <div style={{ fontSize: 12, color: '#aaa' }}>Loading required attributes…</div>
