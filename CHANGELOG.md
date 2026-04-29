@@ -1,5 +1,33 @@
 # Changelog
 
+## [Sprint 4.3] — 2026-04-29
+
+### Added — Backend
+
+- **TemplateSimulatorService** — `simulate(templateId, attributes)` runs formula eval across all template ops without writing to DB; `getRequiredAttrs()` returns distinct attribute keys used by all formula params; fixture CRUD (create/list named test inputs)
+- **BulkOverrideService** — `bulkUpsert(criteria, override, { previewOnly })` matches products by `routing_template_id`, `product_type`, `mark_prefix`, JSONB `attribute_filter`; transactional upsert; skips `has_custom_routing=true` products
+- **RoutingPromotionService** — `findCandidates()` groups custom routings by op_code sequence key; `promote(customRoutingId, templateName)` clones ops+activities into a new routing_template and rebinds the source product
+- **3 history tables** — `routing_template_history`, `routing_activity_template_history`, `product_routing_override_history`; append-only snapshots captured by PostgreSQL BEFORE UPDATE/DELETE triggers
+- **New endpoints**: `GET /routing-templates/:id/required-attrs`, `POST /routing-templates/:id/simulate`, `GET|POST /routing-templates/:id/fixtures`, `GET /routing-templates/:id/history`, `GET /activity-templates/:id/history`, `GET /products/:code/routing-overrides/:actId/history`, `POST /routing-overrides/bulk`, `GET /custom-routings/promotion-candidates`, `POST /custom-routings/:id/promote-to-template`
+- `routing_template_id` added to `GET /products/:code/routing` response (required by simulator + history drawer)
+
+### Added — Frontend
+
+- **SimulatorPanel** (`src/components/SimulatorPanel.tsx`) — 2-mode toggle (Product / Manual); localStorage persistence per template; run → bar chart result per op; Save-as-fixture + load fixture buttons
+- **HistoryDrawer** (`src/components/HistoryDrawer.tsx`) — shared slide-in drawer; supports `template` / `activity` / `override` history types; paginated (50/page); override type supports "Restore" button → `upsertRoutingOverride` with snapshot values
+- **RoutingEditor.tsx** — "Simulator" toggle in header → SimulatorPanel in right panel; template History drawer in header; per-activity override history drawer with Restore (rollback)
+- **ActivityTemplateMaster.tsx** — History drawer button per activity row
+- **BulkOverrideAdmin.tsx** (NEW) — `/admin/bulk-overrides`; filter → preview → apply flow
+- **CustomRoutingEditor.tsx** — promotion suggestion banner when ≥3 products share op_code structure; Promote to Template button
+- **App.tsx** — route `/admin/bulk-overrides`
+
+### Docs
+
+- `docs/adr/0009-bulk-override-pattern.md`
+- `docs/adr/0010-custom-routing-promotion.md`
+
+---
+
 ## [Sprint 4.2] — 2026-04-29
 
 ### Schema Migration (Breaking)

@@ -4,6 +4,7 @@ import { Search, ArrowLeft, X, ChevronLeft, ChevronRight, Loader2, AlertCircle, 
 import { useActivityTemplates, useWorkcenters, useFormulaParams } from '../hooks/useRoutings'
 import { previewTemplate } from '../api/routings'
 import type { ActivityTemplateDTO } from '../api/routings'
+import { HistoryDrawer } from '../components/HistoryDrawer'
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -280,8 +281,8 @@ export function ActivityTemplateMaster() {
       {/* Table */}
       <div className="bg-white flex-1">
         {/* Column headers */}
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-          {['กิจกรรม', 'Op Code', 'Work Center', 'Formula', 'Rate', 'Std Measure', 'Manpower'].map((h, i) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 70px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
+          {['กิจกรรม', 'Op Code', 'Work Center', 'Formula', 'Rate', 'Std Measure', 'Manpower', ''].map((h, i) => (
             <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
           ))}
         </div>
@@ -304,7 +305,7 @@ export function ActivityTemplateMaster() {
               key={t.id}
               onClick={() => setSelectedTemplate(t)}
               className="cursor-pointer hover:bg-chrome-50 transition-colors"
-              style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px', alignItems: 'center', padding: '0 20px', height: 48, borderBottom: '1px solid #F0F0F0' }}
+              style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 70px', alignItems: 'center', padding: '0 20px', height: 48, borderBottom: '1px solid #F0F0F0' }}
             >
               <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{t.description}</div>
 
@@ -326,6 +327,10 @@ export function ActivityTemplateMaster() {
               <div className="font-mono" style={{ fontSize: 12, color: '#3A3A3A' }}>{t.std_measure} {t.unit}</div>
 
               <div style={{ fontSize: 12, color: '#555' }}>{t.manpower} คน</div>
+
+              <div onClick={e => e.stopPropagation()}>
+                <HistoryDrawer type="activity" id={t.id} name={t.description} />
+              </div>
             </div>
           ))
         )}

@@ -27,13 +27,13 @@
 | **1. `prisma:seed`** | res_users, uom_*, account_account, product_category, mark_prefix_master, tekla_prefix_mapping, steel_grade, project (0X202), product_code_seq, part_code_seq, products (12 STD templates) | `pnpm prisma:seed` |
 | **2. `import:routing-xlsx`** | mrp_workcenter (4), routing_formula_param (~19), routing_activity_template (~923) | `pnpm import:routing-xlsx` |
 | **3. `import:odoo`** | materials (จริง), products (จริง — ไม่ใช่แค่ template) | `pnpm import:odoo` |
-| **4. UI / pg_dump เท่านั้น** | product_bom, product_bom_line, shop_drawing, drawing_revision, file_storage, Sprint 4.2 routing_op_activity, product_routing_override, custom_routing | ❌ Path B ไม่มีทาง seed — ต้อง pg_restore หรือสร้างผ่าน UI |
+| **4. UI / pg_dump เท่านั้น** | product_bom, product_bom_line, shop_drawing, drawing_revision, file_storage, routing_op_activity, product_routing_override, custom_routing, routing_template_history, routing_activity_template_history, product_routing_override_history, routing_template_test_fixture | ❌ Path B ไม่มีทาง seed — ต้อง pg_restore หรือสร้างผ่าน UI |
 
 **สรุป Path B (fresh setup) จะได้:**
 - ✅ Master data + UoM + ผังบัญชี + steel grade + 12 product templates
 - ✅ Work center + formula params + activity templates
 - ✅ Materials + Products จริง (ถ้ามี xlsx ที่ import:odoo อ่าน)
-- ❌ **ไม่มี:** BOM lines, shop drawings, Sprint 4.2 custom routing
+- ❌ **ไม่มี:** BOM lines, shop drawings, custom routing (Sprint 4.2), history records + fixtures (Sprint 4.3)
 
 ---
 
@@ -306,7 +306,11 @@ UNION ALL SELECT 'routing_formula_param', COUNT(*) FROM routing_formula_param
 -- Sprint 4.2 tables
 UNION ALL SELECT 'routing_op_activity', COUNT(*) FROM routing_op_activity
 UNION ALL SELECT 'product_routing_override', COUNT(*) FROM product_routing_override
-UNION ALL SELECT 'custom_routing', COUNT(*) FROM custom_routing;
+UNION ALL SELECT 'custom_routing', COUNT(*) FROM custom_routing
+-- Sprint 4.3 tables
+UNION ALL SELECT 'routing_template_history', COUNT(*) FROM routing_template_history
+UNION ALL SELECT 'override_history', COUNT(*) FROM product_routing_override_history
+UNION ALL SELECT 'test_fixtures', COUNT(*) FROM routing_template_test_fixture;
 ```
 
 เปิด UI ที่ `http://localhost:5173` แล้วทดสอบ:
@@ -512,4 +516,4 @@ pg_dump -h localhost -U bdt -d bdt -F c -f bdt_$(date +%Y%m%d).dump
 
 ---
 
-**Last updated:** 2026-04-29 · **Stack version:** Node 20 / Postgres 16 / pnpm 9 / Prisma 6
+**Last updated:** 2026-04-29 (Sprint 4.3) · **Stack version:** Node 20 / Postgres 16 / pnpm 9 / Prisma 6
