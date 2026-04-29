@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
 import { RoutingList } from './pages/RoutingList'
 import { RoutingEditor } from './pages/RoutingEditor'
+import { WorkcenterMaster } from './pages/WorkcenterMaster'
+import { ActivityTemplateMaster } from './pages/ActivityTemplateMaster'
 import { ProductList } from './pages/ProductList'
 import { ProductDetail } from './pages/ProductDetail'
 import { MaterialList } from './pages/MaterialList'
@@ -32,6 +34,8 @@ export default function App() {
           <Route path="/bom/:code/diff" element={<BomDiffReview />} />
           <Route path="/routings" element={<RoutingList />} />
           <Route path="/routings/:code" element={<RoutingEditor />} />
+          <Route path="/admin/workcenters" element={<WorkcenterMaster />} />
+          <Route path="/admin/activity-templates" element={<ActivityTemplateMaster />} />
           <Route path="/eco" element={<Placeholder title="ECO" />} />
           <Route path="/qc" element={<Placeholder title="QC" />} />
           <Route path="/reports" element={<Placeholder title="Reports" />} />

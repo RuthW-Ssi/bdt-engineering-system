@@ -1,5 +1,58 @@
 # Changelog
 
+## [Sprint 4] — 2026-04-29
+
+### Added — Backend
+
+- **Routings Module** (`backend/src/modules/routings/`) — `mrp_workcenter`, `mrp_routing_workcenter`, `routing_step_activity`, `routing_activity_template`, `routing_formula_param` tables
+- **Work Center master** — OEE targets (availability × performance × quality), labor mix JSONB, per-minute cost components (labor/electricity/consumable/overhead), capacity per period (kg/m/pc per month)
+- **Activity Template master** — 923 templates imported from xlsx; each links op_code + workcenter + formula_param; paginated GET with `op_code` / `workcenter_id` filter
+- **Formula Param master** — 19 formula params; safe expression evaluator via `expr-eval` (whitelist operators only); `preview` endpoint returns computed cycle time for given product attributes
+- **Cycle Time service** — `compute(productId, force=false)`; walks routing operations → activities → evaluates formula with product attributes; writes `last_cycle_time_min` + `last_input_snapshot` per step; caches per `cache_key` hash; `force=true` bypasses cache
+- **Std Cost service** — `compute(productId)`; multiplies cycle time per work center × per-minute cost rates → `cost_per_op[]` + `total_production_cost`
+- **Routing state machine** — `draft → active → obsolete`; unique partial index enforces 1 active routing per product; active routing is read-only
+- **Routing CRUD** — add/delete/reorder operations; add/patch/delete step activities with per-minute / std-measure / manpower overrides (null = inherit from template)
+- **xlsx importer** — `prisma/import-routing-xlsx.ts` (activity templates + formula params from `document/`)
+
+### Added — Frontend
+
+- **`src/pages/RoutingList.tsx`** — paginated product list with routing state filter; pagination loop handles >100 products (API max limit=100)
+- **`src/pages/RoutingEditor.tsx`** — full editor with Edit mode toggle; drag-and-drop reorder (@dnd-kit); activity override inline form; formula trace tooltip showing `last_input_snapshot`; Activate / Obsolete state actions
+- **`src/pages/WorkcenterMaster.tsx`** — OEE sliders, labor mix inputs, cost component fields per work center
+- **`src/pages/ActivityTemplateMaster.tsx`** — searchable paginated table; preview modal with live formula computation
+- **`src/pages/ProductDetail.tsx`** — added "Routing" tab: routing state, total cycle time, per-op breakdown, production cost, Recompute button
+- **`src/api/routings.ts`** — full API layer (routing CRUD, workcenter, activity template, formula param, std cost)
+- **`src/hooks/useRoutings.ts`** — React Query hooks for routing, std cost, workcenters, activity templates
+
+### API Endpoints Added (Sprint 4)
+
+```
+GET    /api/v1/products/:code/routing
+POST   /api/v1/products/:code/routing
+POST   /api/v1/products/:code/routing/operations
+PATCH  /api/v1/products/:code/routing/operations/:opId
+DELETE /api/v1/products/:code/routing/operations/:opId
+POST   /api/v1/products/:code/routing/operations/:opId/activities
+PATCH  /api/v1/products/:code/routing/operations/:opId/activities/:stepId
+DELETE /api/v1/products/:code/routing/operations/:opId/activities/:stepId
+POST   /api/v1/products/:code/routing/reorder
+POST   /api/v1/products/:code/routing/action_activate
+POST   /api/v1/products/:code/routing/action_obsolete
+POST   /api/v1/products/:code/routing/recompute?force=true
+GET    /api/v1/products/:code/std-cost
+POST   /api/v1/products/:code/std-cost/recompute
+GET    /api/v1/workcenters
+GET    /api/v1/workcenters/:id
+PATCH  /api/v1/workcenters/:id
+GET    /api/v1/activity-templates
+GET    /api/v1/activity-templates/:id
+POST   /api/v1/activity-templates/:id/preview
+GET    /api/v1/formula-params
+GET    /api/v1/routings/templates
+```
+
+---
+
 ## [Sprint 3] — 2026-04-28
 
 ### Added — Backend

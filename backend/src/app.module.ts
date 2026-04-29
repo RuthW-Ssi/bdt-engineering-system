@@ -15,6 +15,8 @@ import { ProductsModule } from './modules/products/products.module'
 import { BomsModule } from './modules/boms/boms.module'
 import { DrawingsModule } from './modules/drawings/drawings.module'
 import { FileStorageModule } from './modules/file-storage/file-storage.module'
+// Sprint 4
+import { RoutingsModule } from './modules/routings/routings.module'
 
 @Module({
   imports: [
@@ -34,6 +36,8 @@ import { FileStorageModule } from './modules/file-storage/file-storage.module'
     BomsModule,
     DrawingsModule,
     FileStorageModule,
+    // Sprint 4
+    RoutingsModule,
   ],
 })
 export class AppModule {}

@@ -13,8 +13,8 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('BDT Engineering System API')
-    .setDescription('Material Master + Product Layer (Standard & Custom) — Sprint 2')
-    .setVersion('2.0')
+    .setDescription('Material Master + Product Layer + Routing & Standard Time — Sprint 4')
+    .setVersion('4.0')
     .addApiKey({ type: 'apiKey', name: 'x-user-id', in: 'header' }, 'x-user-id')
     .build()
   const doc = SwaggerModule.createDocument(app, config)

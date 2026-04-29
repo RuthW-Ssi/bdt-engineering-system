@@ -1,13 +1,26 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, FileText, Download, AlertCircle } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink } from 'lucide-react'
 import { useProduct, useProductAction, useProductMessages } from '../hooks/useProducts'
 import { useDrawings } from '../hooks/useDrawings'
+import { useRouting, useStdCost } from '../hooks/useRoutings'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import type { ProductState } from '../api/types'
 
-const TABS = ['ภาพรวม', 'Drawings', 'Cost', 'Audit Log']
+const TABS = ['ภาพรวม', 'Drawings', 'Routing', 'Cost', 'Audit Log']
+
+const ROUTING_STATE_STYLE: Record<string, { bg: string; text: string; label: string }> = {
+  draft:    { bg: '#F5F5F5', text: '#555', label: 'Draft' },
+  active:   { bg: '#EAF5E9', text: '#2E7D32', label: 'Active' },
+  obsolete: { bg: '#FFF3E0', text: '#E65100', label: 'Obsolete' },
+}
+
+function fmtTime(min: number) {
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
 
 const DRAWING_STATE_STYLE: Record<string, { bg: string; text: string; border: string }> = {
   draft:      { bg: '#F5F5F5',  text: '#555555', border: '#C2C2C2' },
@@ -62,6 +75,17 @@ export function ProductDetail() {
   const { mutateAsync: doAction, isPending: actioning } = useProductAction(code ?? '')
   const { data: messages = [] } = useProductMessages(code ?? '')
   const { drawings, loading: drawingsLoading, error: drawingsError } = useDrawings(code)
+  const { routing, state: routingState, totalTimeMin, loading: routingLoading, recompute } = useRouting(code)
+  const { stdCost, recompute: recomputeCost } = useStdCost(code)
+
+  const handleRoutingRecompute = async () => {
+    try {
+      await recompute.mutateAsync()
+      await recomputeCost.mutateAsync()
+    } catch (e: any) {
+      alert(e.response?.data?.message ?? 'คำนวณไม่สำเร็จ')
+    }
+  }
 
   if (isLoading) return (
     <div className="flex items-center justify-center gap-2" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
@@ -342,6 +366,110 @@ export function ProductDetail() {
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {activeTab === 'Routing' && (
+          <div style={{ maxWidth: 760 }}>
+            {routingLoading ? (
+              <div className="flex items-center gap-2" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
+                <Loader2 size={16} className="animate-spin" /> กำลังโหลด routing...
+              </div>
+            ) : routing.length === 0 ? (
+              <div className="bg-white rounded-lg border border-chrome-100 flex flex-col items-center justify-center gap-3" style={{ padding: 48 }}>
+                <Layers size={32} style={{ color: '#C2C2C2' }} />
+                <div style={{ fontSize: 13, color: '#8E8E8E' }}>ยังไม่มี Routing สำหรับ {code}</div>
+                <button
+                  onClick={() => navigate(`/routings/${code}`)}
+                  className="flex items-center gap-1.5 rounded-md text-white"
+                  style={{ height: 34, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
+                >
+                  <ExternalLink size={13} /> เปิด Routing Editor
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {/* Summary card */}
+                <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>Routing Summary</div>
+                      {routingState && (
+                        <span style={{
+                          background: ROUTING_STATE_STYLE[routingState]?.bg ?? '#F5F5F5',
+                          color: ROUTING_STATE_STYLE[routingState]?.text ?? '#555',
+                          borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+                        }}>
+                          {ROUTING_STATE_STYLE[routingState]?.label ?? routingState}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleRoutingRecompute}
+                        disabled={recompute.isPending || recomputeCost.isPending}
+                        className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
+                        style={{ height: 30, padding: '0 10px', fontSize: 12, color: '#555' }}
+                      >
+                        {(recompute.isPending || recomputeCost.isPending)
+                          ? <Loader2 size={12} className="animate-spin" />
+                          : <RefreshCw size={12} />}
+                        Recompute
+                      </button>
+                      <button
+                        onClick={() => navigate(`/routings/${code}`)}
+                        className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
+                        style={{ height: 30, padding: '0 10px', fontSize: 12, color: '#185FA5' }}
+                      >
+                        <ExternalLink size={12} /> Routing Editor
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Total time */}
+                  <div className="flex items-center gap-8 mb-4">
+                    <div>
+                      <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Total Cycle Time</div>
+                      <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: totalTimeMin > 0 ? '#185FA5' : '#8E8E8E' }}>
+                        {totalTimeMin > 0 ? fmtTime(totalTimeMin) : '—'}
+                      </div>
+                      {totalTimeMin > 0 && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(totalTimeMin)} นาที</div>}
+                    </div>
+                    {stdCost && (
+                      <div>
+                        <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>ต้นทุนการผลิต</div>
+                        <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: '#1F1F1F' }}>
+                          ฿{stdCost.total_production_cost.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#8E8E8E' }}>
+                          คำนวณเมื่อ {new Date(stdCost.computed_at).toLocaleDateString('th-TH')}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Operations table */}
+                  <div style={{ borderTop: '1px solid #E0E0E0', paddingTop: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Operations</div>
+                    {routing.map(op => (
+                      <div key={op.id} className="flex items-center justify-between py-2 border-b border-chrome-50">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono" style={{ fontSize: 11, color: '#8E8E8E' }}>seq {op.sequence}</span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{op.name}</span>
+                          <span style={{ fontSize: 11, color: '#8E8E8E' }}>({op.workcenter.code})</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span style={{ fontSize: 11, color: '#8E8E8E' }}>{op.activities.length} activities</span>
+                          <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: Number(op.time_cycle) > 0 ? '#185FA5' : '#8E8E8E' }}>
+                            {Number(op.time_cycle) > 0 ? `${Math.round(Number(op.time_cycle))} min` : '—'}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
