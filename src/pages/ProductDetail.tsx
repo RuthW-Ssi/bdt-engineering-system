@@ -127,6 +127,14 @@ export function ProductDetail() {
         )}
         <ProductTypeBadge type={product.product_type} />
         <ProductStatePill state={product.state as ProductState} />
+        {product.has_custom_routing && (
+          <button
+            onClick={() => navigate(`/products/${product.product_code}/custom-routing`)}
+            style={{ background: '#FFF3E0', color: '#E65100', border: '1px solid #FFCC80', borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Custom Routing
+          </button>
+        )}
 
         <div className="flex-1" />
 
@@ -417,11 +425,11 @@ export function ProductDetail() {
                         Recompute
                       </button>
                       <button
-                        onClick={() => navigate(`/routings/${code}`)}
+                        onClick={() => navigate(product.has_custom_routing ? `/products/${code}/custom-routing` : `/routings/${code}`)}
                         className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
-                        style={{ height: 30, padding: '0 10px', fontSize: 12, color: '#185FA5' }}
+                        style={{ height: 30, padding: '0 10px', fontSize: 12, color: product.has_custom_routing ? '#E65100' : '#185FA5' }}
                       >
-                        <ExternalLink size={12} /> Routing Editor
+                        <ExternalLink size={12} /> {product.has_custom_routing ? 'Custom Routing' : 'Routing Editor'}
                       </button>
                     </div>
                   </div>

@@ -209,3 +209,159 @@ export const previewTemplate = (
 
 export const getFormulaParams = (): Promise<FormulaParamDTO[]> =>
   apiClient.get('/formula-params').then(r => r.data)
+
+// ── Sprint 4.2: Routing Overrides ─────────────────────────────
+
+export interface ProductRoutingOverrideDTO {
+  id: number
+  product_id: number
+  activity_template_id: number
+  override_per_minute: number | null
+  override_std_measure: number | null
+  override_manpower: number | null
+  override_workcenter_id: number | null
+  reason: string | null
+  activity_template: { id: number; op_code: string; description: string }
+}
+
+export const getRoutingOverrides = (productCode: string): Promise<ProductRoutingOverrideDTO[]> =>
+  apiClient.get(`/products/${productCode}/routing-overrides`).then(r => r.data)
+
+export const upsertRoutingOverride = (
+  productCode: string,
+  activityTemplateId: number,
+  body: {
+    override_per_minute?: number | null
+    override_std_measure?: number | null
+    override_manpower?: number | null
+    reason?: string
+  },
+): Promise<ProductRoutingOverrideDTO> =>
+  apiClient.post(`/products/${productCode}/routing-overrides/${activityTemplateId}`, body).then(r => r.data)
+
+export const deleteRoutingOverride = (productCode: string, activityTemplateId: number): Promise<void> =>
+  apiClient.delete(`/products/${productCode}/routing-overrides/${activityTemplateId}`).then(r => r.data)
+
+// ── Sprint 4.2: Custom Routing ─────────────────────────────────
+
+export interface CustomRoutingActivityDTO {
+  id: number
+  op_id: number
+  sequence: number
+  description: string
+  per_minute: number
+  formula_param_code: string
+  std_measure: number
+  unit: string
+  manpower: number
+  workcenter_id: number
+}
+
+export interface CustomRoutingOpDTO {
+  id: number
+  custom_routing_id: number
+  sequence: number
+  name: string
+  op_code: string
+  workcenter: { id: number; code: string; name: string }
+  activities: CustomRoutingActivityDTO[]
+}
+
+export interface CustomRoutingDTO {
+  id: number
+  product_id: number
+  name: string
+  state: string
+  version: string
+  cloned_from_template_id: number | null
+  ops: CustomRoutingOpDTO[]
+}
+
+export const getCustomRouting = (productCode: string): Promise<CustomRoutingDTO | null> =>
+  apiClient.get(`/products/${productCode}/custom-routing`).then(r => r.data)
+
+export const createCustomRouting = (
+  productCode: string,
+  body: { from_template_id?: number },
+): Promise<CustomRoutingDTO> =>
+  apiClient.post(`/products/${productCode}/custom-routing`, body).then(r => r.data)
+
+export const restoreToTemplate = (productCode: string, templateId: number): Promise<void> =>
+  apiClient.post(`/products/${productCode}/custom-routing/restore-to-template`, { template_id: templateId }).then(r => r.data)
+
+export const addCustomRoutingOp = (
+  productCode: string,
+  body: { op_code: string; name: string; workcenter_id: number; sequence?: number },
+): Promise<CustomRoutingOpDTO> =>
+  apiClient.post(`/products/${productCode}/custom-routing/ops`, body).then(r => r.data)
+
+export const deleteCustomRoutingOp = (productCode: string, opId: number): Promise<{ deleted: boolean }> =>
+  apiClient.delete(`/products/${productCode}/custom-routing/ops/${opId}`).then(r => r.data)
+
+export const addCustomRoutingActivity = (
+  productCode: string,
+  opId: number,
+  body: {
+    description: string
+    per_minute: number
+    formula_param_code: string
+    std_measure: number
+    unit: string
+    manpower?: number
+    workcenter_id: number
+  },
+): Promise<CustomRoutingActivityDTO> =>
+  apiClient.post(`/products/${productCode}/custom-routing/ops/${opId}/activities`, body).then(r => r.data)
+
+export const deleteCustomRoutingActivity = (
+  productCode: string,
+  opId: number,
+  actId: number,
+): Promise<{ deleted: boolean }> =>
+  apiClient.delete(`/products/${productCode}/custom-routing/ops/${opId}/activities/${actId}`).then(r => r.data)
+
+// ── Sprint 4.2: Routing Templates ─────────────────────────────
+
+export interface RoutingTemplateDTO {
+  id: number
+  code: string
+  name: string
+  state: string
+  active: boolean
+  applies_to_product_type: string | null
+}
+
+export const getRoutingTemplates = (): Promise<RoutingTemplateDTO[]> =>
+  apiClient.get('/routing-templates').then(r => r.data)
+
+// ── Sprint 4.2: Binding Rules ──────────────────────────────────
+
+export interface BindingRuleDTO {
+  id: number
+  priority: number
+  description: string | null
+  match_product_type: string | null
+  match_mark_prefix: string | null
+  match_categ_id: number | null
+  routing_template_id: number
+  routing_template: { id: number; code: string; name: string }
+  active: boolean
+}
+
+export const getBindingRules = (): Promise<BindingRuleDTO[]> =>
+  apiClient.get('/routing-template-binding-rules').then(r => r.data)
+
+export const createBindingRule = (body: Partial<BindingRuleDTO> & { routing_template_id: number; priority: number }): Promise<BindingRuleDTO> =>
+  apiClient.post('/routing-template-binding-rules', body).then(r => r.data)
+
+export const updateBindingRule = (id: number, body: Partial<BindingRuleDTO>): Promise<BindingRuleDTO> =>
+  apiClient.patch(`/routing-template-binding-rules/${id}`, body).then(r => r.data)
+
+export const deleteBindingRule = (id: number): Promise<void> =>
+  apiClient.delete(`/routing-template-binding-rules/${id}`).then(r => r.data)
+
+export const reorderBindingRules = (items: { id: number; priority: number }[]): Promise<BindingRuleDTO[]> =>
+  apiClient.post('/routing-template-binding-rules/reorder', { items }).then(r => r.data)
+
+export const rebindProduct = (productCode: string): Promise<number | null> =>
+  apiClient.post(`/products/${productCode}/rebind`).then(r => r.data)

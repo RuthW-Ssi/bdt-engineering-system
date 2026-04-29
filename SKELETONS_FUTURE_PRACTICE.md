@@ -112,6 +112,14 @@ The `_skeletons/*.module.ts` files use `throw new Error('SKELETON: not implement
 
 This pass instantiates **ADR-RT-7** from `GAP_ANALYSIS_ROUTING_STDTIME.md` ("Routing operations created in Sprint 4 use read-only seed from xlsx; custom routing creation deferred to Sprint 5") at the architectural level — Sprint 4 = depth-first on routing only; everything else is breadth-first as skeletons.
 
+## 9. Update log (2026-04-29)
+
+Following the ECO + versioning + bulk-edit gap analysis ([`GAP_ANALYSIS_ECO_VERSIONING_BULK.md`](./GAP_ANALYSIS_ECO_VERSIONING_BULK.md)):
+
+- **`mrp-eco` skeleton** updated with richer scope (`scope_type`, `scope_target_ids`, `scope_criteria`, `override_policy`, `reset_overrides_json`, version-bump fields, `before_after_diff`); effort estimate raised from 12 h → 24 h. See [`mrp-eco/SKELETON.md`](./backend/src/modules/_skeletons/mrp-eco/SKELETON.md) for full Sprint 5 checklist.
+- **Sprint 4.2** added **Epic G** (RT48-RT49) — 3 history tables (`routing_template_history`, `routing_activity_template_history`, `product_routing_override_history`) per Layer-1 versioning model; budget 100 → 106 h.
+- **Sprint 4.3** opened ([`SPRINT_PLAN_ROUTING_4_3.md`](./SPRINT_PLAN_ROUTING_4_3.md)) — 24 h partial sprint for bulk override (RT50-51), history UI (RT52-53), custom-routing promotion (RT54), docs (RT55). Should ship before Sprint 5 to wire ECO bulk path correctly.
+
 ---
 
 *— Skeletons in place. Hand off to Claude Code.*

@@ -9,6 +9,8 @@ import { ProductDetail } from './pages/ProductDetail'
 import { MaterialList } from './pages/MaterialList'
 import { BomEditor } from './pages/BomEditor'
 import { BomDiffReview } from './pages/BomDiffReview'
+import { CustomRoutingEditor } from './pages/CustomRoutingEditor'
+import { BindingRuleManager } from './pages/BindingRuleManager'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -36,6 +38,8 @@ export default function App() {
           <Route path="/routings/:code" element={<RoutingEditor />} />
           <Route path="/admin/workcenters" element={<WorkcenterMaster />} />
           <Route path="/admin/activity-templates" element={<ActivityTemplateMaster />} />
+          <Route path="/products/:code/custom-routing" element={<CustomRoutingEditor />} />
+          <Route path="/admin/binding-rules" element={<BindingRuleManager />} />
           <Route path="/eco" element={<Placeholder title="ECO" />} />
           <Route path="/qc" element={<Placeholder title="QC" />} />
           <Route path="/reports" element={<Placeholder title="Reports" />} />

@@ -1,15 +1,16 @@
-# Sprint 4.2 Implementation Plan — Routing Pattern Option 3 (Hybrid)
+# Sprint 4.2 Implementation Plan — Routing Pattern Option 3 (Hybrid) + Template Simulator
 
 > **Project:** BDT Engineer Management System
 > **Sprint:** 4.2 (follow-up to 4.1 Routing+Std Time)
-> **Length:** 5 working days, 2 devs (≈ 80 h capacity)
+> **Length:** **6 working days**, 2 devs (≈ **100 h** capacity) — *amended 2026-04-29 to include Template Simulator (Epic F)*
 > **Date:** 2026-04-29 (planning) — kickoff after Sprint 4.1 lands
 > **Architecture:** Monolith — extends Sprint 4.1 routing module
 >
-> **🎯 Sprint Goal:** เปลี่ยน routing schema จาก per-product-clone (Option 1 default) → **Hybrid Option 3** ที่อิง template เป็นหลัก + sparse override + custom_routing escape hatch — เพื่อรองรับ custom products 50,000+ ต่อโปรเจกต์โดยไม่เกิด data explosion
+> **🎯 Sprint Goal:** (1) เปลี่ยน routing schema จาก per-product-clone (Option 1 default) → **Hybrid Option 3** ที่อิง template เป็นหลัก + sparse override + custom_routing escape hatch — เพื่อรองรับ custom products 50,000+ ต่อโปรเจกต์โดยไม่เกิด data explosion; (2) เพิ่ม **Template Simulator** ในหน้า Routing เพื่อให้ engineer ลองคำนวณกับ custom product จริงหรือ manual input ก่อน publish template
 >
 > **Companion docs:**
 > - [`GAP_ANALYSIS_ROUTING_PATTERN.md`](./GAP_ANALYSIS_ROUTING_PATTERN.md) — pattern decision (Option 3 chosen 2026-04-29)
+> - [`ROUTING_TEMPLATE_SIMULATOR_DESIGN.md`](./ROUTING_TEMPLATE_SIMULATOR_DESIGN.md) — simulator UX/API/edge-case design (Epic F basis)
 > - [`SPRINT_PLAN_ROUTING_STD_TIME.md`](./SPRINT_PLAN_ROUTING_STD_TIME.md) — Sprint 4.1 baseline (this 4.2 supersedes its routing-table schema)
 > - [`GAP_ANALYSIS_ROUTING_STDTIME.md`](./GAP_ANALYSIS_ROUTING_STDTIME.md) — original gap analysis
 > - [`STANDARDIZE_VS_CUSTOM_ODOO.md`](./STANDARDIZE_VS_CUSTOM_ODOO.md) — Odoo ADR
@@ -37,6 +38,18 @@ These 4 design choices are committed in Sprint 4.2. **User can override before k
 | **D2** | Override approval timing | **Free** during `products.state='draft'` AND no MO confirmed; **ECO-required** after first MO `action_confirm` | Engineering iteration is unrestricted before production starts; once MO lives, governance kicks in. |
 | **D3** | Custom Routing badge visibility | **Prominent**: shown in BOM view header, ProductDetail header, RoutingEditor banner — orange/amber colour | Engineers must see this at a glance — hidden custom routings cause production surprises |
 | **D4** | WO snapshot timing | At MO `action_plan` (Sprint 5 will enforce; Sprint 4.2 ships the snapshot data structure) | Recipe must be locked before scheduling — `action_confirm` is too early (still tweaking), `action_start` is too late (already scheduling) |
+| **D5** | RT47 (test fixtures + Compare) | **In scope** — Sprint 4.2 ships full simulator including fixture save + sensitivity Compare | User chose Option D (6-day budget) over deferring RT47 — full feature parity now beats round-trip later |
+| **D6** | `default_input_spec` editability | Any user with `routing_template` edit permission (same RBAC as state changes) | Simplest model — no extra RBAC tier; engineers who can change template can curate its baseline |
+| **D7** | Result chart library | **Custom CSS bars** (no extra dependency) | Matches existing UX in `documents/session-*.html`; no Recharts/Chart.js bundle bloat for a simple horizontal bar |
+| **D8** | Result content | Show **both cycle time + std cost** | Both already computed in same pipeline (Sprint 4.1 RT8 StdCostService) — free to display, more useful to engineers |
+| **D9** | Last-simulation persistence | `localStorage` keyed by `template_id + user_id`; auto-clears when template version bumps | Survives page refresh + tab close without DB writes; staleness handled by version-key invalidation |
+| **D10** | RT47 Compare scope | **Same template, 2 input sets** (sensitivity analysis) — cross-template Compare deferred to Sprint 5+ | Sensitivity is the immediate engineering need ("what if 1500kg vs 2000kg?"); cross-template requires more thought (different op sets) |
+| **D11** | Override survival on ECO | Default `survive`; ECO opt-in `reset` or `reset_matching` | Match AISC WPS practice — overrides usually exist for valid steel-domain reasons |
+| **D12** | Versioning model | **3-layer**: history tables (Layer 1 — this sprint) + active row version (Layer 2 — already in 4.2) + WO snapshot (Layer 3 — Sprint 5) | All three needed for full governance; cheap to ship history now, expensive to backfill later |
+| **D13** | Bulk override (flavour 3b) | **Sprint 4.3** — 4.2 ships history tables only | Per Option E — separates structural change (history, this sprint) from feature (bulk, next sprint) |
+| **D14** | Bulk override criteria includes `attribute_filter` | Yes — supports `attributes.material_grade='SS400'` etc. | Engineer's first ask — basic FK criteria too narrow |
+| **D15** | In-flight WO behaviour on ECO apply | Auto re-snapshot WOs in `state ∈ {pending, ready}`; freeze `state ∈ {progress, done}` | "Not started yet" should pick up new recipe; in-flight production frozen |
+| **D16** | Bulk override skips `has_custom_routing=true` | Yes, with explicit warning + count in result | Custom routings opted out of template path — bulk template-side overrides don't apply |
 
 ---
 
@@ -45,11 +58,11 @@ These 4 design choices are committed in Sprint 4.2. **User can override before k
 ### 2.1 In-scope ✅
 
 - **Schema migration** — replace 4.1's `mrp_routing_workcenter (with product_id)` with template-only model
-- **6 new tables** (all schema inline below in §3): `routing_template`, `routing_op_activity` (junction), `product_routing_override`, `custom_routing`, `custom_routing_op`, `custom_routing_activity`, `routing_template_binding_rule`
-- **3 services** — `TemplateBindingService` (auto-bind), `OverrideService` (sparse CRUD + ECO gate), `CustomRoutingService` (escape hatch)
-- **CycleTimeService update** — merge overrides before formula eval (1-line change to compute pipeline)
-- **API endpoints** — full CRUD for templates, overrides, custom routings, binding rules
-- **Frontend** — RoutingEditor enhanced with override badges, new CustomRoutingEditor page, BindingRuleManager admin page, BOM view custom-routing badge
+- **7 new tables** (all schema inline below in §3): `routing_template`, `routing_op_activity` (junction), `product_routing_override`, `custom_routing`, `custom_routing_op`, `custom_routing_activity`, `routing_template_binding_rule`, `routing_template_test_fixture`
+- **4 services** — `TemplateBindingService` (auto-bind), `OverrideService` (sparse CRUD + ECO gate), `CustomRoutingService` (escape hatch), `TemplateSimulatorService` (compute against arbitrary attribute payload)
+- **CycleTimeService update** — merge overrides before formula eval + accept pluggable attribute source (product / manual JSON)
+- **API endpoints** — full CRUD for templates, overrides, custom routings, binding rules, **simulate, required-attrs, test-fixtures**
+- **Frontend** — RoutingEditor enhanced with override badges + **2-mode SimulatorPanel** (pick product / manual input), new CustomRoutingEditor page, BindingRuleManager admin page, BOM view custom-routing badge
 - **WO snapshot prep** — `mrp_workorder.activity_snapshot JSONB` column reserved (Sprint 5 fills it)
 - **Migration data** — convert any 4.1-installed per-product routings into templates (likely just remove + re-bind)
 
@@ -88,6 +101,8 @@ model routing_template {
   // Type — used for binding-rule matching
   applies_to_product_type String? @db.VarChar(20)            // 'standard'|'custom'|null = both
   applies_to_categ_id     Int?                                // FK to product_category (Sprint 1)
+  // Simulator — engineer-curated baseline values for "Manual mode → Use defaults"
+  default_input_spec      Json?                               // { sumWeight: 1500, Length: 12, Width: 0.4, count_part: 18, ... }
   // Audit
   odoo_ref_id String?   @db.VarChar(40)
   create_uid  Int
@@ -367,7 +382,114 @@ model products {
 }
 ```
 
-### 3.9 mrp_workorder snapshot field (preview for Sprint 5)
+### 3.9 routing_template_test_fixture (NEW — Epic F simulator regression)
+
+```prisma
+// ── 🟨 Saved simulator inputs as regression test fixtures (Sprint 4.2 RT47) ──
+//    Used by CI to detect template/activity drift; engineers store named scenarios.
+model routing_template_test_fixture {
+  id                  Int       @id @default(autoincrement())
+  template_id         Int
+  template            routing_template @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  name                String    @db.VarChar(80)            // 'Standard 1500 kg / 12 m column'
+  description         String?   @db.Text
+  source_mode         String    @db.VarChar(20)            // 'pick_product' | 'manual'
+  source_product_id   Int?                                  // snapshot — product may change after fixture saved
+  source_product      products? @relation("FixtureProduct", fields: [source_product_id], references: [id])
+  attribute_values    Json                                   // resolved input values used (for replay)
+  expected_total_min  Decimal?  @db.Decimal(10, 2)         // engineer's expected — CI compares ±5%
+  expected_total_cost Decimal?  @db.Decimal(12, 2)
+  // Audit
+  create_uid          Int
+  create_user         res_users @relation("rtf_create", fields: [create_uid], references: [id])
+  create_date         DateTime  @default(now()) @db.Timestamptz
+
+  @@index([template_id])
+  @@index([source_product_id])
+}
+```
+
+### 3.10 History tables (NEW — Layer 1 versioning per D12)
+
+> Append-only history snapshots. Triggered on UPDATE of the active row. Required for ECO audit + compliance + "what changed when" queries.
+
+```prisma
+// ── 🟦 routing_template history (Layer 1 — Sprint 4.2 RT48) ──
+model routing_template_history {
+  id              Int      @id @default(autoincrement())
+  template_id     Int
+  template        routing_template @relation("TemplateHistory", fields: [template_id], references: [id], onDelete: Cascade)
+  version         String   @db.VarChar(20)
+  snapshot        Json                                          // full mutable-field snapshot of routing_template
+  changed_by_uid  Int
+  changed_by      res_users @relation("rth_user", fields: [changed_by_uid], references: [id])
+  changed_at      DateTime @default(now()) @db.Timestamptz
+  eco_id          Int?                                           // ⏳ Sprint 5 mrp_eco
+  reason          String?  @db.Text
+
+  @@index([template_id, changed_at])
+  @@index([eco_id])
+}
+
+// ── 🟦 routing_activity_template history (Layer 1 — Sprint 4.2 RT48) ──
+model routing_activity_template_history {
+  id                   Int      @id @default(autoincrement())
+  activity_template_id Int
+  activity_template    routing_activity_template @relation("ActHistory", fields: [activity_template_id], references: [id], onDelete: Cascade)
+  version              String   @db.VarChar(20)
+  snapshot             Json                                      // full snapshot incl. per_minute, std_measure, formula_param_code, etc.
+  changed_by_uid       Int
+  changed_by           res_users @relation("ach_user", fields: [changed_by_uid], references: [id])
+  changed_at           DateTime @default(now()) @db.Timestamptz
+  eco_id               Int?                                       // ⏳ Sprint 5
+  reason               String?  @db.Text
+
+  @@index([activity_template_id, changed_at])
+  @@index([eco_id])
+}
+
+// ── 🟨 product_routing_override history (Layer 1 — Sprint 4.2 RT49) ──
+model product_routing_override_history {
+  id            Int      @id @default(autoincrement())
+  override_id   Int                                              // FK by id (override row may be deleted; keep FK as Int not relation)
+  product_id    Int                                              // ✅ products
+  activity_template_id Int                                       // ✅ routing_activity_template
+  snapshot      Json                                             // full snapshot incl. override_per_minute, override_std_measure, eco_id, reason, …
+  action        String   @db.VarChar(20)                         // 'create' | 'update' | 'delete'
+  changed_by_uid Int
+  changed_by     res_users @relation("ovrh_user", fields: [changed_by_uid], references: [id])
+  changed_at     DateTime @default(now()) @db.Timestamptz
+  eco_id         Int?                                            // ⏳ Sprint 5
+
+  @@index([product_id, changed_at])
+  @@index([activity_template_id, changed_at])
+  @@index([eco_id])
+}
+```
+
+**Triggers (raw SQL — Sprint 4.2 RT49):**
+
+```sql
+-- routing_template history
+CREATE OR REPLACE FUNCTION trg_routing_template_history() RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO routing_template_history (template_id, version, snapshot, changed_by_uid, changed_at, reason)
+  VALUES (OLD.id, OLD.version, row_to_json(OLD), OLD.write_uid, NOW(), 'auto-history on update');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_routing_template_history
+  BEFORE UPDATE ON routing_template
+  FOR EACH ROW
+  WHEN (OLD.* IS DISTINCT FROM NEW.*)
+  EXECUTE FUNCTION trg_routing_template_history();
+
+-- Same pattern for routing_activity_template, product_routing_override.
+-- Override-delete also captured: BEFORE DELETE trigger writes snapshot with action='delete'.
+```
+
+### 3.11 mrp_workorder snapshot field (preview for Sprint 5)
 
 ```prisma
 // ── mrp_workorder (Sprint 5 skeleton — Sprint 4.2 reserves the snapshot column) ──
@@ -379,7 +501,7 @@ model products {
 //    even if template/override/custom_routing changes after WO is planned.
 ```
 
-### 3.10 Constraints (raw SQL migration)
+### 3.12 Constraints (raw SQL migration)
 
 ```sql
 -- XOR: product uses EITHER template OR custom_routing, not neither, not both
@@ -470,11 +592,27 @@ CREATE UNIQUE INDEX ux_one_active_custom_routing_per_product
 | **RT40** | 🟦 | Unit tests: TemplateBindingService (8), OverrideService (8 incl. ECO gate), CustomRoutingService (10), CycleTimeService merge logic (6) ≥80% coverage | 5 h | `npm test --coverage` green |
 | **RT41** | 🟦 | E2E (supertest) — Path A: bind WH-CO-1 to Main → override 1 activity → recompute → cycle time uses override value. Path B: convert WH-CO-1 to custom_routing → recompute → cycle time independent of template | 3 h | both paths green; runs <30 s |
 | **RT42** | 🟥 | Compute audit (extend Sprint 4.1 RT20): pick 3 reference products with overrides + 1 with custom_routing; verify totals against MO sheet ±15% | 2 h | `docs/sprint4_2/compute-audit.md` committed; deltas explained |
-| **RT43** | 🟦 | Swagger updates + `CHANGELOG.md` Sprint 4.2 section + ADR `docs/adr/0005-routing-pattern-option3.md` | 2 h | doc reviewed; matches implemented behaviour |
+| **RT43** | 🟦 | Swagger updates + `CHANGELOG.md` Sprint 4.2 section + ADR `docs/adr/0005-routing-pattern-option3.md` + ADR `docs/adr/0006-template-simulator.md` | 2 h | doc reviewed; matches implemented behaviour |
 
-**Total estimate:** 16 + 16 + 12 + 24 + 12 = **80 h** ✅
+### Epic F — Template Simulator (20 h) — see [`ROUTING_TEMPLATE_SIMULATOR_DESIGN.md`](./ROUTING_TEMPLATE_SIMULATOR_DESIGN.md)
 
-**Tag mix:** 🟦 ~30% / 🟨 ~40% / 🟥 ~30% — heavier Hybrid because most Option 3 work is extending Odoo schemas with BDT-specific metadata (override + binding rules); custom_routing is the only pure 🟥.
+| ID | Tag | Story | Effort | DoD |
+|---|:-:|---|---|---|
+| **RT44** | 🟦 | Migration + API: `default_input_spec` Json column on `routing_template` (already in §3.1); endpoint `GET /routing-templates/:id/required-attrs` walks template → ops → activities → unions formula_param.inputs_required, returns kind/unit/used_in_count + default_input_spec | 3 h | Returns shape per design §2.5; performance < 100 ms for 10-op template; unit-test coverage on union logic |
+| **RT45** | 🟨 | API: `POST /routing-templates/:id/simulate` — pure compute, no DB write; reuses `CycleTimeService` with pluggable attribute source (product OR manual JSON); returns total + per-op breakdown + per-activity formula trace + `warnings[]` | 4 h | Both modes (pick_product, manual) tested; warnings include undefined params; performance < 300 ms |
+| **RT46** | 🟨 | FE: `SimulatorPanel` component on RoutingEditor right side — 2-mode toggle, attr table with auto-pick from product (✓ green / ⚠ amber for missing), inline manual entry, Run button, Result card with custom-CSS bar chart per op + drill-down + formula trace; localStorage persist last simulation per (template, user) | 8 h | All 10 edge cases from design §6 handled; mode switch preserves compatible inputs; chart shows critical-path highlight |
+| **RT47** | 🟨 | Migration + API + FE: `routing_template_test_fixture` table (§3.9); `POST /routing-templates/:id/test-fixtures` CRUD + "Save as fixture" button; "Compare" dual-pane (same template, 2 input sets, side-by-side per-op deltas) | 5 h | Fixture replay-able; compare mode shows %-delta per op; CI test runs fixture set nightly via `pnpm test:fixtures` |
+
+### Epic G — Versioning History (6 h) — see [`GAP_ANALYSIS_ECO_VERSIONING_BULK.md`](./GAP_ANALYSIS_ECO_VERSIONING_BULK.md) §3
+
+| ID | Tag | Story | Effort | DoD |
+|---|:-:|---|---|---|
+| **RT48** | 🟦 | Migration: `routing_template_history` + `routing_activity_template_history` + `product_routing_override_history` (3 tables, all defined in §3.10) | 3 h | 3 tables created with FK + indexes; migrate dev success; rollback tested |
+| **RT49** | 🟦 | Triggers + history-read endpoint: `BEFORE UPDATE` trigger on each parent table writes snapshot JSON; `BEFORE DELETE` trigger captures override deletion; endpoint `GET /routing-templates/:id/history` (and per activity, override) returns timeline | 3 h | trigger fires on every UPDATE / DELETE; endpoint paginated (50/page); 3 unit tests confirm snapshot integrity |
+
+**Total estimate:** 16 + 16 + 12 + 24 + 12 + 20 + 6 = **106 h** ✅ (6-day budget per Option D + Option E from ECO/versioning gap analysis)
+
+**Tag mix:** 🟦 ~30% / 🟨 ~45% / 🟥 ~25% — Epic F adds more Hybrid weight (simulator extends Odoo formula model with BDT scenario testing — practice from Siemens Master Recipe Validation).
 
 ---
 
@@ -486,9 +624,10 @@ CREATE UNIQUE INDEX ux_one_active_custom_routing_per_product
 | **D2** | RT23+RT24 (6h) override + custom_routing migrations · RT25 (2h) seed binding rules | RT36 (4h) RoutingEditor finish (live recompute + ECO inline error) · RT38 (2h) BOM/ProductDetail badge · scaffolding RT37 |
 | **D3** | RT28 (2h) finish · RT29 (4h) OverrideService + ECO gate · RT30 (1h) CustomRoutingService start | RT37 (6h) CustomRoutingEditor — list ops + add/del/reorder · "Convert from template" picker |
 | **D4** | RT30 (3h) CustomRoutingService finish · RT31 (4h) CycleTimeService dispatch + merge · RT27 (1h) WO snapshot column reservation | RT37 (4h) CustomRoutingEditor finish · RT39 (3h) BindingRuleManager admin page · RT38 polish |
-| **D5** | RT32+RT33+RT34+RT35 (10h) all 4 API modules · RT40 (1h) start tests | RT39 (1h) finish · RT40 (4h) FE tests · RT41 (3h) E2E · RT42 (2h) compute audit · RT43 (2h) docs |
+| **D5** | RT32+RT33+RT34+RT35 (10h) all 4 API modules · RT44 (3h) required-attrs API · RT45 (3h) simulate API start | RT39 (1h) finish · RT46 (8h) SimulatorPanel FE · scaffolding RT47 |
+| **D6** | RT45 (1h) simulate API finish · RT47 (3h) fixture API + Compare backend · RT48 (3h) history migrations · RT49 (3h) triggers + history endpoint | RT47 (2h) FE Save-as-fixture + Compare dual-pane · RT41 (2h) FE E2E · RT42 (2h) audit · RT43 (2h) docs · RT40 (1h) finish tests |
 
-D5 afternoon = bug-bash + demo prep. Cap at 80 h.
+D6 afternoon = bug-bash + demo prep. Cap at 106 h.
 
 ---
 
@@ -665,8 +804,9 @@ type WorkOrderActivitySnapshot = {
 
 ## 8. Acceptance Criteria (Sprint 4.2 Demo)
 
-✅ Demo script (15 min):
+✅ Demo script (20 min):
 
+**Part A — Option 3 routing pattern**
 1. Open `/admin/binding-rules` → see 5 seeded rules; drag rule "Match COLUMN/BEAM → Main" to top → save
 2. Open product `WH-CO-1` (auto-bound to `Main` template) → Routing tab shows "Inherited from Main · 0 overrides"
 3. Click "Open Editor" → see 10 ops with template activities; click "Override" on `4.5 Weld bead 2nd side` → change `per_minute` from 20 → 25 → Save → cycle time recomputes live, total updates
@@ -676,7 +816,17 @@ type WorkOrderActivitySnapshot = {
 7. Open `/products/WH-CO-1/custom-routing` → CustomRoutingEditor shows 10 ops; delete one (e.g., `topcoat`); save → recompute → total time decreased
 8. Click "Restore to template" → confirm → custom_routing obsoleted, product re-bound to Main, badge disappears
 9. Open `/admin/binding-rules` → click rule "Main" → see "Currently bound: 1 product" preview
-10. Run E2E: `npm test --testPathPattern=sprint4_2` → green
+
+**Part B — Template Simulator (Epic F)**
+10. Open `/routing-templates/Main` (RoutingEditor) → right panel SimulatorPanel visible · "6 inputs required" header
+11. Mode 1 (Pick product): search "WH-CO-2" → autocomplete picks → all 6 fields ✓ green from `products.attributes` → click "Run simulation" → result card shows total ~9,300 min · bar chart highlights `welding` op as critical
+12. Override `Length` field from 14 → 18 m in the panel → re-run → total updates with delta indicator
+13. Switch to Mode 2 (Manual) → confirm dialog "keep your inputs?" → Yes → all values preserved as manual
+14. Click "Use template defaults" → form fills with `default_input_spec` baseline → run → total ~7,200 min
+15. Click "Save as fixture" → name "Standard 1500kg/12m" + expected_total_min 7200 → saved
+16. Click "Compare" → pick fixture "Standard 1500kg/12m" + run with `sumWeight=2500` → side-by-side panel shows %-delta per op (e.g., `buildup-fit +66%`)
+17. Refresh page → SimulatorPanel restores last manual inputs from localStorage
+18. Run E2E: `pnpm test --testPathPattern=sprint4_2` → green; `pnpm test:fixtures` → all fixtures within ±5% of expected
 
 Non-functional:
 - 80% test coverage on services

@@ -155,6 +155,32 @@ async function importActivityTemplates(wb: XLSX.WorkBook) {
     (await prisma.mrp_workcenter.findMany({ select: { code: true, id: true } })).map(w => [w.code, w.id]),
   )
 
+  // ── IDEMPOTENCY ────────────────────────────────────────────
+  // routing_activity_template ไม่มี natural unique key (op_code+sequence)
+  // ฉะนั้น clear ก่อน re-import — แต่ต้องเช็ค FK dependencies จาก
+  // routing_op_activity และ product_routing_override (ไม่มี ON DELETE CASCADE)
+  const existing = await prisma.routing_activity_template.count()
+  if (existing > 0) {
+    const opActivityRefs = await prisma.routing_op_activity.count()
+    const overrideRefs = await prisma.product_routing_override.count()
+
+    if (opActivityRefs > 0 || overrideRefs > 0) {
+      console.error(
+        `\n✗ Cannot re-import: ${existing} templates still referenced by ` +
+          `${opActivityRefs} routing_op_activity + ${overrideRefs} product_routing_override.\n` +
+          `  ทำอย่างใดอย่างหนึ่ง:\n` +
+          `   1. ลบ dependent records ก่อน:\n` +
+          `      psql -c "TRUNCATE routing_op_activity, product_routing_override CASCADE;"\n` +
+          `   2. ใช้ TRUNCATE CASCADE (ระวัง! ลบ Sprint 4.2 routing data ทั้งหมด):\n` +
+          `      psql -c "TRUNCATE routing_activity_template CASCADE;"\n`,
+      )
+      process.exit(1)
+    }
+
+    console.log(`  ⚠ Existing ${existing} templates found — clearing for re-import`)
+    await prisma.routing_activity_template.deleteMany()
+  }
+
   let count = 0
   for (let i = 0; i < validRows.length; i++) {
     const row = validRows[i]

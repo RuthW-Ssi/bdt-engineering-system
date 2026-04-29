@@ -1,5 +1,33 @@
 # Changelog
 
+## [Sprint 4.2] — 2026-04-29
+
+### Schema Migration (Breaking)
+- `mrp_routing_workcenter`: dropped `product_id`, added `template_id FK → routing_template` (1 template shared by many products)
+- Dropped `routing_step_activity`; replaced by `routing_op_activity` (junction: template op → activity template) + `product_routing_override` (sparse per-product delta)
+- `products`: dropped `active_routing_id`; added `routing_template_id`, `has_custom_routing`
+- 7 new models: `routing_template`, `routing_op_activity`, `product_routing_override`, `custom_routing`, `custom_routing_op`, `custom_routing_activity`, `routing_template_binding_rule`
+
+### Added — Backend
+- **TemplateBindingService** — priority-ordered rules engine; `bindProduct(id)` + `rebindAll()`
+- **OverrideService** — upsert/remove `product_routing_override`; Sprint-5 ECO gate stubbed with `console.warn`
+- **CustomRoutingService** — create from template (clone ops+activities) or blank; add/update/delete ops+activities; `restoreToTemplate()` (obsoletes custom routing, re-binds to template)
+- **CycleTimeService** — dispatch: `has_custom_routing` → `computeCustomRouting` | `routing_template_id` → `computeFromTemplate`; merges `product_routing_override` before formula eval; no per-step cache writes (dropped with routing_step_activity)
+- **RoutingService** — `findByProduct()` now loads template ops + merges overrides; `activate()`/`obsolete()` update `routing_template.state`
+- **New endpoints**: `/routing-templates`, `/products/:code/routing-overrides`, `/products/:code/custom-routing`, `/routing-template-binding-rules`, `/products/:code/rebind`
+
+### Added — Frontend
+- **RoutingEditor.tsx** — `ActivityRow` shows "Inherited" (gray) / "Overridden" (yellow) badge; Override button calls `upsertRoutingOverride`; Reset calls `deleteRoutingOverride`
+- **CustomRoutingEditor.tsx** (NEW) — `POST /products/:code/custom-routing` conversion card with template picker; full op+activity CRUD editor; orange banner; restore-to-template flow
+- **ProductDetail.tsx** — Amber "Custom Routing" badge in header when `has_custom_routing=true` (clickable → CustomRoutingEditor); Routing tab editor link adapts to custom vs template
+- **BindingRuleManager.tsx** (NEW) — `/admin/binding-rules`; CRUD table for binding rules sorted by priority
+- **`src/api/routings.ts`** — added Sprint 4.2 DTOs + API functions (overrides, custom routing, templates, binding rules)
+- **`src/hooks/useRoutings.ts`** — added `useRoutingOverrides`
+- **App.tsx** — 2 new routes: `/products/:code/custom-routing`, `/admin/binding-rules`
+
+### Seed
+- `seed-routing.ts`: creates 3 `routing_template` rows (Main/Accessory/False), 5 binding rules, binds CUS-00001 to Main
+
 ## [Sprint 4] — 2026-04-29
 
 ### Added — Backend
