@@ -29,11 +29,28 @@ const TEMPLATE_OPS = [
   { op_code: 'painting',        name: 'Painting & Blasting', sequence: 50 },
 ]
 
+async function bindDemoProducts(mainTplId: number) {
+  const demoProducts = await prisma.products.findMany({
+    where: { routing_template_id: { not: mainTplId } },
+    orderBy: { id: 'asc' },
+    take: 3,
+  })
+  for (const p of demoProducts) {
+    await prisma.products.update({
+      where: { id: p.id },
+      data: { routing_template_id: mainTplId },
+    })
+    console.log(`✓ ${p.product_code} → Main template (Path B demo)`)
+  }
+  if (demoProducts.length === 0) console.log('  Demo products already bound to Main')
+}
+
 async function main() {
   // ── Idempotency check ───────────────────────────────────────
   const existing = await prisma.routing_template.findUnique({ where: { code: 'Main' } })
   if (existing) {
-    console.log('routing_template Main already exists — skipping')
+    console.log('routing_template Main already exists — running Step 6 only')
+    await bindDemoProducts(existing.id)
     return
   }
 
@@ -121,16 +138,19 @@ async function main() {
   console.log(`✓ ${rules.length} binding rules created`)
 
   // ── 5. Bind CUS-00001 (WH-CO-1) to Main template ──────────
-  const product = await prisma.products.findUnique({ where: { product_code: 'CUS-00001' } })
-  if (product) {
+  const cusProduct = await prisma.products.findUnique({ where: { product_code: 'CUS-00001' } })
+  if (cusProduct) {
     await prisma.products.update({
-      where: { id: product.id },
+      where: { id: cusProduct.id },
       data: { routing_template_id: mainTpl.id },
     })
-    console.log(`✓ ${product.product_code} bound to template 'Main'`)
+    console.log(`✓ ${cusProduct.product_code} bound to template 'Main'`)
   } else {
-    console.log('CUS-00001 not found — run bom_seed.ts first to create it')
+    console.log('  CUS-00001 not found — skipping (Path A only)')
   }
+
+  // ── 6. Path B fallback: bind first 3 products to Main ───────
+  await bindDemoProducts(mainTpl.id)
 
   console.log(`\n✅ Routing seed complete`)
   console.log(`   ${TEMPLATE_OPS.length} template ops, ${totalJunctions} junction rows`)
