@@ -77,11 +77,7 @@ export function SimulatorPanel({ templateId, templateCode, productAttributes }: 
   }, [templateId])
 
   const runMut = useMutation({
-    mutationFn: () => {
-      const attrs = resolvedAttrs()
-      localStorage.setItem(LS_KEY(templateId), JSON.stringify(attrs))
-      return simulateTemplate(templateId, attrs)
-    },
+    mutationFn: (attrs: Record<string, number>) => simulateTemplate(templateId, attrs),
     onSuccess: data => setResult(data),
   })
 
@@ -241,7 +237,11 @@ export function SimulatorPanel({ templateId, templateCode, productAttributes }: 
         {/* Run button */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           <button
-            onClick={() => runMut.mutate()}
+            onClick={() => {
+              const attrs = resolvedAttrs()
+              localStorage.setItem(LS_KEY(templateId), JSON.stringify(attrs))
+              runMut.mutate(attrs)
+            }}
             disabled={runMut.isPending}
             style={{
               display: 'flex',
