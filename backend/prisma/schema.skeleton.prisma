@@ -1,0 +1,463 @@
+// ════════════════════════════════════════════════════════════════════════════
+// SKELETON PRISMA MODELS — DEFERRED ENTITIES (NOT IN SPRINT 4)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Status:        🟡 SKELETON — DO NOT MERGE INTO schema.prisma YET
+// Author:        Cowork architect pass — 2026-04-29
+// Companion:     ../../SKELETONS_FUTURE_PRACTICE.md (master index)
+//
+// Purpose:
+//   These 11 entities are required by Odoo MRP / Siemens Opcenter / ISA-95 /
+//   steel-shop practice but are out of scope for Sprint 4 (Routing + Std Time).
+//   The skeletons below are pre-shaped so that the sprint that claims each
+//   entity can copy-paste the model into ../schema.prisma, run migration, and
+//   focus on logic rather than data design.
+//
+// How to activate one:
+//   1. Move the model block from this file into ../schema.prisma
+//   2. Resolve any nullable FKs to upstream entities (note: most FKs reference
+//      entities that already exist after Sprint 3-4)
+//   3. Generate migration: pnpm --filter backend prisma migrate dev --name <sprint>_<entity>
+//   4. Replace TODO stubs in backend/src/modules/_skeletons/<module>/ with logic
+//   5. Move module folder out of _skeletons/ into modules/ root
+//
+// Tag legend: 🟦 Standard Odoo · 🟨 Hybrid · 🟥 Custom · 🟡 Skeleton
+//
+// FK key:
+//   ✅ = entity exists today (Sprint 1-3 + Sprint 4 plan)
+//   ⏳ = will exist after the sprint that claims this skeleton's predecessor
+// ════════════════════════════════════════════════════════════════════════════
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 1 — MRP EXECUTION (Sprint 5)
+//   Odoo: mrp.production, mrp.workorder, stock.production.lot
+//   Source data: process routing.xlsx → MO sheet (998 rows), SN sheet (1000)
+//   Practice: Odoo MRP-Manufacturing + ISA-95 Operations Performance
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟦 Manufacturing Order (Odoo mrp.production)
+//    Replaces MO sheet. One MO = one product × zone × planned quantity.
+//    State machine: draft → confirmed → planned → progress → to_close → done | cancel
+model mrp_production_skeleton {
+  id                      Int       @id @default(autoincrement())
+  name                    String    @unique @db.VarChar(40)         // 'MO-CM4-Z01-COL-001'
+  product_id              Int                                       // ✅ products (Sprint 2)
+  product_qty             Decimal   @db.Decimal(12, 3)
+  product_uom_id          Int                                       // ✅ uom_uom (Sprint 1)
+  bom_id                  Int?                                      // ✅ product_bom (Sprint 3)
+  routing_id              Int?                                      // ⏳ active routing (Sprint 4)
+  state                   String    @default("draft") @db.VarChar(20)
+  // Planning
+  date_planned_start      DateTime? @db.Timestamptz
+  date_planned_finished   DateTime? @db.Timestamptz
+  date_start              DateTime? @db.Timestamptz
+  date_finished           DateTime? @db.Timestamptz
+  // Steel-domain
+  project_id              Int?                                      // ✅ project (Sprint 2)
+  zone_id                 Int?                                      // ✅ project_zone (Sprint 2)
+  mark_no                 String?   @db.VarChar(40)                 // ✅ mark_prefix_master (Sprint 2)
+  routing_template        String?   @db.VarChar(20)                 // 'Main' | 'Accessory' | 'False'
+  // Aggregates from MO sheet
+  sum_weight_kg           Decimal?  @db.Decimal(12, 2)
+  sum_area_sqm            Decimal?  @db.Decimal(10, 4)
+  sum_part_pcs            Int?
+  total_cycletime_min     Decimal?  @db.Decimal(12, 2)
+  total_prod_day          Decimal?  @db.Decimal(8, 2)
+  // Per-WC duration (denorm from routing for fast project scheduling)
+  cut_parts_buildup_min   Decimal?  @db.Decimal(10, 2)
+  prep_parts_buildup_min  Decimal?  @db.Decimal(10, 2)
+  buildup_fit_min         Decimal?  @db.Decimal(10, 2)
+  buildup_weld_min        Decimal?  @db.Decimal(10, 2)
+  cut_parts_assembly_min  Decimal?  @db.Decimal(10, 2)
+  prep_parts_assembly_min Decimal?  @db.Decimal(10, 2)
+  fitup_min               Decimal?  @db.Decimal(10, 2)
+  welding_min             Decimal?  @db.Decimal(10, 2)
+  paint_min               Decimal?  @db.Decimal(10, 2)
+  repair_min              Decimal?  @db.Decimal(10, 2)
+  // ECO
+  eco_id                  Int?                                      // ⏳ mrp_eco (Sprint 5)
+  // Audit
+  odoo_ref_id             String?   @db.VarChar(40)
+  create_uid              Int
+  create_date             DateTime  @default(now()) @db.Timestamptz
+  write_uid               Int
+  write_date              DateTime  @default(now()) @db.Timestamptz
+
+  // Relations (uncomment when activating):
+  // workorders            mrp_workorder_skeleton[]
+  // serials               stock_production_lot_skeleton[]
+
+  @@index([product_id])
+  @@index([project_id, zone_id])
+  @@index([state])
+}
+
+// 🟦 Work Order (Odoo mrp.workorder)
+//    One WO per (MO × routing operation). Tracks actual start/finish + qty produced.
+model mrp_workorder_skeleton {
+  id                      Int       @id @default(autoincrement())
+  production_id           Int                                       // ⏳ mrp_production (this section)
+  routing_workcenter_id   Int                                       // ⏳ mrp_routing_workcenter (Sprint 4)
+  workcenter_id           Int                                       // ⏳ mrp_workcenter (Sprint 4)
+  name                    String    @db.VarChar(60)                 // 'WO-Z01-COL-001-BUILDUP-FIT'
+  sequence                Int       @default(10)
+  state                   String    @default("pending") @db.VarChar(20)  // pending|ready|progress|done|cancel
+  // Time
+  duration_expected       Decimal   @db.Decimal(10, 2)              // copied from routing at plan-time
+  duration                Decimal?  @db.Decimal(10, 2)              // actual
+  date_planned_start      DateTime? @db.Timestamptz
+  date_planned_finished   DateTime? @db.Timestamptz
+  date_start              DateTime? @db.Timestamptz
+  date_finished           DateTime? @db.Timestamptz
+  // Quantity
+  qty_produced            Decimal   @default(0) @db.Decimal(12, 3)
+  qty_remaining           Decimal?  @db.Decimal(12, 3)
+  qty_scrapped            Decimal   @default(0) @db.Decimal(12, 3)
+  // Operator
+  operator_uid            Int?                                      // ✅ res_users (Sprint 1)
+  // Audit
+  create_uid              Int
+  create_date             DateTime  @default(now()) @db.Timestamptz
+  write_uid               Int
+  write_date              DateTime  @default(now()) @db.Timestamptz
+
+  @@index([production_id])
+  @@index([workcenter_id, state])
+  @@index([state])
+}
+
+// 🟦 Serial Number (Odoo stock.production.lot)
+//    One SN per individual finished assembly. Replaces SN sheet.
+model stock_production_lot_skeleton {
+  id                      Int       @id @default(autoincrement())
+  name                    String    @db.VarChar(40)                 // 'VT-ACO1', 'VT-ACO2'
+  product_id              Int                                       // ✅ products (Sprint 2)
+  production_id           Int?                                      // ⏳ mrp_production (this section)
+  ref                     String?   @db.VarChar(60)                 // optional external ref
+  // Steel-domain
+  mark_no                 String?   @db.VarChar(40)                 // 'VT-ACO1'
+  zone_id                 Int?                                      // ✅ project_zone (Sprint 2)
+  weight_kg               Decimal?  @db.Decimal(10, 2)
+  area_sqm                Decimal?  @db.Decimal(10, 4)
+  part_pcs                Int?
+  // Tracking
+  total_cycletime_min     Decimal?  @db.Decimal(10, 2)
+  paint_layer             String?   @db.VarChar(20)
+  buildup_weldingsize_mm  Decimal?  @db.Decimal(6, 2)
+  // Lifecycle
+  state                   String    @default("planned") @db.VarChar(20)  // planned|in_prod|done|shipped|installed
+  date_done               DateTime? @db.Timestamptz
+  // Audit
+  create_uid              Int
+  create_date             DateTime  @default(now()) @db.Timestamptz
+
+  @@unique([product_id, name])
+  @@index([production_id])
+  @@index([zone_id, state])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 2 — MRP PRODUCTIVITY / DOWNTIME (Sprint 5)
+//   Odoo: mrp.workcenter.productivity
+//   Practice: ISA-95 Equipment Performance + Siemens Opcenter Execution
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟦 Workcenter Productivity (Odoo mrp.workcenter.productivity)
+//    Logs every uptime/downtime block. Source-of-truth for actual OEE A%.
+model mrp_workcenter_productivity_skeleton {
+  id                      Int       @id @default(autoincrement())
+  workcenter_id           Int                                       // ⏳ mrp_workcenter (Sprint 4)
+  workorder_id            Int?                                      // ⏳ mrp_workorder (this file)
+  user_id                 Int                                       // ✅ res_users (Sprint 1)
+  loss_id                 Int                                       // ⏳ mrp_workcenter_productivity_loss (FK below)
+  date_start              DateTime  @db.Timestamptz
+  date_end                DateTime? @db.Timestamptz
+  duration_min            Decimal?  @db.Decimal(10, 2)              // computed
+  description             String?   @db.Text
+
+  @@index([workcenter_id, date_start])
+  @@index([loss_id])
+}
+
+// 🟦 Productivity Loss Reason (Odoo)
+model mrp_workcenter_productivity_loss_skeleton {
+  id          Int       @id @default(autoincrement())
+  name        String    @db.VarChar(60)                 // 'Material shortage', 'Tool break', 'Power outage'
+  loss_type   String    @db.VarChar(20)                 // availability|performance|quality|productive
+  sequence    Int       @default(10)
+  active      Boolean   @default(true)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 3 — ENGINEERING CHANGE ORDER (Sprint 5)
+//   Odoo: mrp.eco
+//   Practice: governs BOM + Routing + Drawing changes after release
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟦 Engineering Change Order (Odoo mrp.eco)
+//    Required to modify BOM/routing/drawing after state=active.
+//    Sprint 3 BOM has eco_id INT (nullable) — this fills it.
+model mrp_eco_skeleton {
+  id                      Int       @id @default(autoincrement())
+  name                    String    @unique @db.VarChar(40)         // 'ECO-2026-001'
+  type                    String    @db.VarChar(20)                 // bom|routing|drawing|product|hybrid
+  state                   String    @default("draft") @db.VarChar(20)  // draft|review|approved|in_progress|done|rejected
+  // Subject
+  product_id              Int?                                      // ✅ products
+  bom_id                  Int?                                      // ✅ product_bom (Sprint 3)
+  routing_id              Int?                                      // ⏳ mrp_routing_workcenter (Sprint 4)
+  drawing_id              Int?                                      // ✅ shop_drawing (Sprint 3)
+  // Reason / impact
+  reason                  String    @db.Text
+  impact_summary          String?   @db.Text
+  cost_impact_thb         Decimal?  @db.Decimal(12, 2)
+  effective_date          DateTime? @db.Date
+  // Approvals
+  requested_by            Int                                       // ✅ res_users
+  approved_by             Int?
+  approved_at             DateTime? @db.Timestamptz
+  // Linkage to descendants (BOM/routing cloned with this ECO)
+  resulting_bom_id        Int?                                      // ✅ product_bom
+  resulting_routing_id    Int?                                      // ⏳ mrp_routing_workcenter
+  resulting_drawing_rev   String?   @db.VarChar(5)
+  // Audit
+  create_uid              Int
+  create_date             DateTime  @default(now()) @db.Timestamptz
+  write_uid               Int
+  write_date              DateTime  @default(now()) @db.Timestamptz
+
+  @@index([product_id])
+  @@index([state])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 4 — ROUTING DEPENDENCY GRAPH (Sprint 5 — extends Sprint 4)
+//   Practice: ISA-95 ProcessSegmentDependency (parallel + sequential)
+//   Why skeleton: Sprint 4 has blocked_by_op_ids INT[] but ISA-95 wants typed
+//   relationship (parallel|sequential|exclusive|alternate).
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟨 Routing Operation Dependency (ISA-95 typed graph)
+model routing_op_dependency_skeleton {
+  id                      Int       @id @default(autoincrement())
+  predecessor_id          Int                                       // ⏳ mrp_routing_workcenter
+  successor_id            Int                                       // ⏳ mrp_routing_workcenter
+  dependency_type         String    @db.VarChar(20)                 // sequential|parallel|exclusive|alternate
+  lag_min                 Decimal?  @db.Decimal(8, 2)               // wait time after predecessor finish
+  // Examples:
+  //   buildup-fit  →[sequential]→ buildup-weld   (jig occupied)
+  //   primer       →[sequential, lag=120min]→ fireproof   (drying time)
+  //   cutting-A    →[parallel]→ cutting-B       (separate machines)
+
+  @@unique([predecessor_id, successor_id])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 5 — PERSONNEL SKILL MATRIX (Sprint 6)
+//   Practice: ISA-95 PersonnelSpec + qualification certification
+//   Why skeleton: Sprint 4 work-center has Manpower (count) but no skill/cert.
+//   Welder certification (TIS 2543, AWS D1.1) is required for code-compliant welding.
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟨 Skill Master (ISA-95 PersonnelClass)
+model personnel_skill_skeleton {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique @db.VarChar(20)                 // 'WELD-AWS-D1.1', 'CRANE-OP', 'NDT-MT-L2'
+  name            String    @db.VarChar(100)
+  category        String    @db.VarChar(40)                         // welding|machining|crane|qc|painting|fitting
+  description     String?   @db.Text
+  cert_required   Boolean   @default(false)
+  cert_renew_mo   Int?                                              // months between renewal (24 for AWS, 36 for TIS)
+  active          Boolean   @default(true)
+}
+
+// 🟨 Personnel Skill Assignment
+model personnel_skill_assignment_skeleton {
+  id                Int       @id @default(autoincrement())
+  user_id           Int                                             // ✅ res_users
+  skill_id          Int                                             // ⏳ personnel_skill (this section)
+  level             String    @db.VarChar(20)                       // trainee|operator|skilled|expert
+  certified         Boolean   @default(false)
+  cert_no           String?   @db.VarChar(40)
+  cert_issued       DateTime? @db.Date
+  cert_expires      DateTime? @db.Date
+  document_id       Int?                                            // ✅ shop_drawing or generic doc store
+
+  @@unique([user_id, skill_id])
+  @@index([skill_id, level])
+}
+
+// 🟨 Activity Skill Requirement (extends routing_activity_template)
+//   Sprint 4 activity_template.manpower is just count — this typifies the requirement.
+model routing_activity_skill_req_skeleton {
+  id                  Int       @id @default(autoincrement())
+  activity_id         Int                                           // ⏳ routing_activity_template (Sprint 4)
+  skill_id            Int                                           // ⏳ personnel_skill (this section)
+  min_level           String    @db.VarChar(20)                     // 'skilled' minimum
+  qty                 Int       @default(1)
+
+  @@unique([activity_id, skill_id])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 6 — QUALITY (Sprint 6)
+//   Odoo: quality.point + quality.check + quality.alert
+//   Practice: AISC Chapter N inspection requirements + AWS D1.1 acceptance
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟦 Quality Check Point (Odoo quality.point)
+//    Definition: where in routing should this check happen, what is checked, by whom.
+model quality_point_skeleton {
+  id                      Int       @id @default(autoincrement())
+  name                    String    @db.VarChar(120)                 // 'Weld bead penetration check'
+  product_id              Int?                                       // ✅ products (null = applies to all)
+  routing_op_id           Int?                                       // ⏳ mrp_routing_workcenter
+  test_type               String    @db.VarChar(20)                  // dimensional|visual|ndt_mt|ndt_pt|ndt_ut|ndt_rt|paint_thickness|torque
+  test_method             String?   @db.VarChar(40)                  // 'AWS D1.1 §6', 'AISC 360-16 N5'
+  measure_unit            String?   @db.VarChar(20)                  // 'mm', 'μm', '%'
+  spec_min                Decimal?  @db.Decimal(12, 4)
+  spec_max                Decimal?  @db.Decimal(12, 4)
+  spec_target             Decimal?  @db.Decimal(12, 4)
+  is_blocking             Boolean   @default(false)                  // fail blocks WO progress
+  active                  Boolean   @default(true)
+  create_uid              Int
+  create_date             DateTime  @default(now()) @db.Timestamptz
+}
+
+// 🟦 Quality Check Result (Odoo quality.check)
+//    Performed during/after work order. Pass/fail + measurement.
+model quality_check_skeleton {
+  id                      Int       @id @default(autoincrement())
+  point_id                Int                                        // ⏳ quality_point (this section)
+  workorder_id            Int                                        // ⏳ mrp_workorder
+  serial_id               Int?                                       // ⏳ stock_production_lot
+  state                   String    @default("none") @db.VarChar(20) // none|pass|fail
+  measure_value           Decimal?  @db.Decimal(12, 4)
+  measure_text            String?   @db.VarChar(200)
+  inspector_uid           Int                                        // ✅ res_users
+  inspected_at            DateTime  @default(now()) @db.Timestamptz
+  fail_reason             String?   @db.Text
+  alert_id                Int?                                       // ⏳ quality_alert (deferred Sprint 7)
+
+  @@index([workorder_id])
+  @@index([point_id, state])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 7 — MAINTENANCE / EQUIPMENT REGISTER (Sprint 6)
+//   Odoo: maintenance.equipment + maintenance.request
+//   Source data: process routing.xlsx → machine_equipment sheet (220 rows)
+//   Practice: ISA-95 Equipment Asset hierarchy + TPM
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟦 Equipment (Odoo maintenance.equipment)
+//    Replaces machine_equipment sheet (220 rows).
+model maintenance_equipment_skeleton {
+  id                      Int       @id @default(autoincrement())
+  serial_no               String    @unique @db.VarChar(40)          // '7191200001-0000'
+  name                    String    @db.VarChar(120)                 // 'เครื่องวัดระยะเลเซอร์ Hilti PD'
+  category                String    @db.VarChar(40)                  // 'Hand Tools', 'Fixed Workshop Furniture', 'Personal Computer'
+  model                   String?   @db.VarChar(60)
+  manufacturer            String?   @db.VarChar(60)
+  workcenter_id           Int?                                       // ⏳ mrp_workcenter (Sprint 4)
+  location                String?   @db.VarChar(120)                 // 'BDT บางประกง', 'BDT-BPK ชั้น 6'
+  asset_no                String?   @db.VarChar(40)
+  assigned_employee_id    Int?                                       // ✅ res_users
+  assigned_department     String?   @db.VarChar(40)                  // 'BIF', 'BOF'
+  technician_id           Int?                                       // ✅ res_users
+  effective_date          DateTime? @db.Date
+  warranty_until          DateTime? @db.Date
+  cost_purchase_thb       Decimal?  @db.Decimal(12, 2)
+  cost_residual_thb       Decimal?  @db.Decimal(12, 2)
+  status                  String    @default("operational") @db.VarChar(20) // operational|broken|under_maint|retired
+  // Capacity / spec
+  spec_json               Json?                                      // {motor_kw, max_size_mm, etc.}
+  // Audit
+  create_uid              Int
+  create_date             DateTime  @default(now()) @db.Timestamptz
+
+  @@index([workcenter_id])
+  @@index([category])
+  @@index([status])
+}
+
+// 🟦 Maintenance Request (Odoo maintenance.request)
+model maintenance_request_skeleton {
+  id                      Int       @id @default(autoincrement())
+  name                    String    @db.VarChar(120)
+  equipment_id            Int                                        // ⏳ maintenance_equipment (this section)
+  request_type            String    @db.VarChar(20)                  // corrective|preventive|predictive
+  priority                String    @default("normal") @db.VarChar(10) // low|normal|high|critical
+  state                   String    @default("new") @db.VarChar(20)  // new|in_progress|repaired|cancelled
+  reported_by             Int                                        // ✅ res_users
+  assigned_to             Int?                                       // ✅ res_users
+  date_request            DateTime  @default(now()) @db.Timestamptz
+  date_scheduled          DateTime? @db.Timestamptz
+  date_done               DateTime? @db.Timestamptz
+  description             String?   @db.Text
+  resolution              String?   @db.Text
+  cost_thb                Decimal?  @db.Decimal(10, 2)
+
+  @@index([equipment_id, state])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 8 — CAPACITY PLANNING (Sprint 7)
+//   Odoo: capacity logic is in mrp.workorder scheduling
+//   Practice: Siemens Opcenter APS + finite/infinite capacity
+//   Why skeleton: Sprint 4 has capacity_per_period_json (snapshot) but no
+//   forward-looking plan vs commitment.
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟨 Capacity Plan (per WC, per time bucket — week or month)
+model mrp_workcenter_capacity_plan_skeleton {
+  id                      Int       @id @default(autoincrement())
+  workcenter_id           Int                                        // ⏳ mrp_workcenter (Sprint 4)
+  bucket                  String    @db.VarChar(7)                   // '2026-W18' or '2026-05'
+  bucket_type             String    @db.VarChar(10)                  // week|month
+  // Available
+  available_min           Decimal   @db.Decimal(10, 2)               // hours × 60 × time_efficiency
+  // Committed (sum of WOs scheduled into this bucket)
+  committed_min           Decimal   @default(0) @db.Decimal(10, 2)
+  // Reserved (forecast / sales order pull)
+  reserved_min            Decimal   @default(0) @db.Decimal(10, 2)
+  // Utilisation %
+  utilisation_pct         Decimal?  @db.Decimal(5, 2)
+  // Snapshot OEE
+  oee_actual_pct          Decimal?  @db.Decimal(5, 2)
+  // Audit
+  create_date             DateTime  @default(now()) @db.Timestamptz
+  refreshed_at            DateTime  @default(now()) @db.Timestamptz
+
+  @@unique([workcenter_id, bucket])
+  @@index([bucket])
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// SECTION 9 — MES SHOP-FLOOR EVENTS (Sprint 7)
+//   Practice: ISA-95 Operations Performance + Siemens Opcenter Execution
+//   Real-time event stream from PLC / scanner / operator UI.
+// ────────────────────────────────────────────────────────────────────────────
+
+// 🟥 Shop Floor Event (BDT-custom event log)
+//    Append-only stream. Source: scanner, button-on-machine, operator tablet.
+model mes_shop_floor_event_skeleton {
+  id                      BigInt    @id @default(autoincrement())
+  event_type              String    @db.VarChar(20)                  // wo_start|wo_pause|wo_resume|wo_done|qty_report|scrap|downtime|setup_start|setup_done
+  workorder_id            Int?                                       // ⏳ mrp_workorder
+  serial_id               Int?                                       // ⏳ stock_production_lot
+  workcenter_id           Int?                                       // ⏳ mrp_workcenter
+  operator_uid            Int?                                       // ✅ res_users
+  qty                     Decimal?  @db.Decimal(12, 3)
+  meta                    Json?                                      // {scrap_reason, photo_url, sensor_value, ...}
+  occurred_at             DateTime  @db.Timestamptz                  // event timestamp (from device)
+  recorded_at             DateTime  @default(now()) @db.Timestamptz  // server time
+
+  @@index([workorder_id, occurred_at])
+  @@index([workcenter_id, occurred_at])
+  @@index([event_type, occurred_at])
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// END OF SKELETON FILE — 11 entities across 9 sections
+// ════════════════════════════════════════════════════════════════════════════
