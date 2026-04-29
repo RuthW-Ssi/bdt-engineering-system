@@ -67,6 +67,7 @@ export interface StepActivityDTO {
 export interface RoutingOpDTO {
   id: number
   product_id: number | null
+  routing_template_id: number | null
   routing_template: string | null
   op_code: string
   name: string
@@ -365,3 +366,137 @@ export const reorderBindingRules = (items: { id: number; priority: number }[]): 
 
 export const rebindProduct = (productCode: string): Promise<number | null> =>
   apiClient.post(`/products/${productCode}/rebind`).then(r => r.data)
+
+// ── Sprint 4.3: Template Simulator ────────────────────────────
+
+export interface RequiredAttrDTO {
+  key: string
+  used_by: string[]
+}
+
+export interface SimulateResultDTO {
+  template_id: number
+  template_code: string
+  attributes: Record<string, number>
+  fixture_id?: number
+  operations: CycleTimeResult['operations']
+  total_cycle_time_min: number
+  simulated_at: string
+}
+
+export interface TestFixtureDTO {
+  id: number
+  template_id: number
+  name: string
+  description: string | null
+  source_mode: string
+  source_product_id: number | null
+  source_product: { product_code: string; name: string } | null
+  attribute_values: Record<string, number>
+  expected_total_min: number | null
+}
+
+export const getRequiredAttrs = (templateId: number): Promise<RequiredAttrDTO[]> =>
+  apiClient.get(`/routing-templates/${templateId}/required-attrs`).then(r => r.data)
+
+export const simulateTemplate = (
+  templateId: number,
+  attributes: Record<string, number>,
+  fixtureId?: number,
+): Promise<SimulateResultDTO> =>
+  apiClient.post(`/routing-templates/${templateId}/simulate`, { attributes, fixture_id: fixtureId }).then(r => r.data)
+
+export const getFixtures = (templateId: number): Promise<TestFixtureDTO[]> =>
+  apiClient.get(`/routing-templates/${templateId}/fixtures`).then(r => r.data)
+
+export const createFixture = (
+  templateId: number,
+  body: {
+    name: string
+    description?: string
+    source_mode: string
+    source_product_id?: number
+    attribute_values: Record<string, number>
+    expected_total_min?: number
+  },
+): Promise<TestFixtureDTO> =>
+  apiClient.post(`/routing-templates/${templateId}/fixtures`, body).then(r => r.data)
+
+// ── Sprint 4.3: Bulk Override ──────────────────────────────────
+
+export interface BulkOverrideResultDTO {
+  matched_count: number
+  applied_count: number
+  skipped_count: number
+  eco_required: boolean
+  affected_products: { id: number; product_code: string; name: string }[]
+}
+
+export const bulkUpsertOverrides = (body: {
+  criteria: {
+    routing_template_id?: number
+    product_type?: string
+    mark_prefix?: string
+    categ_id?: number
+    attribute_filter?: { path: string; value: string }
+  }
+  override: {
+    activity_template_id: number
+    override_per_minute?: number
+    override_std_measure?: number
+    override_manpower?: number
+    reason: string
+  }
+  eco_id?: number
+  preview_only?: boolean
+}): Promise<BulkOverrideResultDTO> =>
+  apiClient.post('/routing-overrides/bulk', body).then(r => r.data)
+
+// ── Sprint 4.3: Custom Routing Promotion ──────────────────────
+
+export interface PromotionCandidateDTO {
+  op_key: string
+  count: number
+  candidates: { custom_routing_id: number; product_code: string; op_codes: string[] }[]
+}
+
+export interface PromoteResultDTO {
+  template_id: number
+  template_code: string
+  rebound_product_ids: number[]
+}
+
+export const getPromotionCandidates = (): Promise<PromotionCandidateDTO[]> =>
+  apiClient.get('/custom-routings/promotion-candidates').then(r => r.data)
+
+export const promoteToTemplate = (customRoutingId: number, templateName: string): Promise<PromoteResultDTO> =>
+  apiClient.post(`/custom-routings/${customRoutingId}/promote-to-template`, { template_name: templateName }).then(r => r.data)
+
+// ── Sprint 4.3: History ────────────────────────────────────────
+
+export interface HistoryEntryDTO {
+  id: number
+  version: string
+  snapshot: Record<string, unknown>
+  changed_by: { id: number; name: string }
+  changed_at: string
+  reason: string | null
+}
+
+export interface OverrideHistoryEntryDTO {
+  id: number
+  override_id: number
+  snapshot: Record<string, unknown>
+  action: 'create' | 'update' | 'delete'
+  changed_by: { id: number; name: string }
+  changed_at: string
+}
+
+export const getTemplateHistory = (templateId: number, page = 1): Promise<HistoryEntryDTO[]> =>
+  apiClient.get(`/routing-templates/${templateId}/history`, { params: { page } }).then(r => r.data)
+
+export const getActivityTemplateHistory = (actId: number, page = 1): Promise<HistoryEntryDTO[]> =>
+  apiClient.get(`/activity-templates/${actId}/history`, { params: { page } }).then(r => r.data)
+
+export const getOverrideHistory = (productCode: string, actId: number, page = 1): Promise<OverrideHistoryEntryDTO[]> =>
+  apiClient.get(`/products/${productCode}/routing-overrides/${actId}/history`, { params: { page } }).then(r => r.data)

@@ -21,6 +21,9 @@ import { ActivityTemplatesService } from './services/activity-templates.service'
 import { OverrideService } from './services/override.service'
 import { CustomRoutingService } from './services/custom-routing.service'
 import { TemplateBindingService } from './services/template-binding.service'
+import { TemplateSimulatorService } from './services/template-simulator.service'
+import { BulkOverrideService } from './services/bulk-override.service'
+import { RoutingPromotionService } from './services/routing-promotion.service'
 import { CreateRoutingDto } from './dto/create-routing.dto'
 import { AddOperationDto } from './dto/add-operation.dto'
 import { ReorderOperationsDto } from './dto/reorder-operations.dto'
@@ -55,6 +58,9 @@ export class RoutingsController {
     private readonly overrideService: OverrideService,
     private readonly customRoutingService: CustomRoutingService,
     private readonly templateBindingService: TemplateBindingService,
+    private readonly simulatorService: TemplateSimulatorService,
+    private readonly bulkOverrideService: BulkOverrideService,
+    private readonly promotionService: RoutingPromotionService,
     private readonly identity: IdentityService,
   ) {}
 
@@ -469,6 +475,163 @@ export class RoutingsController {
   @ApiOperation({ summary: 'List all formula parameters' })
   listParams() {
     return this.actService.findAllParams()
+  }
+
+  // ── Template Simulator (RT44/RT45/RT47) ────────────────────────
+
+  @Get('routing-templates/:id/required-attrs')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'List attribute keys required by all formula params on this template' })
+  getRequiredAttrs(@Param('id', ParseIntPipe) id: number) {
+    return this.simulatorService.getRequiredAttrs(id)
+  }
+
+  @Post('routing-templates/:id/simulate')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Simulate cycle time for a template given arbitrary attributes (no DB write)' })
+  simulateTemplate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { attributes: Record<string, number>; fixture_id?: number },
+  ) {
+    return this.simulatorService.simulate(id, body.attributes ?? {}, body.fixture_id)
+  }
+
+  @Get('routing-templates/:id/fixtures')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'List saved simulator fixtures for a template' })
+  listFixtures(@Param('id', ParseIntPipe) id: number) {
+    return this.simulatorService.listFixtures(id)
+  }
+
+  @Post('routing-templates/:id/fixtures')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Save a simulator input set as a named fixture' })
+  async createFixture(
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: {
+      name: string
+      description?: string
+      source_mode: string
+      source_product_id?: number
+      attribute_values: Record<string, number>
+      expected_total_min?: number
+      expected_total_cost?: number
+    },
+    @Headers('x-user-id') userId: string,
+  ) {
+    const uid = await this.identity.resolveUser(userId)
+    return this.simulatorService.createFixture(id, body, uid)
+  }
+
+  // ── Bulk Override (RT50) ────────────────────────────────────────
+
+  @Post('routing-overrides/bulk')
+  @ApiTags('RoutingOverrides')
+  @ApiOperation({ summary: 'Bulk upsert overrides for all products matching criteria; preview_only=true for dry-run' })
+  async bulkOverride(
+    @Body()
+    body: {
+      criteria: {
+        routing_template_id?: number
+        product_type?: string
+        mark_prefix?: string
+        categ_id?: number
+        attribute_filter?: { path: string; value: string }
+      }
+      override: {
+        activity_template_id: number
+        override_per_minute?: number
+        override_std_measure?: number
+        override_manpower?: number
+        reason: string
+      }
+      eco_id?: number
+      preview_only?: boolean
+    },
+    @Headers('x-user-id') userId: string,
+  ) {
+    const uid = await this.identity.resolveUser(userId)
+    return this.bulkOverrideService.bulkUpsert(body.criteria, body.override, { eco_id: body.eco_id, preview_only: body.preview_only }, uid)
+  }
+
+  // ── Custom Routing Promotion (RT54) ────────────────────────────
+
+  @Get('custom-routings/promotion-candidates')
+  @ApiTags('CustomRoutings')
+  @ApiOperation({ summary: 'Find custom routings with identical op_code structure (candidates for template promotion)' })
+  findPromotionCandidates() {
+    return this.promotionService.findCandidates()
+  }
+
+  @Post('custom-routings/:id/promote-to-template')
+  @ApiTags('CustomRoutings')
+  @ApiOperation({ summary: 'Promote a custom routing to a new shared template and rebind the product' })
+  async promoteToTemplate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { template_name: string },
+    @Headers('x-user-id') userId: string,
+  ) {
+    const uid = await this.identity.resolveUser(userId)
+    return this.promotionService.promote(id, body.template_name, uid)
+  }
+
+  // ── History endpoints (RT49) ────────────────────────────────────
+
+  @Get('routing-templates/:id/history')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Get change history for a routing template' })
+  getTemplateHistory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('page') page = '1',
+    @Query('limit') limit = '50',
+  ) {
+    const skip = (Number(page) - 1) * Number(limit)
+    return this.prisma.routing_template_history.findMany({
+      where: { template_id: id },
+      orderBy: { changed_at: 'desc' },
+      skip,
+      take: Number(limit),
+      include: { changed_by: { select: { id: true, name: true } } },
+    })
+  }
+
+  @Get('activity-templates/:id/history')
+  @ApiTags('ActivityTemplates')
+  @ApiOperation({ summary: 'Get change history for an activity template' })
+  getActivityTemplateHistory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('page') page = '1',
+    @Query('limit') limit = '50',
+  ) {
+    const skip = (Number(page) - 1) * Number(limit)
+    return this.prisma.routing_activity_template_history.findMany({
+      where: { activity_template_id: id },
+      orderBy: { changed_at: 'desc' },
+      skip,
+      take: Number(limit),
+      include: { changed_by: { select: { id: true, name: true } } },
+    })
+  }
+
+  @Get('products/:code/routing-overrides/:actId/history')
+  @ApiTags('RoutingOverrides')
+  @ApiOperation({ summary: 'Get change history for a product override on a specific activity' })
+  async getOverrideHistory(
+    @Param('code') code: string,
+    @Param('actId', ParseIntPipe) actId: number,
+    @Query('page') page = '1',
+    @Query('limit') limit = '50',
+  ) {
+    const product = await this.prisma.products.findUniqueOrThrow({ where: { product_code: code } })
+    const skip = (Number(page) - 1) * Number(limit)
+    return this.prisma.product_routing_override_history.findMany({
+      where: { product_id: product.id, activity_template_id: actId },
+      orderBy: { changed_at: 'desc' },
+      skip,
+      take: Number(limit),
+      include: { changed_by: { select: { id: true, name: true } } },
+    })
   }
 
   // ── Inline Prisma helpers for template + binding-rule CRUD ─────

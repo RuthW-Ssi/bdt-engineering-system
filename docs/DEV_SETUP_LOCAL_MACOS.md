@@ -25,15 +25,16 @@
 | Source | เติมตารางเหล่านี้ | คำสั่ง |
 |---|---|---|
 | **1. `prisma:seed`** | res_users, uom_*, account_account, product_category, mark_prefix_master, tekla_prefix_mapping, steel_grade, project (0X202), product_code_seq, part_code_seq, products (12 STD templates) | `pnpm prisma:seed` |
-| **2. `import:routing-xlsx`** | mrp_workcenter (4), routing_formula_param (~19), routing_activity_template (~923) | `pnpm import:routing-xlsx` |
+| **2. `import:routing-xlsx`** | mrp_workcenter (4), routing_formula_param (~19), routing_activity_template (~41) | `pnpm import:routing-xlsx` |
+| **2b. `seed:routing`** | routing_template (3: Main/Accessory/False), routing_template_binding_rule (5) | `pnpm seed:routing` |
 | **3. `import:odoo`** | materials (จริง), products (จริง — ไม่ใช่แค่ template) | `pnpm import:odoo` |
-| **4. UI / pg_dump เท่านั้น** | product_bom, product_bom_line, shop_drawing, drawing_revision, file_storage, Sprint 4.2 routing_op_activity, product_routing_override, custom_routing | ❌ Path B ไม่มีทาง seed — ต้อง pg_restore หรือสร้างผ่าน UI |
+| **4. UI / pg_dump เท่านั้น** | product_bom, product_bom_line, shop_drawing, drawing_revision, file_storage, routing_op_activity, product_routing_override, custom_routing, routing_template_history, routing_activity_template_history, product_routing_override_history, routing_template_test_fixture | ❌ Path B ไม่มีทาง seed — ต้อง pg_restore หรือสร้างผ่าน UI |
 
 **สรุป Path B (fresh setup) จะได้:**
 - ✅ Master data + UoM + ผังบัญชี + steel grade + 12 product templates
 - ✅ Work center + formula params + activity templates
 - ✅ Materials + Products จริง (ถ้ามี xlsx ที่ import:odoo อ่าน)
-- ❌ **ไม่มี:** BOM lines, shop drawings, Sprint 4.2 custom routing
+- ❌ **ไม่มี:** BOM lines, shop drawings, custom routing (Sprint 4.2), history records + fixtures (Sprint 4.3)
 
 ---
 
@@ -216,7 +217,7 @@ rsync -avz --progress user@source-host:/path/to/bdt-app/backend/storage/ \
 
 ใช้กรณีต้องการ data ที่ derive ได้จาก xlsx ใน `document/` — ครบทุก source ยกเว้น BOM/drawing
 
-⚠️ **ต้องรันให้ครบทั้ง 4 step** — ขาด step ไหนตารางที่ตรงกับ step นั้นจะเปล่า:
+⚠️ **ต้องรันให้ครบทั้ง 5 step** — ขาด step ไหนตารางที่ตรงกับ step นั้นจะเปล่า:
 
 ```bash
 cd backend
@@ -228,10 +229,15 @@ pnpm prisma migrate deploy
 #          project 0X202, 12 standard product templates)
 pnpm prisma:seed
 
-# Step 3 — routing data (Sprint 4)
+# Step 3 — routing xlsx data (Sprint 4)
 #          จาก document/process routing.xlsx
-#          → 4 mrp_workcenter, ~19 routing_formula_param, ~923 routing_activity_template
+#          → 4 mrp_workcenter, ~19 routing_formula_param, ~41 routing_activity_template
 pnpm import:routing-xlsx
+
+# Step 3b — routing templates + binding rules (Sprint 4.2)
+#           → 3 routing_template (Main / Accessory / False), 5 binding rules
+#           → rebind products ที่ product_code = CUS-00001 → Main template
+pnpm seed:routing
 
 # Step 4 — materials + products จริง (ไม่ใช่ template)
 #          จาก document/odoo-material-template.xlsx + odoo-product-template.xlsx
@@ -243,7 +249,8 @@ pnpm import:odoo
 ```bash
 psql -h localhost -U bdt -d bdt -c "
 SELECT 'After seed:' AS step, COUNT(*) FROM mark_prefix_master      -- ควรได้ 28
-UNION ALL SELECT 'After routing:', COUNT(*) FROM routing_activity_template  -- ควรได้ ~923
+UNION ALL SELECT 'After routing-xlsx:', COUNT(*) FROM routing_activity_template  -- ควรได้ ~41
+UNION ALL SELECT 'After seed:routing:', COUNT(*) FROM routing_template          -- ควรได้ 3
 UNION ALL SELECT 'After odoo:', COUNT(*) FROM materials              -- ควรได้ > 0
 ;"
 ```
@@ -306,7 +313,11 @@ UNION ALL SELECT 'routing_formula_param', COUNT(*) FROM routing_formula_param
 -- Sprint 4.2 tables
 UNION ALL SELECT 'routing_op_activity', COUNT(*) FROM routing_op_activity
 UNION ALL SELECT 'product_routing_override', COUNT(*) FROM product_routing_override
-UNION ALL SELECT 'custom_routing', COUNT(*) FROM custom_routing;
+UNION ALL SELECT 'custom_routing', COUNT(*) FROM custom_routing
+-- Sprint 4.3 tables
+UNION ALL SELECT 'routing_template_history', COUNT(*) FROM routing_template_history
+UNION ALL SELECT 'override_history', COUNT(*) FROM product_routing_override_history
+UNION ALL SELECT 'test_fixtures', COUNT(*) FROM routing_template_test_fixture;
 ```
 
 เปิด UI ที่ `http://localhost:5173` แล้วทดสอบ:
@@ -432,7 +443,9 @@ SELECT 'STEP 2 (seed)' AS step, COUNT(*) AS count, 28 AS expected FROM mark_pref
 UNION ALL SELECT 'STEP 2 (seed)',  COUNT(*), 12  FROM products WHERE product_code LIKE 'STD-%'
 UNION ALL SELECT 'STEP 3 (routing-xlsx)', COUNT(*), 4   FROM mrp_workcenter
 UNION ALL SELECT 'STEP 3 (routing-xlsx)', COUNT(*), 19  FROM routing_formula_param
-UNION ALL SELECT 'STEP 3 (routing-xlsx)', COUNT(*), 923 FROM routing_activity_template
+UNION ALL SELECT 'STEP 3 (routing-xlsx)', COUNT(*), 41  FROM routing_activity_template
+UNION ALL SELECT 'STEP 3b (seed:routing)', COUNT(*), 3  FROM routing_template
+UNION ALL SELECT 'STEP 3b (seed:routing)', COUNT(*), 5  FROM routing_template_binding_rule
 UNION ALL SELECT 'STEP 4 (import:odoo)',  COUNT(*), 0   FROM materials;  -- > 0 ถ้า odoo xlsx มี
 ```
 
@@ -442,12 +455,13 @@ UNION ALL SELECT 'STEP 4 (import:odoo)',  COUNT(*), 0   FROM materials;  -- > 0 
 |---|---|---|
 | Step 2 count = 0 | ลืมรัน seed | `cd backend && pnpm prisma:seed` |
 | Step 3 count = 0 | ลืมรัน routing import | `cd backend && pnpm import:routing-xlsx` |
-| Step 3 templates ตัวเลขแปลกๆ (เช่น 1846) | bug: รัน import:routing-xlsx ซ้ำ → duplicate | ดูเคส "routing template ซ้ำ" ด้านล่าง |
+| Step 3 templates ตัวเลขแปลกๆ (เช่น 82) | bug: รัน import:routing-xlsx ซ้ำ → duplicate | ดูเคส "routing template ซ้ำ" ด้านล่าง |
+| Step 3b count = 0 | ลืมรัน seed:routing | `cd backend && pnpm seed:routing` |
 | Step 4 count = 0 | ลืมรัน odoo import | `cd backend && pnpm import:odoo` |
 
 ### ❌ routing template ซ้ำ / มีจำนวนเกินคาด (bug ใน import-routing-xlsx)
 
-`import-routing-xlsx.ts` ใช้ `prisma.routing_activity_template.create()` ไม่ใช่ upsert ฉะนั้น **รัน 2 รอบ = 1846 records แทนที่จะเป็น 923**
+`import-routing-xlsx.ts` ใช้ `prisma.routing_activity_template.create()` ไม่ใช่ upsert ฉะนั้น **รัน 2 รอบ = 82 records แทนที่จะเป็น 41**
 
 **แก้ชั่วคราว:** clear ตารางก่อนรันใหม่
 ```bash
@@ -455,7 +469,7 @@ psql -h localhost -U bdt -d bdt -c "TRUNCATE routing_activity_template RESTART I
 cd backend && pnpm import:routing-xlsx
 ```
 
-> 🐛 **TODO:** แก้ script ให้ใช้ upsert จริง — ดู bug fix ด้านล่าง
+> 🐛 **TODO:** แก้ script ให้ใช้ upsert จริง
 
 ### ❌ `pnpm import:routing-xlsx` หรือ `import:odoo` แจ้ง "ENOENT: no such file"
 
@@ -495,7 +509,7 @@ cd .. && pnpm install
 psql -h localhost -U bdt -d bdt
 
 # Reset DB ทั้งหมด (ระวัง!)
-cd backend && pnpm prisma migrate reset --force && pnpm prisma:seed
+cd backend && pnpm prisma migrate reset --force && pnpm prisma:seed && pnpm import:routing-xlsx && pnpm seed:routing
 
 # สร้าง dump ส่งให้ทีม
 pg_dump -h localhost -U bdt -d bdt -F c -f bdt_$(date +%Y%m%d).dump
@@ -512,4 +526,4 @@ pg_dump -h localhost -U bdt -d bdt -F c -f bdt_$(date +%Y%m%d).dump
 
 ---
 
-**Last updated:** 2026-04-29 · **Stack version:** Node 20 / Postgres 16 / pnpm 9 / Prisma 6
+**Last updated:** 2026-04-29 (Sprint 4.3) · **Stack version:** Node 20 / Postgres 16 / pnpm 9 / Prisma 6

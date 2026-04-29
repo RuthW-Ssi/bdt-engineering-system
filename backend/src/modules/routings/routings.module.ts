@@ -13,6 +13,9 @@ import { StdCostService } from './services/std-cost.service'
 import { TemplateBindingService } from './services/template-binding.service'
 import { OverrideService } from './services/override.service'
 import { CustomRoutingService } from './services/custom-routing.service'
+import { TemplateSimulatorService } from './services/template-simulator.service'
+import { BulkOverrideService } from './services/bulk-override.service'
+import { RoutingPromotionService } from './services/routing-promotion.service'
 
 @Module({
   imports: [PrismaModule, MailModule, IdentityModule],
@@ -27,6 +30,9 @@ import { CustomRoutingService } from './services/custom-routing.service'
     TemplateBindingService,
     OverrideService,
     CustomRoutingService,
+    TemplateSimulatorService,
+    BulkOverrideService,
+    RoutingPromotionService,
   ],
   exports: [RoutingService, FormulaService, CycleTimeService, StdCostService, OverrideService],
 })

@@ -4,11 +4,13 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Play, ArchiveX, RefreshCw, Clock, Layers,
   ChevronDown, ChevronRight, AlertCircle, Loader2, Info,
-  Edit2, Check, X, RotateCcw, Pencil, ExternalLink,
+  Edit2, Check, X, RotateCcw, Pencil, ExternalLink, BarChart2,
 } from 'lucide-react'
 import { useRouting, useStdCost } from '../hooks/useRoutings'
 import { upsertRoutingOverride, deleteRoutingOverride } from '../api/routings'
 import type { RoutingOpDTO, StepActivityDTO } from '../api/routings'
+import { SimulatorPanel } from '../components/SimulatorPanel'
+import { HistoryDrawer } from '../components/HistoryDrawer'
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -110,6 +112,17 @@ function ActivityRow({
 
   const resetMut = useMutation({
     mutationFn: () => deleteRoutingOverride(productCode, act.activity_template_id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: routingKey }),
+  })
+
+  const rollbackMut = useMutation({
+    mutationFn: (snap: Record<string, unknown>) =>
+      upsertRoutingOverride(productCode, act.activity_template_id, {
+        override_per_minute:  snap.override_per_minute  != null ? Number(snap.override_per_minute)  : null,
+        override_std_measure: snap.override_std_measure != null ? Number(snap.override_std_measure) : null,
+        override_manpower:    snap.override_manpower    != null ? Number(snap.override_manpower)    : null,
+        reason: 'rollback',
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: routingKey }),
   })
 
@@ -238,6 +251,15 @@ function ActivityRow({
                 : <RotateCcw size={11} style={{ color: '#F57F17' }} />}
             </button>
           )}
+
+          {/* Override history (RT53) */}
+          <HistoryDrawer
+            type="override"
+            productCode={productCode}
+            activityId={act.activity_template_id}
+            name={tpl.description}
+            onRollback={snap => rollbackMut.mutate(snap)}
+          />
         </div>
       </div>
     </div>
@@ -329,11 +351,15 @@ export function RoutingEditor() {
 
   const [expandedOps, setExpandedOps]   = useState<Set<number>>(new Set())
   const [editMode, setEditMode]         = useState(false)
+  const [showSimulator, setShowSimulator] = useState(false)
   const [recomputeResult, setRecomputeResult] = useState<string | null>(null)
 
   const routingKey = ['routing', code]
   const { routing, state, totalTimeMin, loading, error, activate, obsolete, recompute } = useRouting(code)
   const { stdCost, recompute: recomputeCost } = useStdCost(code)
+
+  const templateId   = routing[0]?.routing_template_id ?? 0
+  const templateCode = routing[0]?.routing_template ?? ''
 
   const toggleOp = (id: number) =>
     setExpandedOps(prev => {
@@ -411,6 +437,22 @@ export function RoutingEditor() {
           >
             <ExternalLink size={13} /> Custom Routing
           </button>
+
+          {/* Template history (RT52) */}
+          {templateId > 0 && (
+            <HistoryDrawer type="template" id={templateId} name={templateCode} />
+          )}
+
+          {/* Simulator toggle (RT46) */}
+          {templateId > 0 && (
+            <button
+              onClick={() => setShowSimulator(s => !s)}
+              className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
+              style={{ height: 32, padding: '0 12px', fontSize: 12, fontWeight: 500, color: showSimulator ? '#1565c0' : '#555', background: showSimulator ? '#e3f2fd' : undefined }}
+            >
+              <BarChart2 size={13} /> Simulator
+            </button>
+          )}
 
           {/* Recompute */}
           {!editMode && (
@@ -510,7 +552,7 @@ export function RoutingEditor() {
         </div>
 
         {/* Right — Summary panel */}
-        <div style={{ width: 260, borderLeft: '1px solid #E0E0E0', padding: 20, background: '#FAFAFA', flexShrink: 0 }}>
+        <div style={{ width: 300, borderLeft: '1px solid #E0E0E0', padding: 20, background: '#FAFAFA', flexShrink: 0, overflowY: 'auto' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>สรุป</div>
 
           <div className="flex flex-col gap-4">
@@ -548,6 +590,11 @@ export function RoutingEditor() {
                   คำนวณเมื่อ {new Date(stdCost.computed_at).toLocaleDateString('th-TH')}
                 </div>
               </div>
+            )}
+
+            {/* Simulator panel (RT46) */}
+            {showSimulator && templateId > 0 && (
+              <SimulatorPanel templateId={templateId} templateCode={templateCode} />
             )}
           </div>
         </div>

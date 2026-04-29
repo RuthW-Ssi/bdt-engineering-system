@@ -73,6 +73,7 @@ export class RoutingService {
     return ops.map(op => ({
       id: op.id,
       product_id: null as number | null,
+      routing_template_id: template.id,
       routing_template: template.code,
       op_code: op.op_code,
       name: op.name,

@@ -11,6 +11,8 @@ import {
   addCustomRoutingActivity,
   deleteCustomRoutingActivity,
   getRoutingTemplates,
+  getPromotionCandidates,
+  promoteToTemplate,
 } from '../api/routings'
 import { useProduct } from '../hooks/useProducts'
 import type { CustomRoutingDTO, CustomRoutingOpDTO } from '../api/routings'
@@ -177,6 +179,20 @@ export function CustomRoutingEditor() {
     enabled: !!code,
   })
   const { data: templates = [] } = useQuery({ queryKey: ['routing-templates'], queryFn: getRoutingTemplates })
+  const { data: promotionCandidates = [] } = useQuery({
+    queryKey: ['promotion-candidates'],
+    queryFn: getPromotionCandidates,
+    enabled: !!customRouting,
+  })
+
+  const promoteMut = useMutation({
+    mutationFn: (templateName: string) => promoteToTemplate(customRouting!.id, templateName),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: routingKey }); navigate(`/routings/${code}`) },
+  })
+
+  const promotionGroup = promotionCandidates.find(g =>
+    g.count >= 3 && g.candidates.some(c => c.product_code === code)
+  )
 
   const [addOpForm, setAddOpForm] = useState(false)
   const [opVals, setOpVals] = useState({ op_code: '', name: '', workcenter_id: '' })
@@ -334,6 +350,31 @@ export function CustomRoutingEditor() {
             Custom routing — ไม่ inherit จาก template | {customRouting?.ops.length ?? 0} operations
           </span>
         </div>
+
+        {/* Promotion suggestion banner (RT54 FE) */}
+        {promotionGroup && (
+          <div className="flex items-center gap-3 rounded-lg mb-4" style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', padding: '10px 14px' }}>
+            <span style={{ fontSize: 12, color: '#2E7D32', flex: 1 }}>
+              {promotionGroup.count} products ใช้โครงสร้าง routing เดียวกัน — สามารถ promote เป็น shared template ได้
+            </span>
+            <button
+              onClick={() => {
+                const name = window.prompt(`ชื่อ template ใหม่ (สำหรับ ${promotionGroup.count} products):`)
+                if (name?.trim()) promoteMut.mutate(name.trim())
+              }}
+              disabled={promoteMut.isPending}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '4px 12px', fontSize: 11, fontWeight: 600,
+                background: '#2E7D32', color: '#fff',
+                border: 'none', borderRadius: 4, cursor: 'pointer',
+              }}
+            >
+              {promoteMut.isPending ? <Loader2 size={11} className="animate-spin" /> : null}
+              Promote to Template
+            </button>
+          </div>
+        )}
 
         {/* Operations */}
         {customRouting?.ops.map(op => (
