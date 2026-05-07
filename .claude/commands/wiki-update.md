@@ -64,6 +64,19 @@ Append one line to root
 - YYYY-MM-DD — <files touched>: <one-line summary>
 ```
 
+### 5. CROSS-LINK (conditional — fires only if EXTRACT found live-state references)
+
+If the source mentions current sprint scope, task IDs, assignees, or status,
+add a Notion backlink to the affected wiki page **but do NOT transcribe live
+task lists into the wiki**. The wiki summarizes; Notion executes.
+
+Action:
+- Append to the wiki page footer: `_See live status in Notion: <page-or-db-link>_`
+- Use the Notion DB URLs from agent memory `notion-bridge.md`
+- If unclear which Notion entity matches, ask the user before linking.
+
+Hard rule: this step never writes to Notion. It only mentions Notion in wiki.
+
 ---
 
 ## Anti-patterns — fail loud if you catch yourself

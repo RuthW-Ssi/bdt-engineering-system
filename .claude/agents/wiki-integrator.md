@@ -81,6 +81,11 @@ Append one line to `/Users/michel-angelo/Documents/bdt/knowledge-base/log.md`:
 - 🚫 NEVER delete contradicted info — move to `_contradictions.md`.
 - 🚫 NEVER put operational state (sprint tasks, standup notes) in `wiki/` — use `pm/`.
 - 🚫 NEVER skip the LOG step.
+- 🚫 NEVER call Notion MCP write tools (`notion-create-pages`, `notion-create-database`,
+  `notion-update-page`, `notion-update-data-source`, `notion-move-pages`).
+  Wiki integrator is wiki-only. If a source describes live sprint state, add a
+  Notion backlink to the wiki page footer (`_See live status in Notion: <url>_`)
+  but do NOT transcribe task lists or write to Notion.
 
 ---
 
