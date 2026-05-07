@@ -1,35 +1,18 @@
 version: '3.9'
 
-services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: bdt-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: bdt
-      POSTGRES_USER: bdt
-      POSTGRES_PASSWORD: bdt_pass
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bdt -d bdt"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+# Sprint 5+: Postgres removed — dev DB is GCP Cloud SQL.
+# Run scripts/proxy-up.sh before starting backend locally.
+# DATABASE_URL is injected via env (loaded from GCP Secret Manager via scripts/setup-env.sh).
 
+services:
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: bdt-backend
     restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://bdt:bdt_pass@postgres:5432/bdt?schema=public
+      DATABASE_URL: ${DATABASE_URL}
       PORT: 3000
       NODE_ENV: production
     ports:
@@ -45,6 +28,3 @@ services:
       - backend
     ports:
       - "5173:80"
-
-volumes:
-  postgres_data:

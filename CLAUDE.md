@@ -37,24 +37,46 @@ this file.** This file only adds the codebase-side bridge.
 
 Every task — even small ones — start by reading at minimum:
 
-| Step | File | Tells you |
+| Step | Source | Tells you |
 |---|---|---|
-| 1 | `knowledge-base/projects/bdt-engineering-system/wiki/index.md` | What pages exist, where to look |
-| 2 | `knowledge-base/projects/bdt-engineering-system/pm/backlog.md` | Current sprint state + priorities |
+| **1** | **Notion MCP: project page + active Sprint** | **Live ops state — current sprint scope, blockers, who's doing what** |
+| 2 | `knowledge-base/projects/bdt-engineering-system/wiki/index.md` | What pages exist, where to look |
 | 3 | `knowledge-base/projects/bdt-engineering-system/wiki/features/<relevant>.md` | Feature-specific rules (if task touches a feature) |
 
+> [!warning] DO NOT trust `pm/backlog.md` or `pm/_snapshots/*.md` as live state
+> ไฟล์เหล่านี้เป็น **stub pointer** หรือ **stale mirror** — query Notion MCP เสมอ
+> สำหรับ sprint/task/blocker question
+
 For data-model / API / business-rule work, also follow the **Agent Quick Start
-table** in the project CLAUDE.md (linked above).
+table** in the project CLAUDE.md (linked above) — Step 0 (Notion MCP) คือ entry point
+สำหรับ live state.
 
 > [!tip]
-> ถ้า task เล็กจริงๆ (เช่น แก้ typo, ปรับ CSS) — อ่านแค่ `pm/backlog.md` พอ
+> ถ้า task เล็กจริงๆ (เช่น แก้ typo, ปรับ CSS) — query Notion MCP สั้นๆ ก็พอ
 > เพื่อรู้ว่าตอนนี้อยู่ sprint ไหน อย่าเพิ่งกระโดดเข้าโค้ดโดยไม่รู้ context
+
+---
+
+## Task Closure Protocol — HARD RULE (run after EVERY work completion)
+
+ทุกครั้งที่ทำงานเสร็จ (code merged + tests pass + DoD met) **ห้าม forget ปิด task ใน Notion** ตาม 5 steps:
+
+1. **Update Notion Task row** — `Status: Done` + `Due Date: today` + append `## Completion Notes (YYYY-MM-DD)` ที่ body (What built / Files changed / Deviations / Follow-ups)
+2. **Check Feature progress** — count Tasks where Feature=X AND Status≠Done. ถ้า=0 → flip Feature.Status=Done + Completion Notes
+3. **Check Sprint progress** — count Features where Sprint=X AND Status≠Done. ถ้า=0 → flag user (รอ Demo + Retro)
+4. **Update wiki ถ้าเกิด durable knowledge** — call `/wiki-update <path>` (อย่า edit ตรง)
+5. **Commit message format** — `[S<sprint>-<task-id>] <subject> — <DoD met>`
+
+> [!warning] ห้าม flip Status=Done โดยไม่ใส่ Completion Notes
+> Notes เป็น audit trail (deviation tracking + onboarding + retro) — skip = status-lie risk
+
+> รายละเอียดเต็มอยู่ใน `projects/bdt-engineering-system/CLAUDE.md` §"Task Closure Protocol"
 
 ---
 
 ## Update triggers (สรุป)
 
-หลังเขียนโค้ด ให้เช็คว่าตรงข้อใด ถ้าตรง → update wiki ก่อนปิด task:
+หลังเขียนโค้ด ให้เช็คว่าตรงข้อใด ถ้าตรง → update wiki ก่อนปิด task (Step 4):
 
 - เพิ่ม Prisma model ใหม่ → `wiki/tech/data-model.md`
 - เพิ่ม API endpoint → `wiki/tech/backend/api.md`
