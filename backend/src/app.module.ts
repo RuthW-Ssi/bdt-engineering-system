@@ -20,6 +20,8 @@ import { FileStorageModule } from './modules/file-storage/file-storage.module'
 import { RoutingsModule } from './modules/routings/routings.module'
 // Sprint 6
 import { AuthModule } from './modules/auth/auth.module'
+import { CustomersModule } from './modules/customers/customers.module'
+import { SubZonesModule } from './modules/sub-zones/sub-zones.module'
 
 @Module({
   imports: [
@@ -43,6 +45,9 @@ import { AuthModule } from './modules/auth/auth.module'
     FileStorageModule,
     // Sprint 4
     RoutingsModule,
+    // Sprint 6
+    CustomersModule,
+    SubZonesModule,
   ],
 })
 export class AppModule {}

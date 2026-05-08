@@ -172,18 +172,47 @@ model product_code_seq {
 // Sprint 2: Refactored to polymorphic — model+res_id generic reference
 // Supports: 'material', 'product', 'project' (and future models)
 model mail_message {
-  id           BigInt     @id @default(autoincrement())
-  model        String     @db.VarChar(60)
+  id           BigInt       @id @default(autoincrement())
+  model        String       @db.VarChar(60)
   res_id       Int
-  message_type String     @db.VarChar(20)
-  subject      String?    @db.VarChar(200)
-  body         String?    @db.Text
+  message_type String       @db.VarChar(20)
+  subject      String?      @db.VarChar(200)
+  body         String?      @db.Text
   tracking     Json?
   author_id    Int?
-  author       res_users? @relation(fields: [author_id], references: [id])
-  date         DateTime   @default(now()) @db.Timestamptz
+  author       res_users?   @relation(fields: [author_id], references: [id])
+  partner_id   Int?
+  partner      res_partner? @relation("PartnerMessages", fields: [partner_id], references: [id])
+  date         DateTime     @default(now()) @db.Timestamptz
 
   @@index([model, res_id])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 6: res_partner (Customer) + sub_zone
+// ═══════════════════════════════════════════════════════════════
+
+model res_partner {
+  id            Int      @id @default(autoincrement())
+  ref           String?  @unique @db.VarChar(20)
+  name          String   @db.VarChar(200)
+  vat           String?  @db.VarChar(40)
+  email         String?  @db.VarChar(120)
+  phone         String?  @db.VarChar(40)
+  street        String?  @db.VarChar(200)
+  city          String?  @db.VarChar(80)
+  country_id    Int?
+  is_company    Boolean  @default(true)
+  parent_id     Int?
+  customer_rank Int      @default(1)
+  active        Boolean  @default(true)
+  create_uid    Int?
+  write_uid     Int?
+  create_date   DateTime @default(now()) @db.Timestamptz
+  write_date    DateTime @updatedAt @db.Timestamptz
+
+  projects      project[]
+  mail_messages mail_message[] @relation("PartnerMessages")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -196,6 +225,7 @@ model project {
   project_code    String    @unique @db.VarChar(20)
   name            String    @db.VarChar(200)
   customer_id     Int?
+  customer        res_partner? @relation(fields: [customer_id], references: [id])
   start_date      DateTime? @db.Date
   target_handover DateTime? @db.Date
   state           String    @default("lead") @db.VarChar(20)
@@ -230,9 +260,24 @@ model project_zone {
   notes                 String?   @db.Text
   active                Boolean   @default(true)
 
-  products products[]
+  products  products[]
+  sub_zones sub_zone[]
 
   @@unique([project_id, code])
+}
+
+// ── 🟥 Sub Zone (Sprint 6: F2/ST3) ────────────────────────────
+model sub_zone {
+  id          Int          @id @default(autoincrement())
+  zone_id     Int
+  zone        project_zone @relation(fields: [zone_id], references: [id])
+  name        String       @db.VarChar(80)
+  code        String?      @db.VarChar(20)
+  active      Boolean      @default(true)
+  create_uid  Int?
+  write_uid   Int?
+  create_date DateTime     @default(now()) @db.Timestamptz
+  write_date  DateTime     @updatedAt @db.Timestamptz
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
