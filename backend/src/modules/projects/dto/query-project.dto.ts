@@ -13,6 +13,12 @@ export class QueryProjectDto {
   @IsString()
   q?: string
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  customer_id?: number
+
   @ApiPropertyOptional({ default: 1 })
   @IsOptional()
   @Type(() => Number)

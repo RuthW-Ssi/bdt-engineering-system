@@ -45,12 +45,13 @@ export class ProjectsService {
   }
 
   async findAll(query: QueryProjectDto) {
-    const { state, q, page = 1, limit = 20 } = query
+    const { state, q, customer_id, page = 1, limit = 20 } = query
     const skip = (page - 1) * limit
 
     const where: Prisma.projectWhereInput = {
       active: true,
       ...(state ? { state } : {}),
+      ...(customer_id ? { customer_id } : {}),
       ...(q
         ? {
             OR: [
@@ -69,6 +70,7 @@ export class ProjectsService {
         take: limit,
         orderBy: { write_date: 'desc' },
         include: {
+          customer: { select: { id: true, name: true, ref: true } },
           write_user: { select: { id: true, name: true } },
           _count: { select: { zones: true, products: true } },
         },
@@ -82,6 +84,7 @@ export class ProjectsService {
     const proj = await this.prisma.project.findUnique({
       where: { project_code },
       include: {
+        customer: { select: { id: true, name: true, ref: true } },
         zones: { where: { active: true }, orderBy: { erection_sequence: 'asc' } },
         create_user: { select: { id: true, name: true } },
         write_user: { select: { id: true, name: true } },

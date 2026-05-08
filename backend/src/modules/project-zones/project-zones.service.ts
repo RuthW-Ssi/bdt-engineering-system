@@ -14,6 +14,7 @@ export class ProjectZonesService {
     return this.prisma.project_zone.findMany({
       where: { project_id: projectId, active: true },
       orderBy: { erection_sequence: 'asc' },
+      include: { sub_zones: { where: { active: true }, orderBy: [{ code: 'asc' }, { name: 'asc' }] } },
     })
   }
 
