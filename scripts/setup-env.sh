@@ -16,7 +16,7 @@ fi
 
 echo "Fetching DATABASE_URL from Secret Manager (project: $PROJECT_ID)..."
 DB_URL=$(gcloud secrets versions access latest \
-  --secret="DATABASE_URL" \
+  --secret="bdt-dev-database-url" \
   --project="$PROJECT_ID" \
   --quiet)
 
