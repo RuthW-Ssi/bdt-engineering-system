@@ -3,6 +3,8 @@ import { AuthProvider } from './context/AuthContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './pages/LoginPage'
+import { CustomerList } from './pages/CustomerList'
+import { ZoneList } from './pages/ZoneList'
 import { RoutingList } from './pages/RoutingList'
 import { RoutingEditor } from './pages/RoutingEditor'
 import { WorkcenterMaster } from './pages/WorkcenterMaster'
@@ -39,7 +41,9 @@ export default function App() {
           >
             <Route index element={<Navigate to="/engineer-products" replace />} />
             <Route path="/dashboard" element={<Placeholder title="Dashboard" />} />
+            <Route path="/customers" element={<CustomerList />} />
             <Route path="/projects" element={<Placeholder title="Projects" />} />
+            <Route path="/zones" element={<ZoneList />} />
             <Route path="/engineer-products" element={<ProductList />} />
             <Route path="/engineer-products/:code" element={<ProductDetail />} />
             <Route path="/materials" element={<MaterialList />} />
