@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Search, Bell, ChevronDown, FolderOpen, Check, Plus, User, Settings, Keyboard, LogOut, Menu } from 'lucide-react'
+import { useAuth } from '../../context/AuthContext'
 
 interface Props {
   onMobileMenuToggle: () => void
@@ -9,6 +11,13 @@ export function Topbar({ onMobileMenuToggle }: Props) {
   const [projectOpen, setProjectOpen] = useState(false)
   const [bellOpen, setBellOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+
+  function handleLogout() {
+    logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b border-chrome-100 z-50 flex items-center px-5">
@@ -133,17 +142,19 @@ export function Topbar({ onMobileMenuToggle }: Props) {
             className="flex items-center gap-2 rounded-md hover:bg-chrome-50 transition-colors"
             style={{ padding: '4px 8px' }}
           >
-            <span className="w-8 h-8 rounded-full flex items-center justify-center text-ssi-600" style={{ background: '#FCEBEB', fontSize: 12, fontWeight: 500 }}>SK</span>
-            <span className="text-chrome-900 hidden md:block" style={{ fontSize: 13, fontWeight: 500 }}>Somchai K.</span>
+            <span className="w-8 h-8 rounded-full flex items-center justify-center text-ssi-600" style={{ background: '#FCEBEB', fontSize: 12, fontWeight: 500 }}>
+              {(user?.name ?? 'U').slice(0, 2).toUpperCase()}
+            </span>
+            <span className="text-chrome-900 hidden md:block" style={{ fontSize: 13, fontWeight: 500 }}>{user?.name ?? ''}</span>
             <ChevronDown size={12} className="text-chrome-400 hidden md:block" />
           </button>
 
           {userOpen && (
             <div className="absolute right-0 mt-1 bg-white border border-chrome-100 shadow-dropdown rounded-lg overflow-hidden" style={{ top: '100%', width: 240, padding: 4 }}>
               <div className="border-b border-chrome-100" style={{ padding: '12px 16px', margin: '-4px -4px 4px' }}>
-                <div className="text-chrome-900" style={{ fontSize: 13, fontWeight: 500 }}>Somchai Khajonrat</div>
-                <div className="text-chrome-400" style={{ fontSize: 11 }}>somchai.k@ssi-steel.com</div>
-                <span className="inline-block mt-2 rounded-full" style={{ background: '#E6F1FB', color: '#185FA5', padding: '1px 8px', fontSize: 11, fontWeight: 500 }}>engineer</span>
+                <div className="text-chrome-900" style={{ fontSize: 13, fontWeight: 500 }}>{user?.name ?? 'Unknown'}</div>
+                <div className="text-chrome-400" style={{ fontSize: 11 }}>{user?.login}</div>
+                <span className="inline-block mt-2 rounded-full" style={{ background: '#E6F1FB', color: '#185FA5', padding: '1px 8px', fontSize: 11, fontWeight: 500 }}>{user?.role}</span>
               </div>
               <button className="w-full flex items-center gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
                 <User size={14} className="text-chrome-400" /><span className="text-chrome-900">โปรไฟล์</span>
@@ -159,7 +170,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                 <kbd className="bg-chrome-50 border border-chrome-100 rounded-sm font-mono" style={{ padding: '0 5px', fontSize: 11, color: '#555' }}>?</kbd>
               </button>
               <div className="h-px bg-chrome-100 my-1" />
-              <button className="w-full flex items-center gap-2.5 rounded-md hover:bg-ssi-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
+              <button onClick={handleLogout} className="w-full flex items-center gap-2.5 rounded-md hover:bg-ssi-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
                 <LogOut size={14} style={{ color: '#C8202A' }} />
                 <span style={{ color: '#C8202A' }}>ออกจากระบบ</span>
               </button>
