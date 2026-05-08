@@ -1,0 +1,101 @@
+name: Prisma Migrate Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/prisma/migrations/**'
+      - 'backend/prisma/schema.prisma'
+
+jobs:
+  migrate:
+    name: Deploy migrations to Cloud SQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install backend dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: backend
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Cloud SQL Auth Proxy
+        run: |
+          curl -fsSL -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mv cloud-sql-proxy /usr/local/bin/
+
+      - name: Start Cloud SQL Auth Proxy
+        run: |
+          cloud-sql-proxy \
+            building-technology-493907:asia-southeast1:dev-bdt-engineering-db \
+            --port=5432 &
+          for i in $(seq 1 15); do
+            nc -z 127.0.0.1 5432 && echo "Proxy ready" && break
+            echo "Waiting for proxy... ($i/15)"
+            sleep 2
+          done
+          nc -z 127.0.0.1 5432 || (echo "ERROR: Proxy failed to start" && exit 1)
+
+      - name: Check for destructive migrations (IS8)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          cd backend
+          DIFF=$(npx prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --script 2>/dev/null || true)
+          if echo "$DIFF" | grep -qiE "DROP COLUMN|DROP TABLE|RENAME COLUMN|RENAME TABLE"; then
+            if echo "$COMMIT_MSG" | grep -qF "migrate-allow-destructive: true"; then
+              echo "WARNING: Destructive migration detected — override flag present, proceeding."
+            else
+              echo "::error::Destructive migration detected (DROP/RENAME). Add 'migrate-allow-destructive: true' to commit message to override."
+              exit 1
+            fi
+          else
+            echo "Migration check passed — no destructive operations."
+          fi
+
+      - name: Deploy migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          cd backend
+          npx prisma migrate deploy
+
+      - name: Smoke verify
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          cd backend
+          STATUS=$(npx prisma migrate status 2>&1)
+          echo "$STATUS"
+          echo "$STATUS" | grep -q "Database schema is up to date" || \
+            (echo "::error::Migrations not fully applied after deploy" && exit 1)
+
+      - name: Stop Cloud SQL Auth Proxy
+        if: always()
+        run: pkill cloud-sql-proxy || true
