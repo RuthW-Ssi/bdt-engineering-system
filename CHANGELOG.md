@@ -1,5 +1,50 @@
 # Changelog
 
+## [Sprint 6] — 2026-05-08
+Sprint theme: Auth dev mode + Project Management Foundation
+Full task list: Notion Sprint 6 | Feature docs: wiki/features/jwt-rbac + customers-projects
+
+### Schema (Prisma)
+- NEW: `res_users` (JWT fields: login, password, role), `res_partner` (customer), `sub_zone`
+- MODIFIED: `project` (customer_id FK), `project_zone` (erection_sequence; zone_type REMOVED)
+
+### Backend
+- AuthModule: `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` (dev mode only)
+- JwtAuthGuard + `@CurrentUser()` decorator; x-user-id stub replaced across all controllers
+- CustomersModule: full CRUD `/customers`
+- SubZonesModule: `/zones/:id/sub-zones` CRUD
+- Admin seed: bcrypt-hashed password from `ADMIN_SEED_PASSWORD` env var
+
+### Frontend
+- LoginPage + AuthContext (localStorage JWT) + ProtectedRoute
+- CustomerList, ProjectList (card UI + ProjectContext), ZoneList (drag-drop reorder)
+- `@dnd-kit/sortable` for erection_sequence reorder
+
+### Docs
+- `docs/adr/0012-jwt-strategy.md`
+- `docs/adr/0013-customer-hierarchy.md`
+
+---
+
+## [Sprint 5] — 2026-05-08
+Sprint theme: Infra — GCP Cloud SQL dev environment
+Full task list: Notion Sprint 5
+
+### Schema
+- Removed local Postgres; DB migrated to GCP Cloud SQL (asia-southeast1)
+- `connection_limit=5` tuning; PITR backup enabled
+
+### Infrastructure
+- Cloud SQL Auth Proxy dev workflow (`scripts/proxy-up.sh`)
+- GCP Secret Manager integration (`scripts/setup-env.sh`)
+- GitHub Actions migration deploy (`pnpm prisma migrate deploy`)
+
+### Docs
+- `docs/adr/0011-gcp-cloud-sql-dev.md`
+- `docs/onboarding/dev-setup.md`
+
+---
+
 ## [Sprint 4.3] — 2026-04-29
 
 ### Added — Backend

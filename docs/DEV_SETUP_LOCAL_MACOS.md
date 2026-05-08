@@ -1,5 +1,9 @@
 # BDT App — Local Dev Setup (macOS, ไม่ใช้ Docker)
 
+> **⚠️ Sprint 5+ primary setup:** โปรเจกต์ย้ายมาใช้ GCP Cloud SQL ตั้งแต่ Sprint 5 แล้ว
+> primary guide คือ **[`docs/onboarding/dev-setup.md`](./onboarding/dev-setup.md)**
+> ไฟล์นี้ใช้สำหรับ **local Postgres fallback เท่านั้น** (offline dev หรือไม่มี GCP access)
+
 > **Audience:** Dev เครื่องใหม่ที่ยังไม่มีอะไรเลย — เริ่มจาก clean macOS ไปจนถึงรัน frontend + backend ได้พร้อม data ครบ
 > **Stack:** NestJS 10 + Prisma 6 + Postgres 16 + React 19 + Vite + pnpm
 > **Estimated time:** 30–45 นาที (ขึ้นอยู่กับเน็ตและขนาด dump)
@@ -148,7 +152,8 @@ FILE_STORAGE_LOCAL_PATH=./storage
 ค่าที่ **ห้ามเก็บใน git** — ขอจาก dev เดิมผ่าน 1Password / Bitwarden / scp (ห้ามส่งใน chat/email):
 
 - `DATABASE_URL` — ถ้าใช้ password อื่น
-- `JWT_SECRET` — ถ้าโปรเจกต์เพิ่ม auth แล้ว
+- `JWT_SECRET` — **required** (Sprint 6 เพิ่ม auth แล้ว — ไม่มีค่านี้ backend start ไม่ได้)
+- `ADMIN_SEED_PASSWORD` — **required** (Sprint 6) — password ของ admin user ที่ seed ลง DB
 - SMTP creds — ถ้าใช้งาน `mail_message`
 
 ---
@@ -317,7 +322,11 @@ UNION ALL SELECT 'custom_routing', COUNT(*) FROM custom_routing
 -- Sprint 4.3 tables
 UNION ALL SELECT 'routing_template_history', COUNT(*) FROM routing_template_history
 UNION ALL SELECT 'override_history', COUNT(*) FROM product_routing_override_history
-UNION ALL SELECT 'test_fixtures', COUNT(*) FROM routing_template_test_fixture;
+UNION ALL SELECT 'test_fixtures', COUNT(*) FROM routing_template_test_fixture
+-- Sprint 6 tables
+UNION ALL SELECT 'customers (res_partner)', COUNT(*) FROM res_partner
+UNION ALL SELECT 'users (res_users)', COUNT(*) FROM res_users
+UNION ALL SELECT 'sub_zone', COUNT(*) FROM sub_zone;
 ```
 
 เปิด UI ที่ `http://localhost:5173` แล้วทดสอบ:
@@ -526,4 +535,4 @@ pg_dump -h localhost -U bdt -d bdt -F c -f bdt_$(date +%Y%m%d).dump
 
 ---
 
-**Last updated:** 2026-04-29 (Sprint 4.3) · **Stack version:** Node 20 / Postgres 16 / pnpm 9 / Prisma 6
+**Last updated:** 2026-05-08 (Sprint 6) · **Stack version:** Node 20 / Postgres 16 / pnpm 9 / Prisma 6
