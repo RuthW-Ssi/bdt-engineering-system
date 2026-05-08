@@ -252,7 +252,6 @@ model project_zone {
   project               project   @relation(fields: [project_id], references: [id])
   code                  String    @db.VarChar(20)
   label                 String    @db.VarChar(80)
-  zone_type             String    @db.VarChar(20)
   erection_sequence     Int?
   target_erection_start DateTime? @db.Date
   target_erection_end   DateTime? @db.Date

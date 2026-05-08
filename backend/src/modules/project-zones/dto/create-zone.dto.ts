@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsString, IsOptional, IsInt, IsIn, MaxLength } from 'class-validator'
+import { IsString, IsOptional, IsInt, MaxLength } from 'class-validator'
 
 export class CreateZoneDto {
   @ApiProperty({ example: 'A1' })
@@ -12,11 +12,7 @@ export class CreateZoneDto {
   @MaxLength(80)
   label: string
 
-  @ApiProperty({ enum: ['building', 'gridline', 'zone', 'mezzanine'] })
-  @IsIn(['building', 'gridline', 'zone', 'mezzanine'])
-  zone_type: string
-
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: 1 })
   @IsOptional()
   @IsInt()
   erection_sequence?: number

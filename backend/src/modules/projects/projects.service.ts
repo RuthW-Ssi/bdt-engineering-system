@@ -85,7 +85,7 @@ export class ProjectsService {
       where: { project_code },
       include: {
         customer: { select: { id: true, name: true, ref: true } },
-        zones: { where: { active: true }, orderBy: { erection_sequence: 'asc' } },
+        zones: { where: { active: true }, orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }] },
         create_user: { select: { id: true, name: true } },
         write_user: { select: { id: true, name: true } },
       },

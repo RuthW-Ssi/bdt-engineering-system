@@ -146,6 +146,7 @@ export interface ProjectDTO {
   write_date: string
   _count?: { zones: number; products: number }
   write_user?: { id: number; name: string }
+  customer?: { id: number; name: string; ref: string | null }
 }
 
 export interface ProjectListResponse {
@@ -161,7 +162,6 @@ export interface ProjectZoneDTO {
   project_id: number
   code: string
   label: string
-  zone_type: string
   erection_sequence: number | null
   active: boolean
 }

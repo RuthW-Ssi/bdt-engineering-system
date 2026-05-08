@@ -326,27 +326,15 @@ async function main() {
   // Zone WH
   const zoneWH = await prisma.project_zone.upsert({
     where: { project_id_code: { project_id: proj.id, code: 'WH' } },
-    update: {},
-    create: {
-      project_id: proj.id,
-      code: 'WH',
-      label: 'Warehouse Building',
-      zone_type: 'building',
-      erection_sequence: 1,
-    },
+    update: { erection_sequence: 1 },
+    create: { project_id: proj.id, code: 'WH', label: 'Warehouse Building', erection_sequence: 1 },
   })
 
   // Zone OF
   const zoneOF = await prisma.project_zone.upsert({
     where: { project_id_code: { project_id: proj.id, code: 'OF' } },
-    update: {},
-    create: {
-      project_id: proj.id,
-      code: 'OF',
-      label: 'Office Building',
-      zone_type: 'building',
-      erection_sequence: 2,
-    },
+    update: { erection_sequence: 2 },
+    create: { project_id: proj.id, code: 'OF', label: 'Office Building', erection_sequence: 2 },
   })
 
   // ── product_code_seq: init STD + CUS counters ─────────────
@@ -397,6 +385,91 @@ async function main() {
     })
   }
 
+  // ── Mock customers (Sprint 6 demo) ───────────────────────────
+  const custThai = await prisma.res_partner.upsert({
+    where: { ref: 'TST-001' },
+    update: {},
+    create: {
+      ref: 'TST-001',
+      name: 'บริษัท ไทยสตีล จำกัด',
+      phone: '02-xxx-xxxx',
+      email: 'contact@thaisteel.co.th',
+      city: 'กรุงเทพมหานคร',
+      is_company: true,
+      customer_rank: 1,
+      active: true,
+    },
+  })
+
+  const custLogis = await prisma.res_partner.upsert({
+    where: { ref: 'LGT-001' },
+    update: {},
+    create: {
+      ref: 'LGT-001',
+      name: 'บริษัท ลอจิสติกส์ไทย จำกัด',
+      phone: '038-xxx-xxxx',
+      email: 'info@logisticsth.co.th',
+      city: 'ชลบุรี',
+      is_company: true,
+      customer_rank: 1,
+      active: true,
+    },
+  })
+
+  // ── Mock projects 0X123 + 0X124 ──────────────────────────────
+  const proj123 = await prisma.project.upsert({
+    where: { project_code: '0X123' },
+    update: {},
+    create: {
+      project_code: '0X123',
+      name: 'อาคารโรงงาน A3',
+      state: 'in_design',
+      customer_id: custThai.id,
+      create_uid: adminId,
+      write_uid: adminId,
+    },
+  })
+
+  await prisma.project_zone.upsert({
+    where: { project_id_code: { project_id: proj123.id, code: 'A3' } },
+    update: { erection_sequence: 1 },
+    create: { project_id: proj123.id, code: 'A3', label: 'โรงงาน Block A3', erection_sequence: 1 },
+  })
+  await prisma.project_zone.upsert({
+    where: { project_id_code: { project_id: proj123.id, code: 'SP' } },
+    update: { erection_sequence: 2 },
+    create: { project_id: proj123.id, code: 'SP', label: 'Substation & Pump Room', erection_sequence: 2 },
+  })
+
+  const proj124 = await prisma.project.upsert({
+    where: { project_code: '0X124' },
+    update: {},
+    create: {
+      project_code: '0X124',
+      name: 'โกดังเก็บสินค้า Zone B',
+      state: 'won',
+      customer_id: custLogis.id,
+      create_uid: adminId,
+      write_uid: adminId,
+    },
+  })
+
+  await prisma.project_zone.upsert({
+    where: { project_id_code: { project_id: proj124.id, code: 'ZB1' } },
+    update: { erection_sequence: 1 },
+    create: { project_id: proj124.id, code: 'ZB1', label: 'โกดัง Zone B-1', erection_sequence: 1 },
+  })
+  await prisma.project_zone.upsert({
+    where: { project_id_code: { project_id: proj124.id, code: 'ZB2' } },
+    update: { erection_sequence: 2 },
+    create: { project_id: proj124.id, code: 'ZB2', label: 'โกดัง Zone B-2', erection_sequence: 2 },
+  })
+  await prisma.project_zone.upsert({
+    where: { project_id_code: { project_id: proj124.id, code: 'OF' } },
+    update: { erection_sequence: 3 },
+    create: { project_id: proj124.id, code: 'OF', label: 'Office', erection_sequence: 3 },
+  })
+
   console.log('Seed completed ✓')
   console.log('  - admin user with bcrypt password (Sprint 6)')
   console.log('  - 28 mark prefixes')
@@ -404,7 +477,8 @@ async function main() {
   console.log('  - 7 steel grades')
   console.log(`  - ${categoryData.length} product categories`)
   console.log('  - 12 standard product templates')
-  console.log('  - 1 project (0X202) + 2 zones')
+  console.log('  - 3 projects (0X202, 0X123, 0X124) + zones')
+  console.log('  - 2 mock customers (TST-001, LGT-001)')
 }
 
 main()

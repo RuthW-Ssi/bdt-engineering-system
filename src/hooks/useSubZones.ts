@@ -9,11 +9,14 @@ export function useSubZones(zoneId: number | null) {
   })
 }
 
-export function useCreateSubZone(zoneId: number) {
+export function useCreateSubZone(zoneId: number, projectId?: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: { name: string; code?: string }) => createSubZone(zoneId, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] })
+      if (projectId) qc.invalidateQueries({ queryKey: ['project-zones', projectId] })
+    },
   })
 }
 
@@ -26,10 +29,13 @@ export function useUpdateSubZone(zoneId: number) {
   })
 }
 
-export function useDeleteSubZone(zoneId: number) {
+export function useDeleteSubZone(zoneId: number, projectId?: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => deleteSubZone(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] })
+      if (projectId) qc.invalidateQueries({ queryKey: ['project-zones', projectId] })
+    },
   })
 }

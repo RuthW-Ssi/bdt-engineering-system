@@ -1,9 +1,96 @@
 import { useState } from 'react'
-import { Plus, Search, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Search, Pencil, Trash2, Loader2, Building2, Mail, Phone, MapPin } from 'lucide-react'
 import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '../hooks/useCustomers'
 import type { Customer, CreateCustomerPayload } from '../api/customers'
 
 const EMPTY: CreateCustomerPayload = { name: '' }
+
+function CustomerCard({
+  c,
+  onEdit,
+  onDelete,
+}: {
+  c: Customer
+  onEdit: (c: Customer) => void
+  onDelete: (c: Customer) => void
+}) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <div
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        border: `1px solid ${hovered ? '#C2C2C2' : '#E0E0E0'}`,
+        borderRadius: 8,
+        background: hovered ? '#FAFAFA' : '#fff',
+        padding: '14px 20px',
+        transition: 'border-color 0.15s, background 0.15s',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 16,
+      }}
+    >
+      {/* Avatar */}
+      <div style={{
+        width: 40, height: 40, borderRadius: 8, flexShrink: 0,
+        background: '#F5F5F5',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Building2 size={18} style={{ color: '#8E8E8E' }} />
+      </div>
+
+      {/* Main info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-center gap-2" style={{ marginBottom: 4 }}>
+          {c.ref && (
+            <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#C8202A', background: '#FCEBEB', borderRadius: 4, padding: '1px 6px' }}>{c.ref}</span>
+          )}
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+        </div>
+        <div className="flex items-center gap-4" style={{ fontSize: 12, color: '#8E8E8E' }}>
+          {c.email && (
+            <span className="flex items-center gap-1"><Mail size={11} />{c.email}</span>
+          )}
+          {c.phone && (
+            <span className="flex items-center gap-1"><Phone size={11} />{c.phone}</span>
+          )}
+          {c.city && (
+            <span className="flex items-center gap-1"><MapPin size={11} />{c.city}</span>
+          )}
+          {!c.email && !c.phone && !c.city && (
+            <span style={{ color: '#C2C2C2' }}>ไม่มีข้อมูลติดต่อ</span>
+          )}
+        </div>
+      </div>
+
+      {/* Projects count */}
+      <div style={{ flexShrink: 0, textAlign: 'center', minWidth: 60 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: '#1A1A1A', lineHeight: 1 }}>{c._count?.projects ?? 0}</div>
+        <div style={{ fontSize: 11, color: '#8E8E8E', marginTop: 2 }}>projects</div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+        <button
+          onClick={() => onEdit(c)}
+          style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#8E8E8E' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#F0F0F0')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >
+          <Pencil size={14} />
+        </button>
+        <button
+          onClick={() => onDelete(c)}
+          style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#C8202A' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >
+          <Trash2 size={14} />
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export function CustomerList() {
   const [search, setSearch] = useState('')
@@ -59,7 +146,7 @@ export function CustomerList() {
         <button
           onClick={openCreate}
           className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
+          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
         >
           <Plus size={14} />เพิ่มลูกค้า
         </button>
@@ -78,8 +165,8 @@ export function CustomerList() {
         </div>
       </div>
 
-      {/* Table */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      {/* Card list */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {isLoading ? (
           <div className="flex items-center justify-center" style={{ height: 200 }}>
             <Loader2 size={20} className="animate-spin" style={{ color: '#C2C2C2' }} />
@@ -89,39 +176,9 @@ export function CustomerList() {
             ไม่พบข้อมูล
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
-                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, color: '#555', width: 120 }}>Code</th>
-                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, color: '#555' }}>Name</th>
-                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, color: '#555', width: 180 }}>Email</th>
-                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, color: '#555', width: 120 }}>Phone</th>
-                <th style={{ padding: '8px 16px', textAlign: 'left', fontWeight: 600, color: '#555', width: 80 }}>Projects</th>
-                <th style={{ padding: '8px 16px', width: 80 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map(c => (
-                <tr key={c.id} style={{ borderBottom: '1px solid #F0F0F0' }}>
-                  <td style={{ padding: '10px 16px', color: '#555' }}>{c.ref ?? '—'}</td>
-                  <td style={{ padding: '10px 16px', fontWeight: 500, color: '#1A1A1A' }}>{c.name}</td>
-                  <td style={{ padding: '10px 16px', color: '#555' }}>{c.email ?? '—'}</td>
-                  <td style={{ padding: '10px 16px', color: '#555' }}>{c.phone ?? '—'}</td>
-                  <td style={{ padding: '10px 16px', color: '#555', textAlign: 'center' }}>{c._count?.projects ?? 0}</td>
-                  <td style={{ padding: '10px 16px' }}>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => openEdit(c)} style={{ padding: 4, color: '#8E8E8E', cursor: 'pointer', background: 'none', border: 'none' }}>
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => setConfirmDelete(c)} style={{ padding: 4, color: '#C8202A', cursor: 'pointer', background: 'none', border: 'none' }}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          items.map(c => (
+            <CustomerCard key={c.id} c={c} onEdit={openEdit} onDelete={setConfirmDelete} />
+          ))
         )}
       </div>
 
@@ -133,7 +190,14 @@ export function CustomerList() {
               {modal.editing ? 'Edit Customer' : 'New Customer'}
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {([ ['ref', 'Code (optional)', false], ['name', 'Name *', true], ['vat', 'VAT', false], ['email', 'Email', false], ['phone', 'Phone', false], ['city', 'City', false] ] as [keyof CreateCustomerPayload, string, boolean][]).map(([field, label, required]) => (
+              {([
+                ['ref', 'Code (optional)', false],
+                ['name', 'Name *', true],
+                ['vat', 'VAT', false],
+                ['email', 'Email', false],
+                ['phone', 'Phone', false],
+                ['city', 'City', false],
+              ] as [keyof CreateCustomerPayload, string, boolean][]).map(([field, label, required]) => (
                 <div key={field} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>{label}</label>
                   <input
