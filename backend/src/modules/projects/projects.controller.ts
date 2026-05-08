@@ -1,27 +1,26 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Headers,
+  Controller, Get, Post, Patch, Body, Param, Query, UseGuards,
 } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiSecurity } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ProjectsService } from './projects.service'
 import { CreateProjectDto } from './dto/create-project.dto'
 import { UpdateProjectDto } from './dto/update-project.dto'
 import { QueryProjectDto } from './dto/query-project.dto'
-import { IdentityService } from '../identity/identity.service'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('projects')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('projects')
 export class ProjectsController {
-  constructor(
-    private readonly svc: ProjectsService,
-    private readonly identity: IdentityService,
-  ) {}
+  constructor(private readonly svc: ProjectsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create project' })
-  async create(@Body() dto: CreateProjectDto, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.create(dto, userId)
+  create(@Body() dto: CreateProjectDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.create(dto, user.sub)
   }
 
   @Get()
@@ -38,33 +37,29 @@ export class ProjectsController {
 
   @Patch(':project_code')
   @ApiOperation({ summary: 'Update project' })
-  async update(
+  update(
     @Param('project_code') code: string,
     @Body() dto: UpdateProjectDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.update(code, dto, userId)
+    return this.svc.update(code, dto, user.sub)
   }
 
   @Post(':project_code/action_win')
   @ApiOperation({ summary: 'Win project: lead → won' })
-  async actionWin(@Param('project_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_win', userId)
+  actionWin(@Param('project_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_win', user.sub)
   }
 
   @Post(':project_code/action_start_design')
   @ApiOperation({ summary: 'Start design: won → in_design' })
-  async actionStartDesign(@Param('project_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_start_design', userId)
+  actionStartDesign(@Param('project_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_start_design', user.sub)
   }
 
   @Post(':project_code/action_close')
   @ApiOperation({ summary: 'Close project' })
-  async actionClose(@Param('project_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_close', userId)
+  actionClose(@Param('project_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_close', user.sub)
   }
 }

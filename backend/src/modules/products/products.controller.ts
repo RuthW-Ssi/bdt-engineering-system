@@ -1,22 +1,22 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Headers,
+  Controller, Get, Post, Patch, Body, Param, Query, UseGuards,
 } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiSecurity, ApiBody } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
 import { ProductsService } from './products.service'
 import { CreateStandardProductDto } from './dto/create-standard-product.dto'
 import { CreateCustomProductDto } from './dto/create-custom-product.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
 import { QueryProductDto } from './dto/query-product.dto'
-import { IdentityService } from '../identity/identity.service'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('products')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('products')
 export class ProductsController {
-  constructor(
-    private readonly svc: ProductsService,
-    private readonly identity: IdentityService,
-  ) {}
+  constructor(private readonly svc: ProductsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create product (standard or custom — discriminator: product_type)' })
@@ -28,12 +28,11 @@ export class ProductsController {
       ],
     },
   })
-  async create(
+  create(
     @Body() dto: CreateStandardProductDto | CreateCustomProductDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.create(dto, userId)
+    return this.svc.create(dto, user.sub)
   }
 
   @Get()
@@ -50,49 +49,42 @@ export class ProductsController {
 
   @Patch(':product_code')
   @ApiOperation({ summary: 'Update product' })
-  async update(
+  update(
     @Param('product_code') code: string,
     @Body() dto: UpdateProductDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.update(code, dto, userId)
+    return this.svc.update(code, dto, user.sub)
   }
 
-  // ── State actions ──────────────────────────────────────────
   @Post(':product_code/action_submit_design')
   @ApiOperation({ summary: 'Submit for design: draft → in_design' })
-  async actionSubmitDesign(@Param('product_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_submit_design', userId)
+  actionSubmitDesign(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_submit_design', user.sub)
   }
 
   @Post(':product_code/action_submit_review')
   @ApiOperation({ summary: 'Submit for review: in_design → in_review' })
-  async actionSubmitReview(@Param('product_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_submit_review', userId)
+  actionSubmitReview(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_submit_review', user.sub)
   }
 
   @Post(':product_code/action_approve')
   @ApiOperation({ summary: 'Approve: in_review → approved' })
-  async actionApprove(@Param('product_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_approve', userId)
+  actionApprove(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_approve', user.sub)
   }
 
   @Post(':product_code/action_release')
   @ApiOperation({ summary: 'Release: approved → released' })
-  async actionRelease(@Param('product_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_release', userId)
+  actionRelease(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_release', user.sub)
   }
 
   @Post(':product_code/action_obsolete')
   @ApiOperation({ summary: 'Obsolete: released → obsolete' })
-  async actionObsolete(@Param('product_code') code: string, @Headers('x-user-id') xUserId: string) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_obsolete', userId)
+  actionObsolete(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_obsolete', user.sub)
   }
 
   @Get(':product_code/messages')

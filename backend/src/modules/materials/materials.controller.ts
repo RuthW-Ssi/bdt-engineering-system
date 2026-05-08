@@ -1,30 +1,26 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Headers,
+  Controller, Get, Post, Patch, Body, Param, Query, UseGuards,
 } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiSecurity, ApiParam } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiParam } from '@nestjs/swagger'
 import { MaterialsService } from './materials.service'
 import { CreateMaterialDto } from './dto/create-material.dto'
 import { UpdateMaterialDto } from './dto/update-material.dto'
 import { QueryMaterialDto } from './dto/query-material.dto'
-import { IdentityService } from '../identity/identity.service'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('materials')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('materials')
 export class MaterialsController {
-  constructor(
-    private readonly svc: MaterialsService,
-    private readonly identity: IdentityService,
-  ) {}
+  constructor(private readonly svc: MaterialsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Register new material (state=draft)' })
-  async create(
-    @Body() dto: CreateMaterialDto,
-    @Headers('x-user-id') xUserId: string,
-  ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.create(dto, userId)
+  create(@Body() dto: CreateMaterialDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.create(dto, user.sub)
   }
 
   @Get()
@@ -42,53 +38,36 @@ export class MaterialsController {
 
   @Patch(':default_code')
   @ApiOperation({ summary: 'Update material (Odoo write pattern)' })
-  async update(
+  update(
     @Param('default_code') code: string,
     @Body() dto: UpdateMaterialDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.update(code, dto, userId)
+    return this.svc.update(code, dto, user.sub)
   }
 
   @Post(':default_code/action_submit')
   @ApiOperation({ summary: 'Submit for approval: draft → to_approve' })
-  async actionSubmit(
-    @Param('default_code') code: string,
-    @Headers('x-user-id') xUserId: string,
-  ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_submit', userId)
+  actionSubmit(@Param('default_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_submit', user.sub)
   }
 
   @Post(':default_code/action_confirm')
   @ApiOperation({ summary: 'Confirm (Reviewer): to_approve → confirmed' })
-  async actionConfirm(
-    @Param('default_code') code: string,
-    @Headers('x-user-id') xUserId: string,
-  ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_confirm', userId)
+  actionConfirm(@Param('default_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_confirm', user.sub)
   }
 
   @Post(':default_code/action_cancel')
   @ApiOperation({ summary: 'Cancel material' })
-  async actionCancel(
-    @Param('default_code') code: string,
-    @Headers('x-user-id') xUserId: string,
-  ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.doAction(code, 'action_cancel', userId)
+  actionCancel(@Param('default_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.doAction(code, 'action_cancel', user.sub)
   }
 
   @Post(':default_code/action_assign_runno')
   @ApiOperation({ summary: 'Warehouse: assign permanent 10-digit run number' })
-  async actionAssignRunno(
-    @Param('default_code') code: string,
-    @Headers('x-user-id') xUserId: string,
-  ) {
-    const userId = await this.identity.resolveUser(xUserId)
-    return this.svc.assignRunNumber(code, userId)
+  actionAssignRunno(@Param('default_code') code: string, @CurrentUser() user: JwtPayload) {
+    return this.svc.assignRunNumber(code, user.sub)
   }
 
   @Get(':default_code/messages')

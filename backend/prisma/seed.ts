@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import * as bcryptjs from 'bcryptjs'
 
 const prisma = new PrismaClient()
 
@@ -8,10 +9,14 @@ async function main() {
   // ══════════════════════════════════════════════════════════════
 
   // ── res_users: admin ──────────────────────────────────────
+  const adminPassword = await bcryptjs.hash(
+    process.env.ADMIN_SEED_PASSWORD ?? 'BdtDev2026!',
+    12,
+  )
   await prisma.res_users.upsert({
     where: { login: 'admin' },
-    update: {},
-    create: { login: 'admin', name: 'Administrator', active: true },
+    update: { password: adminPassword, role: 'admin' },
+    create: { login: 'admin', name: 'Administrator', active: true, password: adminPassword, role: 'admin' },
   })
 
   // ── uom_category + uom_uom (20 standard BDT units) ───────
@@ -393,6 +398,7 @@ async function main() {
   }
 
   console.log('Seed completed ✓')
+  console.log('  - admin user with bcrypt password (Sprint 6)')
   console.log('  - 28 mark prefixes')
   console.log('  - 21 Tekla mappings')
   console.log('  - 7 steel grades')

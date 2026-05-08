@@ -5,8 +5,8 @@ export const apiClient = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Mock auth: Sprint 1 uses x-user-id header
 apiClient.interceptors.request.use((config) => {
-  config.headers['x-user-id'] = '1'
+  const token = localStorage.getItem('bdt_token')
+  if (token) config.headers['Authorization'] = `Bearer ${token}`
   return config
 })

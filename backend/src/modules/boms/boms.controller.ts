@@ -1,32 +1,31 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Query, Headers, ParseIntPipe,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards,
 } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiSecurity } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { BomsService } from './services/boms.service'
 import { CreateBomDto } from './dto/create-bom.dto'
 import { UpdateBomDto } from './dto/update-bom.dto'
 import { AddBomLineDto } from './dto/add-bom-line.dto'
 import { QueryBomDto } from './dto/query-bom.dto'
-import { IdentityService } from '../identity/identity.service'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('boms')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller()
 export class BomsController {
-  constructor(
-    private readonly svc: BomsService,
-    private readonly identity: IdentityService,
-  ) {}
+  constructor(private readonly svc: BomsService) {}
 
   @Post('products/:product_code/boms')
   @ApiOperation({ summary: 'Create a BOM for a product' })
-  async create(
+  create(
     @Param('product_code') productCode: string,
     @Body() dto: CreateBomDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.create({ ...dto, product_code: productCode }, uid)
+    return this.svc.create({ ...dto, product_code: productCode }, user.sub)
   }
 
   @Get('products/:product_code/boms')
@@ -64,76 +63,69 @@ export class BomsController {
 
   @Patch('boms/:id')
   @ApiOperation({ summary: 'Update BOM meta (draft state only)' })
-  async update(
+  update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBomDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.update(id, dto, uid)
+    return this.svc.update(id, dto, user.sub)
   }
 
   @Delete('boms/:id')
   @ApiOperation({ summary: 'Soft-delete BOM (draft → obsolete)' })
-  async remove(
+  remove(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.remove(id, uid)
+    return this.svc.remove(id, user.sub)
   }
 
   @Post('boms/:id/lines')
   @ApiOperation({ summary: 'Add a line to a BOM' })
-  async addLine(
+  addLine(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddBomLineDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.addLine(id, dto, uid)
+    return this.svc.addLine(id, dto, user.sub)
   }
 
   @Patch('boms/:id/lines/:line_id')
   @ApiOperation({ summary: 'Update a BOM line' })
-  async updateLine(
+  updateLine(
     @Param('id', ParseIntPipe) id: number,
     @Param('line_id', ParseIntPipe) lineId: number,
     @Body() dto: Partial<AddBomLineDto>,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.updateLine(id, lineId, dto, uid)
+    return this.svc.updateLine(id, lineId, dto, user.sub)
   }
 
   @Delete('boms/:id/lines/:line_id')
   @ApiOperation({ summary: 'Delete a BOM line' })
-  async removeLine(
+  removeLine(
     @Param('id', ParseIntPipe) id: number,
     @Param('line_id', ParseIntPipe) lineId: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.removeLine(id, lineId, uid)
+    return this.svc.removeLine(id, lineId, user.sub)
   }
 
   @Post('boms/:id/action_activate')
   @ApiOperation({ summary: 'Activate BOM: draft → active' })
-  async activate(
+  activate(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.activate(id, uid)
+    return this.svc.activate(id, user.sub)
   }
 
   @Post('boms/:id/action_obsolete')
   @ApiOperation({ summary: 'Obsolete BOM: active/draft → obsolete' })
-  async obsolete(
+  obsolete(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.obsolete(id, uid)
+    return this.svc.obsolete(id, user.sub)
   }
 }

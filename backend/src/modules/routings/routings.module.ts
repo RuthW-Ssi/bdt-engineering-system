@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common'
 import { PrismaModule } from '../../prisma/prisma.module'
 import { MailModule } from '../mail/mail.module'
-import { IdentityModule } from '../identity/identity.module'
 import { RoutingsController } from './routings.controller'
 import { WorkcentersController } from './workcenters.controller'
 import { RoutingService } from './services/routing.service'
@@ -18,7 +17,7 @@ import { BulkOverrideService } from './services/bulk-override.service'
 import { RoutingPromotionService } from './services/routing-promotion.service'
 
 @Module({
-  imports: [PrismaModule, MailModule, IdentityModule],
+  imports: [PrismaModule, MailModule],
   controllers: [RoutingsController, WorkcentersController],
   providers: [
     RoutingService,

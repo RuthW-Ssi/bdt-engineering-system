@@ -18,12 +18,16 @@ import { DrawingsModule } from './modules/drawings/drawings.module'
 import { FileStorageModule } from './modules/file-storage/file-storage.module'
 // Sprint 4
 import { RoutingsModule } from './modules/routings/routings.module'
+// Sprint 6
+import { AuthModule } from './modules/auth/auth.module'
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate }),
     PrismaModule,
     HealthModule,
+    // Sprint 6: AuthModule first — registers JwtModule globally
+    AuthModule,
     IdentityModule,
     MasterDataModule,
     MailModule,
