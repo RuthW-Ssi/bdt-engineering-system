@@ -3,16 +3,15 @@ import {
   Controller,
   Delete,
   Get,
-  Headers,
   Param,
   ParseIntPipe,
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common'
-import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger'
+import { ApiOperation, ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { PrismaService } from '../../prisma/prisma.service'
-import { IdentityService } from '../identity/identity.service'
 import { RoutingService } from './services/routing.service'
 import { CycleTimeService } from './services/cycle-time.service'
 import { StdCostService } from './services/std-cost.service'
@@ -43,9 +42,13 @@ import {
   UpdateBindingRuleDto,
   ReorderBindingRulesDto,
 } from './dto/create-binding-rule.dto'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('Routings')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller()
 export class RoutingsController {
   constructor(
@@ -61,7 +64,6 @@ export class RoutingsController {
     private readonly simulatorService: TemplateSimulatorService,
     private readonly bulkOverrideService: BulkOverrideService,
     private readonly promotionService: RoutingPromotionService,
-    private readonly identity: IdentityService,
   ) {}
 
   // ── Routing per product ─────────────────────────────────────────
@@ -74,102 +76,93 @@ export class RoutingsController {
 
   @Post('products/:code/routing')
   @ApiOperation({ summary: 'Bind product to a routing template' })
-  async createRouting(
+  createRouting(
     @Param('code') code: string,
     @Body() dto: CreateRoutingDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.create(code, dto, uid)
+    return this.routingService.create(code, dto, user.sub)
   }
 
   @Post('products/:code/routing/operations')
   @ApiOperation({ summary: 'Add an operation to the bound routing template' })
-  async addOperation(
+  addOperation(
     @Param('code') code: string,
     @Body() dto: AddOperationDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.addOperation(code, dto, uid)
+    return this.routingService.addOperation(code, dto, user.sub)
   }
 
   @Patch('products/:code/routing/operations/:opId')
   @ApiOperation({ summary: 'Update template operation name / sequence / workcenter' })
-  async updateOperation(
+  updateOperation(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Body() dto: UpdateOperationDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.updateOperation(code, opId, dto, uid)
+    return this.routingService.updateOperation(code, opId, dto, user.sub)
   }
 
   @Delete('products/:code/routing/operations/:opId')
   @ApiOperation({ summary: 'Delete a template operation' })
-  async deleteOperation(
+  deleteOperation(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.deleteOperation(code, opId, uid)
+    return this.routingService.deleteOperation(code, opId, user.sub)
   }
 
   @Post('products/:code/routing/operations/:opId/activities')
   @ApiOperation({ summary: 'Add an activity template to a routing operation' })
-  async addStepActivity(
+  addStepActivity(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Body() dto: AddStepActivityDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.addStepActivity(code, opId, dto, uid)
+    return this.routingService.addStepActivity(code, opId, dto, user.sub)
   }
 
   @Delete('products/:code/routing/operations/:opId/activities/:stepId')
   @ApiOperation({ summary: 'Remove an activity from a template operation' })
-  async deleteStepActivity(
+  deleteStepActivity(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Param('stepId', ParseIntPipe) stepId: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.deleteStepActivity(code, opId, stepId, uid)
+    return this.routingService.deleteStepActivity(code, opId, stepId, user.sub)
   }
 
   @Post('products/:code/routing/reorder')
   @ApiOperation({ summary: 'Reorder template routing operations' })
-  async reorder(
+  reorder(
     @Param('code') code: string,
     @Body() dto: ReorderOperationsDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.reorder(code, dto, uid)
+    return this.routingService.reorder(code, dto, user.sub)
   }
 
   @Post('products/:code/routing/action_activate')
   @ApiOperation({ summary: 'Activate the bound routing template' })
-  async activate(
+  activate(
     @Param('code') code: string,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.activate(code, uid)
+    return this.routingService.activate(code, user.sub)
   }
 
   @Post('products/:code/routing/action_obsolete')
   @ApiOperation({ summary: 'Obsolete the bound routing template' })
-  async obsolete(
+  obsolete(
     @Param('code') code: string,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.routingService.obsolete(code, uid)
+    return this.routingService.obsolete(code, user.sub)
   }
 
   @Post('products/:code/routing/recompute')
@@ -199,11 +192,10 @@ export class RoutingsController {
     @Param('code') code: string,
     @Param('actId', ParseIntPipe) actId: number,
     @Body() dto: UpsertOverrideDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
     const productId = await this.routingService.findProductId(code)
-    return this.overrideService.upsertOverride(productId, actId, dto, uid)
+    return this.overrideService.upsertOverride(productId, actId, dto, user.sub)
   }
 
   @Delete('products/:code/routing-overrides/:actId')
@@ -212,11 +204,10 @@ export class RoutingsController {
   async removeOverride(
     @Param('code') code: string,
     @Param('actId', ParseIntPipe) actId: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
     const productId = await this.routingService.findProductId(code)
-    return this.overrideService.removeOverride(productId, actId, uid)
+    return this.overrideService.removeOverride(productId, actId, user.sub)
   }
 
   // ── Custom routing (RT33) ───────────────────────────────────────
@@ -231,43 +222,40 @@ export class RoutingsController {
   @Post('products/:code/custom-routing')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Convert product to custom routing (optionally clone from template)' })
-  async createCustomRouting(
+  createCustomRouting(
     @Param('code') code: string,
     @Body() dto: CreateCustomRoutingDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.customRoutingService.create(code, dto.from_template_id, uid)
+    return this.customRoutingService.create(code, dto.from_template_id, user.sub)
   }
 
   @Post('products/:code/custom-routing/restore-to-template')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Restore product to template routing (obsoletes custom routing)' })
-  async restoreToTemplate(
+  restoreToTemplate(
     @Param('code') code: string,
     @Body() dto: RestoreToTemplateDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.customRoutingService.restoreToTemplate(code, dto.template_id, uid)
+    return this.customRoutingService.restoreToTemplate(code, dto.template_id, user.sub)
   }
 
   @Post('products/:code/custom-routing/ops')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Add an operation to custom routing' })
-  async addCustomOp(
+  addCustomOp(
     @Param('code') code: string,
     @Body() dto: AddCustomRoutingOpDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.customRoutingService.addOp(code, dto, uid)
+    return this.customRoutingService.addOp(code, dto, user.sub)
   }
 
   @Patch('products/:code/custom-routing/ops/:opId')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Update a custom routing operation' })
-  async updateCustomOp(
+  updateCustomOp(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Body() dto: UpdateCustomRoutingOpDto,
@@ -278,7 +266,7 @@ export class RoutingsController {
   @Delete('products/:code/custom-routing/ops/:opId')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Delete a custom routing operation' })
-  async deleteCustomOp(
+  deleteCustomOp(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
   ) {
@@ -288,7 +276,7 @@ export class RoutingsController {
   @Post('products/:code/custom-routing/ops/:opId/activities')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Add an activity to a custom routing operation' })
-  async addCustomActivity(
+  addCustomActivity(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Body() dto: AddCustomRoutingActivityDto,
@@ -299,7 +287,7 @@ export class RoutingsController {
   @Patch('products/:code/custom-routing/ops/:opId/activities/:actId')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Update a custom routing activity' })
-  async updateCustomActivity(
+  updateCustomActivity(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Param('actId', ParseIntPipe) actId: number,
@@ -311,7 +299,7 @@ export class RoutingsController {
   @Delete('products/:code/custom-routing/ops/:opId/activities/:actId')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Delete a custom routing activity' })
-  async deleteCustomActivity(
+  deleteCustomActivity(
     @Param('code') code: string,
     @Param('opId', ParseIntPipe) opId: number,
     @Param('actId', ParseIntPipe) actId: number,
@@ -356,24 +344,22 @@ export class RoutingsController {
   @Post('routing-templates')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Create a new routing template' })
-  async createRoutingTemplate(
+  createRoutingTemplate(
     @Body() dto: CreateRoutingTemplateDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.prismaCreateTemplate(dto, uid)
+    return this.prismaCreateTemplate(dto, user.sub)
   }
 
   @Patch('routing-templates/:id')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Update routing template metadata' })
-  async updateRoutingTemplate(
+  updateRoutingTemplate(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateRoutingTemplateDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.prismaUpdateTemplate(id, dto, uid)
+    return this.prismaUpdateTemplate(id, dto, user.sub)
   }
 
   @Get('routings/templates')
@@ -400,24 +386,22 @@ export class RoutingsController {
   @Post('routing-template-binding-rules')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Create a binding rule' })
-  async createBindingRule(
+  createBindingRule(
     @Body() dto: CreateBindingRuleDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.prismaCreateBindingRule(dto, uid)
+    return this.prismaCreateBindingRule(dto, user.sub)
   }
 
   @Patch('routing-template-binding-rules/:id')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Update a binding rule' })
-  async updateBindingRule(
+  updateBindingRule(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateBindingRuleDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.prismaUpdateBindingRule(id, dto, uid)
+    return this.prismaUpdateBindingRule(id, dto, user.sub)
   }
 
   @Delete('routing-template-binding-rules/:id')
@@ -430,7 +414,7 @@ export class RoutingsController {
   @Post('routing-template-binding-rules/reorder')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Reorder binding rules by updating priorities' })
-  async reorderBindingRules(@Body() dto: ReorderBindingRulesDto) {
+  reorderBindingRules(@Body() dto: ReorderBindingRulesDto) {
     return this.prismaReorderBindingRules(dto)
   }
 
@@ -506,7 +490,7 @@ export class RoutingsController {
   @Post('routing-templates/:id/fixtures')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Save a simulator input set as a named fixture' })
-  async createFixture(
+  createFixture(
     @Param('id', ParseIntPipe) id: number,
     @Body()
     body: {
@@ -518,10 +502,9 @@ export class RoutingsController {
       expected_total_min?: number
       expected_total_cost?: number
     },
-    @Headers('x-user-id') userId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(userId)
-    return this.simulatorService.createFixture(id, body, uid)
+    return this.simulatorService.createFixture(id, body, user.sub)
   }
 
   // ── Bulk Override (RT50) ────────────────────────────────────────
@@ -529,7 +512,7 @@ export class RoutingsController {
   @Post('routing-overrides/bulk')
   @ApiTags('RoutingOverrides')
   @ApiOperation({ summary: 'Bulk upsert overrides for all products matching criteria; preview_only=true for dry-run' })
-  async bulkOverride(
+  bulkOverride(
     @Body()
     body: {
       criteria: {
@@ -549,10 +532,9 @@ export class RoutingsController {
       eco_id?: number
       preview_only?: boolean
     },
-    @Headers('x-user-id') userId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(userId)
-    return this.bulkOverrideService.bulkUpsert(body.criteria, body.override, { eco_id: body.eco_id, preview_only: body.preview_only }, uid)
+    return this.bulkOverrideService.bulkUpsert(body.criteria, body.override, { eco_id: body.eco_id, preview_only: body.preview_only }, user.sub)
   }
 
   // ── Custom Routing Promotion (RT54) ────────────────────────────
@@ -567,13 +549,12 @@ export class RoutingsController {
   @Post('custom-routings/:id/promote-to-template')
   @ApiTags('CustomRoutings')
   @ApiOperation({ summary: 'Promote a custom routing to a new shared template and rebind the product' })
-  async promoteToTemplate(
+  promoteToTemplate(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { template_name: string },
-    @Headers('x-user-id') userId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(userId)
-    return this.promotionService.promote(id, body.template_name, uid)
+    return this.promotionService.promote(id, body.template_name, user.sub)
   }
 
   // ── History endpoints (RT49) ────────────────────────────────────
@@ -635,7 +616,6 @@ export class RoutingsController {
   }
 
   // ── Inline Prisma helpers for template + binding-rule CRUD ─────
-  // (lightweight — no dedicated service needed for simple CRUD)
 
   private prismaCreateTemplate(dto: CreateRoutingTemplateDto, uid: number) {
     return this.prisma.routing_template.create({

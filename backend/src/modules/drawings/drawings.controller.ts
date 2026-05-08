@@ -1,31 +1,30 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query, Headers, ParseIntPipe,
+  Controller, Get, Post, Patch, Body, Param, Query, ParseIntPipe, UseGuards,
 } from '@nestjs/common'
-import { ApiTags, ApiOperation, ApiSecurity, ApiBody } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
 import { DrawingsService } from './services/drawings.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 import { UpdateDrawingDto } from './dto/update-drawing.dto'
 import { AddRevisionDto } from './dto/add-revision.dto'
 import { QueryDrawingDto } from './dto/query-drawing.dto'
-import { IdentityService } from '../identity/identity.service'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('drawings')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('drawings')
 export class DrawingsController {
-  constructor(
-    private readonly svc: DrawingsService,
-    private readonly identity: IdentityService,
-  ) {}
+  constructor(private readonly svc: DrawingsService) {}
 
   @Post()
   @ApiOperation({ summary: 'Create a shop drawing' })
-  async create(
+  create(
     @Body() dto: CreateDrawingDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.create(dto, uid)
+    return this.svc.create(dto, user.sub)
   }
 
   @Get()
@@ -42,24 +41,22 @@ export class DrawingsController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update drawing (draft state only)' })
-  async update(
+  update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateDrawingDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.update(id, dto, uid)
+    return this.svc.update(id, dto, user.sub)
   }
 
   @Post(':id/revisions')
   @ApiOperation({ summary: 'Add a revision to a drawing' })
-  async addRevision(
+  addRevision(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddRevisionDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.addRevision(id, dto, uid)
+    return this.svc.addRevision(id, dto, user.sub)
   }
 
   @Get(':id/revisions')
@@ -70,63 +67,57 @@ export class DrawingsController {
 
   @Post(':id/action_submit_review')
   @ApiOperation({ summary: 'Submit for review: draft → in_review' })
-  async actionSubmitReview(
+  actionSubmitReview(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.performAction(id, 'action_submit_review', uid)
+    return this.svc.performAction(id, 'action_submit_review', user.sub)
   }
 
   @Post(':id/action_approve')
   @ApiOperation({ summary: 'Approve: in_review → approved' })
   @ApiBody({ schema: { properties: { approved_uid: { type: 'integer' } } } })
-  async actionApprove(
+  actionApprove(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { approved_uid?: number },
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.performAction(id, 'action_approve', uid, body.approved_uid)
+    return this.svc.performAction(id, 'action_approve', user.sub, body.approved_uid)
   }
 
   @Post(':id/action_reject')
   @ApiOperation({ summary: 'Reject: in_review → draft' })
-  async actionReject(
+  actionReject(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.performAction(id, 'action_reject', uid)
+    return this.svc.performAction(id, 'action_reject', user.sub)
   }
 
   @Post(':id/action_release')
   @ApiOperation({ summary: 'Release: approved → released' })
-  async actionRelease(
+  actionRelease(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.performAction(id, 'action_release', uid)
+    return this.svc.performAction(id, 'action_release', user.sub)
   }
 
   @Post(':id/action_supersede')
   @ApiOperation({ summary: 'Supersede: released → superseded' })
-  async actionSupersede(
+  actionSupersede(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.performAction(id, 'action_supersede', uid)
+    return this.svc.performAction(id, 'action_supersede', user.sub)
   }
 
   @Post(':id/action_obsolete')
   @ApiOperation({ summary: 'Obsolete: draft/released → obsolete' })
-  async actionObsolete(
+  actionObsolete(
     @Param('id', ParseIntPipe) id: number,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.svc.performAction(id, 'action_obsolete', uid)
+    return this.svc.performAction(id, 'action_obsolete', user.sub)
   }
 }

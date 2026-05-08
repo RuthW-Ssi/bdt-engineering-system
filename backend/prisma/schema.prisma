@@ -7,12 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ── 🟦 Standard Odoo: res_users (stub) ───────────────────────
+// ── 🟦 Standard Odoo: res_users (Sprint 6: JWT auth fields) ──
 model res_users {
-  id     Int     @id @default(autoincrement())
-  login  String  @unique @db.VarChar(60)
-  name   String  @db.VarChar(120)
-  active Boolean @default(true)
+  id          Int      @id @default(autoincrement())
+  login       String   @unique @db.VarChar(60)
+  password    String   @default("") @db.VarChar(128) // bcryptjs hash; empty = not yet set
+  name        String   @db.VarChar(120)
+  email       String?  @db.VarChar(120)
+  lang        String?  @default("th_TH") @db.VarChar(10)
+  tz          String?  @default("Asia/Bangkok") @db.VarChar(40)
+  role        String   @default("user") @db.VarChar(20) // "admin" | "user"
+  partner_id  Int?     // FK placeholder → res_partner (Sprint 7)
+  active      Boolean  @default(true)
+  create_date DateTime @default(now()) @db.Timestamptz
+  write_date  DateTime @updatedAt @db.Timestamptz
 
   materials_created materials[]    @relation("create_user")
   materials_written materials[]    @relation("write_user")

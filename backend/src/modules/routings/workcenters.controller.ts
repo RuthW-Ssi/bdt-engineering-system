@@ -1,17 +1,17 @@
-import { Body, Controller, Get, Headers, Param, ParseIntPipe, Patch } from '@nestjs/common'
-import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger'
-import { IdentityService } from '../identity/identity.service'
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, UseGuards } from '@nestjs/common'
+import { ApiOperation, ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { WorkcenterService } from './services/workcenter.service'
 import { UpdateWorkcenterDto } from './dto/update-workcenter.dto'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('Workcenters')
-@ApiSecurity('x-user-id')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('workcenters')
 export class WorkcentersController {
-  constructor(
-    private readonly wcService: WorkcenterService,
-    private readonly identity: IdentityService,
-  ) {}
+  constructor(private readonly wcService: WorkcenterService) {}
 
   @Get()
   @ApiOperation({ summary: 'List all work centers' })
@@ -27,13 +27,12 @@ export class WorkcentersController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update OEE / labor mix / cost rates (audit logged)' })
-  async update(
+  update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateWorkcenterDto,
-    @Headers('x-user-id') xUserId: string,
+    @CurrentUser() user: JwtPayload,
   ) {
-    const uid = await this.identity.resolveUser(xUserId)
-    return this.wcService.update(id, dto, uid)
+    return this.wcService.update(id, dto, user.sub)
   }
 
   @Get(':id/capacity')
