@@ -2,7 +2,7 @@ import { apiClient } from './client'
 import type { ProjectDTO, ProjectListResponse } from './types'
 
 export const projectsApi = {
-  list(params?: { state?: string; q?: string; page?: number; limit?: number }): Promise<ProjectListResponse> {
+  list(params?: { state?: string; q?: string; customer_id?: number; page?: number; limit?: number }): Promise<ProjectListResponse> {
     return apiClient.get('/projects', { params }).then(r => r.data)
   },
 

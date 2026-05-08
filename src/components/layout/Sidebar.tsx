@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
-  ChevronLeft, ChevronRight, Boxes,
+  ChevronLeft, ChevronRight, Boxes, Building2, MapPin, Users,
 } from 'lucide-react'
 
 interface NavItem {
@@ -19,7 +19,14 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
     title: '',
     items: [
       { label: 'Dashboard', labelTh: 'ภาพรวม', icon: <LayoutDashboard size={18} />, path: '/dashboard' },
+    ],
+  },
+  {
+    title: 'Project Management',
+    items: [
+      { label: 'Customers', labelTh: 'ลูกค้า', icon: <Users size={18} />, path: '/customers' },
       { label: 'Projects', labelTh: 'โปรเจกต์', icon: <FolderOpen size={18} />, path: '/projects' },
+      { label: 'Zones', labelTh: 'โซน', icon: <MapPin size={18} />, path: '/zones' },
     ],
   },
   {
