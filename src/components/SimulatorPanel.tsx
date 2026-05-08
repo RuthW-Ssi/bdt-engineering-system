@@ -11,14 +11,15 @@ interface SimulatorPanelProps {
   productAttributes?: Record<string, number>
 }
 
-const LS_KEY = (templateId: number) => `simulator_attrs_${templateId}`
+// v2: bumped when unit conventions changed (Length/Width mm→m) to invalidate stale localStorage
+const LS_KEY = (templateId: number) => `simulator_attrs_v2_${templateId}`
 
 const UNIT_MAP: Record<string, string> = {
-  // camelCase vars from Excel formulas
+  // camelCase vars from Excel formulas — Length/Width/Hight are in metres (formula exprs use 0.2m spacing, std 5-6m)
   sumWeight:              'kg',
-  Length:                 'mm',
-  Width:                  'mm',
-  Hight:                  'mm',
+  Length:                 'm',
+  Width:                  'm',
+  Hight:                  'm',
   count_part:             'pcs',
   part:                   'pcs',
   sumNet_surface_area:    'm²',
@@ -26,7 +27,7 @@ const UNIT_MAP: Record<string, string> = {
   // snake_case vars
   weight_kg:              'kg',
   buildup_weight:         'kg',
-  product_length:         'mm',
+  product_length:         'm',
   product_area:           'm²',
   product_perimeter:      'm',
   buildup_perimeter:      'm',
@@ -41,12 +42,13 @@ const UNIT_MAP: Record<string, string> = {
 function inferUnit(key: string): string {
   if (UNIT_MAP[key]) return UNIT_MAP[key]
   const low = key.toLowerCase()
-  if (low.includes('weight') || low.endsWith('_kg'))     return 'kg'
-  if (low.includes('area') || low.endsWith('_area'))     return 'm²'
-  if (low.includes('perimeter') || low.includes('length')) return 'm'
-  if (low.includes('width') || low.includes('height') || low.includes('hight') || low.includes('thick')) return 'mm'
-  if (low.includes('count') || low.includes('quan') || low.includes('_part')) return 'pcs'
-  if (low.includes('point') || low.includes('joint'))    return 'pt'
+  if (low.includes('weight') || low.endsWith('_kg'))                                          return 'kg'
+  if (low.includes('area') || low.endsWith('_area'))                                           return 'm²'
+  if (low.includes('perimeter') || low.includes('length') || low.includes('width') ||
+      low.includes('height') || low.includes('hight'))                                         return 'm'
+  if (low.includes('thick') || low.includes('weldingsize'))                                    return 'mm'
+  if (low.includes('count') || low.includes('quan') || low.includes('_part'))                 return 'pcs'
+  if (low.includes('point') || low.includes('joint'))                                          return 'pt'
   return ''
 }
 
