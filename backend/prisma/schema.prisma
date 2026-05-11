@@ -213,6 +213,7 @@ model res_partner {
 
   projects      project[]
   mail_messages mail_message[] @relation("PartnerMessages")
+  bom_projects  BomProject[]  @relation("BomProjectCustomer")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -976,4 +977,92 @@ model product_routing_override_history {
   @@index([product_id, changed_at])
   @@index([activity_template_id, changed_at])
   @@index([eco_id])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 7: BOM Refactor Phase 1 — ADR-000X Rev 2
+// ═══════════════════════════════════════════════════════════════
+
+enum DispatchState {
+  draft
+  released
+  superseded
+}
+
+// ── Category (dispatch category master — e.g. MAIN, SECONDARY) ──
+model Category {
+  id         String     @id @default(uuid())
+  code       String     @unique @db.VarChar(40)
+  name_en    String     @db.VarChar(80)
+  name_th    String?    @db.VarChar(80)
+  active     Boolean    @default(true)
+  create_uid Int?
+  write_uid  Int?
+  created_at DateTime   @default(now()) @db.Timestamptz
+  updated_at DateTime   @updatedAt @db.Timestamptz
+  dispatches Dispatch[]
+
+  @@map("bom_category")
+}
+
+// ── BomProject (steel construction project — @@map avoids clash with Sprint 2 `project`) ──
+model BomProject {
+  id          String       @id @default(uuid())
+  contract_no String       @unique @db.VarChar(40)
+  name        String       @db.VarChar(200)
+  customer_id Int?
+  customer    res_partner? @relation("BomProjectCustomer", fields: [customer_id], references: [id])
+  active      Boolean      @default(true)
+  create_uid  Int?
+  write_uid   Int?
+  created_at  DateTime     @default(now()) @db.Timestamptz
+  updated_at  DateTime     @updatedAt @db.Timestamptz
+  zones       BomZone[]
+  dispatches  Dispatch[]
+
+  @@map("bom_project")
+}
+
+// ── BomZone (erection zone within a BomProject) ──────────────────
+model BomZone {
+  id         String     @id @default(uuid())
+  project_id String
+  project    BomProject @relation(fields: [project_id], references: [id])
+  code       String     @db.VarChar(20)
+  name       String     @db.VarChar(80)
+  active     Boolean    @default(true)
+  create_uid Int?
+  write_uid  Int?
+  created_at DateTime   @default(now()) @db.Timestamptz
+  updated_at DateTime   @updatedAt @db.Timestamptz
+  dispatches Dispatch[]
+
+  @@unique([project_id, code])
+  @@map("bom_zone")
+}
+
+// ── Dispatch (drawing issue / dispatch document) ──────────────────
+model Dispatch {
+  id              String        @id @default(uuid())
+  dispatch_no     String        @unique @db.VarChar(40)
+  project_id      String
+  project         BomProject    @relation(fields: [project_id], references: [id])
+  zone_id         String?
+  zone            BomZone?      @relation(fields: [zone_id], references: [id])
+  category_id     String?
+  category        Category?     @relation(fields: [category_id], references: [id])
+  version         Int           @default(1)
+  revision        Int           @default(0)
+  state           DispatchState @default(draft)
+  superseded_by   String?
+  superseded_by_r Dispatch?     @relation("DispatchSupersession", fields: [superseded_by], references: [id])
+  supersedes      Dispatch[]    @relation("DispatchSupersession")
+  issued_at       DateTime?     @db.Date
+  author_name     String?       @db.VarChar(200)
+  create_uid      Int?
+  write_uid       Int?
+  created_at      DateTime      @default(now()) @db.Timestamptz
+  updated_at      DateTime      @updatedAt @db.Timestamptz
+
+  @@map("dispatch")
 }
