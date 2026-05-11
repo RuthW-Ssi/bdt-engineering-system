@@ -39,9 +39,21 @@ Every task — even small ones — start by reading at minimum:
 
 | Step | Source | Tells you |
 |---|---|---|
-| **1** | **Notion MCP: project page + active Sprint** | **Live ops state — current sprint scope, blockers, who's doing what** |
-| 2 | `knowledge-base/projects/bdt-engineering-system/wiki/index.md` | What pages exist, where to look |
-| 3 | `knowledge-base/projects/bdt-engineering-system/wiki/features/<relevant>.md` | Feature-specific rules (if task touches a feature) |
+| **1** | **Notion MCP: Project + active Sprint + Epics + User Stories** (5-layer) | **Live ops state — sprint scope, story AC, blockers, who's doing what** |
+| **1a** | **Notion MCP: Tasks DB filter Sprint=active** | **Tasks ที่ assigned ใน sprint ปัจจุบัน** |
+| 2 | `knowledge-base/projects/bdt-engineering-system/wiki/index.md` | Wiki nav + Epics list + Features list |
+| 3 | `knowledge-base/projects/bdt-engineering-system/wiki/epics/<area>.md` | Epic capability description (durable) |
+| 4 | `knowledge-base/projects/bdt-engineering-system/wiki/features/<relevant>.md` | Feature-specific rules (if task touches a feature) |
+
+**Notion DB IDs (since 2026-05-08, 5-layer hierarchy):**
+- Projects: `af67a383-763d-4e39-b9da-372ac38c7b65`
+- Epics: `ae7e8de9-e1be-4ff3-9c9f-3ff74065965c`
+- User Stories: `768e1526-2f19-4d77-b19f-7b57099c9d09`
+- Sprints: `a7d3fec7-3477-4e1a-896e-40d962cf338c`
+- Features: `c40f689d-a2d3-4a8f-a53f-a07ad90d47ac`
+- Tasks: `44a5ab8c-9be4-42e1-8cda-3331b8ae6352`
+
+See ADR-0014 for hierarchy rationale.
 
 > [!warning] DO NOT trust `pm/backlog.md` or `pm/_snapshots/*.md` as live state
 > ไฟล์เหล่านี้เป็น **stub pointer** หรือ **stale mirror** — query Notion MCP เสมอ
