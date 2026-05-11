@@ -1035,7 +1035,8 @@ model BomZone {
   write_uid  Int?
   created_at DateTime   @default(now()) @db.Timestamptz
   updated_at DateTime   @updatedAt @db.Timestamptz
-  dispatches Dispatch[]
+  dispatches             Dispatch[]
+  material_doc_revisions MaterialDocRevision[]
 
   @@unique([project_id, code])
   @@map("bom_zone")
@@ -1191,4 +1192,45 @@ model Part {
   assembly_parts   AssemblyPart[]
 
   @@map("part")
+}
+
+// ── T1.3 models ───────────────────────────────────────────────
+
+// ── MaterialDocRevision (procurement-driven, scoped to Zone — D8) ──
+model MaterialDocRevision {
+  id              String    @id @default(uuid())
+  zone_id         String
+  zone            BomZone   @relation(fields: [zone_id], references: [id])
+  rev_no          Int       @default(0)
+  change_type     ChangeType @default(BASE)
+  rev_tag         String?   @db.VarChar(40)
+  is_current      Boolean   @default(true)
+  file_storage_id String?   // FK to FileStorage — @relation added in T1.4
+  uploaded_at     DateTime? @db.Timestamptz
+  uploaded_by     String?   @db.VarChar(200)
+  create_uid      Int?
+  write_uid       Int?
+  created_at      DateTime  @default(now()) @db.Timestamptz
+  updated_at      DateTime  @updatedAt @db.Timestamptz
+  material_lines  MaterialLine[]
+
+  @@unique([zone_id, rev_no])
+  @@map("material_doc_revision")
+}
+
+// ── MaterialLine (same JSONB pattern as Part — D8) ────────────
+model MaterialLine {
+  id                   String              @id @default(uuid())
+  material_doc_rev_id  String
+  material_doc_rev     MaterialDocRevision @relation(fields: [material_doc_rev_id], references: [id])
+  template_id          String              // FK to ProductTemplate — @relation added in T1.4
+  attribute_values     Json
+  grade_id             String?             // FK to Grade — @relation added in T1.4
+  std_product_id       String?             // FK to StdProduct (nullable) — @relation added in T1.4
+  create_uid           Int?
+  write_uid            Int?
+  created_at           DateTime            @default(now()) @db.Timestamptz
+  updated_at           DateTime            @updatedAt @db.Timestamptz
+
+  @@map("material_line")
 }
