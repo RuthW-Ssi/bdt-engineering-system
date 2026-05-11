@@ -1114,6 +1114,8 @@ model DocRevision {
   dispatch_lines  DispatchLine[]
 
   @@unique([dispatch_id, doc_type, rev_no])
+  @@index([dispatch_id])
+  @@index([dispatch_id, doc_type, is_current])
   @@map("doc_revision")
 }
 
@@ -1140,6 +1142,7 @@ model Assembly {
   dispatch_line      DispatchLine?
   assembly_parts     AssemblyPart[]
 
+  @@index([doc_revision_id])
   @@map("assembly")
 }
 
@@ -1158,6 +1161,7 @@ model DispatchLine {
   created_at      DateTime    @default(now()) @db.Timestamptz
   updated_at      DateTime    @updatedAt @db.Timestamptz
 
+  @@index([doc_revision_id])
   @@map("dispatch_line")
 }
 
@@ -1173,6 +1177,8 @@ model AssemblyPart {
   qty             Decimal     @db.Decimal(10, 3)
 
   @@unique([doc_revision_id, assembly_id, part_id])
+  @@index([assembly_id])
+  @@index([part_id])
   @@map("assembly_part")
 }
 
@@ -1195,6 +1201,10 @@ model Part {
   updated_at       DateTime        @updatedAt @db.Timestamptz
   assembly_parts   AssemblyPart[]
 
+  @@index([doc_revision_id])
+  @@index([template_id])
+  @@index([grade_id])
+  @@index([attribute_values], type: Gin)
   @@map("part")
 }
 
@@ -1220,6 +1230,7 @@ model MaterialDocRevision {
   material_lines  MaterialLine[]
 
   @@unique([zone_id, rev_no])
+  @@index([zone_id, is_current])
   @@map("material_doc_revision")
 }
 
@@ -1240,6 +1251,10 @@ model MaterialLine {
   created_at           DateTime            @default(now()) @db.Timestamptz
   updated_at           DateTime            @updatedAt @db.Timestamptz
 
+  @@index([material_doc_rev_id])
+  @@index([template_id])
+  @@index([grade_id])
+  @@index([attribute_values], type: Gin)
   @@map("material_line")
 }
 
@@ -1286,6 +1301,8 @@ model ProductTemplate {
   parts            Part[]        @relation("PartTemplate")
   material_lines   MaterialLine[] @relation("MaterialLineTemplate")
 
+  @@index([attribute_schema], type: Gin)
+  @@index([profile_aliases], type: Gin)
   @@map("product_template")
 }
 
@@ -1329,6 +1346,7 @@ model StdProduct {
 
   // UNIQUE on (template_id, grade_id, attribute_values jsonb_canonical) — raw SQL index in T1.6
   @@index([template_id, grade_id])
+  @@index([attribute_values], type: Gin)
   @@map("std_product")
 }
 
