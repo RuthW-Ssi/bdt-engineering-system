@@ -1063,6 +1063,132 @@ model Dispatch {
   write_uid       Int?
   created_at      DateTime      @default(now()) @db.Timestamptz
   updated_at      DateTime      @updatedAt @db.Timestamptz
+  doc_revisions   DocRevision[]
 
   @@map("dispatch")
+}
+
+// ── T1.2 models ───────────────────────────────────────────────
+
+enum DocType {
+  DISPATCH_NOTE
+  ASSEMBLY_LIST
+  ASSEMBLY_PART_LIST
+  PART_LIST
+}
+
+enum ChangeType {
+  BASE
+  VO
+  FIX
+}
+
+enum LineStatus {
+  add
+  update
+  delete
+}
+
+// ── DocRevision (per-stream revision per Dispatch — D3) ───────
+model DocRevision {
+  id              String       @id @default(uuid())
+  dispatch_id     String
+  dispatch        Dispatch     @relation(fields: [dispatch_id], references: [id])
+  doc_type        DocType
+  rev_no          Int          @default(0)
+  change_type     ChangeType   @default(BASE)
+  rev_tag         String?      @db.VarChar(40)
+  is_current      Boolean      @default(true)
+  file_storage_id String?      // FK to FileStorage — @relation added in T1.4
+  uploaded_at     DateTime?    @db.Timestamptz
+  uploaded_by     String?      @db.VarChar(200)
+  create_uid      Int?
+  write_uid       Int?
+  created_at      DateTime     @default(now()) @db.Timestamptz
+  updated_at      DateTime     @updatedAt @db.Timestamptz
+  assemblies      Assembly[]
+  assembly_parts  AssemblyPart[]
+  parts           Part[]
+  dispatch_lines  DispatchLine[]
+
+  @@unique([dispatch_id, doc_type, rev_no])
+  @@map("doc_revision")
+}
+
+// ── Assembly (geometric data from assembly_list — D6) ────────
+model Assembly {
+  id                 String       @id @default(uuid())
+  doc_revision_id    String
+  doc_revision       DocRevision  @relation(fields: [doc_revision_id], references: [id])
+  assembly_mark      String       @db.VarChar(80)
+  assembly_full_mark String?      @db.VarChar(120)
+  name               String?      @db.VarChar(80)
+  drawing_number     String?      @db.VarChar(40)
+  weight_kg          Decimal?     @db.Decimal(12, 3)
+  paint_area_m2      Decimal?     @db.Decimal(10, 4)
+  length_mm          Decimal?     @db.Decimal(10, 1)
+  width_mm           Decimal?     @db.Decimal(10, 1)
+  height_mm          Decimal?     @db.Decimal(10, 1)
+  qty                Int?
+  qty_all            Int?
+  create_uid         Int?
+  write_uid          Int?
+  created_at         DateTime     @default(now()) @db.Timestamptz
+  updated_at         DateTime     @updatedAt @db.Timestamptz
+  dispatch_line      DispatchLine?
+  assembly_parts     AssemblyPart[]
+
+  @@map("assembly")
+}
+
+// ── DispatchLine (paint/ship context — 1:1 with Assembly D5/D6) ──
+model DispatchLine {
+  id              String      @id @default(uuid())
+  doc_revision_id String
+  doc_revision    DocRevision @relation(fields: [doc_revision_id], references: [id])
+  assembly_id     String      @unique
+  assembly        Assembly    @relation(fields: [assembly_id], references: [id])
+  status          LineStatus  @default(add)
+  remark          String?     @db.Text
+  paint_type      String?     @db.VarChar(80)
+  create_uid      Int?
+  write_uid       Int?
+  created_at      DateTime    @default(now()) @db.Timestamptz
+  updated_at      DateTime    @updatedAt @db.Timestamptz
+
+  @@map("dispatch_line")
+}
+
+// ── AssemblyPart (junction: assembly ↔ part per doc_revision — D7) ──
+model AssemblyPart {
+  id              String      @id @default(uuid())
+  doc_revision_id String
+  doc_revision    DocRevision @relation(fields: [doc_revision_id], references: [id])
+  assembly_id     String
+  assembly        Assembly    @relation(fields: [assembly_id], references: [id])
+  part_id         String
+  part            Part        @relation(fields: [part_id], references: [id])
+  qty             Decimal     @db.Decimal(10, 3)
+
+  @@unique([doc_revision_id, assembly_id, part_id])
+  @@map("assembly_part")
+}
+
+// ── Part (part_list row — template + JSONB attrs — D7) ────────
+model Part {
+  id               String       @id @default(uuid())
+  doc_revision_id  String
+  doc_revision     DocRevision  @relation(fields: [doc_revision_id], references: [id])
+  part_mark        String       @db.VarChar(60)
+  template_id      String       // FK to ProductTemplate — @relation added in T1.4
+  attribute_values Json
+  grade_id         String?      // FK to Grade — @relation added in T1.4
+  std_product_id   String?      // FK to StdProduct (nullable) — @relation added in T1.4
+  create_uid       Int?
+  write_uid        Int?
+  created_at       DateTime     @default(now()) @db.Timestamptz
+  updated_at       DateTime     @updatedAt @db.Timestamptz
+  assembly_parts   AssemblyPart[]
+
+  @@map("part")
 }
