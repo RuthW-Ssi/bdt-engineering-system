@@ -618,7 +618,8 @@ async function main() {
       section_type: 'SHS' as const,
       name_en: 'Square Hollow Section',
       name_th: 'เหล็กกลวงสี่เหลี่ยมจัตุรัส',
-      parser_regex: '^SHS\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)',
+      // Actual data format: SHSWxWxT (3-dim). Middle dim equals first (square), so skip it.
+      parser_regex: '^SHS\\s*(\\d+(?:\\.\\d+)?)[xX*×]\\d+(?:\\.\\d+)?[xX*×](\\d+(?:\\.\\d+)?)',
       profile_aliases: ['SHS', 'SQ'],
       attribute_schema: {
         attributes: [

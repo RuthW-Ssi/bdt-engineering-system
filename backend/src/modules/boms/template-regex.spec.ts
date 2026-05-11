@@ -12,7 +12,8 @@ const REGEXES: Record<string, RegExp> = {
   CHS:       /^CHS\s*(\d+(?:\.\d+)?)[xX*×](\d+(?:\.\d+)?)(?:SL)?/,
   PIPE:      /^PIPE\s*(\d+(?:\.\d+)?)[xX*×](\d+(?:\.\d+)?)(?:SL)?/,
   RHS:       /^RHS\s*(\d+(?:\.\d+)?)[xX*×](\d+(?:\.\d+)?)[xX*×](\d+(?:\.\d+)?)/,
-  SHS:       /^SHS\s*(\d+(?:\.\d+)?)[xX*×](\d+(?:\.\d+)?)/,
+  // SHS actual data format: SHSWxWxT (3-dim). Middle dim equals first (square), so skipped.
+  SHS:       /^SHS\s*(\d+(?:\.\d+)?)[xX*×]\d+(?:\.\d+)?[xX*×](\d+(?:\.\d+)?)/,
   ROD:       /^(?:ROD\s*)?(?:RODRB|RB)\s*(\d+(?:\.\d+)?)/,
 }
 
@@ -285,39 +286,44 @@ describe('RHS regex', () => {
 })
 
 // ────────────────────────────────────────────────────────────
-describe('SHS regex', () => {
-  it('matches standard SHS', () => {
-    const r = m('SHS', 'SHS100x5')!
-    expect(r[1]).toBe('100'); expect(r[2]).toBe('5')
+// SHS real data format: SHSWxWxT — first and second dims are equal (square), third is wall thickness.
+describe('SHS regex (3-dim WxWxT format)', () => {
+  it('matches standard SHS — captures width and wall thickness', () => {
+    const r = m('SHS', 'SHS25x25x2')!
+    expect(r[1]).toBe('25'); expect(r[2]).toBe('2')
   })
-  it('matches large SHS', () => {
-    expect(m('SHS', 'SHS150x6')).toBeTruthy()
+  it('matches larger SHS', () => {
+    const r = m('SHS', 'SHS100x100x3.2')!
+    expect(r[1]).toBe('100'); expect(r[2]).toBe('3.2')
   })
   it('matches space after prefix', () => {
-    expect(m('SHS', 'SHS 200x8')).toBeTruthy()
-  })
-  it('matches decimal size', () => {
-    const r = m('SHS', 'SHS75.5x4')!
-    expect(r[1]).toBe('75.5')
+    const r = m('SHS', 'SHS 50x50x2.3')!
+    expect(r[1]).toBe('50'); expect(r[2]).toBe('2.3')
   })
   it('matches uppercase X', () => {
-    expect(m('SHS', 'SHS100X5')).toBeTruthy()
+    const r = m('SHS', 'SHS25X25X1.6')!
+    expect(r[1]).toBe('25'); expect(r[2]).toBe('1.6')
   })
-  it('matches small section', () => {
-    expect(m('SHS', 'SHS50x3')).toBeTruthy()
+  it('matches decimal wall thickness', () => {
+    const r = m('SHS', 'SHS150x150x4.5')!
+    expect(r[1]).toBe('150'); expect(r[2]).toBe('4.5')
+  })
+  it('correctly skips middle dim (width = height for square)', () => {
+    const r = m('SHS', 'SHS50x50x2.3')!
+    expect(r[1]).toBe('50')
+    expect(r[2]).toBe('2.3')
   })
   it('does not match RHS profile', () => {
     expect(m('SHS', 'RHS100x50x5')).toBeNull()
   })
   it('does not match CHS profile', () => {
-    expect(m('SHS', 'CHS100x5')).toBeNull()
+    expect(m('SHS', 'CHS100x4')).toBeNull()
   })
   it('does not match 1-dim only', () => {
     expect(m('SHS', 'SHS100')).toBeNull()
   })
-  it('captures both width and thickness', () => {
-    const r = m('SHS', 'SHS100x5x4')!
-    expect(r[1]).toBe('100'); expect(r[2]).toBe('5')
+  it('does not match 2-dim only (requires 3-dim)', () => {
+    expect(m('SHS', 'SHS100x5')).toBeNull()
   })
 })
 
