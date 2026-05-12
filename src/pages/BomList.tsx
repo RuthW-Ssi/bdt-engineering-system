@@ -5,66 +5,145 @@ import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
-import { ProgressChip } from '../components/bom/ProgressChip'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
-import type { DispatchSummaryDto, DispatchStatus } from '../api/dispatches'
+import type { DispatchSummaryDto } from '../api/dispatches'
 
 const PAGE_SIZE = 50
 
-const STATUS_LABELS: Record<DispatchStatus, string> = {
-  pending: 'รอ',
-  partial: 'บางส่วน',
-  complete: 'ครบ',
-}
+const TIMELINE_PRE = 16 // height of the segment above each dot — must equal content paddingTop
+const LINE_COLOR = '#D0DFF0'
 
-const STATUS_COLORS: Record<DispatchStatus, { background: string; color: string }> = {
-  pending: { background: '#FEF9C3', color: '#854D0E' },
-  partial: { background: '#FEF3C7', color: '#B45309' },
-  complete: { background: '#D1F2E0', color: '#065F46' },
-}
-
-// ── Compact dispatch item in the left sidebar ─────────────────
-function DispatchItem({
-  item, selected, onSelect,
+// ── Single version node — DBeaver-style timeline ──────────────
+function VersionNode({
+  item, version, isFirst, isLatest, isLast, selected, onSelect,
 }: {
   item: DispatchSummaryDto
+  version: number
+  isFirst: boolean
+  isLatest: boolean
+  isLast: boolean
   selected: boolean
-  onSelect: () => void
+  onSelect?: () => void
 }) {
   return (
     <div
-      onClick={onSelect}
+      onClick={isLatest ? onSelect : undefined}
       style={{
-        padding: '10px 12px',
-        borderBottom: '1px solid #F0F0F0',
-        background: selected ? '#EEF4FF' : 'white',
-        borderLeft: selected ? '3px solid #185FA5' : '3px solid transparent',
-        cursor: 'pointer',
-        transition: 'background 100ms',
+        display: 'flex',
+        background: selected ? '#F0F6FF' : 'transparent',
+        cursor: isLatest ? 'pointer' : 'default',
+        transition: 'background 120ms',
       }}
     >
-      <div className="flex items-center gap-1.5 flex-wrap" style={{ fontSize: 12, fontWeight: 600, color: selected ? '#185FA5' : '#1F1F1F' }}>
-        <span>{item.zone.code}</span>
-        {item.sub_zone && (
-          <>
-            <span style={{ color: '#C2C2C2', fontWeight: 400 }}>/</span>
-            <span style={{ fontWeight: 500 }}>{item.sub_zone.code || item.sub_zone.name}</span>
-          </>
+      {/* Timeline track */}
+      <div style={{
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        width: 44, flexShrink: 0,
+      }}>
+        {/* Pre-dot segment: connects this dot to the previous node's post-line */}
+        <div style={{
+          width: 2, height: TIMELINE_PRE, flexShrink: 0,
+          background: isFirst ? 'transparent' : LINE_COLOR,
+        }} />
+
+        {/* Dot */}
+        <div style={{
+          width: 14, height: 14, borderRadius: 999, flexShrink: 0,
+          background: selected ? '#185FA5' : 'white',
+          border: `2px solid ${selected || isLatest ? '#185FA5' : '#C5D5E8'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          {selected && <div style={{ width: 5, height: 5, borderRadius: 999, background: 'white' }} />}
+        </div>
+
+        {/* Post-dot segment: extends to bottom of row, connects to next node's pre-line */}
+        {!isLast && (
+          <div style={{ width: 2, flex: 1, background: LINE_COLOR }} />
         )}
       </div>
-      <div className="flex items-center gap-2 mt-1" style={{ fontSize: 11, color: '#8E8E8E' }}>
-        <span>{new Date(item.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}</span>
-        <span style={{ ...STATUS_COLORS[item.status], borderRadius: 999, padding: '1px 6px', fontWeight: 500, fontSize: 10 }}>
-          {STATUS_LABELS[item.status]}
-        </span>
-        <ProgressChip count={item.doc_count} />
-      </div>
-      {(item.assembly_count != null || item.part_count != null) && (
-        <div style={{ fontSize: 10, color: '#8E8E8E', marginTop: 2 }}>
+
+      {/* Content — paddingTop must equal TIMELINE_PRE so dot aligns with version label */}
+      <div style={{
+        flex: 1, minWidth: 0,
+        paddingTop: TIMELINE_PRE, paddingBottom: isLast ? 14 : 10, paddingRight: 12,
+        opacity: isLatest ? 1 : 0.55,
+      }}>
+        <div style={{
+          fontSize: 13, fontWeight: 700, marginBottom: 5,
+          color: selected ? '#185FA5' : isLatest ? '#1F1F1F' : '#555',
+        }}>
+          v{version}
+        </div>
+
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>
           {item.assembly_count ?? 0} asm · {item.part_count ?? 0} parts
         </div>
-      )}
+
+        <div style={{ fontSize: 10, color: '#999', fontStyle: 'italic', lineHeight: 1.4 }}>
+          <span style={{ color: '#777', fontStyle: 'normal', fontWeight: 500 }}>{item.uploader.name}</span>
+          {' '}
+          <span>updated on </span>
+          <span>{new Date(item.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Group of versions for one zone+subzone ─────────────────────
+function DispatchGroup({
+  group, latestIdSet, versionMap, selectedId, onSelect,
+}: {
+  group: DispatchSummaryDto[]
+  latestIdSet: Set<number>
+  versionMap: Map<number, number>
+  selectedId: number | null
+  onSelect: (id: number) => void
+}) {
+  const first = group[0]
+  return (
+    <div style={{ borderBottom: '1px solid #EEF0F3' }}>
+      {/* Zone header */}
+      <div style={{
+        padding: '8px 12px 6px 12px',
+        background: '#F7F8FA',
+        borderBottom: '1px solid #EAECEF',
+        display: 'flex', alignItems: 'center', gap: 4,
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: '#222', letterSpacing: '0.01em' }}>
+          {first.zone.code}
+        </span>
+        {first.sub_zone && (
+          <>
+            <span style={{ color: '#C0C0C0', fontSize: 11 }}>/</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#555' }}>
+              {first.sub_zone.code || first.sub_zone.name}
+            </span>
+          </>
+        )}
+        {group.length > 1 && (
+          <span style={{
+            marginLeft: 'auto', fontSize: 9, fontWeight: 600,
+            color: '#888', background: '#E6E8EC',
+            borderRadius: 99, padding: '1px 7px',
+          }}>{group.length} rev</span>
+        )}
+      </div>
+
+      {/* Version nodes */}
+      {group.map((item, idx) => (
+        <VersionNode
+          key={item.id}
+          item={item}
+          version={versionMap.get(item.id) ?? 1}
+          isFirst={idx === 0}
+          isLatest={latestIdSet.has(item.id)}
+          isLast={idx === group.length - 1}
+          selected={item.id === selectedId}
+          onSelect={() => onSelect(item.id)}
+        />
+      ))}
     </div>
   )
 }
@@ -109,22 +188,36 @@ export function BomList() {
       : undefined,
   )
 
-  // Strict match + deduplicate: one latest dispatch per zone+subzone combination
-  const items: DispatchSummaryDto[] = useMemo(() => {
-    const raw = (data?.items ?? []).filter(item =>
+  // Strict match: zone-only → sub_zone_id must be NULL; both → exact match
+  const allItems: DispatchSummaryDto[] = useMemo(() => {
+    return (data?.items ?? []).filter(item =>
       zoneFilter && !subZoneFilter ? item.sub_zone_id === null : true
     )
-    const seen = new Set<string>()
-    return raw.filter(item => {
-      const key = `${item.zone_id}-${item.sub_zone_id ?? ''}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
   }, [data?.items, zoneFilter, subZoneFilter])
 
+  // Per zone+subzone group: latest IDs, version numbers, and grouped array for rendering
+  const { latestIdSet, versionMap, groupedItems } = useMemo(() => {
+    const groups = new Map<string, DispatchSummaryDto[]>()
+    for (const item of allItems) {
+      const key = `${item.zone_id}-${item.sub_zone_id ?? ''}`
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(item)
+    }
+    const latestIdSet = new Set<number>()
+    const versionMap = new Map<number, number>()
+    const groupedItems: DispatchSummaryDto[][] = []
+    for (const group of groups.values()) {
+      // API returns desc order → reverse gives oldest-first for version numbering
+      const asc = [...group].reverse()
+      asc.forEach((item, i) => versionMap.set(item.id, i + 1))
+      latestIdSet.add(group[0].id)
+      groupedItems.push(group)
+    }
+    return { latestIdSet, versionMap, groupedItems }
+  }, [allItems])
+
   // Always select the latest dispatch whenever the filtered list changes
-  const latestId = items[0]?.id ?? null
+  const latestId = allItems[0]?.id ?? null
   useEffect(() => {
     setSelectedId(latestId)
   }, [latestId])
@@ -139,7 +232,7 @@ export function BomList() {
     setSearchParams(p)
   }
 
-  const selectedItem = items.find(i => i.id === selectedId)
+  const selectedItem = allItems.find(i => i.id === selectedId)
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
@@ -168,7 +261,7 @@ export function BomList() {
           >
             <RefreshCw size={14} />
           </button>
-          {items.length > 0 && selectedId ? (
+          {allItems.length > 0 && selectedId ? (
             <button
               onClick={() => setShowModal(true)}
               className="flex items-center gap-1.5 rounded-md text-white"
@@ -215,7 +308,7 @@ export function BomList() {
         {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>เลือก Project ที่ header ก่อน</span>}
         <span className="flex-1" />
         {hasProject && !isLoading && (
-          <span style={{ fontSize: 11, color: '#8E8E8E' }}>{items.length} dispatches</span>
+          <span style={{ fontSize: 11, color: '#8E8E8E' }}>{allItems.length} dispatches</span>
         )}
       </div>
 
@@ -229,7 +322,7 @@ export function BomList() {
         <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
           <Loader2 size={20} className="animate-spin" />กำลังโหลด...
         </div>
-      ) : isError || items.length === 0 ? (
+      ) : isError || allItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
           <div style={{ fontSize: 14, fontWeight: 500 }}>ยังไม่มี BOM dispatch</div>
@@ -276,16 +369,18 @@ export function BomList() {
           </div>
 
           {/* Right sidebar — dispatch list */}
-          <div style={{ width: 220, flexShrink: 0, borderLeft: '1px solid #E0E0E0', overflowY: 'auto', background: 'white' }}>
+          <div style={{ width: 240, flexShrink: 0, borderLeft: '1px solid #E0E0E0', overflowY: 'auto', background: 'white' }}>
             <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', borderBottom: '1px solid #F0F0F0' }}>
               DISPATCH HISTORY
             </div>
-            {items.map(item => (
-              <DispatchItem
-                key={item.id}
-                item={item}
-                selected={item.id === selectedId}
-                onSelect={() => setSelectedId(item.id)}
+            {groupedItems.map(group => (
+              <DispatchGroup
+                key={`${group[0].zone_id}-${group[0].sub_zone_id ?? ''}`}
+                group={group}
+                latestIdSet={latestIdSet}
+                versionMap={versionMap}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
               />
             ))}
           </div>
