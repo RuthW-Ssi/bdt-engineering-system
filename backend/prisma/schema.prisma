@@ -61,6 +61,16 @@ model res_users {
   routing_activity_template_history routing_activity_template_history[] @relation("ach_user")
   product_routing_override_history  product_routing_override_history[]  @relation("ovrh_user")
   test_fixtures_created             routing_template_test_fixture[]     @relation("rtf_create")
+
+  // Sprint 7: BOM Dispatch audit
+  bom_dispatches_created  bom_dispatch[]      @relation("dispatch_create")
+  bom_dispatches_written  bom_dispatch[]      @relation("dispatch_write")
+  bom_assemblies_created  bom_assembly[]      @relation("assembly_create")
+  bom_assemblies_written  bom_assembly[]      @relation("assembly_write")
+  bom_parts_created       bom_part[]          @relation("part_create")
+  bom_parts_written       bom_part[]          @relation("part_write")
+  bom_doc_revs_created    bom_doc_revision[]  @relation("docrev_create")
+  bom_asm_parts_created   bom_assembly_part[] @relation("asmpart_create")
 }
 
 // ── 🟦 Standard Odoo: uom_category + uom_uom ─────────────────
@@ -243,6 +253,7 @@ model project {
   project_costs project_product_cost[]
   boms          product_bom[]          @relation("ProjectBom")
   drawings      shop_drawing[]         @relation("ProjectDrawings")
+  dispatches    bom_dispatch[]         @relation("ProjectDispatches")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -259,24 +270,27 @@ model project_zone {
   notes                 String?   @db.Text
   active                Boolean   @default(true)
 
-  products  products[]
-  sub_zones sub_zone[]
+  products   products[]
+  sub_zones  sub_zone[]
+  dispatches bom_dispatch[] @relation("ZoneDispatches")
 
   @@unique([project_id, code])
 }
 
 // ── 🟥 Sub Zone (Sprint 6: F2/ST3) ────────────────────────────
 model sub_zone {
-  id          Int          @id @default(autoincrement())
+  id          Int            @id @default(autoincrement())
   zone_id     Int
-  zone        project_zone @relation(fields: [zone_id], references: [id])
-  name        String       @db.VarChar(80)
-  code        String?      @db.VarChar(20)
-  active      Boolean      @default(true)
+  zone        project_zone   @relation(fields: [zone_id], references: [id])
+  name        String         @db.VarChar(80)
+  code        String?        @db.VarChar(20)
+  active      Boolean        @default(true)
   create_uid  Int?
   write_uid   Int?
-  create_date DateTime     @default(now()) @db.Timestamptz
-  write_date  DateTime     @updatedAt @db.Timestamptz
+  create_date DateTime       @default(now()) @db.Timestamptz
+  write_date  DateTime       @updatedAt @db.Timestamptz
+
+  dispatches  bom_dispatch[] @relation("SubZoneDispatches")
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -439,6 +453,17 @@ model promotion_request {
   done_at                    DateTime? @db.Timestamptz
   rejection_reason           String?   @db.Text
   create_date                DateTime  @default(now()) @db.Timestamptz
+}
+
+// ── 🟥 BOM Grade master (Sprint 7: sourced from missing migration 20260511041003) ──
+model bom_grade {
+  id          String  @id // text PK (UUID or string code)
+  code        String  @unique @db.VarChar(40)
+  is_custom   Boolean @default(false)
+  standard    String? @db.VarChar(20)
+  yield_mpa   Decimal? @db.Decimal(6, 1)
+  tensile_mpa Decimal? @db.Decimal(6, 1)
+  active      Boolean @default(true)
 }
 
 // ── 🟦 Steel Grade master (for HY370 + others — PD-36) ──────────
@@ -976,4 +1001,130 @@ model product_routing_override_history {
   @@index([product_id, changed_at])
   @@index([activity_template_id, changed_at])
   @@index([eco_id])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 7: BOM Upload (dispatch + doc_revision + assembly + part)
+// ═══════════════════════════════════════════════════════════════
+
+// ── 🟥 BOM Dispatch (one upload session = one dispatch) ──────────
+model bom_dispatch {
+  id           Int          @id @default(autoincrement())
+  project_id   Int
+  project      project      @relation("ProjectDispatches", fields: [project_id], references: [id])
+  zone_id      Int
+  zone         project_zone @relation("ZoneDispatches", fields: [zone_id], references: [id])
+  sub_zone_id  Int?
+  sub_zone     sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
+  status       String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
+  uploaded_at  DateTime     @default(now()) @db.Timestamptz
+  // Aggregate counts — cached after processing
+  assembly_total Int?
+  part_total     Int?
+  // Audit
+  create_uid   Int
+  create_user  res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
+  create_date  DateTime     @default(now()) @db.Timestamptz
+  write_uid    Int
+  write_user   res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
+  write_date   DateTime     @default(now()) @db.Timestamptz
+
+  doc_revisions bom_doc_revision[]
+  assemblies    bom_assembly[]
+  parts         bom_part[]
+
+  @@index([project_id, status])
+  @@index([zone_id])
+  @@index([uploaded_at])
+}
+
+// ── 🟥 BOM Doc Revision (one file per doc_type per dispatch) ─────
+model bom_doc_revision {
+  id                   Int          @id @default(autoincrement())
+  dispatch_id          Int
+  dispatch             bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  doc_type             String       @db.VarChar(30) // ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST
+  original_filename    String       @db.VarChar(255)
+  storage_key          String       @db.VarChar(500) // path in LocalFileStorageDriver
+  file_size_bytes      BigInt?
+  file_mime_type       String?      @db.VarChar(60)
+  file_checksum_sha256 String?      @db.VarChar(64)
+  // Audit (immutable after create)
+  create_uid           Int
+  create_user          res_users    @relation("docrev_create", fields: [create_uid], references: [id])
+  create_date          DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([dispatch_id, doc_type])
+  @@index([dispatch_id])
+}
+
+// ── 🟥 BOM Assembly (soft ref — assembly_mark is a plain string) ─
+model bom_assembly {
+  id            Int          @id @default(autoincrement())
+  dispatch_id   Int
+  dispatch      bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  assembly_mark String       @db.VarChar(60) // e.g. "WH-CO-001" — soft ref, no FK to products
+  name          String?      @db.VarChar(200)
+  qty           Decimal?     @db.Decimal(12, 3)
+  weight_kg     Decimal?     @db.Decimal(12, 3)
+  surface_area_m2 Decimal?   @db.Decimal(12, 4)
+  attributes    Json         @default("{}")
+  // Audit
+  create_uid    Int
+  create_user   res_users    @relation("assembly_create", fields: [create_uid], references: [id])
+  create_date   DateTime     @default(now()) @db.Timestamptz
+  write_uid     Int
+  write_user    res_users    @relation("assembly_write", fields: [write_uid], references: [id])
+  write_date    DateTime     @default(now()) @db.Timestamptz
+
+  assembly_parts bom_assembly_part[]
+
+  @@unique([dispatch_id, assembly_mark])
+  @@index([dispatch_id])
+}
+
+// ── 🟥 BOM Part (soft ref — part_mark is a plain string) ─────────
+model bom_part {
+  id          Int          @id @default(autoincrement())
+  dispatch_id Int
+  dispatch    bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  part_mark   String       @db.VarChar(60) // e.g. "WH-CO-001-P01" — soft ref
+  description String?      @db.VarChar(200)
+  profile     String?      @db.VarChar(60)
+  grade       String?      @db.VarChar(20)
+  qty         Decimal?     @db.Decimal(12, 3)
+  length_mm   Decimal?     @db.Decimal(10, 2)
+  weight_kg   Decimal?     @db.Decimal(12, 3)
+  attributes  Json         @default("{}")
+  // Audit
+  create_uid  Int
+  create_user res_users    @relation("part_create", fields: [create_uid], references: [id])
+  create_date DateTime     @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_user  res_users    @relation("part_write", fields: [write_uid], references: [id])
+  write_date  DateTime     @default(now()) @db.Timestamptz
+
+  assembly_parts bom_assembly_part[]
+
+  @@unique([dispatch_id, part_mark])
+  @@index([dispatch_id])
+}
+
+// ── 🟥 BOM Assembly-Part Junction ───────────────────────────────
+model bom_assembly_part {
+  id          Int          @id @default(autoincrement())
+  assembly_id Int
+  assembly    bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
+  part_id     Int
+  part        bom_part     @relation(fields: [part_id], references: [id], onDelete: Cascade)
+  qty         Decimal      @default(1) @db.Decimal(12, 3)
+  sequence    Int?
+  // Audit (immutable after create)
+  create_uid  Int
+  create_user res_users    @relation("asmpart_create", fields: [create_uid], references: [id])
+  create_date DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([assembly_id, part_id])
+  @@index([assembly_id])
+  @@index([part_id])
 }

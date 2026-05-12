@@ -22,6 +22,8 @@ import { RoutingsModule } from './modules/routings/routings.module'
 import { AuthModule } from './modules/auth/auth.module'
 import { CustomersModule } from './modules/customers/customers.module'
 import { SubZonesModule } from './modules/sub-zones/sub-zones.module'
+// Sprint 7
+import { BomUploadModule } from './modules/bom-upload/bom-upload.module'
 
 @Module({
   imports: [
@@ -48,6 +50,8 @@ import { SubZonesModule } from './modules/sub-zones/sub-zones.module'
     // Sprint 6
     CustomersModule,
     SubZonesModule,
+    // Sprint 7
+    BomUploadModule,
   ],
 })
 export class AppModule {}
