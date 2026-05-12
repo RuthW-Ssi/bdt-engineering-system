@@ -96,7 +96,7 @@ export function BomUpload() {
         formData,
         onProgress: pct => setProgress(pct),
       })
-      navigate(`/bom/dispatch/${result.id}`)
+      navigate('/bom')
     } catch {
       setSubmitError('อัพโหลดไม่สำเร็จ — ตรวจสอบว่า backend พร้อมใช้งาน (Batch 2)')
       setProgress(null)
