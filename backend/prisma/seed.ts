@@ -470,15 +470,205 @@ async function main() {
     create: { project_id: proj124.id, code: 'OF', label: 'Office', erection_sequence: 3 },
   })
 
+  // ══════════════════════════════════════════════════════════════
+  // Sprint 7 F2: Grade master + ProductTemplate library (Rev 2)
+  // ══════════════════════════════════════════════════════════════
+
+  // ── Grade master (bom_grade — 5 rows: SS400, SS500, SM520B, HY370, S275) ──
+  const BOM_GRADES = [
+    { code: 'SS400',  standard: 'JIS G3101',    yield_mpa: 245, tensile_mpa: 400 },
+    { code: 'SS500',  standard: 'JIS G3101',    yield_mpa: 315, tensile_mpa: 500 },
+    { code: 'SM520B', standard: 'JIS G3106',    yield_mpa: 355, tensile_mpa: 520 },
+    { code: 'HY370',  standard: 'JIS G3106',    yield_mpa: 365, tensile_mpa: 490 },
+    { code: 'S275',   standard: 'BS EN 10025',  yield_mpa: 275, tensile_mpa: 430 },
+  ]
+
+  for (const g of BOM_GRADES) {
+    await prisma.grade.upsert({
+      where: { code: g.code },
+      update: {},
+      create: g,
+    })
+  }
+
+  // ── ProductTemplate (9 templates — Rev 2 schemas with bilingual labels) ──
+  // H_BEAM + C_CHANNEL use web_thickness_mm + flange_thickness_mm (Rev 2 amendment).
+  // ROD regex covers RODRB##, RB##, and ROD RB## variants.
+  // PIPE + CHS regex strips optional SL suffix.
+  // PLATE profile_aliases includes PLT prefix.
+  const PRODUCT_TEMPLATES = [
+    {
+      code: 'PLATE',
+      prefix: 'PL',
+      section_type: 'PL' as const,
+      name_en: 'Steel Plate',
+      name_th: 'แผ่นเหล็ก',
+      parser_regex: '^(?:PL|PLT)\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)(?:[xX*×](\\d+(?:\\.\\d+)?))?',
+      profile_aliases: ['PL', 'PLT'],
+      attribute_schema: {
+        attributes: [
+          { code: 'thickness_mm', label_en: 'Thickness (mm)', label_th: 'ความหนา (มม.)',  type: 'number', required: true  },
+          { code: 'width_mm',     label_en: 'Width (mm)',      label_th: 'ความกว้าง (มม.)', type: 'number', required: true  },
+          { code: 'length_mm',    label_en: 'Length (mm)',     label_th: 'ความยาว (มม.)',   type: 'number', required: false },
+        ],
+      },
+    },
+    {
+      code: 'L_ANGLE',
+      prefix: 'L',
+      section_type: 'L' as const,
+      name_en: 'Angle (L-Shape)',
+      name_th: 'เหล็กฉาก',
+      parser_regex: '^L\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)',
+      profile_aliases: ['L', 'ANGLE'],
+      attribute_schema: {
+        attributes: [
+          { code: 'height_mm',    label_en: 'Height (mm)',    label_th: 'ความสูง (มม.)',    type: 'number', required: true },
+          { code: 'width_mm',     label_en: 'Width (mm)',     label_th: 'ความกว้าง (มม.)',  type: 'number', required: true },
+          { code: 'thickness_mm', label_en: 'Thickness (mm)', label_th: 'ความหนา (มม.)',    type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'H_BEAM',
+      prefix: 'H',
+      section_type: 'H' as const,
+      name_en: 'H-Beam',
+      name_th: 'เหล็กรูปพรรณ H',
+      // 4-dim: HxBxTwxTf — web and flange thicknesses split (Rev 2 amendment, empirical: 100% rows have Tw≠Tf)
+      parser_regex: '^H\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)',
+      profile_aliases: ['H', 'HB', 'H-BEAM'],
+      attribute_schema: {
+        attributes: [
+          { code: 'height_mm',           label_en: 'Height (mm)',           label_th: 'ความสูง (มม.)',       type: 'number', required: true },
+          { code: 'width_mm',            label_en: 'Width (mm)',            label_th: 'ความกว้าง (มม.)',     type: 'number', required: true },
+          { code: 'web_thickness_mm',    label_en: 'Web Thickness (mm)',    label_th: 'ความหนาเอว (มม.)',    type: 'number', required: true },
+          { code: 'flange_thickness_mm', label_en: 'Flange Thickness (mm)', label_th: 'ความหนาปีก (มม.)',   type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'C_CHANNEL',
+      prefix: 'C',
+      section_type: 'C' as const,
+      name_en: 'C-Channel',
+      name_th: 'เหล็กรูปพรรณ C',
+      // 4-dim: HxBxTwxTf — same split as H_BEAM (bootstrap analysis confirmed 4-dim format)
+      parser_regex: '^C\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)',
+      profile_aliases: ['C', 'MC', 'CH'],
+      attribute_schema: {
+        attributes: [
+          { code: 'height_mm',           label_en: 'Height (mm)',           label_th: 'ความสูง (มม.)',       type: 'number', required: true },
+          { code: 'width_mm',            label_en: 'Width (mm)',            label_th: 'ความกว้าง (มม.)',     type: 'number', required: true },
+          { code: 'web_thickness_mm',    label_en: 'Web Thickness (mm)',    label_th: 'ความหนาเอว (มม.)',    type: 'number', required: true },
+          { code: 'flange_thickness_mm', label_en: 'Flange Thickness (mm)', label_th: 'ความหนาปีก (มม.)',   type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'CHS',
+      prefix: 'CHS',
+      section_type: 'CHS' as const,
+      name_en: 'Circular Hollow Section',
+      name_th: 'เหล็กกลมกลวง',
+      // (?:SL)? strips optional SL (single-length) suffix found in bootstrap data
+      parser_regex: '^CHS\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)(?:SL)?',
+      profile_aliases: ['CHS'],
+      attribute_schema: {
+        attributes: [
+          { code: 'outer_dia_mm', label_en: 'Outer Diameter (mm)', label_th: 'เส้นผ่าศูนย์กลางนอก (มม.)', type: 'number', required: true },
+          { code: 'thickness_mm', label_en: 'Thickness (mm)',       label_th: 'ความหนา (มม.)',              type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'PIPE',
+      prefix: 'PIPE',
+      section_type: 'PIPE' as const,
+      name_en: 'Pipe',
+      name_th: 'ท่อเหล็ก',
+      parser_regex: '^PIPE\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)(?:SL)?',
+      profile_aliases: ['PIPE'],
+      attribute_schema: {
+        attributes: [
+          { code: 'outer_dia_mm', label_en: 'Outer Diameter (mm)', label_th: 'เส้นผ่าศูนย์กลางนอก (มม.)', type: 'number', required: true },
+          { code: 'thickness_mm', label_en: 'Thickness (mm)',       label_th: 'ความหนา (มม.)',              type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'RHS',
+      prefix: 'RHS',
+      section_type: 'RHS' as const,
+      name_en: 'Rectangular Hollow Section',
+      name_th: 'เหล็กกลวงสี่เหลี่ยมผืนผ้า',
+      parser_regex: '^RHS\\s*(\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)[xX*×](\\d+(?:\\.\\d+)?)',
+      profile_aliases: ['RHS'],
+      attribute_schema: {
+        attributes: [
+          { code: 'height_mm',    label_en: 'Height (mm)',    label_th: 'ความสูง (มม.)',    type: 'number', required: true },
+          { code: 'width_mm',     label_en: 'Width (mm)',     label_th: 'ความกว้าง (มม.)',  type: 'number', required: true },
+          { code: 'thickness_mm', label_en: 'Thickness (mm)', label_th: 'ความหนา (มม.)',    type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'SHS',
+      prefix: 'SHS',
+      section_type: 'SHS' as const,
+      name_en: 'Square Hollow Section',
+      name_th: 'เหล็กกลวงสี่เหลี่ยมจัตุรัส',
+      // Actual data format: SHSWxWxT (3-dim). Middle dim equals first (square), so skip it.
+      parser_regex: '^SHS\\s*(\\d+(?:\\.\\d+)?)[xX*×]\\d+(?:\\.\\d+)?[xX*×](\\d+(?:\\.\\d+)?)',
+      profile_aliases: ['SHS', 'SQ'],
+      attribute_schema: {
+        attributes: [
+          { code: 'width_mm',     label_en: 'Width (mm)',     label_th: 'ความกว้าง (มม.)',  type: 'number', required: true },
+          { code: 'thickness_mm', label_en: 'Thickness (mm)', label_th: 'ความหนา (มม.)',    type: 'number', required: true },
+        ],
+      },
+    },
+    {
+      code: 'ROD',
+      prefix: 'ROD',
+      section_type: 'ROD' as const,
+      name_en: 'Round Bar / Rod',
+      name_th: 'เหล็กกลมตัน',
+      // Matches RODRB12, RB12, ROD RB12 — all bootstrap-confirmed variants
+      parser_regex: '^(?:ROD\\s*)?(?:RODRB|RB)\\s*(\\d+(?:\\.\\d+)?)',
+      profile_aliases: ['ROD', 'RB', 'RODRB'],
+      attribute_schema: {
+        attributes: [
+          { code: 'dia_mm', label_en: 'Diameter (mm)', label_th: 'เส้นผ่าศูนย์กลาง (มม.)', type: 'number', required: true },
+        ],
+      },
+    },
+  ]
+
+  for (const tpl of PRODUCT_TEMPLATES) {
+    await prisma.productTemplate.upsert({
+      where: { code: tpl.code },
+      update: {
+        attribute_schema: tpl.attribute_schema,
+        profile_aliases:  tpl.profile_aliases,
+        parser_regex:     tpl.parser_regex,
+        name_th:          tpl.name_th,
+      },
+      create: tpl,
+    })
+  }
+
   console.log('Seed completed ✓')
   console.log('  - admin user with bcrypt password (Sprint 6)')
   console.log('  - 28 mark prefixes')
   console.log('  - 21 Tekla mappings')
-  console.log('  - 7 steel grades')
+  console.log('  - 7 steel grades (sprint 1-6 steel_grade table)')
   console.log(`  - ${categoryData.length} product categories`)
-  console.log('  - 12 standard product templates')
+  console.log('  - 12 standard product templates (sprint 2 products table)')
   console.log('  - 3 projects (0X202, 0X123, 0X124) + zones')
   console.log('  - 2 mock customers (TST-001, LGT-001)')
+  console.log('  - 5 bom_grade rows (Sprint 7 F2)')
+  console.log(`  - ${PRODUCT_TEMPLATES.length} product_template rows (Sprint 7 F2)`)
 }
 
 main()
