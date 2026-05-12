@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Upload, RefreshCw, Loader2, Package, ExternalLink } from 'lucide-react'
+import { Upload, RefreshCw, Loader2, Package, RefreshCcw } from 'lucide-react'
 import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
 import { ProgressChip } from '../components/bom/ProgressChip'
 import { BomTreeView } from '../components/bom/BomTreeView'
+import { UpdateBomModal } from '../components/bom/UpdateBomModal'
 import type { DispatchSummaryDto, DispatchStatus } from '../api/dispatches'
 
 const PAGE_SIZE = 50
@@ -74,9 +75,19 @@ export function BomList() {
   const { activeProject } = useActiveProject()
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [showModal, setShowModal] = useState(false)
 
   const zoneFilter = searchParams.get('zone_id') || ''
   const subZoneFilter = searchParams.get('sub_zone_id') || ''
+
+  // Clear sub_zone_id once on mount (stale from previous visit)
+  useEffect(() => {
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      p.delete('sub_zone_id')
+      return p
+    }, { replace: true })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasProject = !!activeProject
 
@@ -98,19 +109,25 @@ export function BomList() {
       : undefined,
   )
 
-  const items: DispatchSummaryDto[] = data?.items ?? []
+  // Strict match + deduplicate: one latest dispatch per zone+subzone combination
+  const items: DispatchSummaryDto[] = useMemo(() => {
+    const raw = (data?.items ?? []).filter(item =>
+      zoneFilter && !subZoneFilter ? item.sub_zone_id === null : true
+    )
+    const seen = new Set<string>()
+    return raw.filter(item => {
+      const key = `${item.zone_id}-${item.sub_zone_id ?? ''}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [data?.items, zoneFilter, subZoneFilter])
 
-  // Auto-select latest dispatch when list loads
+  // Always select the latest dispatch whenever the filtered list changes
+  const latestId = items[0]?.id ?? null
   useEffect(() => {
-    if (items.length > 0 && selectedId === null) {
-      setSelectedId(items[0].id)
-    }
-  }, [items, selectedId])
-
-  // Reset selection when project/zone changes
-  useEffect(() => {
-    setSelectedId(null)
-  }, [activeProject?.id, zoneFilter, subZoneFilter])
+    setSelectedId(latestId)
+  }, [latestId])
 
   const { data: detail, isLoading: detailLoading } = useDispatchDetail(selectedId ?? undefined)
 
@@ -151,13 +168,23 @@ export function BomList() {
           >
             <RefreshCw size={14} />
           </button>
-          <button
-            onClick={() => navigate('/bom/upload')}
-            className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
-          >
-            <Upload size={14} />Upload BOM
-          </button>
+          {items.length > 0 && selectedId ? (
+            <button
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
+            >
+              <RefreshCcw size={14} />Update BOM
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/bom/upload')}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
+            >
+              <Upload size={14} />Upload BOM
+            </button>
+          )}
         </div>
       </div>
 
@@ -217,22 +244,7 @@ export function BomList() {
       ) : (
         <div className="flex flex-1" style={{ overflow: 'hidden', minHeight: 0 }}>
 
-          {/* Left sidebar — dispatch list */}
-          <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid #E0E0E0', overflowY: 'auto', background: 'white' }}>
-            <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', borderBottom: '1px solid #F0F0F0' }}>
-              DISPATCH HISTORY
-            </div>
-            {items.map(item => (
-              <DispatchItem
-                key={item.id}
-                item={item}
-                selected={item.id === selectedId}
-                onSelect={() => setSelectedId(item.id)}
-              />
-            ))}
-          </div>
-
-          {/* Right panel — tree view */}
+          {/* Left panel — tree view */}
           <div className="flex flex-col flex-1" style={{ overflow: 'hidden', minWidth: 0 }}>
 
             {/* Tree header */}
@@ -245,14 +257,6 @@ export function BomList() {
                 <span style={{ fontSize: 11, color: '#8E8E8E' }}>
                   {new Date(selectedItem.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
-                <span style={{ flex: 1 }} />
-                <button
-                  onClick={() => navigate(`/bom/dispatch/${selectedItem.id}`)}
-                  className="flex items-center gap-1 hover:underline"
-                  style={{ fontSize: 11, color: '#185FA5' }}
-                >
-                  <ExternalLink size={11} />ดู detail
-                </button>
               </div>
             )}
 
@@ -266,10 +270,36 @@ export function BomList() {
                 assemblies={detail?.assemblies ?? []}
                 assemblyCount={detail?.assembly_count ?? null}
                 partCount={detail?.part_count ?? null}
+                orphanParts={detail?.orphan_parts}
               />
             )}
           </div>
+
+          {/* Right sidebar — dispatch list */}
+          <div style={{ width: 220, flexShrink: 0, borderLeft: '1px solid #E0E0E0', overflowY: 'auto', background: 'white' }}>
+            <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', borderBottom: '1px solid #F0F0F0' }}>
+              DISPATCH HISTORY
+            </div>
+            {items.map(item => (
+              <DispatchItem
+                key={item.id}
+                item={item}
+                selected={item.id === selectedId}
+                onSelect={() => setSelectedId(item.id)}
+              />
+            ))}
+          </div>
         </div>
+      )}
+
+      {showModal && selectedItem && (
+        <UpdateBomModal
+          dispatchId={selectedItem.id}
+          projectId={selectedItem.project_id}
+          zoneId={selectedItem.zone_id}
+          subZoneId={selectedItem.sub_zone_id}
+          onClose={() => setShowModal(false)}
+        />
       )}
     </div>
   )

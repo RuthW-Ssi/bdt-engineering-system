@@ -40,6 +40,7 @@ export interface AssemblyDto {
 export interface DispatchDetailDto extends DispatchSummaryDto {
   doc_revisions: RevisionHistoryDto[]
   assemblies?: AssemblyDto[]
+  orphan_parts?: AssemblyPartDto[]
 }
 
 export interface RevisionHistoryDto {

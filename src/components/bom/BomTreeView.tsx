@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
-import type { AssemblyDto } from '../../api/dispatches'
+import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
 
 interface Props {
   assemblies: AssemblyDto[]
   assemblyCount: number | null
   partCount: number | null
+  orphanParts?: AssemblyPartDto[]
 }
 
 // ── Assembly row ───────────────────────────────────────────────
@@ -178,13 +179,21 @@ function AssemblyNode({ asm }: { asm: AssemblyDto }) {
   return (
     <>
       <AssemblyRow asm={asm} expanded={expanded} onToggle={() => setExpanded(e => !e)} />
-      {expanded && asm.parts.map((p, i) => <PartRow key={i} part={p} />)}
+      {expanded && (
+        asm.parts.length > 0
+          ? asm.parts.map((p, i) => <PartRow key={i} part={p} />)
+          : (
+            <div style={{ marginLeft: 38, padding: '6px 10px', fontSize: 12, color: '#C2C2C2', fontStyle: 'italic' }}>
+              ยังไม่มี parts ใน assembly นี้
+            </div>
+          )
+      )}
     </>
   )
 }
 
 // ── Main component ─────────────────────────────────────────────
-export function BomTreeView({ assemblies, assemblyCount, partCount }: Props) {
+export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts }: Props) {
   if (assemblies.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
@@ -201,6 +210,15 @@ export function BomTreeView({ assemblies, assemblyCount, partCount }: Props) {
   return (
     <div style={{ overflowY: 'auto', flex: 1, padding: '12px 16px' }}>
       {assemblies.map((asm, i) => <AssemblyNode key={i} asm={asm} />)}
+
+      {orphanParts && orphanParts.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', marginBottom: 6, padding: '0 2px' }}>
+            PARTS ไม่ได้ระบุ ASSEMBLY ({orphanParts.length})
+          </div>
+          {orphanParts.map((p, i) => <PartRow key={i} part={p} />)}
+        </div>
+      )}
     </div>
   )
 }

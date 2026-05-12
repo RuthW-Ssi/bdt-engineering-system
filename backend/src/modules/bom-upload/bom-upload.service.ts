@@ -272,6 +272,13 @@ export class BomUploadService {
 
     if (!d) throw new NotFoundException(`Dispatch ${id} not found`)
 
+    // Parts with no assembly junction (orphans)
+    const orphans = await this.prisma.bom_part.findMany({
+      where: { dispatch_id: id, assembly_parts: { none: {} } },
+      orderBy: { part_mark: 'asc' },
+      select: { part_mark: true, description: true, profile: true, grade: true, qty: true, weight_kg: true },
+    })
+
     return {
       ...this.toSummaryDto(d),
       doc_revisions: d.doc_revisions.map(r => ({
@@ -295,6 +302,14 @@ export class BomUploadService {
           part_qty: Number(ap.qty),
           unit_weight_kg: ap.part.weight_kg ? Number(ap.part.weight_kg) : null,
         })),
+      })),
+      orphan_parts: orphans.map(p => ({
+        part_mark: p.part_mark,
+        description: p.description ?? null,
+        profile: p.profile ?? null,
+        grade: p.grade ?? null,
+        part_qty: Number(p.qty),
+        unit_weight_kg: p.weight_kg ? Number(p.weight_kg) : null,
       })),
     }
   }
