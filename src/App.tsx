@@ -16,6 +16,7 @@ import { ProductDetail } from './pages/ProductDetail'
 import { MaterialList } from './pages/MaterialList'
 import { BomList } from './pages/BomList'
 import { BomUpload } from './pages/BomUpload'
+import { BomDispatchDetail } from './pages/BomDispatchDetail'
 import { BomEditor } from './pages/BomEditor'
 import { BomDiffReview } from './pages/BomDiffReview'
 import { CustomRoutingEditor } from './pages/CustomRoutingEditor'
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="/materials/:code" element={<ProductDetail />} />
             <Route path="/bom" element={<BomList />} />
             <Route path="/bom/upload" element={<BomUpload />} />
+            <Route path="/bom/dispatch/:id" element={<BomDispatchDetail />} />
             <Route path="/bom/:code" element={<BomEditor />} />
             <Route path="/bom/:code/diff" element={<BomDiffReview />} />
             <Route path="/routings" element={<RoutingList />} />

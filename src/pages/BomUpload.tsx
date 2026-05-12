@@ -92,7 +92,7 @@ export function BomUpload() {
     })
 
     try {
-      const result = await uploadMutation.mutateAsync({
+      await uploadMutation.mutateAsync({
         formData,
         onProgress: pct => setProgress(pct),
       })

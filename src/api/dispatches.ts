@@ -20,8 +20,22 @@ export interface DispatchSummaryDto {
   total_weight_kg: number | null
 }
 
+export interface AssemblyPartDto {
+  part_mark: string
+  part_qty: number
+  unit_weight_kg: number | null
+}
+
+export interface AssemblyDto {
+  assembly_mark: string
+  assembly_qty: number
+  total_weight_kg: number | null
+  parts: AssemblyPartDto[]
+}
+
 export interface DispatchDetailDto extends DispatchSummaryDto {
   doc_revisions: RevisionHistoryDto[]
+  assemblies?: AssemblyDto[]
 }
 
 export interface RevisionHistoryDto {

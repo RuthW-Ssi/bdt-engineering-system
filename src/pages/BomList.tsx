@@ -4,6 +4,7 @@ import { useDispatches } from '../hooks/useBomDispatches'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
+import { ProgressChip } from '../components/bom/ProgressChip'
 import type { DispatchSummaryDto, DispatchStatus } from '../api/dispatches'
 
 const PAGE_SIZE = 20
@@ -20,18 +21,6 @@ const STATUS_COLORS: Record<DispatchStatus, { bg: string; text: string }> = {
   complete: { bg: '#D1F2E0', text: '#065F46' },
 }
 
-function ProgressChip({ count }: { count: number }) {
-  const full = count === 3
-  return (
-    <span style={{
-      background: full ? '#D1F2E0' : '#FEF3C7',
-      color: full ? '#065F46' : '#B45309',
-      borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600,
-    }}>
-      {count}/3 {full ? '✓' : '⚠'}
-    </span>
-  )
-}
 
 function DispatchCard({ item, onClick }: { item: DispatchSummaryDto; onClick: () => void }) {
   const colors = STATUS_COLORS[item.status]
