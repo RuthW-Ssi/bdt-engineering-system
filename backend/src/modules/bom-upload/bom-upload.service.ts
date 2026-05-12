@@ -102,64 +102,53 @@ export class BomUploadService {
           })
         }
 
-        // bom_assembly rows
+        // bom_assembly rows — batch insert, get IDs back in one round-trip
         const assemblyIdByMark = new Map<string, number>()
         if (asmList?.assemblies.length) {
-          for (const a of asmList.assemblies) {
-            const row = await tx.bom_assembly.create({
-              data: {
-                dispatch_id: d.id,
-                assembly_mark: a.assembly_mark,
-                name: a.name,
-                qty: a.qty,
-                weight_kg: a.weight_kg,
-                surface_area_m2: a.surface_area_m2,
-                create_uid: uid,
-                write_uid: uid,
-              },
-            })
-            assemblyIdByMark.set(a.assembly_mark, row.id)
-          }
+          const rows = await tx.bom_assembly.createManyAndReturn({
+            data: asmList.assemblies.map(a => ({
+              dispatch_id: d.id,
+              assembly_mark: a.assembly_mark,
+              name: a.name,
+              qty: a.qty,
+              weight_kg: a.weight_kg,
+              surface_area_m2: a.surface_area_m2,
+              create_uid: uid,
+              write_uid: uid,
+            })),
+          })
+          for (const row of rows) assemblyIdByMark.set(row.assembly_mark, row.id)
         }
 
-        // bom_part rows
+        // bom_part rows — batch insert, get IDs back in one round-trip
         const partIdByMark = new Map<string, number>()
         if (partList?.parts.length) {
-          for (const p of partList.parts) {
-            const row = await tx.bom_part.create({
-              data: {
-                dispatch_id: d.id,
-                part_mark: p.part_mark,
-                description: p.description,
-                profile: p.profile,
-                grade: p.grade,
-                qty: p.qty,
-                length_mm: p.length_mm,
-                weight_kg: p.weight_kg,
-                create_uid: uid,
-                write_uid: uid,
-              },
-            })
-            partIdByMark.set(p.part_mark, row.id)
-          }
+          const rows = await tx.bom_part.createManyAndReturn({
+            data: partList.parts.map(p => ({
+              dispatch_id: d.id,
+              part_mark: p.part_mark,
+              description: p.description,
+              profile: p.profile,
+              grade: p.grade,
+              qty: p.qty,
+              length_mm: p.length_mm,
+              weight_kg: p.weight_kg,
+              create_uid: uid,
+              write_uid: uid,
+            })),
+          })
+          for (const row of rows) partIdByMark.set(row.part_mark, row.id)
         }
 
-        // bom_assembly_part junctions
+        // bom_assembly_part junctions — batch insert
         if (asmPartList?.assemblyParts.length) {
-          for (const ap of asmPartList.assemblyParts) {
-            const asmId = assemblyIdByMark.get(ap.assembly_mark)
-            const partId = partIdByMark.get(ap.part_mark)
-            if (!asmId || !partId) continue // skip if refs not found in this dispatch
-            await tx.bom_assembly_part.create({
-              data: {
-                assembly_id: asmId,
-                part_id: partId,
-                qty: ap.qty ?? 1,
-                sequence: ap.sequence,
-                create_uid: uid,
-              },
-            })
-          }
+          const junctions = asmPartList.assemblyParts.flatMap(ap => {
+            const assembly_id = assemblyIdByMark.get(ap.assembly_mark)
+            const part_id = partIdByMark.get(ap.part_mark)
+            if (!assembly_id || !part_id) return []
+            return [{ assembly_id, part_id, qty: ap.qty ?? 1, sequence: ap.sequence, create_uid: uid }]
+          })
+          if (junctions.length) await tx.bom_assembly_part.createMany({ data: junctions })
         }
 
         // Determine final status
@@ -176,7 +165,7 @@ export class BomUploadService {
             write_uid: uid,
           },
         })
-      })
+      }, { timeout: 30000 })
 
       return this.findOne(dispatch.id)
     } catch (err) {

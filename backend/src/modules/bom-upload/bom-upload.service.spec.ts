@@ -40,9 +40,17 @@ function buildInnerPrisma(baseDispatch: any, seq: number) {
       update: jest.fn(({ data }: any) => Promise.resolve({ ...baseDispatch, ...data })),
     },
     bom_doc_revision: { create: jest.fn().mockResolvedValue({ id: id++ }) },
-    bom_assembly: { create: jest.fn(({ data }: any) => Promise.resolve({ id: id++, ...data })) },
-    bom_part: { create: jest.fn(({ data }: any) => Promise.resolve({ id: id++, ...data })) },
-    bom_assembly_part: { create: jest.fn().mockResolvedValue({ id: id++ }) },
+    bom_assembly: {
+      createManyAndReturn: jest.fn(({ data }: any) =>
+        Promise.resolve((data as any[]).map((d: any) => ({ id: id++, ...d }))),
+      ),
+    },
+    bom_part: {
+      createManyAndReturn: jest.fn(({ data }: any) =>
+        Promise.resolve((data as any[]).map((d: any) => ({ id: id++, ...d }))),
+      ),
+    },
+    bom_assembly_part: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
   }
 }
 
