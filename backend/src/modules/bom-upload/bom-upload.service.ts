@@ -242,6 +242,30 @@ export class BomUploadService {
           },
           orderBy: { create_date: 'asc' },
         },
+        assemblies: {
+          orderBy: { assembly_mark: 'asc' },
+          select: {
+            assembly_mark: true,
+            name: true,
+            qty: true,
+            weight_kg: true,
+            assembly_parts: {
+              orderBy: { sequence: 'asc' },
+              select: {
+                qty: true,
+                part: {
+                  select: {
+                    part_mark: true,
+                    description: true,
+                    profile: true,
+                    grade: true,
+                    weight_kg: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         _count: { select: { assemblies: true, parts: true } },
       },
     })
@@ -257,6 +281,20 @@ export class BomUploadService {
         filename: r.original_filename,
         uploaded_at: r.create_date.toISOString(),
         uploader: r.create_user,
+      })),
+      assemblies: d.assemblies.map(a => ({
+        assembly_mark: a.assembly_mark,
+        name: a.name ?? null,
+        assembly_qty: Number(a.qty ?? 1),
+        total_weight_kg: a.weight_kg ? Number(a.weight_kg) : null,
+        parts: a.assembly_parts.map(ap => ({
+          part_mark: ap.part.part_mark,
+          description: ap.part.description ?? null,
+          profile: ap.part.profile ?? null,
+          grade: ap.part.grade ?? null,
+          part_qty: Number(ap.qty),
+          unit_weight_kg: ap.part.weight_kg ? Number(ap.part.weight_kg) : null,
+        })),
       })),
     }
   }

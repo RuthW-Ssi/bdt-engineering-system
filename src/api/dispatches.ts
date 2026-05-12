@@ -22,12 +22,16 @@ export interface DispatchSummaryDto {
 
 export interface AssemblyPartDto {
   part_mark: string
+  description: string | null
+  profile: string | null
+  grade: string | null
   part_qty: number
   unit_weight_kg: number | null
 }
 
 export interface AssemblyDto {
   assembly_mark: string
+  name: string | null
   assembly_qty: number
   total_weight_kg: number | null
   parts: AssemblyPartDto[]
