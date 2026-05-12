@@ -160,7 +160,7 @@ export function BulkOverrideAdmin() {
               onChange={e => setOverride(o => ({ ...o, activity_template_id: e.target.value }))}
             >
               <option value="">— Select activity —</option>
-              {activities?.map(a => (
+              {activities?.items?.map(a => (
                 <option key={a.id} value={a.id}>
                   [{a.op_code}] {a.description}
                 </option>

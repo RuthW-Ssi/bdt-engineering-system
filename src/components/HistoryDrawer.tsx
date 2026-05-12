@@ -113,7 +113,7 @@ export function HistoryDrawer(props: HistoryDrawerProps) {
         ? ['activity-history', props.id, page]
         : ['override-history', props.productCode, props.activityId, page]
 
-  const { data, isFetching } = useQuery({
+  const { data, isFetching } = useQuery<HistoryEntryDTO[] | OverrideHistoryEntryDTO[]>({
     queryKey,
     queryFn: () => {
       if (props.type === 'template') return getTemplateHistory(props.id, page)

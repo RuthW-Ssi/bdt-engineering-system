@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
-  ChevronLeft, ChevronRight, Boxes, Building2, MapPin, Users,
+  ChevronLeft, ChevronRight, Boxes, MapPin, Users,
 } from 'lucide-react'
 
 interface NavItem {

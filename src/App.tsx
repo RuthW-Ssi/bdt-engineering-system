@@ -14,6 +14,8 @@ import { ActivityTemplateMaster } from './pages/ActivityTemplateMaster'
 import { ProductList } from './pages/ProductList'
 import { ProductDetail } from './pages/ProductDetail'
 import { MaterialList } from './pages/MaterialList'
+import { BomList } from './pages/BomList'
+import { BomUpload } from './pages/BomUpload'
 import { BomEditor } from './pages/BomEditor'
 import { BomDiffReview } from './pages/BomDiffReview'
 import { CustomRoutingEditor } from './pages/CustomRoutingEditor'
@@ -51,6 +53,8 @@ export default function App() {
             <Route path="/engineer-products/:code" element={<ProductDetail />} />
             <Route path="/materials" element={<MaterialList />} />
             <Route path="/materials/:code" element={<ProductDetail />} />
+            <Route path="/bom" element={<BomList />} />
+            <Route path="/bom/upload" element={<BomUpload />} />
             <Route path="/bom/:code" element={<BomEditor />} />
             <Route path="/bom/:code/diff" element={<BomDiffReview />} />
             <Route path="/routings" element={<RoutingList />} />
