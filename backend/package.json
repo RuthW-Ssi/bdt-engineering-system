@@ -2,6 +2,9 @@
   "name": "bdt-backend",
   "version": "0.1.0",
   "private": true,
+  "pnpm": {
+    "onlyBuiltDependencies": ["@nestjs/core", "@prisma/client", "@prisma/engines", "prisma", "@scarf/scarf"]
+  },
   "scripts": {
     "build": "nest build",
     "start": "node dist/main",
