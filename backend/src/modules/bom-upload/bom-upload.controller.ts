@@ -2,11 +2,14 @@ import {
   Controller, Get, Post, Param, Query, Body,
   UseInterceptors, UploadedFiles,
   ParseIntPipe, UseGuards, BadRequestException,
+  Res, HttpStatus,
 } from '@nestjs/common'
 import { FilesInterceptor } from '@nestjs/platform-express'
 import { ApiTags, ApiOperation, ApiConsumes, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
 import { memoryStorage } from 'multer'
+import type { Response } from 'express'
 import { BomUploadService, FileInput } from './bom-upload.service'
+import { BomDiffService } from './bom-diff.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto } from './dto/dispatch.dto'
@@ -27,7 +30,10 @@ interface MulterFile {
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class BomUploadController {
-  constructor(private readonly svc: BomUploadService) {}
+  constructor(
+    private readonly svc: BomUploadService,
+    private readonly diffSvc: BomDiffService,
+  ) {}
 
   @Post('bom/upload')
   @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List)' })
@@ -100,5 +106,16 @@ export class BomUploadController {
   @ApiOperation({ summary: 'Get revision history for a dispatch' })
   getRevisions(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getRevisions(id)
+  }
+
+  @Get('dispatches/:id/diff')
+  @ApiOperation({ summary: 'Compare dispatch with its previous version' })
+  async getDiff(
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ) {
+    const result = await this.diffSvc.computeDiff(id)
+    if (!result) return res.status(HttpStatus.NO_CONTENT).send()
+    return res.status(HttpStatus.OK).json(result)
   }
 }

@@ -62,6 +62,69 @@ export interface DispatchListResponse {
   part_total?: number
 }
 
+export interface DiffMetricDto {
+  prev: number | null
+  curr: number | null
+  delta: number | null
+}
+
+export interface DiffChangesDto {
+  added: number
+  removed: number
+  changed: number
+}
+
+export interface DiffAggregateDto {
+  weight_kg: DiffMetricDto
+  area_m2: DiffMetricDto
+  assembly_count: DiffMetricDto
+  assembly_changes: DiffChangesDto
+  part_total: DiffMetricDto
+  part_changes: DiffChangesDto
+}
+
+export type DiffStatus = 'added' | 'removed' | 'changed' | 'unchanged'
+
+export interface DiffRowDto<T> {
+  status: DiffStatus
+  prev: T | null
+  curr: T | null
+}
+
+export interface AssemblyDiffItemDto {
+  assembly_mark: string
+  name: string | null
+  qty: number | null
+  weight_kg: number | null
+  surface_area_m2: number | null
+}
+
+export interface PartDiffItemDto {
+  part_mark: string
+  description: string | null
+  profile: string | null
+  grade: string | null
+  qty: number | null
+  length_mm: number | null
+  weight_kg: number | null
+}
+
+export interface JunctionDiffItem {
+  assembly_mark: string
+  part_mark: string
+  qty: number
+}
+
+export interface DispatchDiffDto {
+  prev_id: number
+  curr_id: number
+  warning: string | null
+  aggregate: DiffAggregateDto
+  assembly_diff: DiffRowDto<AssemblyDiffItemDto>[]
+  part_diff: DiffRowDto<PartDiffItemDto>[]
+  junction_diff: DiffRowDto<JunctionDiffItem>[]
+}
+
 export const dispatchesApi = {
   list(params?: {
     project_id?: number
@@ -80,6 +143,12 @@ export const dispatchesApi = {
 
   getHistory(id: number): Promise<RevisionHistoryDto[]> {
     return apiClient.get(`/dispatches/${id}/revisions`).then(r => r.data)
+  },
+
+  getDiff(id: number): Promise<DispatchDiffDto | null> {
+    return apiClient
+      .get(`/dispatches/${id}/diff`, { validateStatus: s => s === 200 || s === 204 })
+      .then(r => (r.status === 204 ? null : r.data))
   },
 
   upload(

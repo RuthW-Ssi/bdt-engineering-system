@@ -29,6 +29,9 @@ function buildPrisma() {
     bom_doc_revision: {
       findMany: jest.fn().mockResolvedValue([makeRevisionRow()]),
     },
+    bom_part: {
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   }
 }
 
@@ -73,6 +76,7 @@ function makeDetailRow() {
     doc_revisions: [
       { id: 10, dispatch_id: 1, doc_type: 'ASSEMBLY_LIST', original_filename: 'assembly_list.xlsx', create_date: new Date(), create_user: { id: 1, name: 'Admin' } },
     ],
+    assemblies: [],
     _count: { assemblies: 2, parts: 3 },
   }
 }
@@ -145,6 +149,7 @@ describe('BomUploadService.upload()', () => {
       $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDetailRow()) },
       bom_doc_revision: { findMany: jest.fn() },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
 
     const parser = {
@@ -175,6 +180,7 @@ describe('BomUploadService.upload()', () => {
       $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDetailRow()) },
       bom_doc_revision: { findMany: jest.fn() },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
 
     const parser = makeParser({ assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] })

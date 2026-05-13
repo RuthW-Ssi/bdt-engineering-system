@@ -45,7 +45,7 @@ const PART_MARK_COLS = [
 const NAME_COLS = ['name', 'description', 'desc']
 const PROFILE_COLS = ['profile', 'section', 'size', 'shape']
 const GRADE_COLS = ['grade', 'steel grade', 'steel_grade', 'material grade', 'mat grade']
-const QTY_COLS = ['qty', 'quantity', 'no.', 'no', 'count', 'pieces', "q'ty"]
+const QTY_COLS = ['qty', 'quantity', "q'ty", 'count', 'pieces', 'no.', 'no']
 const LENGTH_COLS = [
   'length', 'length (mm)', 'length_mm', 'len', 'len (mm)', 'len_mm',
   'length(mm)', 'len(mm)',
@@ -56,11 +56,17 @@ const WEIGHT_COLS = [
 ]
 const SURFACE_COLS = [
   'surface area', 'surface_area', 'sa', 'surface area (m2)', 'sa (m2)',
-  'area(m2)/pcs.', 'area/1pcs.',
+  'area(m2)/pcs.', 'area/1pcs.', 'area',
 ]
 
+// Iterate aliases in priority order so more specific names win over generic ones
+// (e.g. "q'ty" beats "no." when both appear in the same header)
 function findCol(header: string[], aliases: string[]): number {
-  return header.findIndex(h => aliases.includes(h))
+  for (const alias of aliases) {
+    const idx = header.indexOf(alias)
+    if (idx >= 0) return idx
+  }
+  return -1
 }
 
 // Scan up to maxScan rows to find the first row that contains a known alias.

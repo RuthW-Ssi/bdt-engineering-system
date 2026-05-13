@@ -1,28 +1,13 @@
-import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Upload, Loader2, Package } from 'lucide-react'
-import { useDispatchDetail } from '../hooks/useBomDispatches'
-import { BomTreeView } from '../components/bom/BomTreeView'
-import { RevisionList } from '../components/bom/RevisionList'
-import { ProgressChip } from '../components/bom/ProgressChip'
-import { UpdateBomModal } from '../components/bom/UpdateBomModal'
+import { ArrowLeft, Loader2, Package } from 'lucide-react'
+import { useDispatchDetail, useDispatchDiff } from '../hooks/useBomDispatches'
+import { DiffWarningBanner } from '../components/bom/DiffWarningBanner'
+import { DiffAggregateCard } from '../components/bom/DiffAggregateCard'
+import { DiffHierarchyView } from '../components/bom/DiffHierarchyView'
+import { DiffExportButtons } from '../components/bom/DiffExportButtons'
 import { DOC_TYPE_LABELS } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
-import type { DispatchStatus } from '../api/dispatches'
-
-type Tab = 'current' | 'history'
-
-const STATUS_LABELS: Record<DispatchStatus, string> = {
-  pending: 'รอดำเนินการ',
-  partial: 'บางส่วน',
-  complete: 'ครบถ้วน',
-}
-
-const STATUS_COLORS: Record<DispatchStatus, { background: string; color: string }> = {
-  pending: { background: '#FEF9C3', color: '#854D0E' },
-  partial: { background: '#FEF3C7', color: '#B45309' },
-  complete: { background: '#D1F2E0', color: '#065F46' },
-}
+import type { DispatchDiffDto } from '../api/dispatches'
 
 const ALL_DOC_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 
@@ -34,11 +19,7 @@ export function BomDispatchDetail() {
   const dispatchId = id ? parseInt(id) : undefined
 
   const { data: detail, isLoading, isError } = useDispatchDetail(dispatchId)
-  const [tab, setTab] = useState<Tab>('current')
-  const [showModal, setShowModal] = useState(false)
-
-  // Reset to current tab whenever dispatch changes
-  useEffect(() => { setTab('current') }, [dispatchId])
+  const { data: diff, isLoading: isDiffLoading, isError: isDiffError } = useDispatchDiff(dispatchId)
 
   if (isLoading) {
     return (
@@ -74,7 +55,6 @@ export function BomDispatchDetail() {
     )
   }
 
-  const statusStyle = STATUS_COLORS[detail.status]
   const uploadedDocTypes = new Set(detail.doc_revisions.map(r => r.doc_type))
   const missingTypes = ALL_DOC_TYPES.filter(t => !uploadedDocTypes.has(t))
 
@@ -93,18 +73,7 @@ export function BomDispatchDetail() {
               <span style={{ fontSize: 15, fontWeight: 500, color: '#555' }}>{detail.sub_zone.code || detail.sub_zone.name}</span>
             </>
           )}
-          <span style={{ ...statusStyle, borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>
-            {STATUS_LABELS[detail.status]}
-          </span>
-          <ProgressChip count={detail.doc_count} />
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', flexShrink: 0 }}
-        >
-          <Upload size={13} />Upload File
-        </button>
       </div>
 
       {/* Warning bar */}
@@ -114,48 +83,70 @@ export function BomDispatchDetail() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="bg-white border-b border-chrome-100 flex px-6 gap-1" style={{ flexShrink: 0 }}>
-        {(['current', 'history'] as Tab[]).map(t => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              height: 40, padding: '0 16px', fontSize: 13, fontWeight: tab === t ? 600 : 400,
-              color: tab === t ? '#C8202A' : '#8E8E8E',
-              background: 'none', border: 'none', borderBottom: tab === t ? '2px solid #C8202A' : '2px solid transparent',
-              cursor: 'pointer',
-            }}
-          >
-            {t === 'current' ? 'Current' : 'History'}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
+      {/* Content */}
       <div className="flex flex-col flex-1" style={{ overflow: 'hidden', minHeight: 0 }}>
-        {tab === 'current' ? (
-          <BomTreeView
-            assemblies={detail.assemblies ?? []}
-            assemblyCount={detail.assembly_count}
-            partCount={detail.part_count}
-            orphanParts={detail.orphan_parts}
-          />
-        ) : (
-          <RevisionList dispatchId={detail.id} />
-        )}
-      </div>
-
-      {/* Modal */}
-      {showModal && (
-        <UpdateBomModal
-          dispatchId={detail.id}
-          projectId={detail.project_id}
-          zoneId={detail.zone_id}
-          subZoneId={detail.sub_zone_id}
-          onClose={() => setShowModal(false)}
+        <CompareContent
+          isDiffLoading={isDiffLoading}
+          isDiffError={isDiffError}
+          diff={diff ?? null}
         />
-      )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Compare content ────────────────────────────────────────────────────────
+
+function CompareContent({
+  isDiffLoading, isDiffError, diff,
+}: {
+  isDiffLoading: boolean
+  isDiffError: boolean
+  diff: DispatchDiffDto | null | undefined
+}) {
+  if (isDiffLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
+        <Loader2 size={18} className="animate-spin" />กำลังโหลดข้อมูล diff...
+      </div>
+    )
+  }
+
+  if (isDiffError) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 flex-1" style={{ color: '#C8202A', fontSize: 13 }}>
+        <Package size={32} style={{ opacity: 0.3 }} />
+        ไม่สามารถโหลดข้อมูล diff ได้
+      </div>
+    )
+  }
+
+  if (!diff) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
+        <Package size={32} style={{ opacity: 0.2 }} />
+        ไม่มีเวอร์ชันก่อนหน้า
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ overflowY: 'auto', flex: 1 }}>
+      <DiffWarningBanner warning={diff.warning} />
+
+      <DiffAggregateCard aggregate={diff.aggregate} />
+
+      <div style={{ padding: '0 0 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '4px 16px 6px' }}>
+          <DiffExportButtons />
+        </div>
+
+        <DiffHierarchyView
+          assembly_diff={diff.assembly_diff}
+          part_diff={diff.part_diff}
+          junction_diff={diff.junction_diff}
+        />
+      </div>
     </div>
   )
 }

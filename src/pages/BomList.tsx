@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Upload, RefreshCw, Loader2, Package, RefreshCcw } from 'lucide-react'
+import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X } from 'lucide-react'
 import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
@@ -93,15 +93,17 @@ function VersionNode({
 
 // ── Group of versions for one zone+subzone ─────────────────────
 function DispatchGroup({
-  group, latestIdSet, versionMap, selectedId, onSelect,
+  group, latestIdSet, versionMap, selectedId, onSelect, onOpen,
 }: {
   group: DispatchSummaryDto[]
   latestIdSet: Set<number>
   versionMap: Map<number, number>
   selectedId: number | null
   onSelect: (id: number) => void
+  onOpen: (id: number) => void
 }) {
   const first = group[0]
+  const latestId = group[0].id
   return (
     <div style={{ borderBottom: '1px solid #EEF0F3' }}>
       {/* Zone header */}
@@ -129,6 +131,22 @@ function DispatchGroup({
             borderRadius: 99, padding: '1px 7px',
           }}>{group.length} rev</span>
         )}
+        <button
+          onClick={() => onOpen(latestId)}
+          title="เปิดหน้า Dispatch Detail"
+          style={{
+            marginLeft: group.length > 1 ? 4 : 'auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 20, height: 20, borderRadius: 4,
+            border: 'none', background: 'none',
+            color: '#8E8E8E', cursor: 'pointer', flexShrink: 0,
+            padding: 0,
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#E6E8EC'; (e.currentTarget as HTMLElement).style.color = '#185FA5' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none'; (e.currentTarget as HTMLElement).style.color = '#8E8E8E' }}
+        >
+          <ArrowUpRight size={12} />
+        </button>
       </div>
 
       {/* Version nodes */}
@@ -155,26 +173,51 @@ export function BomList() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [showModal, setShowModal] = useState(false)
+  const [nameFilter, setNameFilter] = useState('')
 
   const zoneFilter = searchParams.get('zone_id') || ''
   const subZoneFilter = searchParams.get('sub_zone_id') || ''
 
-  // Clear sub_zone_id once on mount (stale from previous visit)
+  // Clear zone + sub_zone when project changes (or on mount)
   useEffect(() => {
     setSearchParams(prev => {
       const p = new URLSearchParams(prev)
+      p.delete('zone_id')
       p.delete('sub_zone_id')
       return p
     }, { replace: true })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    setSelectedId(null)
+  }, [activeProject?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasProject = !!activeProject
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
 
+  // Auto-select first zone when zones load and none is selected
+  useEffect(() => {
+    if (zones.length > 0 && !zoneFilter) {
+      setSearchParams(prev => {
+        const p = new URLSearchParams(prev)
+        p.set('zone_id', String(zones[0].id))
+        return p
+      }, { replace: true })
+    }
+  }, [zones]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const { data: subZonesData } = useSubZones(zoneFilter ? parseInt(zoneFilter) : null)
   const subZones = subZonesData ?? []
+
+  // Auto-select first sub-zone when sub-zones load and none is selected
+  useEffect(() => {
+    if (subZones.length > 0 && zoneFilter && !subZoneFilter) {
+      setSearchParams(prev => {
+        const p = new URLSearchParams(prev)
+        p.set('sub_zone_id', String(subZones[0].id))
+        return p
+      }, { replace: true })
+    }
+  }, [subZones]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const { data, isLoading, isError, refetch } = useDispatches(
     hasProject
@@ -188,12 +231,7 @@ export function BomList() {
       : undefined,
   )
 
-  // Strict match: zone-only → sub_zone_id must be NULL; both → exact match
-  const allItems: DispatchSummaryDto[] = useMemo(() => {
-    return (data?.items ?? []).filter(item =>
-      zoneFilter && !subZoneFilter ? item.sub_zone_id === null : true
-    )
-  }, [data?.items, zoneFilter, subZoneFilter])
+  const allItems: DispatchSummaryDto[] = useMemo(() => data?.items ?? [], [data?.items])
 
   // Per zone+subzone group: latest IDs, version numbers, and grouped array for rendering
   const { latestIdSet, versionMap, groupedItems } = useMemo(() => {
@@ -223,6 +261,37 @@ export function BomList() {
   }, [latestId])
 
   const { data: detail, isLoading: detailLoading } = useDispatchDetail(selectedId ?? undefined)
+
+  const term = nameFilter.trim().toLowerCase()
+
+  const filteredAssemblies = useMemo(() => {
+    const all = detail?.assemblies ?? []
+    if (!term) return all
+    return all
+      .filter(asm =>
+        asm.assembly_mark.toLowerCase().includes(term) ||
+        (asm.name ?? '').toLowerCase().includes(term) ||
+        asm.parts.some(p => p.part_mark.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term))
+      )
+      .map(asm => {
+        const partMatch = asm.assembly_mark.toLowerCase().includes(term) || (asm.name ?? '').toLowerCase().includes(term)
+        if (partMatch) return asm
+        return {
+          ...asm,
+          parts: asm.parts.filter(p =>
+            p.part_mark.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term)
+          ),
+        }
+      })
+  }, [detail?.assemblies, term])
+
+  const filteredOrphanParts = useMemo(() => {
+    const all = detail?.orphan_parts ?? []
+    if (!term) return all
+    return all.filter(p =>
+      p.part_mark.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term)
+    )
+  }, [detail?.orphan_parts, term])
 
   const setParam = (key: string, value: string) => {
     const p = new URLSearchParams(searchParams)
@@ -284,28 +353,60 @@ export function BomList() {
       {/* ── Filter bar ────────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-4 border-b border-chrome-100" style={{ height: 44, background: '#F5F5F5', flexShrink: 0 }}>
         <select
-          disabled={!hasProject}
+          disabled={!hasProject || zones.length === 0}
           className="border rounded-md bg-white focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ height: 30, padding: '0 8px', fontSize: 12, minWidth: 150, borderColor: zoneFilter ? '#C8202A' : '#E0E0E0' }}
           value={zoneFilter}
           onChange={e => setParam('zone_id', e.target.value)}
         >
-          <option value="">ทุก Zone</option>
-          {zones.map(z => <option key={z.id} value={z.id}>{z.code} — {z.label}</option>)}
+          {zones.length === 0
+            ? <option value="" disabled>{hasProject ? 'ไม่พบ Zone' : '— เลือก Project ก่อน —'}</option>
+            : zones.map(z => <option key={z.id} value={z.id}>{z.code} — {z.label}</option>)
+          }
         </select>
 
         <select
-          disabled={!hasProject || !zoneFilter}
+          disabled={!hasProject || subZones.length === 0}
           className="border rounded-md bg-white focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ height: 30, padding: '0 8px', fontSize: 12, minWidth: 150, borderColor: subZoneFilter ? '#C8202A' : '#E0E0E0' }}
           value={subZoneFilter}
           onChange={e => setParam('sub_zone_id', e.target.value)}
         >
-          <option value="">{subZones.length === 0 && zoneFilter ? '(ไม่มี Sub-zone)' : 'ทุก Sub-zone'}</option>
-          {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
+          {subZones.length === 0
+            ? <option value="" disabled>{!zoneFilter ? '— เลือก Zone ก่อน —' : 'ไม่พบ Sub-zone'}</option>
+            : subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)
+          }
         </select>
 
         {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>เลือก Project ที่ header ก่อน</span>}
+
+        <span style={{ width: 1, height: 20, background: '#E0E0E0', flexShrink: 0 }} />
+
+        {/* Name filter */}
+        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+          <Search size={13} style={{ position: 'absolute', left: 8, color: '#9CA3AF', pointerEvents: 'none' }} />
+          <input
+            type="text"
+            placeholder="ค้นหา Assembly / Part..."
+            value={nameFilter}
+            onChange={e => setNameFilter(e.target.value)}
+            style={{
+              height: 30, paddingLeft: 26, paddingRight: nameFilter ? 26 : 8,
+              fontSize: 12, border: `1px solid ${nameFilter ? '#185FA5' : '#E0E0E0'}`,
+              borderRadius: 6, outline: 'none', background: 'white',
+              minWidth: 200, color: '#1F1F1F',
+            }}
+          />
+          {nameFilter && (
+            <button
+              onClick={() => setNameFilter('')}
+              style={{ position: 'absolute', right: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 0, display: 'flex' }}
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+
         <span className="flex-1" />
         {hasProject && !isLoading && (
           <span style={{ fontSize: 11, color: '#8E8E8E' }}>{allItems.length} dispatches</span>
@@ -350,6 +451,11 @@ export function BomList() {
                 <span style={{ fontSize: 11, color: '#8E8E8E' }}>
                   {new Date(selectedItem.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
+                {term && (
+                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#185FA5', fontWeight: 500 }}>
+                    {filteredAssemblies.length} asm · {filteredOrphanParts.length} part
+                  </span>
+                )}
               </div>
             )}
 
@@ -360,10 +466,11 @@ export function BomList() {
               </div>
             ) : (
               <BomTreeView
-                assemblies={detail?.assemblies ?? []}
-                assemblyCount={detail?.assembly_count ?? null}
-                partCount={detail?.part_count ?? null}
-                orphanParts={detail?.orphan_parts}
+                assemblies={filteredAssemblies}
+                assemblyCount={term ? filteredAssemblies.length : (detail?.assembly_count ?? null)}
+                partCount={term ? null : (detail?.part_count ?? null)}
+                orphanParts={filteredOrphanParts}
+                searchTerm={term || undefined}
               />
             )}
           </div>
@@ -381,6 +488,7 @@ export function BomList() {
                 versionMap={versionMap}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
+                onOpen={id => navigate(`/bom/dispatch/${id}`)}
               />
             ))}
           </div>

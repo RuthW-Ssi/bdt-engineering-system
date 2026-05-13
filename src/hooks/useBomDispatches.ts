@@ -24,6 +24,15 @@ export function useDispatchHistory(id: number | undefined) {
   })
 }
 
+export function useDispatchDiff(id: number | undefined) {
+  return useQuery({
+    queryKey: ['dispatch-diff', id],
+    queryFn: () => dispatchesApi.getDiff(id!),
+    enabled: !!id,
+    staleTime: 60_000,
+  })
+}
+
 export function useUploadBom() {
   const qc = useQueryClient()
   return useMutation({

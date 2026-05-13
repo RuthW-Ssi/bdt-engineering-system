@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
 import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
 
@@ -7,26 +7,34 @@ interface Props {
   assemblyCount: number | null
   partCount: number | null
   orphanParts?: AssemblyPartDto[]
+  searchTerm?: string
+}
+
+function matches(term: string, ...fields: (string | null | undefined)[]): boolean {
+  return fields.some(f => f?.toLowerCase().includes(term))
 }
 
 // ── Assembly row ───────────────────────────────────────────────
 function AssemblyRow({
-  asm, expanded, onToggle,
+  asm, expanded, onToggle, searchTerm,
 }: {
   asm: AssemblyDto
   expanded: boolean
   onToggle: () => void
+  searchTerm?: string
 }) {
   const [hovered, setHovered] = useState(false)
   const hasParts = asm.parts.length > 0
+  const term = searchTerm?.trim().toLowerCase() ?? ''
+  const highlighted = term !== '' && matches(term, asm.assembly_mark, asm.name)
 
   return (
     <div
       style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '7px 10px',
-        background: hovered ? '#F5F9FF' : 'white',
-        border: '1px solid #C2C2C2',
+        background: highlighted ? '#FFF8E1' : hovered ? '#F5F9FF' : 'white',
+        border: `1px solid ${highlighted ? '#FBBF24' : '#C2C2C2'}`,
         borderRadius: 6,
         marginBottom: 2,
         cursor: hasParts ? 'pointer' : 'default',
@@ -95,16 +103,19 @@ function AssemblyRow({
 }
 
 // ── Part row ───────────────────────────────────────────────────
-function PartRow({ part }: { part: AssemblyDto['parts'][number] }) {
+function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: string }) {
   const [hovered, setHovered] = useState(false)
+  const term = searchTerm?.trim().toLowerCase() ?? ''
+  const highlighted = term !== '' && matches(term, part.part_mark, part.description)
+
   return (
     <div
       style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '6px 10px',
         marginLeft: 20,
-        background: hovered ? '#FAFAFA' : 'white',
-        border: '1px solid #E0E0E0',
+        background: highlighted ? '#FFF8E1' : hovered ? '#FAFAFA' : 'white',
+        border: `1px solid ${highlighted ? '#FBBF24' : '#E0E0E0'}`,
         borderRadius: 6,
         marginBottom: 2,
         transition: 'background 120ms',
@@ -174,14 +185,21 @@ function PartRow({ part }: { part: AssemblyDto['parts'][number] }) {
 }
 
 // ── Tree row (assembly + its parts) ───────────────────────────
-function AssemblyNode({ asm }: { asm: AssemblyDto }) {
+function AssemblyNode({ asm, searchTerm }: { asm: AssemblyDto; searchTerm?: string }) {
   const [expanded, setExpanded] = useState(false)
+
+  // Auto-expand when searching so matched parts are visible
+  useEffect(() => {
+    if (searchTerm?.trim()) setExpanded(true)
+    else setExpanded(false)
+  }, [searchTerm])
+
   return (
     <>
-      <AssemblyRow asm={asm} expanded={expanded} onToggle={() => setExpanded(e => !e)} />
+      <AssemblyRow asm={asm} expanded={expanded} onToggle={() => setExpanded(e => !e)} searchTerm={searchTerm} />
       {expanded && (
         asm.parts.length > 0
-          ? asm.parts.map((p, i) => <PartRow key={i} part={p} />)
+          ? asm.parts.map((p, i) => <PartRow key={i} part={p} searchTerm={searchTerm} />)
           : (
             <div style={{ marginLeft: 38, padding: '6px 10px', fontSize: 12, color: '#C2C2C2', fontStyle: 'italic' }}>
               ยังไม่มี parts ใน assembly นี้
@@ -193,8 +211,8 @@ function AssemblyNode({ asm }: { asm: AssemblyDto }) {
 }
 
 // ── Main component ─────────────────────────────────────────────
-export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts }: Props) {
-  if (assemblies.length === 0) {
+export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts, searchTerm }: Props) {
+  if (assemblies.length === 0 && (!orphanParts || orphanParts.length === 0)) {
     return (
       <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
         <Package size={36} style={{ opacity: 0.2 }} />
@@ -209,14 +227,14 @@ export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts 
 
   return (
     <div style={{ overflowY: 'auto', flex: 1, padding: '12px 16px' }}>
-      {assemblies.map((asm, i) => <AssemblyNode key={i} asm={asm} />)}
+      {assemblies.map((asm, i) => <AssemblyNode key={i} asm={asm} searchTerm={searchTerm} />)}
 
       {orphanParts && orphanParts.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', marginBottom: 6, padding: '0 2px' }}>
             PARTS ไม่ได้ระบุ ASSEMBLY ({orphanParts.length})
           </div>
-          {orphanParts.map((p, i) => <PartRow key={i} part={p} />)}
+          {orphanParts.map((p, i) => <PartRow key={i} part={p} searchTerm={searchTerm} />)}
         </div>
       )}
     </div>

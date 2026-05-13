@@ -1,17 +1,16 @@
 interface Props {
-  count: number
-  total?: number
+  hasPrevious: boolean
 }
 
-export function ProgressChip({ count, total = 3 }: Props) {
-  const full = count >= total
+export function ProgressChip({ hasPrevious }: Props) {
+  if (!hasPrevious) return null
   return (
     <span style={{
-      background: full ? '#D1F2E0' : '#FEF3C7',
-      color: full ? '#065F46' : '#B45309',
-      borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 600,
+      background: '#EFF6FF', color: '#1D4ED8',
+      borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 600,
+      letterSpacing: '0.01em',
     }}>
-      {count}/{total} {full ? '✓' : '⚠'}
+      prev → latest
     </span>
   )
 }
