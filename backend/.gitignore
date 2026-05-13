@@ -1,1 +1,7 @@
 credentials/
+storage/
+dist/
+tsconfig.tsbuildinfo
+test/**/*.js
+test/**/*.js.map
+test/**/*.d.ts
