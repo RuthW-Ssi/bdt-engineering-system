@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, UnauthorizedException } from '@nestjs/common'
+import { Injectable, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcryptjs'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -15,12 +15,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
-  ) {
-    // Guard: dev-mode auth must not run in production
-    if (process.env.NODE_ENV === 'production') {
-      throw new ForbiddenException('Auth dev mode is disabled in production')
-    }
-  }
+  ) {}
 
   async login(dto: LoginDto): Promise<{ access_token: string; user: { id: number; login: string; name: string; role: string } }> {
     const user = await this.prisma.res_users.findFirst({
