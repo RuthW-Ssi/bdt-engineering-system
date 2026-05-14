@@ -1,10 +1,22 @@
 version: '3.9'
 
-# Sprint 5+: Postgres removed — dev DB is GCP Cloud SQL.
-# Run scripts/proxy-up.sh before starting backend locally.
-# DATABASE_URL is injected via env (loaded from GCP Secret Manager via scripts/setup-env.sh).
+# Local dev: start postgres with `docker compose up -d postgres`
+# Production uses GCP Cloud Run + Cloud SQL (see .github/workflows/deploy-backend.yml)
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bdt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: BdtDev2026!
+      POSTGRES_DB: bdt_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
     build:
       context: ./backend
@@ -28,3 +40,6 @@ services:
       - backend
     ports:
       - "5173:80"
+
+volumes:
+  postgres_data:
