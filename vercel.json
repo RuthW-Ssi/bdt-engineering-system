@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://bdt-backend-jr5hvzmn5q-as.a.run.app/api/:path*"
+      "destination": "https://staging-bdt-engineering-service-489818756412.asia-southeast1.run.app/api/:path*"
     }
   ]
 }
