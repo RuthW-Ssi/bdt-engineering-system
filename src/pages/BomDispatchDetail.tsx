@@ -5,6 +5,7 @@ import { DiffWarningBanner } from '../components/bom/DiffWarningBanner'
 import { DiffAggregateCard } from '../components/bom/DiffAggregateCard'
 import { DiffHierarchyView } from '../components/bom/DiffHierarchyView'
 import { DiffExportButtons } from '../components/bom/DiffExportButtons'
+import { MappingPanel } from '../components/bom/MappingPanel'
 import { DOC_TYPE_LABELS } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { DispatchDiffDto } from '../api/dispatches'
@@ -84,7 +85,8 @@ export function BomDispatchDetail() {
       )}
 
       {/* Content */}
-      <div className="flex flex-col flex-1" style={{ overflow: 'hidden', minHeight: 0 }}>
+      <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '0 24px 24px' }}>
+        <MappingPanel dispatchId={dispatchId} />
         <CompareContent
           isDiffLoading={isDiffLoading}
           isDiffError={isDiffError}

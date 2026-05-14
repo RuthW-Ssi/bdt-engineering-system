@@ -7,8 +7,10 @@ import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
+import { BomMatchingService } from './bom-matching.service'
 import type { BomDocType } from './filename-classifier'
 import type { QueryDispatchDto } from './dto/dispatch.dto'
+import type { DispatchMappingDto } from './dto/mapping.dto'
 
 const ALLOWED_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -32,6 +34,7 @@ export class BomUploadService {
     private readonly prisma: PrismaService,
     private readonly storage: FileStorageService,
     private readonly parser: XlsxParserService,
+    private readonly matching: BomMatchingService,
   ) {}
 
   // ─── Upload ──────────────────────────────────────────────────
@@ -118,6 +121,14 @@ export class BomUploadService {
             })),
           })
           for (const row of rows) assemblyIdByMark.set(row.assembly_mark, row.id)
+          // Sprint 8 T-BE-1.7: stamp product_id + match_status on every assembly row
+          await this.matching.matchAssemblies(tx as any, rows.map(r => ({
+            id: r.id,
+            assembly_mark: r.assembly_mark,
+            name: r.name ?? '',
+            weight_kg: r.weight_kg ? Number(r.weight_kg) : null,
+            surface_area_m2: r.surface_area_m2 ? Number(r.surface_area_m2) : null,
+          })), projectId, uid)
         }
 
         // bom_part rows — batch insert, get IDs back in one round-trip
@@ -138,6 +149,15 @@ export class BomUploadService {
             })),
           })
           for (const row of rows) partIdByMark.set(row.part_mark, row.id)
+          // Sprint 8 T-BE-1.7: stamp product_id + match_status on every part row
+          await this.matching.matchParts(tx as any, rows.map(r => ({
+            id: r.id,
+            part_mark: r.part_mark,
+            profile: r.profile ?? null,
+            grade: r.grade ?? null,
+            weight_kg: r.weight_kg ? Number(r.weight_kg) : null,
+            length_mm: r.length_mm ? Number(r.length_mm) : null,
+          })), projectId, uid)
         }
 
         // bom_assembly_part junctions — batch insert
@@ -249,6 +269,8 @@ export class BomUploadService {
             name: true,
             qty: true,
             weight_kg: true,
+            match_status: true,
+            product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
             assembly_parts: {
               orderBy: { sequence: 'asc' },
               select: {
@@ -260,6 +282,8 @@ export class BomUploadService {
                     profile: true,
                     grade: true,
                     weight_kg: true,
+                    match_status: true,
+                    product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
                   },
                 },
               },
@@ -294,6 +318,8 @@ export class BomUploadService {
         name: a.name ?? null,
         assembly_qty: Number(a.qty ?? 1),
         total_weight_kg: a.weight_kg ? Number(a.weight_kg) : null,
+        match_status: a.match_status ?? null,
+        product: a.product ?? null,
         parts: a.assembly_parts.map(ap => ({
           part_mark: ap.part.part_mark,
           description: ap.part.description ?? null,
@@ -301,6 +327,8 @@ export class BomUploadService {
           grade: ap.part.grade ?? null,
           part_qty: Number(ap.qty),
           unit_weight_kg: ap.part.weight_kg ? Number(ap.part.weight_kg) : null,
+          match_status: ap.part.match_status ?? null,
+          product: ap.part.product ?? null,
         })),
       })),
       orphan_parts: orphans.map(p => ({
@@ -311,6 +339,74 @@ export class BomUploadService {
         part_qty: Number(p.qty),
         unit_weight_kg: p.weight_kg ? Number(p.weight_kg) : null,
       })),
+    }
+  }
+
+  // ─── Mapping (Sprint 8 T-BE-1.8) ─────────────────────────────
+
+  async getMapping(id: number): Promise<DispatchMappingDto> {
+    const exists = await this.prisma.bom_dispatch.findUnique({ where: { id }, select: { id: true } })
+    if (!exists) throw new NotFoundException(`Dispatch ${id} not found`)
+
+    const [assemblies, parts] = await Promise.all([
+      this.prisma.bom_assembly.findMany({
+        where: { dispatch_id: id },
+        orderBy: { assembly_mark: 'asc' },
+        select: {
+          id: true,
+          assembly_mark: true,
+          product_id: true,
+          match_status: true,
+          product: { select: { product_code: true, name: true } },
+        },
+      }),
+      this.prisma.bom_part.findMany({
+        where: { dispatch_id: id },
+        orderBy: { part_mark: 'asc' },
+        select: {
+          id: true,
+          part_mark: true,
+          product_id: true,
+          match_status: true,
+          product: { select: { product_code: true, name: true } },
+        },
+      }),
+    ])
+
+    const countByStatus = (rows: Array<{ match_status: string | null }>, status: string) =>
+      rows.filter(r => r.match_status === status).length
+    const unmatched = (rows: Array<{ match_status: string | null }>) =>
+      rows.filter(r => r.match_status === null).length
+
+    const allRows = [...assemblies, ...parts]
+    const summary = {
+      total_assemblies: assemblies.length,
+      total_parts: parts.length,
+      MATCHED_STANDARD: countByStatus(allRows, 'MATCHED_STANDARD'),
+      MATCHED_CUSTOM: countByStatus(allRows, 'MATCHED_CUSTOM'),
+      AUTO_CREATED: countByStatus(allRows, 'AUTO_CREATED'),
+      UNMATCHED: unmatched(allRows),
+    }
+
+    return {
+      dispatch_id: id,
+      assemblies: assemblies.map(a => ({
+        id: a.id,
+        assembly_mark: a.assembly_mark,
+        product_id: a.product_id,
+        match_status: a.match_status,
+        product_code: a.product?.product_code ?? null,
+        product_name: a.product?.name ?? null,
+      })),
+      parts: parts.map(p => ({
+        id: p.id,
+        part_mark: p.part_mark,
+        product_id: p.product_id,
+        match_status: p.match_status,
+        product_code: p.product?.product_code ?? null,
+        product_name: p.product?.name ?? null,
+      })),
+      summary,
     }
   }
 

@@ -118,4 +118,10 @@ export class BomUploadController {
     if (!result) return res.status(HttpStatus.NO_CONTENT).send()
     return res.status(HttpStatus.OK).json(result)
   }
+
+  @Get('dispatches/:id/mapping')
+  @ApiOperation({ summary: 'Get eBOM ↔ mBOM product mapping for a dispatch' })
+  getMapping(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.getMapping(id)
+  }
 }

@@ -125,6 +125,35 @@ export interface DispatchDiffDto {
   junction_diff: DiffRowDto<JunctionDiffItem>[]
 }
 
+// ── Sprint 8: mapping types ────────────────────────────────────
+export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM' | 'AUTO_CREATED'
+
+export interface MappedRowDto {
+  id: number
+  assembly_mark?: string
+  part_mark?: string
+  product_id: number | null
+  match_status: MatchStatus | null
+  product_code: string | null
+  product_name: string | null
+}
+
+export interface MappingSummaryDto {
+  total_assemblies: number
+  total_parts: number
+  MATCHED_STANDARD: number
+  MATCHED_CUSTOM: number
+  AUTO_CREATED: number
+  UNMATCHED: number
+}
+
+export interface DispatchMappingDto {
+  dispatch_id: number
+  assemblies: MappedRowDto[]
+  parts: MappedRowDto[]
+  summary: MappingSummaryDto
+}
+
 export const dispatchesApi = {
   list(params?: {
     project_id?: number
@@ -149,6 +178,10 @@ export const dispatchesApi = {
     return apiClient
       .get(`/dispatches/${id}/diff`, { validateStatus: s => s === 200 || s === 204 })
       .then(r => (r.status === 204 ? null : r.data))
+  },
+
+  getMapping(id: number): Promise<DispatchMappingDto> {
+    return apiClient.get(`/dispatches/${id}/mapping`).then(r => r.data)
   },
 
   upload(

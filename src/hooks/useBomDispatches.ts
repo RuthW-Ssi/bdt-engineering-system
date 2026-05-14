@@ -33,6 +33,15 @@ export function useDispatchDiff(id: number | undefined) {
   })
 }
 
+export function useDispatchMapping(id: number | undefined) {
+  return useQuery({
+    queryKey: ['dispatch-mapping', id],
+    queryFn: () => dispatchesApi.getMapping(id!),
+    enabled: !!id,
+    staleTime: 60_000,
+  })
+}
+
 export function useUploadBom() {
   const qc = useQueryClient()
   return useMutation({
