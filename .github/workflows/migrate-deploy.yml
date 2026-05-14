@@ -2,7 +2,7 @@ name: Prisma Migrate Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - 'backend/prisma/migrations/**'
       - 'backend/prisma/schema.prisma'
@@ -49,7 +49,7 @@ jobs:
       - name: Start Cloud SQL Auth Proxy
         run: |
           cloud-sql-proxy \
-            building-technology-493907:asia-southeast1:dev-bdt-engineering-db \
+            building-technology-493907:asia-southeast1:staging-bdt-engineering-db \
             --port=5432 &
           for i in $(seq 1 15); do
             nc -z 127.0.0.1 5432 && echo "Proxy ready" && break
@@ -60,7 +60,7 @@ jobs:
 
       - name: Check for destructive migrations (IS8)
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           cd backend
@@ -81,14 +81,14 @@ jobs:
 
       - name: Deploy migrations
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: |
           cd backend
           npx prisma migrate deploy
 
       - name: Smoke verify
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.STAGING_DATABASE_URL }}
         run: |
           cd backend
           STATUS=$(npx prisma migrate status 2>&1)
