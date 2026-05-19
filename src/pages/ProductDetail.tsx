@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink } from 'lucide-react'
-import { useProduct, useProductAction, useProductMessages } from '../hooks/useProducts'
+import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
+import { useProduct, useProductAction, useProductMessages, useUpdateProductSpec } from '../hooks/useProducts'
+import type { PaintSpecPreset, WeldingSpecPreset } from '../api/types'
+import { useMaterialsByPrefix } from '../hooks/useMasters'
 import { useDrawings } from '../hooks/useDrawings'
 import { useRouting, useStdCost } from '../hooks/useRoutings'
-import { useMaterialsByCodes } from '../hooks/useMasters'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import type { ProductState } from '../api/types'
@@ -72,19 +73,22 @@ export function ProductDetail() {
   const [actionComment, setActionComment] = useState('')
   const [actionError, setActionError] = useState('')
 
+  const [editingSpec, setEditingSpec] = useState(false)
+  const [specDraft, setSpecDraft] = useState<{ paint: PaintSpecPreset | null; welding: WeldingSpecPreset | null }>({ paint: null, welding: null })
+  const [specSaveError, setSpecSaveError] = useState('')
+
   const { data: product, isLoading, isError } = useProduct(code ?? '')
   const { mutateAsync: doAction, isPending: actioning } = useProductAction(code ?? '')
   const { data: messages = [] } = useProductMessages(code ?? '')
+  const { mutateAsync: saveSpec, isPending: savingSpec } = useUpdateProductSpec(code ?? '')
   const { drawings, loading: drawingsLoading, error: drawingsError } = useDrawings(code)
   const { routing, state: routingState, totalTimeMin, loading: routingLoading, recompute } = useRouting(code)
   const { stdCost, recompute: recomputeCost } = useStdCost(code)
 
-  const paintCodes = (() => {
-    if (!product?.attributes) return []
-    const a = product.attributes as Record<string, any>
-    return ['primer', 'intermediate', 'fireproof', 'topcoat'].map(k => a[k]).filter(Boolean) as string[]
-  })()
-  const { data: materialNames = {} } = useMaterialsByCodes(paintCodes)
+  const { data: paintMaterials = [] } = useMaterialsByPrefix('PAINT')
+  const { data: weldingMaterials = [] } = useMaterialsByPrefix('WC000')
+  const paintByCode = Object.fromEntries(paintMaterials.map(m => [m.default_code, m.name]))
+  const weldByCode = Object.fromEntries(weldingMaterials.map(m => [m.default_code, m.name]))
 
   const handleRoutingRecompute = async () => {
     try {
@@ -258,14 +262,14 @@ export function ProductDetail() {
                 const va = product.variant_attributes as Record<string, any>
                 const isAssembly = va.assembly_type != null || Array.isArray(va.typical_parts)
                 const typicalParts = Array.isArray(va.typical_parts)
-                  ? va.typical_parts as Array<{ product_code: string; name: string; profile?: string; grade?: string; qty: number; length_mm?: number }>
+                  ? va.typical_parts as Array<{ product_code: string; name: string; profile?: string; grade?: string; qty: number }>
                   : []
                 const DIMS = [
                   { key: 'height_mm', label: 'Height' }, { key: 'width_mm', label: 'Width' },
                   { key: 'web_thickness_mm', label: 'Web t' }, { key: 'flange_thickness_mm', label: 'Flange t' },
                   { key: 'thickness_mm', label: 'Thickness' }, { key: 'diameter_mm', label: 'Diameter' },
                   { key: 'outer_diameter_mm', label: 'OD' }, { key: 'leg_a_mm', label: 'Leg A' },
-                  { key: 'leg_b_mm', label: 'Leg B' }, { key: 'length_mm', label: 'Length' },
+                  { key: 'leg_b_mm', label: 'Leg B' },
                 ].filter(d => va[d.key] != null)
                 return (
                   <>
@@ -307,21 +311,20 @@ export function ProductDetail() {
                         <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>
                           Assembly Parts <span style={{ fontSize: 12, fontWeight: 400, color: '#8E8E8E' }}>({typicalParts.length} items)</span>
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px 90px', gap: '0 12px', padding: '6px 0', borderBottom: '2px solid #E0E0E0', fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>
-                          <div>Code</div><div>Name</div><div>Profile</div><div>Qty</div><div>Length</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px', gap: '0 12px', padding: '6px 0', borderBottom: '2px solid #E0E0E0', fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>
+                          <div>Code</div><div>Name</div><div>Profile</div><div>Qty</div>
                         </div>
                         {typicalParts.map((p, i) => (
                           <div
                             key={i}
                             onClick={() => navigate(`/engineer-products/${p.product_code}`)}
-                            style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px 90px', gap: '0 12px', padding: '8px 0', borderBottom: '1px solid #F5F5F5', alignItems: 'center', cursor: 'pointer', borderRadius: 4 }}
+                            style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px', gap: '0 12px', padding: '8px 0', borderBottom: '1px solid #F5F5F5', alignItems: 'center', cursor: 'pointer', borderRadius: 4 }}
                             className="hover:bg-chrome-50"
                           >
                             <div className="font-mono" style={{ fontSize: 12, color: '#185FA5', fontWeight: 600 }}>{p.product_code}</div>
                             <div style={{ fontSize: 12, color: '#1F1F1F' }} className="truncate">{p.name}</div>
                             <div className="font-mono" style={{ fontSize: 11, color: '#555' }}>{p.profile ?? '—'}</div>
                             <div className="font-mono" style={{ fontSize: 13, fontWeight: 700 }}>×{p.qty}</div>
-                            <div className="font-mono" style={{ fontSize: 11, color: '#555' }}>{p.length_mm != null ? `${p.length_mm} mm` : '—'}</div>
                           </div>
                         ))}
                       </div>
@@ -330,51 +333,49 @@ export function ProductDetail() {
                 )
               })()}
 
-              {/* Production Data — Paint & Welding */}
-              {product.product_type === 'standard' && product.attributes && (() => {
-                const a = product.attributes as Record<string, any>
-                const COATS = [
-                  { key: 'primer',       label: 'Primer',       bg: '#E6F1FB', text: '#0C447C', border: '#B5D4F4' },
-                  { key: 'intermediate', label: 'Intermediate', bg: '#F3E8FF', text: '#6D28D9', border: '#C4B5FD' },
-                  { key: 'fireproof',    label: 'Fireproof',    bg: '#FFF3E0', text: '#92400E', border: '#FFCC80' },
-                  { key: 'topcoat',      label: 'Topcoat',      bg: '#EAF3DE', text: '#27500A', border: '#C0DD97' },
-                ]
-                const activeCoats = COATS.filter(c => a[c.key])
-                const hasWelding = a.welding_path_m != null || a.weld_wire_kg != null
-                if (!a.surface_area_m2 && !activeCoats.length && !hasWelding) return null
+
+              {/* Spec Presets (standard products) */}
+              {product.product_type === 'standard' && (product.default_paint_spec || product.default_welding_spec) && (() => {
+                const PAINT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+                  primer:       { bg: '#E6F1FB', text: '#0C447C', border: '#B5D4F4' },
+                  intermediate: { bg: '#F3E8FF', text: '#6D28D9', border: '#C4B5FD' },
+                  fireproof:    { bg: '#FFF3E0', text: '#92400E', border: '#FFCC80' },
+                  topcoat:      { bg: '#EAF3DE', text: '#27500A', border: '#C0DD97' },
+                }
                 return (
                   <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>Production Data</div>
+                    <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>Spec Presets</div>
+                      <button
+                        onClick={() => {
+                          setSpecDraft({
+                            paint: product.default_paint_spec ? JSON.parse(JSON.stringify(product.default_paint_spec)) : null,
+                            welding: product.default_welding_spec ? JSON.parse(JSON.stringify(product.default_welding_spec)) : null,
+                          })
+                          setSpecSaveError('')
+                          setEditingSpec(true)
+                        }}
+                        className="flex items-center gap-1 rounded hover:bg-chrome-50"
+                        style={{ padding: '4px 10px', fontSize: 12, color: '#555', border: '1px solid #E0E0E0' }}
+                      >
+                        <Pencil size={12} /> Edit
+                      </button>
+                    </div>
 
-                    {a.surface_area_m2 != null && (
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px 14px', marginBottom: 16 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Surface Area</span>
-                        <span className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: '#1F1F1F' }}>{Number(a.surface_area_m2).toFixed(4)} m²</span>
-                      </div>
-                    )}
-
-                    {activeCoats.length > 0 && (
+                    {product.default_paint_spec && (
                       <div style={{ marginBottom: 16 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Paint</div>
-                        <div className="flex flex-col gap-2">
-                          {activeCoats.map(c => {
-                            const liters = a[`${c.key}_liters`] as number | undefined
-                            const gallons = liters != null ? liters / 3.785 : null
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Paint Spec</div>
+                        <div className="flex flex-col gap-1.5">
+                          {product.default_paint_spec.layers.map((layer, i) => {
+                            const col = PAINT_COLORS[layer.paint_type] ?? PAINT_COLORS.primer
                             return (
-                              <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 12, background: c.bg, border: `1px solid ${c.border}`, borderRadius: 6, padding: '8px 14px' }}>
-                                <span style={{ fontSize: 11, fontWeight: 700, color: c.text, minWidth: 90, textTransform: 'uppercase' }}>{c.label}</span>
-                                <span style={{ fontSize: 12, color: '#1F1F1F', flex: 1 }}>
-                                  {materialNames[a[c.key]]?.name ?? a[c.key]}
-                                </span>
-                                {a[`${c.key}_dft_um`] != null && (
-                                  <span style={{ fontSize: 11, color: '#555', minWidth: 56 }}>{a[`${c.key}_dft_um`]} μm</span>
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, background: col.bg, border: `1px solid ${col.border}`, borderRadius: 6, padding: '7px 14px' }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: col.text, minWidth: 90, textTransform: 'uppercase' }}>{layer.paint_type}</span>
+                                <span style={{ fontSize: 12, color: '#1F1F1F', flex: 1 }}>{paintByCode[layer.material_code] ?? layer.material_code}</span>
+                                {layer.microns != null && (
+                                  <span style={{ fontSize: 11, color: '#555' }}>{layer.microns} μm</span>
                                 )}
-                                {liters != null && (
-                                  <span className="font-mono" style={{ fontSize: 12, fontWeight: 600, color: '#1F1F1F', whiteSpace: 'nowrap' }}>
-                                    {liters.toFixed(3)} L
-                                    {gallons !== null && <span style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 400 }}> / {gallons.toFixed(3)} gal</span>}
-                                  </span>
-                                )}
+                                <span style={{ fontSize: 11, color: '#8E8E8E' }}>×{layer.layers} coat</span>
                               </div>
                             )
                           })}
@@ -382,53 +383,25 @@ export function ProductDetail() {
                       </div>
                     )}
 
-                    {hasWelding && (
+                    {product.default_welding_spec && (
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Welding</div>
-                        <div style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 6, padding: '12px 16px' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 16px' }}>
-                            {a.welding_wire && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Wire</div>
-                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.welding_wire}</div>
-                              </div>
-                            )}
-                            {a.weld_type && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Type</div>
-                                <div style={{ fontSize: 12, fontWeight: 600 }}>{a.weld_type}</div>
-                              </div>
-                            )}
-                            {a.welding_fillet_mm != null && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Fillet</div>
-                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.welding_fillet_mm} mm</div>
-                              </div>
-                            )}
-                            {a.welding_path_m != null && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Path</div>
-                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.welding_path_m} m</div>
-                              </div>
-                            )}
-                            {a.tak_point_ea != null && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Tack Points</div>
-                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.tak_point_ea} ea</div>
-                              </div>
-                            )}
-                            {a.weld_wire_kg != null && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Wire kg</div>
-                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{Number(a.weld_wire_kg).toFixed(3)} kg</div>
-                              </div>
-                            )}
-                            {a.weld_wire_boxes != null && (
-                              <div>
-                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Boxes</div>
-                                <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: '#C8202A' }}>{a.weld_wire_boxes} box(es)</div>
-                              </div>
-                            )}
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Welding Spec</div>
+                        <div style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 6, padding: '10px 16px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 16px' }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Wire</div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{weldByCode[product.default_welding_spec.material_code] ?? product.default_welding_spec.material_code}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Fillet</div>
+                            <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{product.default_welding_spec.fillet_mm} mm</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Sides</div>
+                            <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{product.default_welding_spec.sides}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Weld Layers</div>
+                            <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{product.default_welding_spec.weld_layers}</div>
                           </div>
                         </div>
                       </div>
@@ -736,6 +709,154 @@ export function ProductDetail() {
           </div>
         )}
       </div>
+
+      {/* Edit Spec Modal */}
+      {editingSpec && specDraft && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 60, background: 'rgba(0,0,0,0.45)' }}>
+          <div className="bg-white rounded-xl" style={{ width: 560, maxHeight: '85vh', overflow: 'auto', padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Edit Spec Presets</div>
+            <div style={{ fontSize: 12, color: '#8E8E8E', marginBottom: 20 }}>{product.product_code} — {product.name}</div>
+
+            {/* Welding Spec */}
+            {specDraft.welding && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Welding Spec</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Welding Wire</label>
+                    <select
+                      className="w-full border rounded-md focus:outline-none"
+                      style={{ height: 34, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0', background: '#fff' }}
+                      value={specDraft.welding.material_code}
+                      onChange={e => setSpecDraft(d => ({ ...d, welding: { ...d.welding!, material_code: e.target.value } }))}
+                    >
+                      <option value="">— Select —</option>
+                      {weldingMaterials.map(m => <option key={m.default_code} value={m.default_code}>{m.name}</option>)}
+                    </select>
+                  </div>
+                  {[
+                    { key: 'fillet_mm', label: 'Fillet Size (mm)' },
+                    { key: 'sides', label: 'Sides' },
+                    { key: 'weld_layers', label: 'Weld Layers' },
+                  ].map(f => (
+                    <div key={f.key}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>{f.label}</label>
+                      <input
+                        type="number"
+                        className="w-full border rounded-md font-mono focus:outline-none"
+                        style={{ height: 34, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }}
+                        value={(specDraft.welding as any)[f.key]}
+                        onChange={e => setSpecDraft(d => ({
+                          ...d,
+                          welding: { ...d.welding!, [f.key]: Number(e.target.value) },
+                        }))}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Paint Spec Layers */}
+            {specDraft.paint && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Paint Spec Layers</div>
+                <div className="flex flex-col gap-3">
+                  {specDraft.paint.layers.map((layer, i) => (
+                    <div key={i} style={{ background: '#F8F8F8', border: '1px solid #E0E0E0', borderRadius: 8, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#555', textTransform: 'uppercase', marginBottom: 8 }}>
+                        Layer {i + 1} — {layer.paint_type}
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 80px', gap: 10 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', display: 'block', marginBottom: 3 }}>Material</label>
+                          <select
+                            className="w-full border rounded focus:outline-none"
+                            style={{ height: 32, padding: '0 8px', fontSize: 12, borderColor: '#E0E0E0', background: '#fff' }}
+                            value={layer.material_code}
+                            onChange={e => {
+                              const mat = paintMaterials.find(m => m.default_code === e.target.value)
+                              setSpecDraft(d => {
+                                const layers = [...d.paint!.layers]
+                                layers[i] = {
+                                  ...layers[i],
+                                  material_code: e.target.value,
+                                  ...(mat?.attributes?.paint_micron ? { microns: Number(mat.attributes.paint_micron) } : {}),
+                                }
+                                return { ...d, paint: { layers } }
+                              })
+                            }}
+                          >
+                            <option value="">— Select —</option>
+                            {paintMaterials
+                              .filter(m => (m.attributes as any)?.paint_type === layer.paint_type)
+                              .map(m => <option key={m.default_code} value={m.default_code}>{m.name}</option>)
+                            }
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', display: 'block', marginBottom: 3 }}>DFT (μm)</label>
+                          <input
+                            type="number"
+                            className="w-full border rounded font-mono focus:outline-none"
+                            style={{ height: 32, padding: '0 8px', fontSize: 12, borderColor: '#E0E0E0' }}
+                            value={layer.microns ?? ''}
+                            onChange={e => setSpecDraft(d => {
+                              const layers = [...d.paint!.layers]
+                              layers[i] = { ...layers[i], microns: e.target.value ? Number(e.target.value) : undefined }
+                              return { ...d, paint: { layers } }
+                            })}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', display: 'block', marginBottom: 3 }}>Coats</label>
+                          <input
+                            type="number"
+                            className="w-full border rounded font-mono focus:outline-none"
+                            style={{ height: 32, padding: '0 8px', fontSize: 12, borderColor: '#E0E0E0' }}
+                            value={layer.layers}
+                            onChange={e => setSpecDraft(d => {
+                              const layers = [...d.paint!.layers]
+                              layers[i] = { ...layers[i], layers: Number(e.target.value) }
+                              return { ...d, paint: { layers } }
+                            })}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {specSaveError && (
+              <div style={{ fontSize: 12, color: '#C8202A', marginBottom: 12 }}>{specSaveError}</div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setEditingSpec(false)} className="rounded-md hover:bg-chrome-50"
+                style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>Cancel</button>
+              <button
+                disabled={savingSpec}
+                onClick={async () => {
+                  try {
+                    setSpecSaveError('')
+                    await saveSpec({ default_paint_spec: specDraft.paint, default_welding_spec: specDraft.welding })
+                    setEditingSpec(false)
+                  } catch (e: any) {
+                    setSpecSaveError(e?.response?.data?.message ?? 'Save failed')
+                  }
+                }}
+                className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-60"
+                style={{ padding: '10px 18px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
+              >
+                {savingSpec ? <Loader2 size={14} className="animate-spin" /> : <Pencil size={14} />}
+                Save Spec
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal */}
       {confirmAction && (

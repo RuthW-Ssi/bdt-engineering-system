@@ -76,6 +76,26 @@ export const STATE_TO_PRODUCT_STATUS: Record<string, string> = {
 // Sprint 2: Product Layer types
 // ═══════════════════════════════════════════════════════════════
 
+export type PaintLayerType = 'primer' | 'intermediate' | 'fireproof' | 'topcoat'
+
+export interface PaintLayerPreset {
+  paint_type: PaintLayerType
+  layers: number
+  material_code: string
+  microns?: number
+}
+
+export interface PaintSpecPreset {
+  layers: PaintLayerPreset[]
+}
+
+export interface WeldingSpecPreset {
+  material_code: string
+  fillet_mm: number
+  sides: number
+  weld_layers: number
+}
+
 export type ProductType = 'standard' | 'custom'
 export type ProductState = 'draft' | 'in_design' | 'in_review' | 'approved' | 'released' | 'obsolete'
 
@@ -112,6 +132,9 @@ export interface ProductDTO {
   // Sprint 4.2: Routing
   routing_template_id: number | null
   has_custom_routing: boolean
+  // Spec presets (standard products)
+  default_paint_spec?: PaintSpecPreset | null
+  default_welding_spec?: WeldingSpecPreset | null
   // Shared
   attributes: Record<string, unknown>
   odoo_ref_id: string | null
@@ -193,6 +216,8 @@ export interface CreateStandardProductPayload {
   reorder_min?: number
   reorder_max?: number
   attributes?: Record<string, unknown>
+  default_paint_spec?: PaintSpecPreset
+  default_welding_spec?: WeldingSpecPreset
 }
 
 export interface CreateCustomProductPayload {

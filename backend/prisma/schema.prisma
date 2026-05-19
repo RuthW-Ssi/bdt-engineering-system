@@ -380,6 +380,10 @@ model products {
   // Engineering attributes
   attributes Json @default("{}")
 
+  // mBOM spec presets — engineer defines once, mBOM config auto-suggests
+  default_paint_spec   Json?
+  default_welding_spec Json?
+
   // Sprint 4.2: Routing Option 3
   routing_template_id Int?
   routing_template    routing_template?          @relation("ProductTemplateBind", fields: [routing_template_id], references: [id])
@@ -1025,6 +1029,8 @@ model bom_dispatch {
   // Aggregate counts — cached after processing
   assembly_total Int?
   part_total     Int?
+  // mBOM coverage — saved after welding compute()
+  welding_coverage_json Json?
   // Audit
   create_uid   Int
   create_user  res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
@@ -1197,6 +1203,9 @@ model dispatch_assembly_welding_config {
   assembly    bom_assembly @relation("AssemblyWeldingConfig", fields: [assembly_id], references: [id], onDelete: Cascade)
   material_id Int?
   material    materials?   @relation("AssemblyWeldingConfigMaterial", fields: [material_id], references: [id], onDelete: SetNull)
+  fillet_mm   Decimal?     @db.Decimal(4, 1)
+  sides       Int?
+  weld_layers Int?
   create_uid  Int
   create_date DateTime     @default(now()) @db.Timestamptz
   write_uid   Int

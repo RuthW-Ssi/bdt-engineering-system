@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import type { WeldingMbomSummaryDto } from './dto/welding-mbom-response.dto'
+import type { WeldingCoverageDto, WeldingMbomSummaryDto, WeldingSkippedPartDto, WeldingSkipReason } from './dto/welding-mbom-response.dto'
 
 export type WeldingPartType = 'TA-w' | 'TA-f' | 'TA-m' | 'TA-p' | 'unknown'
 
@@ -52,22 +52,26 @@ export class WeldingCalculatorService {
   constructor(private readonly prisma: PrismaService) {}
 
   async compute(dispatchId: number): Promise<void> {
-    const FILLET_MM = 6
-    const SIDES = 2
-    const LAYERS = 1
     const STEEL_DENSITY = 7.85
     const DEPOSITION_EFF = 0.90
     const TAK_INTERVAL_M = 0.5
     const TAK_LENGTH_M = 0.05
-    const CONSUMPTION_RATE = (FILLET_MM ** 2 / 200) * 100 * SIDES * LAYERS * STEEL_DENSITY / DEPOSITION_EFF / 1000
+    // fillet_mm / sides / weld_layers now come from per-assembly config (set from preset or user override)
+    const DEFAULT_FILLET_MM = 6
+    const DEFAULT_SIDES = 2
+    const DEFAULT_WELD_LAYERS = 1
 
     const configs = await this.prisma.dispatch_assembly_welding_config.findMany({
       where: { dispatch_id: dispatchId, material_id: { not: null } },
       select: {
         assembly_id: true,
         material_id: true,
+        fillet_mm: true,
+        sides: true,
+        weld_layers: true,
         assembly: {
           select: {
+            assembly_mark: true,
             assembly_parts: {
               select: {
                 qty: true,
@@ -82,44 +86,68 @@ export class WeldingCalculatorService {
 
     const acc = new Map<number, { total_path_m: number; total_consumption_kg: number; pkg_kg: number }>()
 
+    let totalParts = 0
+    let calculated = 0
+    let excludedTaF = 0
+    const skippedParts: WeldingSkippedPartDto[] = []
+
+    const skip = (assemblyMark: string, partMark: string, reason: WeldingSkipReason, profile?: string | null) => {
+      skippedParts.push({ assembly_mark: assemblyMark, part_mark: partMark, reason, profile: profile ?? null })
+    }
+
     for (const cfg of configs) {
       const attrs = cfg.material!.attributes as Record<string, unknown>
       const pkgKg = Math.max(Number(attrs['pkg_kg'] ?? 15), 0.001)
+      const asmMark = cfg.assembly.assembly_mark
 
-      // sum path_m across all parts in this assembly
       let assemblyPathM = 0
       for (const ap of cfg.assembly.assembly_parts) {
+        totalParts++
         const partQty = Number(ap.qty ?? 1)
         const partType = classifyPartType(ap.part.part_mark)
 
-        if (partType === 'TA-f') continue
+        if (partType === 'TA-f') { excludedTaF++; continue }
 
         let pathM = 0
         if (partType === 'TA-w') {
           const len = ap.part.length_mm ? Number(ap.part.length_mm) : null
-          if (len === null) { this.logger.warn(`TA-w part ${ap.part.part_mark} has no length_mm`); continue }
+          if (len === null) { skip(asmMark, ap.part.part_mark, 'no_length_mm', ap.part.profile); continue }
           pathM = len * 4 / 1000
         } else if (partType === 'TA-m') {
           const perimeter = parsePerimeter(ap.part.profile)
-          if (perimeter === null) { this.logger.warn(`TA-m part ${ap.part.part_mark} profile unparseable: ${ap.part.profile}`); continue }
+          if (perimeter === null) { skip(asmMark, ap.part.part_mark, 'profile_unparseable', ap.part.profile); continue }
           pathM = perimeter / 1000
         } else if (partType === 'TA-p') {
           const width = parseWidth(ap.part.profile)
           const len = ap.part.length_mm ? Number(ap.part.length_mm) : null
-          if (width === null || len === null) { this.logger.warn(`TA-p part ${ap.part.part_mark} missing width/length`); continue }
+          if (width === null || len === null) {
+            const reason: WeldingSkipReason = !ap.part.profile ? 'no_profile' : 'profile_unparseable'
+            skip(asmMark, ap.part.part_mark, reason, ap.part.profile)
+            continue
+          }
           pathM = (width + len) * 2 / 1000 * 0.75
         } else {
           const perimeter = parsePerimeter(ap.part.profile)
-          if (perimeter === null) { this.logger.warn(`Unknown type for ${ap.part.part_mark}, skipping`); continue }
+          if (perimeter === null) {
+            const reason: WeldingSkipReason = !ap.part.profile ? 'no_profile' : 'profile_unparseable'
+            skip(asmMark, ap.part.part_mark, reason, ap.part.profile)
+            continue
+          }
           pathM = perimeter / 1000
         }
 
+        calculated++
         assemblyPathM += pathM * partQty
       }
 
+      const filletMm = cfg.fillet_mm ? Number(cfg.fillet_mm) : DEFAULT_FILLET_MM
+      const sides = cfg.sides ?? DEFAULT_SIDES
+      const weldLayers = cfg.weld_layers ?? DEFAULT_WELD_LAYERS
+      const consumptionRate = (filletMm ** 2 / 200) * 100 * sides * weldLayers * STEEL_DENSITY / DEPOSITION_EFF / 1000
+
       const takPoints = assemblyPathM / TAK_INTERVAL_M + 4
       const effectiveLengthM = assemblyPathM + takPoints * TAK_LENGTH_M
-      const consumptionKg = effectiveLengthM * CONSUMPTION_RATE
+      const consumptionKg = effectiveLengthM * consumptionRate
 
       const matId = cfg.material_id!
       const prev = acc.get(matId) ?? { total_path_m: 0, total_consumption_kg: 0, pkg_kg: pkgKg }
@@ -128,6 +156,16 @@ export class WeldingCalculatorService {
         total_consumption_kg: prev.total_consumption_kg + consumptionKg,
         pkg_kg: pkgKg,
       })
+    }
+
+    const calculable = calculated + skippedParts.length
+    const coverage: WeldingCoverageDto = {
+      total_parts: totalParts,
+      calculated,
+      excluded_ta_f: excludedTaF,
+      skipped: skippedParts.length,
+      coverage_pct: calculable > 0 ? Math.round((calculated / calculable) * 1000) / 10 : 100,
+      skipped_parts: skippedParts,
     }
 
     await this.prisma.$transaction([
@@ -142,22 +180,32 @@ export class WeldingCalculatorService {
           computed_at: new Date(),
         })),
       }),
+      this.prisma.bom_dispatch.update({
+        where: { id: dispatchId },
+        data: { welding_coverage_json: coverage as object },
+      }),
     ])
   }
 
   async getMbom(dispatchId: number): Promise<WeldingMbomSummaryDto> {
-    const rows = await this.prisma.dispatch_welding_requirement.findMany({
-      where: { dispatch_id: dispatchId },
-      orderBy: { material_id: 'asc' },
-      select: {
-        material_id: true,
-        total_path_m: true,
-        total_consumption_kg: true,
-        total_packages: true,
-        computed_at: true,
-        material: { select: { name: true, default_code: true, uom: { select: { name: true } } } },
-      },
-    })
+    const [rows, dispatch] = await Promise.all([
+      this.prisma.dispatch_welding_requirement.findMany({
+        where: { dispatch_id: dispatchId },
+        orderBy: { material_id: 'asc' },
+        select: {
+          material_id: true,
+          total_path_m: true,
+          total_consumption_kg: true,
+          total_packages: true,
+          computed_at: true,
+          material: { select: { name: true, default_code: true, uom: { select: { name: true } } } },
+        },
+      }),
+      this.prisma.bom_dispatch.findUnique({
+        where: { id: dispatchId },
+        select: { welding_coverage_json: true },
+      }),
+    ])
 
     const computedAt = rows[0]?.computed_at?.toISOString() ?? null
 
@@ -177,6 +225,7 @@ export class WeldingCalculatorService {
       items,
       grand_total_consumption_kg: items.reduce((s, i) => s + i.total_consumption_kg, 0),
       grand_total_packages: items.reduce((s, i) => s + i.total_packages, 0),
+      coverage: (dispatch?.welding_coverage_json as unknown as WeldingCoverageDto) ?? null,
     }
   }
 }

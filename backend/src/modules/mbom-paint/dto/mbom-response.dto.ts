@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger'
+import type { ProductSpecPreset } from '../../../common/types/spec-preset.types'
 
 export class MbomMaterialItemDto {
   @ApiProperty() material_id: number
@@ -38,4 +39,6 @@ export class PaintConfigAssemblyDto {
 export class PaintConfigResponseDto {
   @ApiProperty() dispatch_id: number
   @ApiProperty({ type: [PaintConfigAssemblyDto] }) assemblies: PaintConfigAssemblyDto[]
+  @ApiProperty({ description: 'Standard products with spec presets — use to pre-fill config' })
+  available_presets: ProductSpecPreset[]
 }
