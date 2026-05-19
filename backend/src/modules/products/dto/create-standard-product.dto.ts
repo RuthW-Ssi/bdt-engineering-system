@@ -6,6 +6,11 @@ export class CreateStandardProductDto {
   @IsIn(['standard'])
   product_type: 'standard'
 
+  @ApiPropertyOptional({ enum: ['part', 'assembly'], default: 'part' })
+  @IsOptional()
+  @IsIn(['part', 'assembly'])
+  product_kind?: 'part' | 'assembly'
+
   @ApiProperty({ example: 'Cee Purlin C-200' })
   @IsString()
   @MaxLength(200)

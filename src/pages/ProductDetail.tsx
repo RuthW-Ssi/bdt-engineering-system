@@ -4,11 +4,12 @@ import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, Fil
 import { useProduct, useProductAction, useProductMessages } from '../hooks/useProducts'
 import { useDrawings } from '../hooks/useDrawings'
 import { useRouting, useStdCost } from '../hooks/useRoutings'
+import { useMaterialsByCodes } from '../hooks/useMasters'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import type { ProductState } from '../api/types'
 
-const TABS = ['ภาพรวม', 'Drawings', 'Routing', 'Cost', 'Audit Log']
+const TABS = ['Overview', 'Drawings', 'Routing', 'Cost', 'Audit Log']
 
 const ROUTING_STATE_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   draft:    { bg: '#F5F5F5', text: '#555', label: 'Draft' },
@@ -47,26 +48,26 @@ function formatFileSize(bytes: string | null): string {
 interface ActionDef { action: string; label: string; bg: string; confirm: string; destructive?: boolean }
 
 const ACTION_BUTTONS: Record<string, ActionDef[]> = {
-  draft:     [{ action: 'action_submit_design', label: 'ส่งออกแบบ', bg: '#0C447C', confirm: 'ยืนยันส่งเข้าสู่ขั้นตอนออกแบบ?' }],
+  draft:     [{ action: 'action_submit_design', label: 'Submit for Design', bg: '#0C447C', confirm: 'Confirm submission to the design stage?' }],
   in_design: [
-    { action: 'action_reset', label: 'กลับ Draft', bg: '#8E8E8E', confirm: 'ย้อนกลับเป็น Draft?', destructive: true },
-    { action: 'action_submit_review', label: 'ส่งตรวจสอบ', bg: '#854F0B', confirm: 'ยืนยันส่งให้ Reviewer ตรวจสอบ?' },
+    { action: 'action_reset', label: 'Back to Draft', bg: '#8E8E8E', confirm: 'Revert to Draft?', destructive: true },
+    { action: 'action_submit_review', label: 'Submit for Review', bg: '#854F0B', confirm: 'Confirm submission to Reviewer?' },
   ],
   in_review: [
-    { action: 'action_reset', label: 'ปฏิเสธ', bg: '#C8202A', confirm: 'ปฏิเสธและย้อนกลับ Draft?', destructive: true },
-    { action: 'action_approve', label: 'อนุมัติ', bg: '#639922', confirm: 'ยืนยันอนุมัติ Product นี้?' },
+    { action: 'action_reset', label: 'Reject', bg: '#C8202A', confirm: 'Reject and revert to Draft?', destructive: true },
+    { action: 'action_approve', label: 'Approve', bg: '#639922', confirm: 'Confirm approval of this Product?' },
   ],
   approved:  [
-    { action: 'action_reset', label: 'ย้อนกลับ', bg: '#8E8E8E', confirm: 'ย้อนกลับเป็น Draft?', destructive: true },
-    { action: 'action_release', label: 'เผยแพร่', bg: '#065F46', confirm: 'ยืนยันเผยแพร่? (Mark จะถูกล็อก ไม่สามารถแก้ไขได้)' },
+    { action: 'action_reset', label: 'Revert', bg: '#8E8E8E', confirm: 'Revert to Draft?', destructive: true },
+    { action: 'action_release', label: 'Release', bg: '#065F46', confirm: 'Confirm release? (Mark will be locked and cannot be edited)' },
   ],
-  released:  [{ action: 'action_obsolete', label: 'ยกเลิก', bg: '#8A1520', confirm: 'ยืนยันยกเลิก Product นี้? (ไม่สามารถย้อนกลับได้)', destructive: true }],
+  released:  [{ action: 'action_obsolete', label: 'Obsolete', bg: '#8A1520', confirm: 'Confirm marking this Product as Obsolete? (Cannot be undone)', destructive: true }],
 }
 
 export function ProductDetail() {
   const { code } = useParams<{ code: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState('ภาพรวม')
+  const [activeTab, setActiveTab] = useState('Overview')
   const [confirmAction, setConfirmAction] = useState<ActionDef | null>(null)
   const [actionComment, setActionComment] = useState('')
   const [actionError, setActionError] = useState('')
@@ -78,24 +79,31 @@ export function ProductDetail() {
   const { routing, state: routingState, totalTimeMin, loading: routingLoading, recompute } = useRouting(code)
   const { stdCost, recompute: recomputeCost } = useStdCost(code)
 
+  const paintCodes = (() => {
+    if (!product?.attributes) return []
+    const a = product.attributes as Record<string, any>
+    return ['primer', 'intermediate', 'fireproof', 'topcoat'].map(k => a[k]).filter(Boolean) as string[]
+  })()
+  const { data: materialNames = {} } = useMaterialsByCodes(paintCodes)
+
   const handleRoutingRecompute = async () => {
     try {
       await recompute.mutateAsync()
       await recomputeCost.mutateAsync()
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'คำนวณไม่สำเร็จ')
+      alert(e.response?.data?.message ?? 'Recompute failed')
     }
   }
 
   if (isLoading) return (
     <div className="flex items-center justify-center gap-2" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
-      <Loader2 size={20} className="animate-spin" />กำลังโหลด...
+      <Loader2 size={20} className="animate-spin" />Loading...
     </div>
   )
 
   if (isError || !product) return (
     <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
-      ไม่พบ Product {code}
+      Product {code} not found
     </div>
   )
 
@@ -177,19 +185,19 @@ export function ProductDetail() {
 
       {/* Content */}
       <div className="flex-1 overflow-auto" style={{ padding: 24 }}>
-        {activeTab === 'ภาพรวม' && (
+        {activeTab === 'Overview' && (
           <div className="flex gap-6" style={{ maxWidth: 1100 }}>
             <div className="flex-1 flex flex-col gap-4">
               {/* Product Info */}
               <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>ข้อมูล Product</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>Product Info</div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>ชื่อ</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>Name</div>
                     <div style={{ fontSize: 13, color: '#1F1F1F', fontWeight: 500 }}>{product.name}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>กลุ่ม</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>Category</div>
                     <div style={{ fontSize: 13, color: '#555' }}>{product.category?.name ?? '-'}</div>
                   </div>
                   <div>
@@ -206,11 +214,11 @@ export function ProductDetail() {
                     <>
                       <div>
                         <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>sale_ok</div>
-                        <div style={{ fontSize: 13 }}>{product.sale_ok ? '✓ ใช่' : '✗ ไม่'}</div>
+                        <div style={{ fontSize: 13 }}>{product.sale_ok ? '✓ Yes' : '✗ No'}</div>
                       </div>
                       <div>
                         <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>purchase_ok</div>
-                        <div style={{ fontSize: 13 }}>{product.purchase_ok ? '✓ ใช่' : '✗ ไม่'}</div>
+                        <div style={{ fontSize: 13 }}>{product.purchase_ok ? '✓ Yes' : '✗ No'}</div>
                       </div>
                     </>
                   )}
@@ -245,29 +253,219 @@ export function ProductDetail() {
                 </div>
               </div>
 
-              {/* Attributes */}
-              {product.attributes && Object.keys(product.attributes).length > 0 && (
-                <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>Engineering Attributes</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px 16px' }}>
-                    {Object.entries(product.attributes).map(([key, val]) => (
-                      <div key={key}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 2 }}>{key}</div>
-                        <div className="font-mono" style={{ fontSize: 13, color: '#1F1F1F' }}>{String(val)}</div>
+              {/* Variant Attributes — Profile & Assembly Info */}
+              {product.product_type === 'standard' && product.variant_attributes && Object.keys(product.variant_attributes).length > 0 && (() => {
+                const va = product.variant_attributes as Record<string, any>
+                const isAssembly = va.assembly_type != null || Array.isArray(va.typical_parts)
+                const typicalParts = Array.isArray(va.typical_parts)
+                  ? va.typical_parts as Array<{ product_code: string; name: string; profile?: string; grade?: string; qty: number; length_mm?: number }>
+                  : []
+                const DIMS = [
+                  { key: 'height_mm', label: 'Height' }, { key: 'width_mm', label: 'Width' },
+                  { key: 'web_thickness_mm', label: 'Web t' }, { key: 'flange_thickness_mm', label: 'Flange t' },
+                  { key: 'thickness_mm', label: 'Thickness' }, { key: 'diameter_mm', label: 'Diameter' },
+                  { key: 'outer_diameter_mm', label: 'OD' }, { key: 'leg_a_mm', label: 'Leg A' },
+                  { key: 'leg_b_mm', label: 'Leg B' }, { key: 'length_mm', label: 'Length' },
+                ].filter(d => va[d.key] != null)
+                return (
+                  <>
+                    <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>
+                        {isAssembly ? 'Assembly Info' : 'Profile & Material'}
                       </div>
-                    ))}
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        {va.profile && (
+                          <span className="font-mono" style={{ background: '#E6F1FB', color: '#0C447C', border: '1px solid #B5D4F4', borderRadius: 6, padding: '4px 14px', fontSize: 15, fontWeight: 700 }}>
+                            {va.profile}
+                          </span>
+                        )}
+                        {va.grade && (
+                          <span style={{ background: '#EAF3DE', color: '#27500A', border: '1px solid #C0DD97', borderRadius: 6, padding: '4px 12px', fontSize: 13, fontWeight: 600 }}>
+                            {va.grade}
+                          </span>
+                        )}
+                        {va.assembly_type && (
+                          <span style={{ background: '#FFF3E0', color: '#E65100', border: '1px solid #FFCC80', borderRadius: 6, padding: '4px 12px', fontSize: 12, fontWeight: 600, textTransform: 'uppercase' }}>
+                            {String(va.assembly_type).replace('_', ' ')}
+                          </span>
+                        )}
+                      </div>
+                      {DIMS.length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px 16px' }}>
+                          {DIMS.map(d => (
+                            <div key={d.key}>
+                              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 2 }}>{d.label}</div>
+                              <div className="font-mono" style={{ fontSize: 13, color: '#1F1F1F' }}>{va[d.key]} mm</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {isAssembly && typicalParts.length > 0 && (
+                      <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>
+                          Assembly Parts <span style={{ fontSize: 12, fontWeight: 400, color: '#8E8E8E' }}>({typicalParts.length} items)</span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px 90px', gap: '0 12px', padding: '6px 0', borderBottom: '2px solid #E0E0E0', fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>
+                          <div>Code</div><div>Name</div><div>Profile</div><div>Qty</div><div>Length</div>
+                        </div>
+                        {typicalParts.map((p, i) => (
+                          <div
+                            key={i}
+                            onClick={() => navigate(`/engineer-products/${p.product_code}`)}
+                            style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px 90px', gap: '0 12px', padding: '8px 0', borderBottom: '1px solid #F5F5F5', alignItems: 'center', cursor: 'pointer', borderRadius: 4 }}
+                            className="hover:bg-chrome-50"
+                          >
+                            <div className="font-mono" style={{ fontSize: 12, color: '#185FA5', fontWeight: 600 }}>{p.product_code}</div>
+                            <div style={{ fontSize: 12, color: '#1F1F1F' }} className="truncate">{p.name}</div>
+                            <div className="font-mono" style={{ fontSize: 11, color: '#555' }}>{p.profile ?? '—'}</div>
+                            <div className="font-mono" style={{ fontSize: 13, fontWeight: 700 }}>×{p.qty}</div>
+                            <div className="font-mono" style={{ fontSize: 11, color: '#555' }}>{p.length_mm != null ? `${p.length_mm} mm` : '—'}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+
+              {/* Production Data — Paint & Welding */}
+              {product.product_type === 'standard' && product.attributes && (() => {
+                const a = product.attributes as Record<string, any>
+                const COATS = [
+                  { key: 'primer',       label: 'Primer',       bg: '#E6F1FB', text: '#0C447C', border: '#B5D4F4' },
+                  { key: 'intermediate', label: 'Intermediate', bg: '#F3E8FF', text: '#6D28D9', border: '#C4B5FD' },
+                  { key: 'fireproof',    label: 'Fireproof',    bg: '#FFF3E0', text: '#92400E', border: '#FFCC80' },
+                  { key: 'topcoat',      label: 'Topcoat',      bg: '#EAF3DE', text: '#27500A', border: '#C0DD97' },
+                ]
+                const activeCoats = COATS.filter(c => a[c.key])
+                const hasWelding = a.welding_path_m != null || a.weld_wire_kg != null
+                if (!a.surface_area_m2 && !activeCoats.length && !hasWelding) return null
+                return (
+                  <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>Production Data</div>
+
+                    {a.surface_area_m2 != null && (
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px 14px', marginBottom: 16 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Surface Area</span>
+                        <span className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: '#1F1F1F' }}>{Number(a.surface_area_m2).toFixed(4)} m²</span>
+                      </div>
+                    )}
+
+                    {activeCoats.length > 0 && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Paint</div>
+                        <div className="flex flex-col gap-2">
+                          {activeCoats.map(c => {
+                            const liters = a[`${c.key}_liters`] as number | undefined
+                            const gallons = liters != null ? liters / 3.785 : null
+                            return (
+                              <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: 12, background: c.bg, border: `1px solid ${c.border}`, borderRadius: 6, padding: '8px 14px' }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: c.text, minWidth: 90, textTransform: 'uppercase' }}>{c.label}</span>
+                                <span style={{ fontSize: 12, color: '#1F1F1F', flex: 1 }}>
+                                  {materialNames[a[c.key]]?.name ?? a[c.key]}
+                                </span>
+                                {a[`${c.key}_dft_um`] != null && (
+                                  <span style={{ fontSize: 11, color: '#555', minWidth: 56 }}>{a[`${c.key}_dft_um`]} μm</span>
+                                )}
+                                {liters != null && (
+                                  <span className="font-mono" style={{ fontSize: 12, fontWeight: 600, color: '#1F1F1F', whiteSpace: 'nowrap' }}>
+                                    {liters.toFixed(3)} L
+                                    {gallons !== null && <span style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 400 }}> / {gallons.toFixed(3)} gal</span>}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {hasWelding && (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 8 }}>Welding</div>
+                        <div style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 6, padding: '12px 16px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px 16px' }}>
+                            {a.welding_wire && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Wire</div>
+                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.welding_wire}</div>
+                              </div>
+                            )}
+                            {a.weld_type && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Type</div>
+                                <div style={{ fontSize: 12, fontWeight: 600 }}>{a.weld_type}</div>
+                              </div>
+                            )}
+                            {a.welding_fillet_mm != null && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Fillet</div>
+                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.welding_fillet_mm} mm</div>
+                              </div>
+                            )}
+                            {a.welding_path_m != null && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Path</div>
+                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.welding_path_m} m</div>
+                              </div>
+                            )}
+                            {a.tak_point_ea != null && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Tack Points</div>
+                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{a.tak_point_ea} ea</div>
+                              </div>
+                            )}
+                            {a.weld_wire_kg != null && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Wire kg</div>
+                                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{Number(a.weld_wire_kg).toFixed(3)} kg</div>
+                              </div>
+                            )}
+                            {a.weld_wire_boxes != null && (
+                              <div>
+                                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Boxes</div>
+                                <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: '#C8202A' }}>{a.weld_wire_boxes} box(es)</div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                )
+              })()}
+
+              {/* Raw fallback — non-standard products, or any unhandled attribute keys */}
+              {product.attributes && (() => {
+                const a = product.attributes as Record<string, any>
+                const HANDLED = new Set(['surface_area_m2', 'primer', 'primer_dft_um', 'primer_liters', 'intermediate', 'intermediate_dft_um', 'intermediate_liters', 'fireproof', 'fireproof_dft_um', 'fireproof_liters', 'topcoat', 'topcoat_dft_um', 'topcoat_liters', 'welding_wire', 'weld_type', 'welding_fillet_mm', 'part_thickness_mm', 'welding_layer', 'welding_path_m', 'tak_point_ea', 'weld_wire_kg', 'weld_wire_boxes'])
+                const remaining = Object.entries(a).filter(([k]) => product.product_type !== 'standard' || !HANDLED.has(k))
+                if (remaining.length === 0) return null
+                return (
+                  <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>Engineering Attributes</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px 16px' }}>
+                      {remaining.map(([key, val]) => (
+                        <div key={key}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 2 }}>{key}</div>
+                          <div className="font-mono" style={{ fontSize: 13, color: '#1F1F1F' }}>{String(val)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
 
             {/* Right sidebar */}
             <div style={{ width: 280, flexShrink: 0 }} className="flex flex-col gap-4">
               <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 12 }}>สถานะ</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 12 }}>Status</div>
                 <ProductStatePill state={product.state as ProductState} />
                 <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 8 }}>
-                  อัปเดตล่าสุด {new Date(product.write_date).toLocaleDateString('th-TH')} โดย {product.write_user?.name ?? '-'}
+                  Last updated {new Date(product.write_date).toLocaleDateString('en-GB')} by {product.write_user?.name ?? '-'}
                 </div>
               </div>
             </div>
@@ -278,7 +476,7 @@ export function ProductDetail() {
           <div style={{ maxWidth: 860 }}>
             {drawingsLoading && (
               <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E' }}>
-                <Loader2 size={20} className="animate-spin" />กำลังโหลด...
+                <Loader2 size={20} className="animate-spin" />Loading...
               </div>
             )}
             {drawingsError && !drawingsLoading && (
@@ -289,7 +487,7 @@ export function ProductDetail() {
             {!drawingsLoading && !drawingsError && drawings.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
                 <FileText size={32} style={{ opacity: 0.3 }} />
-                <div style={{ fontSize: 13 }}>ยังไม่มี Shop Drawing สำหรับ {code}</div>
+                <div style={{ fontSize: 13 }}>No Shop Drawings found for {code}</div>
               </div>
             )}
             {!drawingsLoading && drawings.map(dwg => {
@@ -319,7 +517,7 @@ export function ProductDetail() {
 
                   {/* Revisions table */}
                   {revs.length === 0 ? (
-                    <div style={{ padding: '16px 20px', fontSize: 12, color: '#8E8E8E' }}>ยังไม่มี revision</div>
+                    <div style={{ padding: '16px 20px', fontSize: 12, color: '#8E8E8E' }}>No revisions yet</div>
                   ) : (
                     <>
                       {/* Column headers */}
@@ -328,7 +526,7 @@ export function ProductDetail() {
                         padding: '6px 20px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0',
                         fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase',
                       }}>
-                        <div>Rev</div><div>คำอธิบาย</div><div>ขนาด</div><div>ประเภท</div><div>วันที่</div><div />
+                        <div>Rev</div><div>Description</div><div>Size</div><div>Type</div><div>Date</div><div />
                       </div>
                       {revs.map(rev => (
                         <div key={rev.id} style={{
@@ -352,8 +550,8 @@ export function ProductDetail() {
                           <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatFileSize(rev.file_size_bytes)}</div>
                           <div style={{ fontSize: 11, color: '#8E8E8E' }}>{rev.file_mime_type?.split('/')[1]?.toUpperCase() ?? '—'}</div>
                           <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-                            {new Date(rev.create_date).toLocaleDateString('th-TH')}
-                            {rev.approver && <div style={{ fontSize: 10, color: '#C2C2C2' }}>อนุมัติโดย {rev.approver.name}</div>}
+                            {new Date(rev.create_date).toLocaleDateString('en-GB')}
+                            {rev.approver && <div style={{ fontSize: 10, color: '#C2C2C2' }}>Approved by {rev.approver.name}</div>}
                           </div>
                           <div className="flex items-center justify-center">
                             <a
@@ -362,7 +560,7 @@ export function ProductDetail() {
                               rel="noreferrer"
                               className="flex items-center justify-center rounded hover:bg-chrome-100"
                               style={{ width: 28, height: 28, color: '#0C447C' }}
-                              title="ดาวน์โหลด"
+                              title="Download"
                             >
                               <Download size={14} />
                             </a>
@@ -381,18 +579,18 @@ export function ProductDetail() {
           <div style={{ maxWidth: 760 }}>
             {routingLoading ? (
               <div className="flex items-center gap-2" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-                <Loader2 size={16} className="animate-spin" /> กำลังโหลด routing...
+                <Loader2 size={16} className="animate-spin" /> Loading routing...
               </div>
             ) : routing.length === 0 ? (
               <div className="bg-white rounded-lg border border-chrome-100 flex flex-col items-center justify-center gap-3" style={{ padding: 48 }}>
                 <Layers size={32} style={{ color: '#C2C2C2' }} />
-                <div style={{ fontSize: 13, color: '#8E8E8E' }}>ยังไม่มี Routing สำหรับ {code}</div>
+                <div style={{ fontSize: 13, color: '#8E8E8E' }}>No Routing found for {code}</div>
                 <button
                   onClick={() => navigate(`/routings/${code}`)}
                   className="flex items-center gap-1.5 rounded-md text-white"
                   style={{ height: 34, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
                 >
-                  <ExternalLink size={13} /> เปิด Routing Editor
+                  <ExternalLink size={13} /> Open Routing Editor
                 </button>
               </div>
             ) : (
@@ -441,16 +639,16 @@ export function ProductDetail() {
                       <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: totalTimeMin > 0 ? '#185FA5' : '#8E8E8E' }}>
                         {totalTimeMin > 0 ? fmtTime(totalTimeMin) : '—'}
                       </div>
-                      {totalTimeMin > 0 && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(totalTimeMin)} นาที</div>}
+                      {totalTimeMin > 0 && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(totalTimeMin)} min</div>}
                     </div>
                     {stdCost && (
                       <div>
-                        <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>ต้นทุนการผลิต</div>
+                        <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Production Cost</div>
                         <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: '#1F1F1F' }}>
-                          ฿{stdCost.total_production_cost.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          ฿{stdCost.total_production_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </div>
                         <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-                          คำนวณเมื่อ {new Date(stdCost.computed_at).toLocaleDateString('th-TH')}
+                          Computed on {new Date(stdCost.computed_at).toLocaleDateString('en-GB')}
                         </div>
                       </div>
                     )}
@@ -510,9 +708,9 @@ export function ProductDetail() {
 
         {activeTab === 'Audit Log' && (
           <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20, maxWidth: 700 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>ประวัติกิจกรรม</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Activity Log</div>
             {(messages as any[]).length === 0 && (
-              <div style={{ color: '#8E8E8E', fontSize: 13 }}>ไม่มีประวัติ</div>
+              <div style={{ color: '#8E8E8E', fontSize: 13 }}>No activity yet</div>
             )}
             {(messages as any[]).map((msg: any) => (
               <div key={msg.id} className="flex gap-3 pb-4 mb-4 border-b border-chrome-50 last:border-0">
@@ -530,7 +728,7 @@ export function ProductDetail() {
                     </div>
                   )}
                   <div style={{ fontSize: 11, color: '#8E8E8E', marginTop: 4 }}>
-                    {new Date(msg.date).toLocaleString('th-TH')}
+                    {new Date(msg.date).toLocaleString('en-GB')}
                   </div>
                 </div>
               </div>
@@ -567,26 +765,26 @@ export function ProductDetail() {
             {/* Comment / Reason field */}
             <div style={{ marginBottom: 16 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>
-                {confirmAction.destructive ? 'เหตุผล *' : 'หมายเหตุ (optional)'}
+                {confirmAction.destructive ? 'Reason *' : 'Note (optional)'}
               </label>
               <textarea
                 className="w-full border rounded-md focus:outline-none"
                 style={{ height: 72, padding: '8px 10px', fontSize: 13, borderColor: actionError && confirmAction.destructive && !actionComment.trim() ? '#C8202A' : '#E0E0E0', resize: 'none' }}
                 value={actionComment}
                 onChange={e => { setActionComment(e.target.value); setActionError('') }}
-                placeholder={confirmAction.destructive ? 'กรุณาระบุเหตุผล...' : 'เพิ่มหมายเหตุ (ไม่บังคับ)...'}
+                placeholder={confirmAction.destructive ? 'Please provide a reason...' : 'Add a note (optional)...'}
               />
               {actionError && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{actionError}</div>}
             </div>
 
             <div className="flex justify-end gap-2">
               <button onClick={() => setConfirmAction(null)} className="rounded-md hover:bg-chrome-50"
-                style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>ยกเลิก</button>
+                style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>Cancel</button>
               <button
                 disabled={actioning}
                 onClick={async () => {
                   if (confirmAction.destructive && !actionComment.trim()) {
-                    setActionError('กรุณาระบุเหตุผล')
+                    setActionError('Please provide a reason')
                     return
                   }
                   try {
@@ -594,13 +792,13 @@ export function ProductDetail() {
                     setConfirmAction(null)
                     setActionComment('')
                   } catch (e: any) {
-                    setActionError(e?.response?.data?.message ?? 'เกิดข้อผิดพลาด')
+                    setActionError(e?.response?.data?.message ?? 'An error occurred')
                   }
                 }}
                 className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-60"
                 style={{ padding: '10px 18px', fontSize: 13, fontWeight: 600, background: confirmAction.bg }}>
                 {actioning ? <Loader2 size={14} className="animate-spin" /> : (confirmAction.destructive ? <XCircle size={14} /> : <Send size={14} />)}
-                ยืนยัน{confirmAction.label}
+                Confirm {confirmAction.label}
               </button>
             </div>
           </div>

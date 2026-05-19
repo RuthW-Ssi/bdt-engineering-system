@@ -2,7 +2,7 @@ import {
   Controller, Get, Post, Param, Query, Body,
   UseInterceptors, UploadedFiles,
   ParseIntPipe, UseGuards, BadRequestException,
-  Res, HttpStatus,
+  Res, HttpStatus, HttpCode,
 } from '@nestjs/common'
 import { FilesInterceptor } from '@nestjs/platform-express'
 import { ApiTags, ApiOperation, ApiConsumes, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
@@ -13,6 +13,7 @@ import { BomDiffService } from './bom-diff.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto } from './dto/dispatch.dto'
+import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
@@ -51,7 +52,7 @@ export class BomUploadController {
       },
     },
   })
-  @UseInterceptors(FilesInterceptor('files', 3, { storage: memoryStorage() }))
+  @UseInterceptors(FilesInterceptor('files', 3, { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }))
   async upload(
     @UploadedFiles() files: MulterFile[],
     @Body() body: Record<string, string | string[]>,
@@ -123,5 +124,16 @@ export class BomUploadController {
   @ApiOperation({ summary: 'Get eBOM ↔ mBOM product mapping for a dispatch' })
   getMapping(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getMapping(id)
+  }
+
+  @Post('dispatches/:id/assembly-match')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Save Standard/Custom type assignments for assemblies' })
+  saveAssemblyMatch(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SaveAssemblyMatchDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.saveAssemblyMatch(id, dto.assignments, user.sub)
   }
 }

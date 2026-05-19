@@ -317,10 +317,10 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
       {/* Legend */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 16px', background: '#F9FAFB', borderBottom: '1px solid #F0F0F0' }}>
         {([
-          { status: 'added',     label: 'เพิ่มใหม่' },
-          { status: 'removed',   label: 'ลบออก' },
-          { status: 'changed',   label: 'เปลี่ยนแปลง' },
-          { status: 'unchanged', label: 'ไม่เปลี่ยน' },
+          { status: 'added',     label: 'Added' },
+          { status: 'removed',   label: 'Removed' },
+          { status: 'changed',   label: 'Changed' },
+          { status: 'unchanged', label: 'Unchanged' },
         ] as { status: DiffStatus; label: string }[]).map(({ status, label }) => {
           const b = STATUS_BADGE[status]
           return (
@@ -343,7 +343,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
             <Search size={11} style={{ position: 'absolute', left: 6, color: '#9CA3AF', pointerEvents: 'none' }} />
             <input
               type="text"
-              placeholder="ค้นหา..."
+              placeholder="Search..."
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
               style={{
@@ -375,7 +375,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
                 borderRadius: 4, padding: '2px 7px', cursor: 'pointer',
               }}
             >
-              {action === 'collapse' ? 'ย่อทั้งหมด' : 'ขยายทั้งหมด'}
+              {action === 'collapse' ? 'Collapse all' : 'Expand all'}
             </button>
           ))}
         </div>
@@ -499,7 +499,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
 
       {visibleNodes.length === 0 && orphanParts.length === 0 && (
         <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 12, fontStyle: 'italic' }}>
-          ไม่มีการเปลี่ยนแปลง
+          No changes
         </div>
       )}
 

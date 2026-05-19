@@ -369,14 +369,14 @@ async function main() {
   for (const tpl of STANDARD_TEMPLATES) {
     await prisma.products.upsert({
       where: { product_code: tpl.product_code },
-      update: {},
+      update: { state: 'released', write_uid: adminId, write_date: new Date() },
       create: {
         product_code: tpl.product_code,
         engineering_code: tpl.engineering_code,
         name: tpl.name,
         categ_id: msCategId,
         product_type: 'standard',
-        state: 'draft',
+        state: 'released',
         sale_ok: false,
         purchase_ok: false,
         create_uid: adminId,
@@ -658,6 +658,116 @@ async function main() {
     })
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // Sprint 9: Paint materials catalog
+  // ══════════════════════════════════════════════════════════════
+
+  const paintCategory = await prisma.product_category.upsert({
+    where: { prefix_5: 'PAINT' },
+    update: {},
+    create: {
+      name: 'Paint & Coating',
+      prefix_5: 'PAINT',
+      complete_name: 'Paint & Coating',
+      active: true,
+    },
+  })
+
+  const gallon = await prisma.uom_uom.findFirst({ where: { name: 'Gallon' } })
+  if (!gallon) throw new Error('Seed: Gallon UoM not found — run earlier seed steps first')
+
+  const adminUser = await prisma.res_users.findFirstOrThrow({ where: { login: 'admin' } })
+
+  const PAINT_MATERIALS = [
+    {
+      default_code: 'PAINTPR001',
+      name: 'TOA Zinc Rich Primer EP-200',
+      description_sale: 'TOA EP-200 Zinc Rich Primer',
+      paint_type: 'primer',
+      paint_micron: 75,
+      coverage_sqm_per_gallon: 8.0,
+    },
+    {
+      default_code: 'PAINTIT001',
+      name: 'TOA Epoxy MIO Intermediate',
+      description_sale: 'TOA Epoxy MIO Intermediate Coat',
+      paint_type: 'intermediate',
+      paint_micron: 75,
+      coverage_sqm_per_gallon: 7.5,
+    },
+    {
+      default_code: 'PAINTFP001',
+      name: 'TOA Chartek Fireproof Coat',
+      description_sale: 'TOA Chartek 7 Intumescent Coating',
+      paint_type: 'fireproof',
+      paint_micron: 1500,
+      coverage_sqm_per_gallon: 1.2,
+    },
+    {
+      default_code: 'PAINTTC001',
+      name: 'TOA Polyurethane Topcoat',
+      description_sale: 'TOA PU Topcoat Finish',
+      paint_type: 'topcoat',
+      paint_micron: 50,
+      coverage_sqm_per_gallon: 10.0,
+    },
+  ]
+
+  for (const m of PAINT_MATERIALS) {
+    await prisma.materials.upsert({
+      where: { default_code: m.default_code },
+      update: {},
+      create: {
+        default_code: m.default_code,
+        name: m.name,
+        description_sale: m.description_sale,
+        categ_id: paintCategory.id,
+        uom_id: gallon.id,
+        type: 'product',
+        state: 'confirmed',
+        active: true,
+        attributes: {
+          material_type: 'paint',
+          paint_type: m.paint_type,
+          paint_micron: m.paint_micron,
+          coverage_sqm_per_gallon: m.coverage_sqm_per_gallon,
+        },
+        create_uid: adminUser.id,
+        write_uid: adminUser.id,
+      },
+    })
+  }
+
+  // Sprint 9 (Wire): Welding wire catalog
+  const weldingCategory = await prisma.product_category.findFirstOrThrow({ where: { prefix_5: 'WC000' } })
+  const kgUom = await prisma.uom_uom.findFirst({ where: { name: 'Kilograms' } })
+
+  const WELDING_WIRE_MATERIALS = [
+    { default_code: 'WIRE70S610', name: 'ER70S-6 MIG Wire 1.0mm', description_sale: 'ER70S-6 MIG Welding Wire 1.0mm', wire_diameter_mm: 1.0, kg_per_meter: 0.0062, pkg_kg: 15.0 },
+    { default_code: 'WIRE70S612', name: 'ER70S-6 MIG Wire 1.2mm', description_sale: 'ER70S-6 MIG Welding Wire 1.2mm', wire_diameter_mm: 1.2, kg_per_meter: 0.0089, pkg_kg: 15.0 },
+    { default_code: 'WIRE70S616', name: 'ER70S-6 MIG Wire 1.6mm', description_sale: 'ER70S-6 MIG Welding Wire 1.6mm', wire_diameter_mm: 1.6, kg_per_meter: 0.0158, pkg_kg: 15.0 },
+  ]
+
+  for (const m of WELDING_WIRE_MATERIALS) {
+    await prisma.materials.upsert({
+      where: { default_code: m.default_code },
+      update: {},
+      create: {
+        default_code: m.default_code,
+        name: m.name,
+        description_sale: m.description_sale,
+        categ_id: weldingCategory.id,
+        uom_id: kgUom?.id ?? 1,
+        type: 'product',
+        state: 'confirmed',
+        active: true,
+        attributes: { material_type: 'welding_wire', wire_diameter_mm: m.wire_diameter_mm, kg_per_meter: m.kg_per_meter, pkg_kg: m.pkg_kg },
+        create_uid: adminUser.id,
+        write_uid: adminUser.id,
+      },
+    })
+  }
+
   console.log('Seed completed ✓')
   console.log('  - admin user with bcrypt password (Sprint 6)')
   console.log('  - 28 mark prefixes')
@@ -669,6 +779,8 @@ async function main() {
   console.log('  - 2 mock customers (TST-001, LGT-001)')
   console.log('  - 5 bom_grade rows (Sprint 7 F2)')
   console.log(`  - ${PRODUCT_TEMPLATES.length} product_template rows (Sprint 7 F2)`)
+  console.log(`  - 1 Paint category + ${PAINT_MATERIALS.length} paint materials (Sprint 9)`)
+  console.log(`  - 1 Welding Wire category + ${WELDING_WIRE_MATERIALS.length} wire materials (Sprint 9)`)
 }
 
 main()

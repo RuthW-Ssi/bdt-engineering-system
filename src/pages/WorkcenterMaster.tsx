@@ -59,7 +59,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
   const laborValid = Math.abs(laborSum - 100) <= 0.5
 
   const handleSave = async () => {
-    if (!laborValid) { setError(`Labor mix รวมได้ ${laborSum}% (ต้องเท่ากับ 100%)`); return }
+    if (!laborValid) { setError(`Labor mix totals ${laborSum}% (must equal 100%)`); return }
     setError(null)
     try {
       await update.mutateAsync({
@@ -72,7 +72,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
       })
       onClose()
     } catch (e: any) {
-      setError(e.response?.data?.message ?? 'บันทึกไม่สำเร็จ')
+      setError(e.response?.data?.message ?? 'Save failed')
     }
   }
 
@@ -115,7 +115,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
         <div style={{ marginBottom: 20 }}>
           <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Labor Mix</span>
-            <span style={{ fontSize: 11, color: laborValid ? '#2E7D32' : '#C8202A' }}>รวม {laborSum}%</span>
+            <span style={{ fontSize: 11, color: laborValid ? '#2E7D32' : '#C8202A' }}>Total {laborSum}%</span>
           </div>
           <div className="flex flex-col gap-2">
             {(['operator', 'skilled', 'group_head'] as const).map(k => (
@@ -135,7 +135,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
 
         {/* Cost components */}
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>ต้นทุน (THB/นาที)</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>Cost (THB/min)</div>
           <div className="flex flex-col gap-2">
             {[
               { label: 'Labor', value: laborCost, setter: setLaborCost },
@@ -156,7 +156,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
             ))}
           </div>
           <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
-            รวม: <span className="font-mono" style={{ fontWeight: 600 }}>
+            Total: <span className="font-mono" style={{ fontWeight: 600 }}>
               {(laborCost + electricityCost + consumableCost + overheadCost).toFixed(4)} THB/min
             </span>
           </div>
@@ -169,7 +169,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
         )}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-md border border-chrome-200 hover:bg-chrome-50" style={{ height: 36, padding: '0 16px', fontSize: 13 }}>ยกเลิก</button>
+          <button onClick={onClose} className="rounded-md border border-chrome-200 hover:bg-chrome-50" style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Cancel</button>
           <button
             onClick={handleSave}
             disabled={update.isPending}
@@ -177,7 +177,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
             style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
           >
             {update.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-            บันทึก
+            Save
           </button>
         </div>
       </div>
@@ -236,7 +236,7 @@ function WcCard({ wc, onEdit }: { wc: WorkcenterDTO; onEdit: () => void }) {
 
       {/* Cost */}
       <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-        ต้นทุนรวม: <span className="font-mono" style={{ color: '#3A3A3A', fontWeight: 600 }}>
+        Total cost: <span className="font-mono" style={{ color: '#3A3A3A', fontWeight: 600 }}>
           {(Number(wc.labor_cost_per_min) + Number(wc.electricity_cost_per_min) + Number(wc.consumable_cost_per_min) + Number(wc.overhead_cost_per_min)).toFixed(4)} THB/min
         </span>
       </div>
@@ -246,7 +246,7 @@ function WcCard({ wc, onEdit }: { wc: WorkcenterDTO; onEdit: () => void }) {
         className="absolute flex items-center gap-1 rounded-md border border-chrome-200 hover:bg-chrome-50"
         style={{ top: 16, right: 16, height: 28, padding: '0 10px', fontSize: 11, color: '#555' }}
       >
-        <Edit2 size={11} /> แก้ไข
+        <Edit2 size={11} /> Edit
       </button>
     </div>
   )

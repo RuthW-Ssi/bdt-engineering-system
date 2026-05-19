@@ -84,7 +84,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                 </span>
               </>
             ) : (
-              <span className="text-chrome-400" style={{ fontSize: 13 }}>เลือก project...</span>
+              <span className="text-chrome-400" style={{ fontSize: 13 }}>Select project...</span>
             )}
             <ChevronDown size={14} className="text-chrome-400 shrink-0" />
           </button>
@@ -95,7 +95,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
               style={{ top: '100%', minWidth: 360, maxHeight: 360, overflowY: 'auto', padding: 4 }}
             >
               {projectItems.length === 0 ? (
-                <div style={{ padding: '12px 16px', fontSize: 13, color: '#8E8E8E' }}>ไม่พบ project</div>
+                <div style={{ padding: '12px 16px', fontSize: 13, color: '#8E8E8E' }}>No projects found</div>
               ) : (
                 projectItems.map((p, i) => {
                   const isActive = activeProject?.id === p.id
@@ -130,7 +130,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                 className="w-full flex items-center gap-2 rounded-md hover:bg-chrome-50 text-chrome-600"
                 style={{ padding: '8px 12px', fontSize: 13 }}
               >
-                <Plus size={14} />ดู project ทั้งหมด
+                <Plus size={14} />View all projects
               </button>
             </div>
           )}
@@ -142,7 +142,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
         {/* Search */}
         <button className="hidden md:flex items-center gap-2 bg-chrome-50 border border-chrome-100 rounded-md hover:bg-chrome-100 transition-colors" style={{ padding: '6px 12px', width: 200 }}>
           <Search size={14} className="text-chrome-400" />
-          <span className="text-chrome-400 flex-1 text-left" style={{ fontSize: 13 }}>ค้นหา...</span>
+          <span className="text-chrome-400 flex-1 text-left" style={{ fontSize: 13 }}>Search...</span>
           <kbd className="bg-chrome-100 text-chrome-600 rounded-sm font-mono" style={{ padding: '1px 5px', fontSize: 11 }}>⌘K</kbd>
         </button>
 
@@ -159,8 +159,8 @@ export function Topbar({ onMobileMenuToggle }: Props) {
           {bellOpen && (
             <div className="absolute right-0 mt-2 bg-white border border-chrome-100 shadow-dropdown rounded-xl overflow-hidden" style={{ top: '100%', width: 360 }}>
               <div className="flex items-center justify-between border-b border-chrome-100" style={{ padding: '12px 16px' }}>
-                <span className="text-chrome-900" style={{ fontSize: 14, fontWeight: 500 }}>การแจ้งเตือน</span>
-                <button className="text-ssi-600 hover:underline" style={{ fontSize: 12 }}>ทำเครื่องหมายว่าอ่านแล้วทั้งหมด</button>
+                <span className="text-chrome-900" style={{ fontSize: 14, fontWeight: 500 }}>Notifications</span>
+                <button className="text-ssi-600 hover:underline" style={{ fontSize: 12 }}>Mark all as read</button>
               </div>
               <div className="max-h-96 overflow-y-auto scroll-thin">
                 <button className="w-full text-left flex items-start gap-3 border-b border-chrome-100" style={{ padding: '12px 16px', background: '#FAEEDA' }}>
@@ -168,8 +168,8 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                     <Bell size={16} style={{ color: '#854F0B' }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-chrome-900 truncate" style={{ fontSize: 13, fontWeight: 500 }}><span className="font-mono">PP-00099</span> รอตรวจสอบ</div>
-                    <div className="text-chrome-600" style={{ fontSize: 12 }}>somchai.k ส่งเมื่อ 15 นาทีที่แล้ว</div>
+                    <div className="text-chrome-900 truncate" style={{ fontSize: 13, fontWeight: 500 }}><span className="font-mono">PP-00099</span> In Review</div>
+                    <div className="text-chrome-600" style={{ fontSize: 12 }}>somchai.k submitted 15 minutes ago</div>
                   </div>
                   <span className="shrink-0 mt-1.5 w-2 h-2 rounded-full" style={{ background: '#C8202A' }} />
                 </button>
@@ -178,13 +178,13 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                     <Check size={16} style={{ color: '#639922' }} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-chrome-900 truncate" style={{ fontSize: 13, fontWeight: 500 }}><span className="font-mono">SA-00120</span> อนุมัติแล้ว</div>
-                    <div className="text-chrome-600" style={{ fontSize: 12 }}>nuch.p อนุมัติเมื่อ 2 ชั่วโมงที่แล้ว</div>
+                    <div className="text-chrome-900 truncate" style={{ fontSize: 13, fontWeight: 500 }}><span className="font-mono">SA-00120</span> Approved</div>
+                    <div className="text-chrome-600" style={{ fontSize: 12 }}>nuch.p approved 2 hours ago</div>
                   </div>
                 </button>
               </div>
               <div className="border-t border-chrome-100 text-center" style={{ padding: 10 }}>
-                <button className="text-chrome-600 hover:text-chrome-900" style={{ fontSize: 12 }}>ดูทั้งหมด</button>
+                <button className="text-chrome-600 hover:text-chrome-900" style={{ fontSize: 12 }}>View all</button>
               </div>
             </div>
           )}
@@ -212,10 +212,10 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                 <span className="inline-block mt-2 rounded-full" style={{ background: '#E6F1FB', color: '#185FA5', padding: '1px 8px', fontSize: 11, fontWeight: 500 }}>{user?.role}</span>
               </div>
               <button className="w-full flex items-center gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
-                <User size={14} className="text-chrome-400" /><span className="text-chrome-900">โปรไฟล์</span>
+                <User size={14} className="text-chrome-400" /><span className="text-chrome-900">Profile</span>
               </button>
               <button className="w-full flex items-center gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
-                <Settings size={14} className="text-chrome-400" /><span className="text-chrome-900">ตั้งค่า</span>
+                <Settings size={14} className="text-chrome-400" /><span className="text-chrome-900">Settings</span>
               </button>
               <button className="w-full flex items-center justify-between gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
                 <span className="flex items-center gap-2.5">
@@ -227,7 +227,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
               <div className="h-px bg-chrome-100 my-1" />
               <button onClick={handleLogout} className="w-full flex items-center gap-2.5 rounded-md hover:bg-ssi-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
                 <LogOut size={14} style={{ color: '#C8202A' }} />
-                <span style={{ color: '#C8202A' }}>ออกจากระบบ</span>
+                <span style={{ color: '#C8202A' }}>Sign out</span>
               </button>
             </div>
           )}

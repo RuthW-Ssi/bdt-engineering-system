@@ -63,7 +63,7 @@ describe('BomMatchingService', () => {
     )
   })
 
-  it('assembly: no match → AUTO_CREATED with attributes', async () => {
+  it('assembly: no match → MATCHED_CUSTOM (auto-created) with attributes', async () => {
     const tx = makeTx()
     tx.$queryRaw
       .mockResolvedValueOnce([])               // custom miss
@@ -82,7 +82,7 @@ describe('BomMatchingService', () => {
       }),
     )
     expect(tx.bom_assembly.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ match_status: 'AUTO_CREATED' }) }),
+      expect.objectContaining({ data: expect.objectContaining({ match_status: 'MATCHED_CUSTOM' }) }),
     )
   })
 
@@ -111,11 +111,12 @@ describe('BomMatchingService', () => {
     )
   })
 
-  it('part: no match → AUTO_CREATED with profile/grade attributes', async () => {
+  it('part: no match → MATCHED_CUSTOM (auto-created) with profile/grade attributes', async () => {
     const tx = makeTx()
     tx.$queryRaw
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ next_run: 7 }])
+      .mockResolvedValueOnce([])               // name miss
+      .mockResolvedValueOnce([])               // standard index (no match)
+      .mockResolvedValueOnce([{ next_run: 7 }]) // code seq
     const rows = [{ id: 6, part_mark: 'MYSTERY-PART', profile: 'PL6x950', grade: 'HY370', weight_kg: 45.2 }]
     await svc.matchParts(tx as any, rows, 5, 1)
     expect(tx.products.create).toHaveBeenCalledWith(
@@ -126,6 +127,32 @@ describe('BomMatchingService', () => {
           attributes: expect.objectContaining({ source: 'auto_created_from_bom', profile: 'PL6x950', grade: 'HY370' }),
         }),
       }),
+    )
+  })
+
+  it('part: no name match, profile+grade matches standard → MATCHED_STANDARD', async () => {
+    const tx = makeTx()
+    tx.$queryRaw
+      .mockResolvedValueOnce([])   // name query miss
+      .mockResolvedValueOnce([{ id: 50, variant_attributes: { profile: 'PL6x1500', grade: 'SS400' } }])  // standard index hit
+    const rows = [{ id: 10, part_mark: 'TH-2p1', profile: 'PL6x1500', grade: 'SS400' }]
+    await svc.matchParts(tx as any, rows, 5, 1)
+    expect(tx.bom_part.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ product_id: 50, match_status: 'MATCHED_STANDARD' }) }),
+    )
+    expect(tx.products.create).not.toHaveBeenCalled()
+  })
+
+  it('part: profile matches but grade differs → auto-created', async () => {
+    const tx = makeTx()
+    tx.$queryRaw
+      .mockResolvedValueOnce([])   // name miss
+      .mockResolvedValueOnce([{ id: 50, variant_attributes: { profile: 'PL6x1500', grade: 'SS400' } }])  // index has SS400, row wants HY370
+      .mockResolvedValueOnce([{ next_run: 8 }])  // code seq
+    const rows = [{ id: 11, part_mark: 'TH-2p3', profile: 'PL6x1500', grade: 'HY370' }]
+    await svc.matchParts(tx as any, rows, 5, 1)
+    expect(tx.products.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ product_kind: 'part', product_type: 'custom' }) }),
     )
   })
 

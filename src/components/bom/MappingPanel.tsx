@@ -89,7 +89,7 @@ export function MappingPanel({ dispatchId }: Props) {
   if (isLoading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 24, color: '#8E8E8E', fontSize: 13 }}>
-        <Loader2 size={16} className="animate-spin" /> กำลังโหลด mapping...
+        <Loader2 size={16} className="animate-spin" /> Loading mapping...
       </div>
     )
   }
@@ -97,7 +97,7 @@ export function MappingPanel({ dispatchId }: Props) {
   if (isError || !data) {
     return (
       <div style={{ padding: 24, color: '#C8202A', fontSize: 13 }}>
-        ไม่สามารถโหลดข้อมูล mapping ได้
+        Failed to load mapping data
       </div>
     )
   }

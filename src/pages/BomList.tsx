@@ -84,7 +84,7 @@ function VersionNode({
           <span style={{ color: '#777', fontStyle: 'normal', fontWeight: 500 }}>{item.uploader.name}</span>
           {' '}
           <span>updated on </span>
-          <span>{new Date(item.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          <span>{new Date(item.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
         </div>
       </div>
     </div>
@@ -133,7 +133,7 @@ function DispatchGroup({
         )}
         <button
           onClick={() => onOpen(latestId)}
-          title="เปิดหน้า Dispatch Detail"
+          title="Open Dispatch Detail"
           style={{
             marginLeft: group.length > 1 ? 4 : 'auto',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -360,7 +360,7 @@ export function BomList() {
           onChange={e => setParam('zone_id', e.target.value)}
         >
           {zones.length === 0
-            ? <option value="" disabled>{hasProject ? 'ไม่พบ Zone' : '— เลือก Project ก่อน —'}</option>
+            ? <option value="" disabled>{hasProject ? 'No zones found' : '— Select a Project first —'}</option>
             : zones.map(z => <option key={z.id} value={z.id}>{z.code} — {z.label}</option>)
           }
         </select>
@@ -373,12 +373,12 @@ export function BomList() {
           onChange={e => setParam('sub_zone_id', e.target.value)}
         >
           {subZones.length === 0
-            ? <option value="" disabled>{!zoneFilter ? '— เลือก Zone ก่อน —' : 'ไม่พบ Sub-zone'}</option>
+            ? <option value="" disabled>{!zoneFilter ? '— Select a Zone first —' : 'No sub-zones found'}</option>
             : subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)
           }
         </select>
 
-        {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>เลือก Project ที่ header ก่อน</span>}
+        {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Select a Project from the header first</span>}
 
         <span style={{ width: 1, height: 20, background: '#E0E0E0', flexShrink: 0 }} />
 
@@ -387,7 +387,7 @@ export function BomList() {
           <Search size={13} style={{ position: 'absolute', left: 8, color: '#9CA3AF', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="ค้นหา Assembly / Part..."
+            placeholder="Search Assembly / Part..."
             value={nameFilter}
             onChange={e => setNameFilter(e.target.value)}
             style={{
@@ -417,22 +417,22 @@ export function BomList() {
       {!hasProject ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
-          <div style={{ fontSize: 14, fontWeight: 500 }}>เลือก Project ที่ header ก่อน</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>Select a Project from the header first</div>
         </div>
       ) : isLoading ? (
         <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
-          <Loader2 size={20} className="animate-spin" />กำลังโหลด...
+          <Loader2 size={20} className="animate-spin" />Loading...
         </div>
       ) : isError || allItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
-          <div style={{ fontSize: 14, fontWeight: 500 }}>ยังไม่มี BOM dispatch</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>No BOM dispatches yet</div>
           <button
             onClick={() => navigate('/bom/upload')}
             className="flex items-center gap-1.5 rounded-md text-white"
             style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', marginTop: 8 }}
           >
-            <Upload size={14} />Upload BOM แรก
+            <Upload size={14} />Upload First BOM
           </button>
         </div>
       ) : (
@@ -449,7 +449,7 @@ export function BomList() {
                   {selectedItem.sub_zone && <span style={{ color: '#8E8E8E', fontWeight: 400 }}> / {selectedItem.sub_zone.code || selectedItem.sub_zone.name}</span>}
                 </span>
                 <span style={{ fontSize: 11, color: '#8E8E8E' }}>
-                  {new Date(selectedItem.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {new Date(selectedItem.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                 </span>
                 {term && (
                   <span style={{ marginLeft: 'auto', fontSize: 11, color: '#185FA5', fontWeight: 500 }}>
@@ -462,7 +462,7 @@ export function BomList() {
             {/* Tree content */}
             {detailLoading ? (
               <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
-                <Loader2 size={18} className="animate-spin" />กำลังโหลด tree...
+                <Loader2 size={18} className="animate-spin" />Loading tree...
               </div>
             ) : (
               <BomTreeView

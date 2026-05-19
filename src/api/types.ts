@@ -176,6 +176,7 @@ export interface MarkPrefixDTO {
 
 export interface CreateStandardProductPayload {
   product_type: 'standard'
+  product_kind?: 'part' | 'assembly'
   name: string
   categ_id: number
   engineering_code?: string
@@ -210,12 +211,12 @@ export type CreateProductPayload = CreateStandardProductPayload | CreateCustomPr
 
 // Product state → UI display
 export const PRODUCT_STATE_LABELS: Record<ProductState, string> = {
-  draft:      'ร่าง',
-  in_design:  'ออกแบบ',
-  in_review:  'รอตรวจสอบ',
-  approved:   'อนุมัติ',
-  released:   'เผยแพร่',
-  obsolete:   'ยกเลิก',
+  draft:      'Draft',
+  in_design:  'In Design',
+  in_review:  'In Review',
+  approved:   'Approved',
+  released:   'Released',
+  obsolete:   'Obsolete',
 }
 
 export const PRODUCT_STATE_COLORS: Record<ProductState, { bg: string; text: string }> = {

@@ -64,6 +64,7 @@ export class ProductsService {
         name: dto.name,
         categ_id: dto.categ_id,
         product_type: 'standard',
+        product_kind: dto.product_kind ?? 'part',
         odoo_type: dto.odoo_type ?? 'product',
         sale_ok: dto.sale_ok,
         purchase_ok: dto.purchase_ok,

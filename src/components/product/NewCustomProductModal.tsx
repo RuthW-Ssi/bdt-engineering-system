@@ -55,17 +55,17 @@ export function NewCustomProductModal({ onClose }: Props) {
         && p.mark_number === form.mark_number
         && (form.erection_zone_id ? p.erection_zone_id === parseInt(form.erection_zone_id) : !p.erection_zone_id)
       )
-      setDupWarning(dup ? `Mark ซ้ำกับ ${dup.product_code} (${dup.name})` : '')
+      setDupWarning(dup ? `Duplicate mark — conflicts with ${dup.product_code} (${dup.name})` : '')
     } catch { /* ignore */ }
   }
 
   const validate = () => {
     const errs: Record<string, string> = {}
-    if (!form.categ_id) errs.categ_id = 'กรุณาเลือกกลุ่ม'
-    if (!form.name.trim()) errs.name = 'กรุณาระบุชื่อ'
-    if (!form.project_id) errs.project_id = 'กรุณาเลือก Project'
-    if (!form.mark_prefix) errs.mark_prefix = 'กรุณาเลือก Mark Prefix'
-    if (!form.mark_number.trim()) errs.mark_number = 'กรุณาระบุ Mark Number'
+    if (!form.categ_id) errs.categ_id = 'Please select a category'
+    if (!form.name.trim()) errs.name = 'Please enter a name'
+    if (!form.project_id) errs.project_id = 'Please select a Project'
+    if (!form.mark_prefix) errs.mark_prefix = 'Please select a Mark Prefix'
+    if (!form.mark_number.trim()) errs.mark_number = 'Please enter a Mark Number'
     setErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -87,9 +87,9 @@ export function NewCustomProductModal({ onClose }: Props) {
 
     try {
       const result = await create(payload)
-      setSuccess(`สร้างสำเร็จ: ${result.product_code}`)
+      setSuccess(`Created successfully: ${result.product_code}`)
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'เกิดข้อผิดพลาด'
+      const msg = err?.response?.data?.message ?? 'An error occurred'
       setErrors(prev => ({ ...prev, _form: typeof msg === 'string' ? msg : JSON.stringify(msg) }))
     }
   }
@@ -101,7 +101,7 @@ export function NewCustomProductModal({ onClose }: Props) {
           <div className="flex flex-col items-center gap-4">
             <div style={{ fontSize: 32 }}>✓</div>
             <div style={{ fontSize: 16, fontWeight: 600, color: '#27500A' }}>{success}</div>
-            <button onClick={onClose} className="rounded-md text-white" style={{ background: '#C8202A', padding: '8px 24px', fontWeight: 600 }}>ปิด</button>
+            <button onClick={onClose} className="rounded-md text-white" style={{ background: '#C8202A', padding: '8px 24px', fontWeight: 600 }}>Close</button>
           </div>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function NewCustomProductModal({ onClose }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
       <div className="bg-white rounded-xl shadow-xl flex flex-col" style={{ width: 580, maxHeight: '90vh', overflow: 'hidden' }}>
         <div className="flex items-center justify-between px-6" style={{ height: 56, borderBottom: '1px solid #E0E0E0', flexShrink: 0 }}>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>เพิ่ม Custom Product</span>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Add Custom Product</span>
           <button onClick={onClose} className="rounded hover:bg-chrome-50" style={{ padding: 4 }}><X size={18} /></button>
         </div>
 
@@ -127,7 +127,7 @@ export function NewCustomProductModal({ onClose }: Props) {
               <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Project *</label>
               <select className="w-full border rounded-md" style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.project_id ? '#C8202A' : '#E0E0E0' }}
                 value={form.project_id} onChange={e => { setField('project_id', e.target.value); setField('erection_zone_id', '') }}>
-                <option value="">— เลือก Project —</option>
+                <option value="">— Select Project —</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)}
               </select>
               {errors.project_id && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{errors.project_id}</div>}
@@ -139,7 +139,7 @@ export function NewCustomProductModal({ onClose }: Props) {
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Zone (Erection Area)</label>
                 <select className="w-full border rounded-md" style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }}
                   value={form.erection_zone_id} onChange={e => setField('erection_zone_id', e.target.value)}>
-                  <option value="">— ไม่ระบุ Zone —</option>
+                  <option value="">— No Zone —</option>
                   {zones.map(z => <option key={z.id} value={z.id}>{z.code} — {z.label}</option>)}
                 </select>
               </div>
@@ -170,10 +170,10 @@ export function NewCustomProductModal({ onClose }: Props) {
 
             {/* Category */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>กลุ่ม (Category) *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Category *</label>
               <select className="w-full border rounded-md" style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.categ_id ? '#C8202A' : '#E0E0E0' }}
                 value={form.categ_id} onChange={e => setField('categ_id', e.target.value)} disabled={loadingCats}>
-                <option value="">— เลือกกลุ่ม —</option>
+                <option value="">— Select category —</option>
                 {categories.map(c => <option key={c.id} value={c.id}>{c.complete_name ?? c.name}</option>)}
               </select>
               {errors.categ_id && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{errors.categ_id}</div>}
@@ -181,7 +181,7 @@ export function NewCustomProductModal({ onClose }: Props) {
 
             {/* Name */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>ชื่อ Product *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Product Name *</label>
               <input className="w-full border rounded-md" style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.name ? '#C8202A' : '#E0E0E0' }}
                 value={form.name} onChange={e => setField('name', e.target.value)} placeholder="Column C-1 Warehouse" />
               {errors.name && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{errors.name}</div>}
@@ -196,11 +196,11 @@ export function NewCustomProductModal({ onClose }: Props) {
           </div>
 
           <div className="flex items-center justify-end gap-3 px-6" style={{ height: 60, borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
-            <button type="button" onClick={onClose} className="rounded-md border" style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, borderColor: '#E0E0E0' }}>ยกเลิก</button>
+            <button type="button" onClick={onClose} className="rounded-md border" style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, borderColor: '#E0E0E0' }}>Cancel</button>
             <button type="submit" disabled={isPending} className="flex items-center gap-2 rounded-md text-white disabled:opacity-60"
               style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#B45309' }}>
               {isPending && <Loader2 size={14} className="animate-spin" />}
-              สร้าง Custom Product
+              Create Custom Product
             </button>
           </div>
         </form>

@@ -20,7 +20,7 @@ class PageErrorBoundary extends Component<
       return (
         <div className="flex flex-col items-center justify-center gap-3" style={{ height: 'calc(100vh - 56px)', color: '#C8202A' }}>
           <AlertCircle size={32} />
-          <div style={{ fontSize: 14, fontWeight: 600 }}>เกิดข้อผิดพลาดในการแสดงผล</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>An error occurred while rendering</div>
           <pre style={{ fontSize: 12, color: '#555', background: '#F5F5F5', padding: '8px 14px', borderRadius: 6, maxWidth: 600, overflow: 'auto' }}>
             {this.state.error.message}
           </pre>
@@ -28,7 +28,7 @@ class PageErrorBoundary extends Component<
             onClick={() => this.setState({ error: null })}
             style={{ padding: '6px 16px', fontSize: 12, background: '#F5F5F5', border: '1px solid #C2C2C2', borderRadius: 6, cursor: 'pointer' }}
           >
-            ลองใหม่
+            Retry
           </button>
         </div>
       )

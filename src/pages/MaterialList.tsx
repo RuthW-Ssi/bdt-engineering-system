@@ -64,12 +64,12 @@ export function MaterialList() {
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Materials</span>
           <span style={{ color: '#C2C2C2' }}>·</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {isLoading ? '...' : `${total} รายการ`}
+            {isLoading ? '...' : `${total} items`}
           </span>
         </div>
         <button onClick={() => setShowRegister(true)} className="flex items-center gap-1.5 rounded-md text-white"
           style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}>
-          <Plus size={14} />เพิ่มวัสดุ
+          <Plus size={14} />Add Material
         </button>
       </div>
 
@@ -80,19 +80,19 @@ export function MaterialList() {
             <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
             <input className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
               style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 240 }}
-              placeholder="ค้นหารหัส / ชื่อ..."
+              placeholder="Search code / name..."
               value={searchQ} onChange={e => setParam('q', e.target.value)} />
           </div>
           {hasFilters && (
-            <button onClick={() => { setParam('state', ''); setParam('q', '') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>ล้างตัวกรอง</button>
+            <button onClick={() => { setParam('state', ''); setParam('q', '') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>Clear filters</button>
           )}
           <span className="flex-1" />
-          {!isLoading && <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {pageParam} / {totalPages} · {total} รายการ</span>}
+          {!isLoading && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Page {pageParam} / {totalPages} · {total} items</span>}
         </div>
 
         {/* Status chips */}
         <div className="flex items-center gap-1.5 flex-wrap" style={{ padding: '8px 24px' }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>สถานะ:</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>Status:</span>
           {STATUSES.map(st => {
             const m = PRODUCT_STATUS_META[st]
             const active = stateFilter === st
@@ -114,30 +114,30 @@ export function MaterialList() {
       {/* Table — only this area scrolls */}
       <div className="bg-white flex-1" style={{ overflowY: 'auto', minHeight: 0 }}>
         <div style={{ position: 'sticky', top: 0, zIndex: 10, display: 'grid', gridTemplateColumns: '140px 1fr 180px 100px 120px 48px', alignItems: 'center', padding: '0 12px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>รหัสชิ้นงาน</div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>ชื่อชิ้นงาน</div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>กลุ่มวัสดุ</div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>สถานะ</div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>อัปเดต</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Material Code</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Material Name</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Material Category</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Status</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Updated</div>
           <div />
         </div>
 
         {isLoading && (
           <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
-            <Loader2 size={20} className="animate-spin" />กำลังโหลดข้อมูล...
+            <Loader2 size={20} className="animate-spin" />Loading data...
           </div>
         )}
 
         {isError && !isLoading && (
           <div className="flex flex-col items-center justify-center gap-2" style={{ padding: 64, color: '#C8202A', fontSize: 13 }}>
-            ไม่สามารถโหลดข้อมูลได้ — ตรวจสอบว่า backend กำลังทำงาน
+            Unable to load data — verify that the backend is running
           </div>
         )}
 
         {!isLoading && !isError && items.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
             <Search size={32} style={{ opacity: 0.3 }} />
-            <div>ไม่พบวัสดุที่ตรงกับเงื่อนไข</div>
+            <div>No materials match the current filters</div>
           </div>
         )}
 
@@ -156,7 +156,7 @@ export function MaterialList() {
             <div style={{ fontSize: 12, color: '#555' }}>{p.category?.name ?? `categ #${p.categ_id}`}</div>
             <div><ProductStatusPill status={toUiStatus(p.state)} /></div>
             <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-              <div>{new Date(p.write_date).toLocaleDateString('th-TH')}</div>
+              <div>{new Date(p.write_date).toLocaleDateString('en-GB')}</div>
               <div style={{ fontSize: 11, color: '#C2C2C2' }}>{p.write_user?.name ?? '-'}</div>
             </div>
             <div className="flex items-center justify-center" onClick={e => e.stopPropagation()}>
@@ -171,7 +171,7 @@ export function MaterialList() {
       {/* Pagination — always at bottom */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-chrome-100 px-6 bg-white" style={{ height: 44, flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {pageParam} / {totalPages} · {total} รายการ</span>
+          <span style={{ fontSize: 12, color: '#8E8E8E' }}>Page {pageParam} / {totalPages} · {total} items</span>
           <div className="flex items-center gap-1">
             <button onClick={() => setParam('page', String(Math.max(1, pageParam - 1)))} disabled={pageParam === 1}
               className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-40" style={{ width: 32, height: 32 }}>
@@ -193,7 +193,7 @@ export function MaterialList() {
 
       {/* Status bar — always at bottom */}
       <div className="flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ height: 32, fontSize: 12, color: '#8E8E8E', flexShrink: 0 }}>
-        {isLoading ? 'กำลังโหลด...' : `แสดง ${items.length} จาก ${total} รายการ`}
+        {isLoading ? 'Loading...' : `Showing ${items.length} of ${total} items`}
       </div>
 
       {showRegister && <MaterialRegisterModal onClose={() => setShowRegister(false)} />}

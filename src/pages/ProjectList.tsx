@@ -39,7 +39,7 @@ function StatePill({ state }: { state: string }) {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('th-TH', { day: '2-digit', month: 'short', year: '2-digit' })
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
 function ProjectCard({ p, isActive, onClick, onDoubleClick }: { p: ProjectDTO; isActive: boolean; onClick: () => void; onDoubleClick: () => void }) {
@@ -87,7 +87,7 @@ function ProjectCard({ p, isActive, onClick, onDoubleClick }: { p: ProjectDTO; i
               <span>{p.customer.name}</span>
             </span>
           ) : (
-            <span style={{ color: '#C2C2C2' }}>ไม่ระบุ customer</span>
+            <span style={{ color: '#C2C2C2' }}>No customer</span>
           )}
         </div>
       </div>
@@ -160,7 +160,7 @@ export function ProjectList() {
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Projects</span>
           <span style={{ color: '#C2C2C2' }}>·</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {isLoading ? '...' : `${data?.total ?? 0} รายการ`}
+            {isLoading ? '...' : `${data?.total ?? 0} items`}
           </span>
         </div>
         <button
@@ -168,7 +168,7 @@ export function ProjectList() {
           className="flex items-center gap-1.5 rounded-md text-white"
           style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
         >
-          <Plus size={14} />สร้าง Project
+          <Plus size={14} />New Project
         </button>
       </div>
 
@@ -179,7 +179,7 @@ export function ProjectList() {
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาโปรเจกต์..."
+            placeholder="Search projects..."
             style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', width: 240 }}
           />
         </div>
@@ -188,7 +188,7 @@ export function ProjectList() {
           onChange={e => setStateFilter(e.target.value)}
           style={{ height: 32, padding: '0 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', color: stateFilter ? '#1A1A1A' : '#8E8E8E' }}
         >
-          <option value="">ทุกสถานะ</option>
+          <option value="">All Statuses</option>
           {ALL_STATES.map(s => (
             <option key={s} value={s}>{STATE_LABELS[s]}</option>
           ))}
@@ -203,7 +203,7 @@ export function ProjectList() {
           </div>
         ) : items.length === 0 ? (
           <div className="flex items-center justify-center" style={{ height: 200, color: '#8E8E8E', fontSize: 14 }}>
-            ไม่พบข้อมูล
+            No projects found
           </div>
         ) : (
           items.map(p => (
@@ -222,7 +222,7 @@ export function ProjectList() {
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '28px 32px', width: 460, boxShadow: '0 4px 24px rgba(0,0,0,0.16)' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>สร้าง Project ใหม่</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>Create New Project</h2>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -230,21 +230,21 @@ export function ProjectList() {
                 <input
                   value={form.project_code ?? ''}
                   onChange={e => setForm(f => ({ ...f, project_code: e.target.value }))}
-                  placeholder="เช่น 0X203"
+                  placeholder="e.g. 0X203"
                   style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${errBorder('project_code')}`, borderRadius: 4, fontFamily: 'monospace' }}
                 />
-                {touched && !form.project_code?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>กรุณากรอก Project Code</span>}
+                {touched && !form.project_code?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a Project Code</span>}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>ชื่อโปรเจกต์ <span style={{ color: '#C8202A' }}>*</span></label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Project Name <span style={{ color: '#C8202A' }}>*</span></label>
                 <input
                   value={form.name ?? ''}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="เช่น อาคารโรงงาน Phase 2"
+                  placeholder="e.g. Factory Building Phase 2"
                   style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${errBorder('name')}`, borderRadius: 4 }}
                 />
-                {touched && !form.name?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>กรุณากรอกชื่อโปรเจกต์</span>}
+                {touched && !form.name?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a project name</span>}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -254,12 +254,12 @@ export function ProjectList() {
                   onChange={e => setForm(f => ({ ...f, customer_id: e.target.value ? Number(e.target.value) : undefined }))}
                   style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${errBorder('customer_id')}`, borderRadius: 4, background: '#fff', color: form.customer_id ? '#1A1A1A' : '#8E8E8E' }}
                 >
-                  <option value="">-- เลือก Customer --</option>
+                  <option value="">-- Select Customer --</option>
                   {customers.map(c => (
                     <option key={c.id} value={c.id}>{c.ref ? `${c.ref} · ` : ''}{c.name}</option>
                   ))}
                 </select>
-                {touched && !form.customer_id && <span style={{ fontSize: 11, color: '#C8202A' }}>กรุณาเลือก Customer</span>}
+                {touched && !form.customer_id && <span style={{ fontSize: 11, color: '#C8202A' }}>Please select a Customer</span>}
               </div>
             </div>
 
@@ -268,14 +268,14 @@ export function ProjectList() {
                 onClick={() => setModalOpen(false)}
                 style={{ padding: '7px 16px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', cursor: 'pointer' }}
               >
-                ยกเลิก
+                Cancel
               </button>
               <button
                 onClick={handleSubmit}
                 disabled={createMut.isPending}
                 style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: createMut.isPending ? '#C2C2C2' : '#C8202A', color: '#fff', cursor: createMut.isPending ? 'not-allowed' : 'pointer' }}
               >
-                {createMut.isPending ? 'กำลังสร้าง...' : 'สร้าง Project'}
+                {createMut.isPending ? 'Creating...' : 'Create Project'}
               </button>
             </div>
           </div>

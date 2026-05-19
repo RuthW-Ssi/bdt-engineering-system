@@ -21,20 +21,34 @@ export interface DispatchSummaryDto {
 }
 
 export interface AssemblyPartDto {
+  id: number
   part_mark: string
   description: string | null
   profile: string | null
   grade: string | null
+  length_mm: number | null
   part_qty: number
   unit_weight_kg: number | null
+  match_status: string | null
+}
+
+export interface AssemblyProductDto {
+  id: number
+  product_code: string
+  product_type: string
+  name: string
 }
 
 export interface AssemblyDto {
+  id: number
   assembly_mark: string
   name: string | null
   assembly_qty: number
   total_weight_kg: number | null
+  surface_area_m2: number | null
   parts: AssemblyPartDto[]
+  match_status: string | null
+  product: AssemblyProductDto | null
 }
 
 export interface DispatchDetailDto extends DispatchSummaryDto {
@@ -126,7 +140,7 @@ export interface DispatchDiffDto {
 }
 
 // ── Sprint 8: mapping types ────────────────────────────────────
-export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM' | 'AUTO_CREATED'
+export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM'
 
 export interface MappedRowDto {
   id: number
@@ -196,5 +210,12 @@ export const dispatchesApi = {
           : undefined,
       })
       .then(r => r.data)
+  },
+
+  saveAssemblyMatch(
+    dispatchId: number,
+    assignments: { assembly_id: number; match_status: MatchStatus | null; product_id?: number | null }[],
+  ): Promise<void> {
+    return apiClient.post(`/dispatches/${dispatchId}/assembly-match`, { assignments }).then(() => void 0)
   },
 }

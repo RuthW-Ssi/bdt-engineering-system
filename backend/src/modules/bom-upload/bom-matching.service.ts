@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { parseProfile } from '../../libs/products/profile-parser'
 import type { Prisma } from '@prisma/client'
 
 type Tx = Omit<PrismaService, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
@@ -77,7 +78,7 @@ export class BomMatchingService {
       for (const row of unmatchedRows) {
         const markKey = normalize(row.assembly_mark)
         if (seenMarks.has(markKey)) {
-          rowResults.set(row.id, { product_id: seenMarks.get(markKey)!, match_status: 'AUTO_CREATED' })
+          rowResults.set(row.id, { product_id: seenMarks.get(markKey)!, match_status: 'MATCHED_CUSTOM' })
           continue
         }
         const code = await this.generateCodeWithTx(tx)
@@ -99,7 +100,7 @@ export class BomMatchingService {
           },
         })
         seenMarks.set(markKey, created.id)
-        rowResults.set(row.id, { product_id: created.id, match_status: 'AUTO_CREATED' })
+        rowResults.set(row.id, { product_id: created.id, match_status: 'MATCHED_CUSTOM' })
       }
     }
 
@@ -165,13 +166,33 @@ export class BomMatchingService {
       }
     }
 
+    if (unmatchedRows.length && unmatchedRows.some(r => r.profile)) {
+      const stdIndex = await this.buildStandardPartIndex(tx)
+      const stillUnmatched: typeof unmatchedRows = []
+      for (const row of unmatchedRows) {
+        if (row.profile) {
+          const parsed = parseProfile(row.profile)
+          const key = parsed.profile
+            ? `${parsed.profile}:${(row.grade ?? '').toUpperCase()}`
+            : null
+          if (key && stdIndex.has(key)) {
+            rowResults.set(row.id, { product_id: stdIndex.get(key)!, match_status: 'MATCHED_STANDARD' })
+            continue
+          }
+        }
+        stillUnmatched.push(row)
+      }
+      unmatchedRows.length = 0
+      unmatchedRows.push(...stillUnmatched)
+    }
+
     if (unmatchedRows.length) {
       const categId = await this.getDefaultCategId(tx)
       const seenMarks = new Map<string, number>()
       for (const row of unmatchedRows) {
         const markKey = normalize(row.part_mark)
         if (seenMarks.has(markKey)) {
-          rowResults.set(row.id, { product_id: seenMarks.get(markKey)!, match_status: 'AUTO_CREATED' })
+          rowResults.set(row.id, { product_id: seenMarks.get(markKey)!, match_status: 'MATCHED_CUSTOM' })
           continue
         }
         const code = await this.generateCodeWithTx(tx)
@@ -195,7 +216,7 @@ export class BomMatchingService {
           },
         })
         seenMarks.set(markKey, created.id)
-        rowResults.set(row.id, { product_id: created.id, match_status: 'AUTO_CREATED' })
+        rowResults.set(row.id, { product_id: created.id, match_status: 'MATCHED_CUSTOM' })
       }
     }
 
@@ -212,6 +233,24 @@ export class BomMatchingService {
   }
 
   // ─── Helpers ──────────────────────────────────────────────────
+
+  private async buildStandardPartIndex(tx: Tx): Promise<Map<string, number>> {
+    const rows = await tx.$queryRaw<Array<{ id: number; variant_attributes: unknown }>>`
+      SELECT id, variant_attributes FROM products
+      WHERE product_type = 'standard'
+        AND product_kind = 'part'
+        AND active = true
+        AND variant_attributes IS NOT NULL
+    `
+    const map = new Map<string, number>()
+    for (const r of rows) {
+      const va = r.variant_attributes as Record<string, unknown>
+      if (va?.profile && va?.grade) {
+        map.set(`${va.profile}:${String(va.grade).toUpperCase()}`, r.id)
+      }
+    }
+    return map
+  }
 
   private async generateCodeWithTx(tx: Tx): Promise<string> {
     const seq = await tx.$queryRaw<{ next_run: number }[]>`

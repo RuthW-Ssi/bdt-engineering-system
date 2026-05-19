@@ -43,7 +43,7 @@ export function BomUpload() {
       // Check duplicate type against existing valid entries
       const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
       if (detectedType && existingTypes.includes(detectedType)) {
-        newEntries.push({ file, detectedType, error: `มีไฟล์ประเภท "${detectedType}" อยู่แล้ว` })
+        newEntries.push({ file, detectedType, error: `A file of type "${detectedType}" already exists` })
       } else {
         newEntries.push({ file, detectedType })
       }
@@ -68,7 +68,7 @@ export function BomUpload() {
       // Check duplicate
       const otherTypes = prev.filter((_, j) => j !== i && !prev[j].error).map(e => e.detectedType)
       if (otherTypes.includes(type)) {
-        return { ...entry, detectedType: type, error: `มีไฟล์ประเภท "${type}" อยู่แล้ว` }
+        return { ...entry, detectedType: type, error: `A file of type "${type}" already exists` }
       }
       return { ...entry, detectedType: type, error: undefined }
     }))
@@ -92,13 +92,13 @@ export function BomUpload() {
     })
 
     try {
-      await uploadMutation.mutateAsync({
+      const res = await uploadMutation.mutateAsync({
         formData,
         onProgress: pct => setProgress(pct),
       })
-      navigate('/bom')
+      navigate(`/bom/dispatch/${res.id}/paint`)
     } catch {
-      setSubmitError('อัพโหลดไม่สำเร็จ — ตรวจสอบว่า backend พร้อมใช้งาน (Batch 2)')
+      setSubmitError('Upload failed — verify that the backend is ready (Batch 2)')
       setProgress(null)
     }
   }
@@ -130,7 +130,7 @@ export function BomUpload() {
             borderRadius: 6, background: '#F5F5F5', color: '#8E8E8E',
             display: 'flex', alignItems: 'center',
           }}>
-            {activeProject ? `${activeProject.project_code} — ${activeProject.name}` : 'ยังไม่ได้เลือก Project'}
+            {activeProject ? `${activeProject.project_code} — ${activeProject.name}` : 'No project selected'}
           </div>
         </div>
 
@@ -149,7 +149,7 @@ export function BomUpload() {
             value={zoneId}
             onChange={e => { setZoneId(e.target.value); setSubZoneId('') }}
           >
-            <option value="">เลือก Zone...</option>
+            <option value="">Select Zone...</option>
             {zones.map(z => (
               <option key={z.id} value={z.id}>{z.code} — {z.label}</option>
             ))}
@@ -161,7 +161,7 @@ export function BomUpload() {
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
             Sub-zone
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              {subZones.length === 0 && zoneId ? '(zone นี้ไม่มี sub-zone)' : '(ไม่บังคับ)'}
+              {subZones.length === 0 && zoneId ? '(this zone has no sub-zones)' : '(optional)'}
             </span>
           </label>
           <select
@@ -175,7 +175,7 @@ export function BomUpload() {
             value={subZoneId}
             onChange={e => setSubZoneId(e.target.value)}
           >
-            <option value="">(ไม่ระบุ)</option>
+            <option value="">(None)</option>
             {subZones.map(sz => (
               <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>
             ))}
@@ -185,7 +185,7 @@ export function BomUpload() {
         {/* Dropzone */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            ไฟล์ BOM <span style={{ color: '#C8202A' }}>*</span>
+            BOM Files <span style={{ color: '#C8202A' }}>*</span>
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
               Assembly List, Assembly Part List, Part List
             </span>
@@ -240,7 +240,7 @@ export function BomUpload() {
             onClick={() => navigate('/bom')}
             style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}
           >
-            ยกเลิก
+            Cancel
           </button>
           <button
             onClick={handleSubmit}
@@ -249,7 +249,7 @@ export function BomUpload() {
             style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
           >
             {uploadMutation.isPending
-              ? <><Loader2 size={14} className="animate-spin" />กำลังอัพโหลด...</>
+              ? <><Loader2 size={14} className="animate-spin" />Uploading...</>
               : <><Upload size={14} />Upload ({validFiles.length})</>}
           </button>
         </div>

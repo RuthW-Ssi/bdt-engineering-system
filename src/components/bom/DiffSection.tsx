@@ -115,7 +115,7 @@ export function DiffSection<T>({ title, rows, columns }: Props<T>) {
             {visible.length === 0 && (
               <tr>
                 <td colSpan={columns.length + 1} style={{ padding: '16px 8px', textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic', fontSize: 12 }}>
-                  ไม่มีการเปลี่ยนแปลง
+                  No changes
                 </td>
               </tr>
             )}

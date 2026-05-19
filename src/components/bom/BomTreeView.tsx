@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
 import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
+import { MatchStatusBadge } from './MatchStatusBadge'
+import type { MatchStatus } from '../../api/dispatches'
 
 interface Props {
   assemblies: AssemblyDto[]
@@ -68,6 +70,9 @@ function AssemblyRow({
       <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', minWidth: 110, flexShrink: 0 }}>
         {asm.assembly_mark}
       </span>
+
+      {/* Match status */}
+      {asm.match_status && <MatchStatusBadge status={asm.match_status as MatchStatus} size="xs" />}
 
       {/* Name */}
       {asm.name && (
@@ -140,6 +145,9 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
         {part.part_mark}
       </span>
 
+      {/* Match status */}
+      {part.match_status && <MatchStatusBadge status={part.match_status as MatchStatus} size="xs" />}
+
       {/* Description */}
       <span className="flex-1 truncate" style={{ fontSize: 12, color: '#555' }}>
         {part.description ?? ''}
@@ -202,7 +210,7 @@ function AssemblyNode({ asm, searchTerm }: { asm: AssemblyDto; searchTerm?: stri
           ? asm.parts.map((p, i) => <PartRow key={i} part={p} searchTerm={searchTerm} />)
           : (
             <div style={{ marginLeft: 38, padding: '6px 10px', fontSize: 12, color: '#C2C2C2', fontStyle: 'italic' }}>
-              ยังไม่มี parts ใน assembly นี้
+              No parts in this assembly yet
             </div>
           )
       )}
@@ -219,7 +227,7 @@ export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts,
         <div style={{ fontSize: 14, fontWeight: 500 }}>
           {assemblyCount != null
             ? `${assemblyCount} assemblies · ${partCount ?? 0} parts`
-            : 'ยังไม่มีข้อมูล assembly'}
+            : 'No assembly data yet'}
         </div>
       </div>
     )
@@ -232,7 +240,7 @@ export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts,
       {orphanParts && orphanParts.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', marginBottom: 6, padding: '0 2px' }}>
-            PARTS ไม่ได้ระบุ ASSEMBLY ({orphanParts.length})
+            PARTS WITHOUT ASSEMBLY ({orphanParts.length})
           </div>
           {orphanParts.map((p, i) => <PartRow key={i} part={p} searchTerm={searchTerm} />)}
         </div>
