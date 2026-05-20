@@ -146,7 +146,7 @@ function ProductCodeSelect({ productType, value, onChange }: {
   value: number | null
   onChange: (id: number | null) => void
 }) {
-  const { data, isLoading } = useProducts({ product_type: productType, state: 'released', limit: 100 })
+  const { data, isLoading } = useProducts({ product_type: productType, limit: 100 })
   const items = data?.items ?? []
   return (
     <select
@@ -163,15 +163,13 @@ function ProductCodeSelect({ productType, value, onChange }: {
     >
       <option value="">— Select —</option>
       {items.map(p => (
-        <option key={p.id} value={p.id}>{p.product_code}</option>
+        <option key={p.id} value={p.id}>{p.product_code} — {p.name}</option>
       ))}
     </select>
   )
 }
 
-function LockedStandardBadge({ value }: { value: number | null }) {
-  const { data } = useProducts({ product_type: 'standard', state: 'released', limit: 100 })
-  const product = value != null ? (data?.items ?? []).find(p => p.id === value) : null
+function LockedStandardBadge({ productCode }: { productCode: string | null }) {
   return (
     <div onClick={e => e.stopPropagation()} style={{
       marginTop: 3, padding: '2px 6px', fontSize: 10, fontWeight: 600,
@@ -180,7 +178,7 @@ function LockedStandardBadge({ value }: { value: number | null }) {
       display: 'flex', alignItems: 'center', gap: 4,
     }}>
       <span style={{ fontSize: 9, opacity: 0.6 }}>🔒</span>
-      {product?.product_code ?? '—'}
+      {productCode ?? '—'}
     </div>
   )
 }
@@ -239,10 +237,11 @@ function PartRows({ parts }: { parts: AssemblyPartDto[] }) {
   )
 }
 
-function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProductChange }: {
+function TypeDropdown({ asmId, matchState, productState, productCode, onMatchChange, onProductChange }: {
   asmId: number
   matchState: Map<number, MatchStatus | null>
   productState: Map<number, number | null>
+  productCode: string | null
   onMatchChange: (id: number, v: MatchStatus | null) => void
   onProductChange: (id: number, productId: number | null) => void
 }) {
@@ -252,7 +251,7 @@ function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProduc
 
   const handleTypeChange = (v: MatchStatus | null) => {
     onMatchChange(asmId, v)
-    if (!v) onProductChange(asmId, null)  // clear product when type cleared
+    if (!v) onProductChange(asmId, null)
   }
 
   const isStandard = current === 'MATCHED_STANDARD'
@@ -261,7 +260,7 @@ function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProduc
     <div>
       <select
         value={current ?? ''}
-        disabled={isStandard}
+        disabled={isStandard && productId != null}
         onChange={e => handleTypeChange((e.target.value as MatchStatus) || null)}
         onClick={e => e.stopPropagation()}
         style={{
@@ -269,13 +268,16 @@ function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProduc
           border: '1px solid #D9D9D9', borderRadius: 3,
           background: current ? MATCH_BG[current] ?? '#fff' : '#fff',
           color: opt?.color ?? '#8E8E8E', fontWeight: current ? 600 : 400,
-          cursor: isStandard ? 'not-allowed' : undefined,
-          opacity: isStandard ? 0.85 : 1,
+          cursor: (isStandard && productId != null) ? 'not-allowed' : undefined,
+          opacity: (isStandard && productId != null) ? 0.85 : 1,
         }}
       >
         {MATCH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
-      {isStandard && <LockedStandardBadge value={productId} />}
+      {isStandard && productId != null && <LockedStandardBadge productCode={productCode} />}
+      {isStandard && productId == null && (
+        <ProductCodeSelect productType="standard" value={productId} onChange={id => onProductChange(asmId, id)} />
+      )}
       {current === 'MATCHED_CUSTOM' && (
         <ProductCodeSelect productType="custom" value={productId} onChange={id => onProductChange(asmId, id)} />
       )}
@@ -385,6 +387,7 @@ export function MbomConfigTable({
                     asmId={asm.id}
                     matchState={matchState}
                     productState={productState}
+                    productCode={asm.product?.product_code ?? null}
                     onMatchChange={onMatchChange}
                     onProductChange={onProductChange}
                   />
