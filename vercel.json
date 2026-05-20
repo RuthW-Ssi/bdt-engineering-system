@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://staging-bdt-engineering-service-489818756412.asia-southeast1.run.app/api/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }

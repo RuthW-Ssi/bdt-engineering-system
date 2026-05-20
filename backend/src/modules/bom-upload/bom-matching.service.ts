@@ -96,7 +96,17 @@ export class BomMatchingService {
                 ...(row.surface_area_m2 != null ? { surface_area_m2: Number(row.surface_area_m2) } : {}),
               },
             },
-          }).then(p => [normalize(row.assembly_mark), p.id] as [string, number])
+          })
+            .then(p => [normalize(row.assembly_mark), p.id] as [string, number])
+            .catch(async (err: any) => {
+              // P2002 = unique constraint — product was created by a concurrent request or a previous partial run
+              if (err?.code !== 'P2002') throw err
+              const existing = await tx.products.findFirstOrThrow({
+                where: { project_id: projectId, product_kind: 'assembly', name: normalize(row.assembly_mark), product_type: 'custom' },
+                select: { id: true },
+              })
+              return [normalize(row.assembly_mark), existing.id] as [string, number]
+            })
         ),
       )
       const createdMap = new Map(newProducts)
@@ -214,7 +224,16 @@ export class BomMatchingService {
                 ...(row.length_mm != null ? { length_mm: Number(row.length_mm) } : {}),
               },
             },
-          }).then(p => [normalize(row.part_mark), p.id] as [string, number])
+          })
+            .then(p => [normalize(row.part_mark), p.id] as [string, number])
+            .catch(async (err: any) => {
+              if (err?.code !== 'P2002') throw err
+              const existing = await tx.products.findFirstOrThrow({
+                where: { project_id: projectId, product_kind: 'part', name: normalize(row.part_mark), product_type: 'custom' },
+                select: { id: true },
+              })
+              return [normalize(row.part_mark), existing.id] as [string, number]
+            })
         ),
       )
       const createdMap = new Map(newProducts)
