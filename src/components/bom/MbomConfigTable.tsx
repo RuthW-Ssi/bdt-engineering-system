@@ -52,14 +52,6 @@ interface Props {
 }
 
 // ── Wire path_m helpers (mirrors BE welding-calculator logic) ──
-const STEEL_DENSITY = 7.85
-const DEPOSITION_EFF = 0.90
-const TAK_INTERVAL_M = 0.5
-const TAK_LENGTH_M = 0.05
-
-function wireConsumptionRate(filletMm: number, sides: number, weldLayers: number): number {
-  return (filletMm ** 2 / 200) * 100 * sides * weldLayers * STEEL_DENSITY / DEPOSITION_EFF / 1000
-}
 
 function parsePerimeterMm(profile: string | null): number | null {
   if (!profile) return null
@@ -96,13 +88,6 @@ function estimatePartPathM(partMark: string, profile: string | null, lengthMm: n
   }
   const perim = parsePerimeterMm(profile)
   return perim != null ? perim / 1000 : null
-}
-
-function computeAssemblyPathM(parts: AssemblyPartDto[]): number {
-  return parts.reduce((sum, p) => {
-    const pm = estimatePartPathM(p.part_mark, p.profile, p.length_mm)
-    return sum + (pm ?? 0) * (p.part_qty ?? 1)
-  }, 0)
 }
 
 function PaintCellWidget({ paintType, value, onChange }: {

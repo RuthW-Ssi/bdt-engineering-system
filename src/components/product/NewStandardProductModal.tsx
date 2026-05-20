@@ -462,7 +462,7 @@ export function NewStandardProductModal({ onClose }: Props) {
                     {ASSEMBLY_TYPES.map(t => (
                       <button key={t.key} type="button"
                         onClick={() => {
-                          const ids = partCategories.filter(c => c.prefix_5 && t.prefixes.includes(c.prefix_5 as any)).map(c => c.id)
+                          const ids = partCategories.filter(c => c.prefix_5 && t.prefixes.some(p => p === c.prefix_5)).map(c => c.id)
                           setForm(f => ({ ...f, assembly_type: t.key }))
                           setSelectedPartCategIds(ids)
                           setAssemblyParts([])
@@ -525,7 +525,7 @@ export function NewStandardProductModal({ onClose }: Props) {
                                 onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                 <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#0C447C', fontWeight: 700, minWidth: 88 }}>{p.product_code}</span>
                                 <span style={{ fontSize: 12, color: '#333', flex: 1 }}>{p.name}</span>
-                                {va?.profile && <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{String(va.profile)}</span>}
+                                {!!va?.profile && <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{String(va.profile)}</span>}
                                 <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: stateColor.bg, color: stateColor.text, fontWeight: 600 }}>{p.state}</span>
                               </button>
                             )

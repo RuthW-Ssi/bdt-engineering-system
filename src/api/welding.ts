@@ -25,9 +25,19 @@ export interface WeldingConfigAssemblyDto {
   weld_layers: number | null
 }
 
+export interface WeldingConfigPartDto {
+  part_id: number
+  part_mark: string
+  profile: string | null
+  part_type: WeldingPartType
+  length_mm: number | null
+  material_id: number | null
+}
+
 export interface WeldingConfigResponseDto {
   dispatch_id: number
   assemblies: WeldingConfigAssemblyDto[]
+  parts: WeldingConfigPartDto[]
   available_presets: ProductSpecPreset[]
 }
 
@@ -39,6 +49,10 @@ export interface WeldingSpecValues {
 
 export interface SaveWeldingConfigPayload {
   configs: ({ assembly_id: number; material_id: number | null } & WeldingSpecValues)[]
+}
+
+export interface SaveWirePartConfigPayload {
+  configs: { part_id: number; material_id: number | null }[]
 }
 
 export interface WeldingAssemblyBreakdownDto {
@@ -72,11 +86,18 @@ export interface WeldingMbomSummaryDto {
 
 export const weldingApi = {
   getConfig(dispatchId: number): Promise<WeldingConfigResponseDto> {
-    return apiClient.get(`/dispatches/${dispatchId}/welding-config`).then(r => r.data)
+    return apiClient.get(`/dispatches/${dispatchId}/welding-config`).then(r => ({
+      ...r.data,
+      parts: r.data.parts ?? [],
+    }))
   },
 
   saveConfig(dispatchId: number, payload: SaveWeldingConfigPayload): Promise<WeldingMbomSummaryDto> {
     return apiClient.post(`/dispatches/${dispatchId}/welding-config`, payload).then(r => r.data)
+  },
+
+  savePartConfig(dispatchId: number, payload: SaveWirePartConfigPayload): Promise<void> {
+    return apiClient.post(`/dispatches/${dispatchId}/wire-part-config`, payload).then(() => void 0)
   },
 
   getMbom(dispatchId: number): Promise<WeldingMbomSummaryDto> {

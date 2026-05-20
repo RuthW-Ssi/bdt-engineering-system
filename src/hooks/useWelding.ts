@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { weldingApi } from '../api/welding'
-import type { SaveWeldingConfigPayload } from '../api/welding'
+import type { SaveWeldingConfigPayload, SaveWirePartConfigPayload } from '../api/welding'
 
 export function useWeldingConfig(dispatchId: number | undefined) {
   return useQuery({
@@ -32,6 +32,16 @@ export function useSaveWeldingConfig(dispatchId: number) {
     mutationFn: (payload: SaveWeldingConfigPayload) => weldingApi.saveConfig(dispatchId, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['welding-mbom', dispatchId] })
+      qc.invalidateQueries({ queryKey: ['welding-config', dispatchId] })
+    },
+  })
+}
+
+export function useSaveWirePartConfig(dispatchId: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: SaveWirePartConfigPayload) => weldingApi.savePartConfig(dispatchId, payload),
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['welding-config', dispatchId] })
     },
   })

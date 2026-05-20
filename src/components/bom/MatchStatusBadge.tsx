@@ -3,6 +3,7 @@ import type { MatchStatus } from '../../api/dispatches'
 const BADGE_CONFIG: Record<MatchStatus, { bg: string; text: string; label: string }> = {
   MATCHED_STANDARD: { bg: '#EAF3DE', text: '#27500A', label: 'Standard' },
   MATCHED_CUSTOM:   { bg: '#E6F1FB', text: '#0C447C', label: 'Custom' },
+  AUTO_CREATED:     { bg: '#F5F5F5', text: '#555555', label: 'Auto' },
 }
 
 interface Props {

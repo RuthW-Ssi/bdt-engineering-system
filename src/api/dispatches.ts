@@ -143,7 +143,7 @@ export interface DispatchDiffDto {
 }
 
 // ── Sprint 8: mapping types ────────────────────────────────────
-export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM'
+export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM' | 'AUTO_CREATED'
 
 export interface MappedRowDto {
   id: number

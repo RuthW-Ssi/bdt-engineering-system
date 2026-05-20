@@ -454,7 +454,7 @@ export function NewCustomProductModal({ onClose }: Props) {
                                 onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
                                 <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#0C447C', fontWeight: 700, minWidth: 88 }}>{p.product_code}</span>
                                 <span style={{ fontSize: 12, color: '#333', flex: 1 }}>{p.name}</span>
-                                {va?.profile && <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{String(va.profile)}</span>}
+                                {!!va?.profile && <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{String(va.profile)}</span>}
                                 <span style={{ fontSize: 10, padding: '1px 6px', borderRadius: 3, background: stateColor.bg, color: stateColor.text, fontWeight: 600 }}>{p.state}</span>
                               </button>
                             )

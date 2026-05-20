@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Loader2, Package } from 'lucide-react'
-import { useWeldingConfig, useSaveWeldingConfig } from '../hooks/useWelding'
+import { useWeldingConfig, useSaveWirePartConfig } from '../hooks/useWelding'
 import { WireConfigTable } from '../components/bom/WireConfigTable'
 import type { WireCell } from '../components/bom/WireConfigTable'
 
@@ -11,7 +11,7 @@ export function BomWireConfig() {
   const dispatchId = id ? parseInt(id) : undefined
 
   const { data: configData, isLoading, isError } = useWeldingConfig(dispatchId)
-  const saveMutation = useSaveWeldingConfig(dispatchId!)
+  const saveMutation = useSaveWirePartConfig(dispatchId!)
 
   const [cellState, setCellState] = useState<Map<number, WireCell>>(new Map())
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
