@@ -73,13 +73,14 @@ export class BomUploadService {
       savedKeys.push({ docType: f.docType, key, sha256 })
     }
 
-    // 4. Atomic transaction: dispatch + doc_revisions + assemblies + parts + junctions
+    // 4. Atomic transaction: dispatch + doc_revisions + assemblies + parts + junctions only
+    //    Matching runs after commit to avoid long-running transaction timeouts over high-latency DBs.
     try {
-      const dispatch = await this.prisma.$transaction(async tx => {
-        const asmList = parsed.get('ASSEMBLY_LIST')
-        const partList = parsed.get('PART_LIST')
-        const asmPartList = parsed.get('ASSEMBLY_PART_LIST')
+      const asmList = parsed.get('ASSEMBLY_LIST')
+      const partList = parsed.get('PART_LIST')
+      const asmPartList = parsed.get('ASSEMBLY_PART_LIST')
 
+      const { dispatchId, assemblyIdByMark, partIdByMark } = await this.prisma.$transaction(async tx => {
         // bom_dispatch
         const d = await tx.bom_dispatch.create({
           data: {
@@ -161,40 +162,12 @@ export class BomUploadService {
           if (junctions.length) await tx.bom_assembly_part.createMany({ data: junctions })
         }
 
-        // Match assemblies to standard products (by name) inside the same transaction
-        if (asmList?.assemblies.length) {
-          const asmRows = asmList.assemblies.map(a => ({
-            id: assemblyIdByMark.get(a.assembly_mark)!,
-            assembly_mark: a.assembly_mark,
-            name: a.name ?? '',
-            weight_kg: a.weight_kg ?? null,
-            surface_area_m2: a.surface_area_m2 ?? null,
-          })).filter(r => r.id)
-          await this.matching.matchAssemblies(tx as any, asmRows, projectId, uid)
-        }
-
-        // Match parts to standard/custom products inside the same transaction
-        if (partList?.parts.length) {
-          const partRows = partList.parts.map(p => ({
-            id: partIdByMark.get(p.part_mark)!,
-            part_mark: p.part_mark,
-            profile: p.profile ?? null,
-            grade: p.grade ?? null,
-            weight_kg: p.weight_kg ?? null,
-            length_mm: p.length_mm ?? null,
-          })).filter(r => r.id)
-          await this.matching.matchParts(tx as any, partRows, projectId, uid)
-        }
-
-        // Downgrade any MATCHED_STANDARD assembly whose parts are not all MATCHED_STANDARD
-        await this.matching.enforceStandardIntegrity(tx as any, d.id, uid)
-
-        // Determine final status
+        // Determine initial status based on file presence (matching runs after commit)
         const hasAssembly = (asmList?.assemblies.length ?? 0) > 0
         const hasPart = (partList?.parts.length ?? 0) > 0
         const status = hasAssembly && hasPart ? 'complete' : hasAssembly || hasPart ? 'partial' : 'pending'
 
-        return tx.bom_dispatch.update({
+        await tx.bom_dispatch.update({
           where: { id: d.id },
           data: {
             status,
@@ -203,7 +176,37 @@ export class BomUploadService {
             write_uid: uid,
           },
         })
+
+        return { dispatchId: d.id, assemblyIdByMark, partIdByMark }
       }, { timeout: 30000 })
+
+      // 5. Product matching — runs outside transaction to avoid timeout on high-latency DBs
+      if (asmList?.assemblies.length) {
+        const asmRows = asmList.assemblies.map(a => ({
+          id: assemblyIdByMark.get(a.assembly_mark)!,
+          assembly_mark: a.assembly_mark,
+          name: a.name ?? '',
+          weight_kg: a.weight_kg ?? null,
+          surface_area_m2: a.surface_area_m2 ?? null,
+        })).filter(r => r.id)
+        await this.matching.matchAssemblies(this.prisma, asmRows, projectId, uid)
+      }
+
+      if (partList?.parts.length) {
+        const partRows = partList.parts.map(p => ({
+          id: partIdByMark.get(p.part_mark)!,
+          part_mark: p.part_mark,
+          profile: p.profile ?? null,
+          grade: p.grade ?? null,
+          weight_kg: p.weight_kg ?? null,
+          length_mm: p.length_mm ?? null,
+        })).filter(r => r.id)
+        await this.matching.matchParts(this.prisma, partRows, projectId, uid)
+      }
+
+      await this.matching.enforceStandardIntegrity(this.prisma, dispatchId, uid)
+
+      const dispatch = await this.prisma.bom_dispatch.findUniqueOrThrow({ where: { id: dispatchId } })
 
       // Trigger product derivation asynchronously — failure must not roll back the upload
       this.derivation.deriveForDispatch(dispatch.id, uid).catch(err =>
