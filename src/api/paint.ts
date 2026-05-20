@@ -42,9 +42,47 @@ export interface PaintConfigAssemblyDto {
   configs: PaintConfigEntryDto[]
 }
 
+export interface ResolvedPaintLayer {
+  paint_type: PaintType
+  layers: number
+  material_code: string
+  microns?: number
+  material_id: number | null
+}
+
+export interface ResolvedPaintSpec {
+  layers: ResolvedPaintLayer[]
+}
+
+export interface ResolvedWeldingSpec {
+  material_code: string
+  fillet_mm: number
+  sides: number
+  weld_layers: number
+  material_id: number | null
+}
+
+export interface ProductSpecPreset {
+  product_id: number
+  product_code: string
+  product_name: string
+  paint_spec: ResolvedPaintSpec | null
+  welding_spec: ResolvedWeldingSpec | null
+}
+
 export interface PaintConfigResponseDto {
   dispatch_id: number
   assemblies: PaintConfigAssemblyDto[]
+  available_presets: ProductSpecPreset[]
+}
+
+export interface PaintAssemblyBreakdownDto {
+  assembly_id: number
+  assembly_mark: string
+  area_m2: number
+  qty: number
+  layers: number
+  gallons: number
 }
 
 export interface MbomMaterialItemDto {
@@ -53,6 +91,9 @@ export interface MbomMaterialItemDto {
   paint_type: PaintType
   total_area_m2: number
   total_qty_gallon: number
+  micron: number
+  coverage_sqm_per_gallon: number
+  assembly_breakdown: PaintAssemblyBreakdownDto[]
 }
 
 export interface MbomByTypeDto {

@@ -1,8 +1,10 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState } from 'react'
+import { ChevronRight, ChevronDown } from 'lucide-react'
 import { PaintBrandDropdown } from './PaintBrandDropdown'
 import { WireDropdown } from './WireDropdown'
 import { PAINT_TYPES } from '../../api/paint'
 import type { PaintType } from '../../api/paint'
+import type { WeldingSpecValues } from '../../api/welding'
 import type { AssemblyDto, AssemblyPartDto, MatchStatus } from '../../api/dispatches'
 import { usePaintMaterials } from '../../hooks/usePaint'
 import { useWireMaterials } from '../../hooks/useWelding'
@@ -37,6 +39,7 @@ interface Props {
   assemblies: AssemblyDto[]
   paintState: Map<PaintCellKey, PaintCell>
   wireState: Map<number, WireCell>
+  weldingSpecState: Map<number, WeldingSpecValues>
   matchState: Map<number, MatchStatus | null>
   productState: Map<number, number | null>
   onPaintChange: (key: PaintCellKey, value: PaintCell) => void
@@ -49,9 +52,14 @@ interface Props {
 }
 
 // ── Wire path_m helpers (mirrors BE welding-calculator logic) ──
-const WIRE_CONSUMPTION_RATE = 0.314
+const STEEL_DENSITY = 7.85
+const DEPOSITION_EFF = 0.90
 const TAK_INTERVAL_M = 0.5
 const TAK_LENGTH_M = 0.05
+
+function wireConsumptionRate(filletMm: number, sides: number, weldLayers: number): number {
+  return (filletMm ** 2 / 200) * 100 * sides * weldLayers * STEEL_DENSITY / DEPOSITION_EFF / 1000
+}
 
 function parsePerimeterMm(profile: string | null): number | null {
   if (!profile) return null
@@ -97,110 +105,53 @@ function computeAssemblyPathM(parts: AssemblyPartDto[]): number {
   }, 0)
 }
 
-function PaintCellWidget({ paintType, value, surfaceAreaM2, onChange }: {
+function PaintCellWidget({ paintType, value, onChange }: {
   paintType: PaintType
   value: number | null
   surfaceAreaM2: number | null
+  assemblyQty: number
   onChange: (v: number | null) => void
 }) {
-  const { data: materials = [] } = usePaintMaterials(paintType)
-  const selected = value != null ? materials.find(m => m.id === value) : null
-  const gallons = selected && surfaceAreaM2 != null
-    ? (surfaceAreaM2 / selected.attributes.coverage_sqm_per_gallon).toFixed(2)
-    : null
-  const micron = selected?.attributes.paint_micron ?? null
-
-  return (
-    <div>
-      <PaintBrandDropdown paintType={paintType} value={value} onChange={onChange} />
-      {selected && (
-        <div style={{ display: 'flex', gap: 5, marginTop: 2, fontSize: 9, color: '#999' }}>
-          {gallons != null && <span>{gallons} gal</span>}
-          {micron != null && <span>{micron} µm</span>}
-        </div>
-      )}
-    </div>
-  )
+  return <PaintBrandDropdown paintType={paintType} value={value} onChange={onChange} />
 }
 
-function WireCellWidget({ value, parts, onChange }: {
+function WireCellWidget({ value, onChange }: {
   value: number | null
   parts: AssemblyPartDto[]
+  assemblyQty: number
+  weldingSpec: WeldingSpecValues
   onChange: (v: number | null) => void
 }) {
-  const { data: materials = [] } = useWireMaterials()
-  const selected = value != null ? materials.find(m => m.id === value) : null
-  const attrs = selected ? (selected.attributes as Record<string, unknown>) : null
-  const diameter = attrs?.wire_diameter_mm != null ? Number(attrs.wire_diameter_mm) : null
-  const pkgKg = attrs?.pkg_kg != null ? Number(attrs.pkg_kg) : null
-
-  const totalPathM = computeAssemblyPathM(parts)
-  const estBoxes = (totalPathM > 0 && pkgKg != null)
-    ? ((totalPathM + (totalPathM / TAK_INTERVAL_M + 4) * TAK_LENGTH_M) * WIRE_CONSUMPTION_RATE) / pkgKg
-    : null
-
-  return (
-    <div>
-      <WireDropdown value={value} onChange={onChange} />
-      {selected && (
-        <div style={{ display: 'flex', gap: 5, marginTop: 2, fontSize: 9, color: '#999' }}>
-          {estBoxes != null && <span>{estBoxes.toFixed(2)} boxes</span>}
-          {diameter != null && <span>⌀{diameter} mm</span>}
-        </div>
-      )}
-    </div>
-  )
+  return <WireDropdown value={value} onChange={onChange} />
 }
 
 // ── Locked (read-only) cells for Standard type ───────────────
-function LockedPaintCell({ paintType, materialId, surfaceAreaM2 }: {
+function LockedPaintCell({ paintType, materialId }: {
   paintType: PaintType
   materialId: number | null
   surfaceAreaM2: number | null
+  assemblyQty: number
 }) {
   const { data: materials = [] } = usePaintMaterials(paintType)
   const m = materialId != null ? materials.find(x => x.id === materialId) : null
-  const gallons = m && surfaceAreaM2 != null
-    ? (surfaceAreaM2 / m.attributes.coverage_sqm_per_gallon).toFixed(1)
-    : null
-  const micron = m?.attributes.paint_micron ?? null
-
   return (
     <div style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 3, padding: '2px 5px', fontSize: 10, color: '#555' }}>
       <div style={{ fontWeight: 500 }}>{m?.name ?? '—'}</div>
-      {m && (
-        <div style={{ display: 'flex', gap: 4, fontSize: 9, color: '#999', marginTop: 1 }}>
-          {gallons != null && <span>{gallons} gal</span>}
-          {micron != null && <span>{micron} µm</span>}
-        </div>
-      )}
     </div>
   )
 }
 
-function LockedWireCell({ materialId, parts }: {
+function LockedWireCell({ materialId }: {
   materialId: number | null
   parts: AssemblyPartDto[]
+  assemblyQty: number
+  weldingSpec: WeldingSpecValues
 }) {
   const { data: materials = [] } = useWireMaterials()
   const m = materialId != null ? materials.find(x => x.id === materialId) : null
-  const attrs = m ? (m.attributes as Record<string, unknown>) : null
-  const diameter = attrs?.wire_diameter_mm != null ? Number(attrs.wire_diameter_mm) : null
-  const pkgKg = attrs?.pkg_kg != null ? Number(attrs.pkg_kg) : null
-  const totalPathM = computeAssemblyPathM(parts)
-  const estBoxes = (totalPathM > 0 && pkgKg != null)
-    ? ((totalPathM + (totalPathM / TAK_INTERVAL_M + 4) * TAK_LENGTH_M) * WIRE_CONSUMPTION_RATE) / pkgKg
-    : null
-
   return (
     <div style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 3, padding: '2px 5px', fontSize: 10, color: '#555' }}>
       <div style={{ fontWeight: 500 }}>{m?.name ?? '—'}</div>
-      {m && (
-        <div style={{ display: 'flex', gap: 4, fontSize: 9, color: '#999', marginTop: 1 }}>
-          {estBoxes != null && <span>{estBoxes.toFixed(2)} boxes</span>}
-          {diameter != null && <span>⌀{diameter} mm</span>}
-        </div>
-      )}
     </div>
   )
 }
@@ -233,6 +184,76 @@ function ProductCodeSelect({ productType, value, onChange }: {
   )
 }
 
+function LockedStandardBadge({ value }: { value: number | null }) {
+  const { data } = useProducts({ product_type: 'standard', state: 'released', limit: 100 })
+  const product = value != null ? (data?.items ?? []).find(p => p.id === value) : null
+  return (
+    <div onClick={e => e.stopPropagation()} style={{
+      marginTop: 3, padding: '2px 6px', fontSize: 10, fontWeight: 600,
+      borderRadius: 3, border: '1px solid #A8D08D',
+      background: '#EAF3DE', color: '#27500A',
+      display: 'flex', alignItems: 'center', gap: 4,
+    }}>
+      <span style={{ fontSize: 9, opacity: 0.6 }}>🔒</span>
+      {product?.product_code ?? '—'}
+    </div>
+  )
+}
+
+const PART_STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+  MATCHED_STANDARD: { bg: '#EAF3DE', color: '#27500A', label: 'Std' },
+  MATCHED_CUSTOM:   { bg: '#E6F1FB', color: '#0C447C', label: 'Cust' },
+  AUTO_CREATED:     { bg: '#F5F5F5', color: '#555',    label: 'Auto' },
+}
+
+function PartStatusBadge({ status }: { status: string | null }) {
+  const s = status ? PART_STATUS_STYLE[status] : null
+  if (!s) return <span style={{ color: '#AAA', fontSize: 9 }}>—</span>
+  return (
+    <span style={{ padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 600, background: s.bg, color: s.color }}>
+      {s.label}
+    </span>
+  )
+}
+
+function PartRows({ parts }: { parts: AssemblyPartDto[] }) {
+  const TOTAL_COLS = 9  // checkbox | mark | area | type | primer | inter | fireproof | topcoat | wire
+  return (
+    <>
+      {parts.map(p => {
+        const pathM = estimatePartPathM(p.part_mark, p.profile, p.length_mm)
+        const partPathTotal = pathM != null ? (pathM * (p.part_qty ?? 1)).toFixed(3) : null
+        return (
+          <tr key={p.id} style={{ background: '#FAFBFC', borderTop: '1px solid #F0F0F0' }}>
+            <td style={{ ...TD, width: 28 }} />
+            <td style={{ ...TD, paddingLeft: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ color: '#CCC', fontSize: 10 }}>↳</span>
+                <span style={{ fontWeight: 500, fontSize: 10, color: '#333' }}>{p.part_mark}</span>
+              </div>
+            </td>
+            <td colSpan={TOTAL_COLS - 2} style={{ ...TD, fontSize: 10, color: '#777' }}>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                {p.profile && <span style={{ color: '#555' }}>{p.profile}</span>}
+                {p.grade && <span style={{ color: '#888' }}>{p.grade}</span>}
+                {p.length_mm != null && <span>{p.length_mm} mm</span>}
+                <span style={{ color: '#999' }}>×{p.part_qty ?? 1}</span>
+                {p.unit_weight_kg != null && (
+                  <span style={{ color: '#AAA' }}>{(p.unit_weight_kg * (p.part_qty ?? 1)).toFixed(1)} kg</span>
+                )}
+                {partPathTotal != null && (
+                  <span style={{ color: '#4B9CD3' }}>{partPathTotal} m weld</span>
+                )}
+                <PartStatusBadge status={p.match_status} />
+              </div>
+            </td>
+          </tr>
+        )
+      })}
+    </>
+  )
+}
+
 function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProductChange }: {
   asmId: number
   matchState: Map<number, MatchStatus | null>
@@ -249,10 +270,13 @@ function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProduc
     if (!v) onProductChange(asmId, null)  // clear product when type cleared
   }
 
+  const isStandard = current === 'MATCHED_STANDARD'
+
   return (
     <div>
       <select
         value={current ?? ''}
+        disabled={isStandard}
         onChange={e => handleTypeChange((e.target.value as MatchStatus) || null)}
         onClick={e => e.stopPropagation()}
         style={{
@@ -260,13 +284,13 @@ function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProduc
           border: '1px solid #D9D9D9', borderRadius: 3,
           background: current ? MATCH_BG[current] ?? '#fff' : '#fff',
           color: opt?.color ?? '#8E8E8E', fontWeight: current ? 600 : 400,
+          cursor: isStandard ? 'not-allowed' : undefined,
+          opacity: isStandard ? 0.85 : 1,
         }}
       >
         {MATCH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
-      {current === 'MATCHED_STANDARD' && (
-        <ProductCodeSelect productType="standard" value={productId} onChange={id => onProductChange(asmId, id)} />
-      )}
+      {isStandard && <LockedStandardBadge value={productId} />}
       {current === 'MATCHED_CUSTOM' && (
         <ProductCodeSelect productType="custom" value={productId} onChange={id => onProductChange(asmId, id)} />
       )}
@@ -276,12 +300,22 @@ function TypeDropdown({ asmId, matchState, productState, onMatchChange, onProduc
 
 export function MbomConfigTable({
   assemblies,
-  paintState, wireState, matchState, productState,
+  paintState, wireState, weldingSpecState, matchState, productState,
   onPaintChange, onWireChange, onMatchChange, onProductChange,
   selectedAssemblies, onAssemblySelect, onSelectAllAssemblies,
 }: Props) {
   const lastSelectedRef = useRef<number | null>(null)
   const allSelected = assemblies.length > 0 && selectedAssemblies.size === assemblies.length
+  const [expandedAsms, setExpandedAsms] = useState<Set<number>>(new Set())
+
+  const toggleExpand = (id: number, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setExpandedAsms(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   const handleAsmClick = (id: number, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -319,23 +353,44 @@ export function MbomConfigTable({
           {assemblies.map((asm, idx) => {
             const isSelected = selectedAssemblies.has(asm.id)
             const wireCell = wireState.get(asm.id) ?? { material_id: null }
+            const weldingSpec = weldingSpecState.get(asm.id) ?? { fillet_mm: null, sides: null, weld_layers: null }
             const isLocked = matchState.get(asm.id) === 'MATCHED_STANDARD' && (productState.get(asm.id) ?? null) != null
             const rowBg = isSelected ? '#FFF0F0' : (idx % 2 === 0 ? '#FFFFFF' : '#F3F6F9')
+            const isExpanded = expandedAsms.has(asm.id)
+            const hasParts = asm.parts.length > 0
             return (
-              <tr key={asm.id}
+              <React.Fragment key={asm.id}>
+              <tr
                 onClick={e => handleAsmClick(asm.id, e)}
                 style={{ background: rowBg, cursor: 'pointer', borderTop: '1px solid #E0E0E0' }}
               >
                 <td style={{ ...TD, textAlign: 'center' }} onClick={e => e.stopPropagation()}>
-                  <input type="checkbox" checked={isSelected}
-                    onChange={e => {
-                      onAssemblySelect(asm.id, e.target.checked, e as unknown as React.MouseEvent)
-                      lastSelectedRef.current = asm.id
-                    }} />
+                  {!isLocked && (
+                    <input type="checkbox" checked={isSelected}
+                      onChange={e => {
+                        onAssemblySelect(asm.id, e.target.checked, e as unknown as React.MouseEvent)
+                        lastSelectedRef.current = asm.id
+                      }} />
+                  )}
                 </td>
                 <td style={TD}>
-                  <div style={{ fontWeight: 600, color: '#1A1A1A' }}>{asm.assembly_mark}</div>
-                  {asm.name && <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{asm.name}</div>}
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 3 }}>
+                    {hasParts && (
+                      <button
+                        onClick={e => toggleExpand(asm.id, e)}
+                        style={{ flexShrink: 0, marginTop: 1, background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: '#888', lineHeight: 1 }}
+                      >
+                        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                      </button>
+                    )}
+                    <div>
+                      <div style={{ fontWeight: 600, color: '#1A1A1A' }}>{asm.assembly_mark}</div>
+                      {asm.name && <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{asm.name}</div>}
+                      {hasParts && (
+                        <div style={{ fontSize: 9, color: '#AAA', marginTop: 1 }}>{asm.parts.length} parts</div>
+                      )}
+                    </div>
+                  </div>
                 </td>
                 <td style={{ ...TD, textAlign: 'right', color: '#555' }}>
                   {asm.surface_area_m2 != null ? asm.surface_area_m2.toFixed(2) : '—'}
@@ -355,19 +410,21 @@ export function MbomConfigTable({
                   return (
                     <td key={pt} style={{ ...TD, borderLeft: '2px solid #EEE', verticalAlign: 'top' }} onClick={e => e.stopPropagation()}>
                       {isLocked
-                        ? <LockedPaintCell paintType={pt} materialId={cell.material_id} surfaceAreaM2={asm.surface_area_m2} />
-                        : <PaintCellWidget paintType={pt} value={cell.material_id} surfaceAreaM2={asm.surface_area_m2} onChange={v => onPaintChange(key, { material_id: v })} />
+                        ? <LockedPaintCell paintType={pt} materialId={cell.material_id} surfaceAreaM2={asm.surface_area_m2} assemblyQty={asm.assembly_qty} />
+                        : <PaintCellWidget paintType={pt} value={cell.material_id} surfaceAreaM2={asm.surface_area_m2} assemblyQty={asm.assembly_qty} onChange={v => onPaintChange(key, { material_id: v })} />
                       }
                     </td>
                   )
                 })}
                 <td style={{ ...TD, borderLeft: '2px solid #DBEAFE', verticalAlign: 'top' }} onClick={e => e.stopPropagation()}>
                   {isLocked
-                    ? <LockedWireCell materialId={wireCell.material_id} parts={asm.parts} />
-                    : <WireCellWidget value={wireCell.material_id} parts={asm.parts} onChange={v => onWireChange(asm.id, { material_id: v })} />
+                    ? <LockedWireCell materialId={wireCell.material_id} parts={asm.parts} assemblyQty={asm.assembly_qty} weldingSpec={weldingSpec} />
+                    : <WireCellWidget value={wireCell.material_id} parts={asm.parts} assemblyQty={asm.assembly_qty} weldingSpec={weldingSpec} onChange={v => onWireChange(asm.id, { material_id: v })} />
                   }
                 </td>
               </tr>
+              {isExpanded && hasParts && <PartRows parts={asm.parts} />}
+              </React.Fragment>
             )
           })}
         </tbody>

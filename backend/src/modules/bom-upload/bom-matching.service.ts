@@ -19,7 +19,7 @@ export class BomMatchingService {
   constructor(private readonly prisma: PrismaService) {}
 
   // T-BE-1.4: Batch-match assembly rows.
-  // D6: CUSTOM(project, by assembly_mark) → STANDARD(by assembly name) → AUTO_CREATED
+  // D6: CUSTOM(project, by assembly_mark) → STANDARD(by name OR assembly_mark) → AUTO_CREATED
   async matchAssemblies(
     tx: Tx,
     rows: Array<{ id: number; assembly_mark: string; name: string; weight_kg?: number | null; surface_area_m2?: number | null }>,
@@ -32,7 +32,6 @@ export class BomMatchingService {
     const uniqueMarks = [...new Set(rows.map(r => normalize(r.assembly_mark)))]
     const uniqueNames = [...new Set(rows.map(r => normalize(r.name ?? '')))]
 
-    // Two separate queries: custom by assembly_mark, standard by assembly category name
     const [customCandidates, standardCandidates] = await Promise.all([
       tx.$queryRaw<Array<{ id: number; name: string }>>`
         SELECT id, name FROM products
@@ -52,7 +51,7 @@ export class BomMatchingService {
     ])
 
     const customMap = new Map<string, number>()   // normalized assembly_mark → product.id
-    const standardMap = new Map<string, number>()  // normalized assembly name → product.id
+    const standardMap = new Map<string, number>()  // normalized product name → product.id
     for (const c of customCandidates) customMap.set(normalize(c.name), c.id)
     for (const s of standardCandidates) if (!standardMap.has(normalize(s.name))) standardMap.set(normalize(s.name), s.id)
 
@@ -230,6 +229,27 @@ export class BomMatchingService {
         })
       }),
     )
+  }
+
+  // T-BE-1.7: Downgrade any MATCHED_STANDARD assembly whose parts are not all MATCHED_STANDARD.
+  // An assembly should only be STANDARD if every part under it is also STANDARD.
+  async enforceStandardIntegrity(tx: Tx, dispatchId: number, uid: number): Promise<void> {
+    const violated = await tx.$queryRaw<Array<{ id: number }>>`
+      SELECT DISTINCT ba.id
+      FROM bom_assembly ba
+      JOIN bom_assembly_part bap ON bap.assembly_id = ba.id
+      JOIN bom_part bp ON bp.id = bap.part_id
+      WHERE ba.dispatch_id = ${dispatchId}
+        AND ba.match_status = 'MATCHED_STANDARD'
+        AND bp.match_status != 'MATCHED_STANDARD'
+    `
+    if (!violated.length) return
+    const ids = violated.map(r => r.id)
+    await tx.$executeRaw`
+      UPDATE bom_assembly
+      SET match_status = 'MATCHED_CUSTOM', write_uid = ${uid}
+      WHERE id = ANY(${ids}::int[])
+    `
   }
 
   // ─── Helpers ──────────────────────────────────────────────────

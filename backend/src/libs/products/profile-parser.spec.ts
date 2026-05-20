@@ -1,4 +1,4 @@
-import { parseProfile } from './profile-parser'
+import { parseProfile, normalizeProfileString } from './profile-parser'
 
 describe('parseProfile', () => {
   // H-section
@@ -132,5 +132,76 @@ describe('parseProfile', () => {
   it('handles leading/trailing whitespace', () => {
     const r = parseProfile('  PL6x950  ')
     expect(r.shape).toBe('PL')
+  })
+})
+
+describe('normalizeProfileString', () => {
+  it('leaves already-normal strings unchanged', () => {
+    expect(normalizeProfileString('H300x300x10x15')).toBe('H300X300X10X15')
+  })
+
+  it('replaces dash separators with x', () => {
+    expect(normalizeProfileString('H300-300-10-15')).toBe('H300X300X10X15')
+  })
+
+  it('replaces × (multiplication sign) separator', () => {
+    expect(normalizeProfileString('PL6×950')).toBe('PL6X950')
+  })
+
+  it('removes trailing .0 decimals', () => {
+    expect(normalizeProfileString('H300.0x300.0x10.0x15.0')).toBe('H300X300X10X15')
+  })
+
+  it('preserves significant decimals', () => {
+    expect(normalizeProfileString('PIPE139.8x2.5')).toBe('PIPE139.8X2.5')
+  })
+
+  it('removes .00 and .000', () => {
+    expect(normalizeProfileString('PL6.00x950.000')).toBe('PL6X950')
+  })
+
+  it('uppercases the result', () => {
+    expect(normalizeProfileString('pl6x950')).toBe('PL6X950')
+  })
+})
+
+describe('parseProfile — normalized inputs', () => {
+  it('parses H with dash separators H300-300-10-15', () => {
+    const r = parseProfile('H300-300-10-15')
+    expect(r.shape).toBe('H')
+    expect(r.height_mm).toBe(300)
+    expect(r.width_mm).toBe(300)
+    expect(r.web_thickness_mm).toBe(10)
+    expect(r.flange_thickness_mm).toBe(15)
+    expect(r.profile).toBe('H300x300x10x15')
+  })
+
+  it('parses PL with trailing .0 decimals PL6.0x950.0', () => {
+    const r = parseProfile('PL6.0x950.0')
+    expect(r.shape).toBe('PL')
+    expect(r.thickness_mm).toBe(6)
+    expect(r.width_mm).toBe(950)
+    expect(r.profile).toBe('PL6x950')
+  })
+
+  it('parses H with all .0 decimals H300.0x300.0x10.0x15.0', () => {
+    const r = parseProfile('H300.0x300.0x10.0x15.0')
+    expect(r.shape).toBe('H')
+    expect(r.profile).toBe('H300x300x10x15')
+  })
+
+  it('does NOT strip significant decimals — PIPE139.8x2.5 stays', () => {
+    const r = parseProfile('PIPE139.8x2.5')
+    expect(r.shape).toBe('PIPE')
+    expect(r.outer_diameter_mm).toBe(139.8)
+    expect(r.thickness_mm).toBe(2.5)
+  })
+
+  it('parses L with dash separator L75-75-6', () => {
+    const r = parseProfile('L75-75-6')
+    expect(r.shape).toBe('L')
+    expect(r.leg_a_mm).toBe(75)
+    expect(r.leg_b_mm).toBe(75)
+    expect(r.thickness_mm).toBe(6)
   })
 })

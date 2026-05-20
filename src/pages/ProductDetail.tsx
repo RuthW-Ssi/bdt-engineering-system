@@ -324,7 +324,9 @@ export function ProductDetail() {
                             <div className="font-mono" style={{ fontSize: 12, color: '#185FA5', fontWeight: 600 }}>{p.product_code}</div>
                             <div style={{ fontSize: 12, color: '#1F1F1F' }} className="truncate">{p.name}</div>
                             <div className="font-mono" style={{ fontSize: 11, color: '#555' }}>{p.profile ?? '—'}</div>
-                            <div className="font-mono" style={{ fontSize: 13, fontWeight: 700 }}>×{p.qty}</div>
+                            <div className="font-mono" style={{ fontSize: 13, fontWeight: 700 }}>
+                              {p.qty != null ? `×${Number(p.qty)}` : '—'}
+                            </div>
                           </div>
                         ))}
                       </div>

@@ -27,20 +27,49 @@ const TEKLA_TO_SHAPE: Record<string, 'H' | 'L' | 'PIPE' | 'RB' | 'PL' | 'TRUSS' 
   LP: 'PL', TR: 'TRUSS',
 }
 
-// Extract Tekla type from assembly mark
-// e.g. "TH-2CO1" → "CO", "CO-001" → "CO", "TH-2FB1" → "FB"
+// Extract Tekla type code from assembly mark.
+//
+// Handles common SSI formats:
+//   "TH-2CO1"    → "CO"   (PROJECT-ZONE+TYPE+SEQ — most common)
+//   "TH-2SBE3"   → "SBE"  (multi-char type code)
+//   "TH-CO-001"  → "CO"   (PROJECT-TYPE-SEQ — 3-segment)
+//   "CO-001"     → "CO"   (TYPE-SEQ)
+//   "TH-2CO1-A"  → "CO"   (suffix variant — ignore trailing single-alpha segment)
+//   "F-23"       → "F"    (zone mark, type = project code)
+//
+// Strategy: prefer the segment matching digit(s)+ALPHA+digit(s) — that pattern is
+// unambiguous for "ZONE+TYPE+SEQ" combined. Fall back to any non-numeric middle
+// segment (TYPE-SEQ format). Last resort: first segment.
 function extractMarkPrefix(assemblyMark: string): string {
-  const parts = assemblyMark.split('-')
-  if (parts.length < 2) return assemblyMark.replace(/\d/g, '').toUpperCase() || assemblyMark
+  const parts = assemblyMark.split('-').filter(Boolean)
+  if (parts.length === 0) return assemblyMark
 
-  // Try last segment: strip leading digit(s), take leading alpha
-  const last = parts[parts.length - 1]
-  const fromLast = last.replace(/^\d+/, '').match(/^[A-Z]+/i)
-  if (fromLast && fromLast[0]) return fromLast[0].toUpperCase()
+  // Single segment — look for alpha sandwiched between digits first ("TH2CO1" → "CO"),
+  // then fall back to stripping all digits ("CO1" → "CO").
+  if (parts.length === 1) {
+    const between = parts[0].match(/\d+([A-Z]+)\d/i)
+    if (between) return between[1].toUpperCase()
+    const alpha = parts[0].replace(/\d/g, '').toUpperCase()
+    return alpha || assemblyMark.toUpperCase()
+  }
 
-  // Fallback: first segment if it's all alpha (e.g. "CO-001" → "CO")
-  const first = parts[0]
-  const fromFirst = first.match(/^[A-Z]+/i)
+  // Pass 1: look for a segment with the unambiguous ZONE+TYPE+SEQ pattern: \d+[A-Z]+\d*
+  // Scan right-to-left so we find the rightmost such segment (avoids project code like "TH2")
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const m = parts[i].match(/^\d+([A-Z]+)\d*$/i)
+    if (m) return m[1].toUpperCase()
+  }
+
+  // Pass 2: pure-alpha segments excluding the first (project code) and last if numeric (sequence)
+  for (let i = parts.length - 1; i >= 1; i--) {
+    const seg = parts[i]
+    if (/^\d+$/.test(seg)) continue          // pure numeric — skip (sequence number)
+    const alpha = seg.replace(/\d/g, '').match(/^[A-Z]+/i)
+    if (alpha) return alpha[0].toUpperCase()
+  }
+
+  // Pass 3: first segment as last resort ("CO-001" style)
+  const fromFirst = parts[0].match(/^[A-Z]+/i)
   return fromFirst ? fromFirst[0].toUpperCase() : assemblyMark.toUpperCase()
 }
 

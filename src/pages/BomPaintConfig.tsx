@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { WeldingSpecValues } from '../api/welding'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Loader2 } from 'lucide-react'
 import { useDispatchDetail, useSaveAssemblyMatch } from '../hooks/useBomDispatches'
@@ -33,6 +34,7 @@ export function BomPaintConfig() {
 
   const [paintState, setPaintState] = useState<Map<PaintCellKey, PaintCell>>(new Map())
   const [wireState, setWireState] = useState<Map<number, WireCell>>(new Map())
+  const [weldingSpecState, setWeldingSpecState] = useState<Map<number, WeldingSpecValues>>(new Map())
   const [matchState, setMatchState] = useState<Map<number, MatchStatus | null>>(new Map())
   const [productState, setProductState] = useState<Map<number, number | null>>(new Map())
   const [selectedAssemblies, setSelectedAssemblies] = useState<Set<number>>(new Set())
@@ -50,6 +52,11 @@ export function BomPaintConfig() {
         pm.set(`${asm.id}_${pt}`, { material_id: null })
       }
     }
+    // Build preset map keyed by product_id for auto-fill
+    const presetMap = new Map(
+      (existingPaint?.available_presets ?? existingWire?.available_presets ?? []).map(p => [p.product_id, p])
+    )
+
     if (existingPaint) {
       for (const asm of existingPaint.assemblies) {
         for (const cfg of asm.configs) {
@@ -57,7 +64,6 @@ export function BomPaintConfig() {
         }
       }
     }
-    setPaintState(pm)
 
     // Match state
     const mm = new Map<number, MatchStatus | null>()
@@ -75,15 +81,48 @@ export function BomPaintConfig() {
 
     // Wire state — keyed by assembly_id
     const wm = new Map<number, WireCell>()
+    const wsm = new Map<number, WeldingSpecValues>()
     for (const asm of assemblies) {
       wm.set(asm.id, { material_id: null })
+      wsm.set(asm.id, { fillet_mm: null, sides: null, weld_layers: null })
     }
     if (existingWire) {
       for (const a of existingWire.assemblies) {
         wm.set(a.assembly_id, { material_id: a.material_id })
+        wsm.set(a.assembly_id, { fillet_mm: a.fillet_mm, sides: a.sides, weld_layers: a.weld_layers })
       }
     }
+
+    // Auto-fill from spec preset for MATCHED_STANDARD assemblies with no saved config
+    const savedPaintAsms = new Set(
+      existingPaint?.assemblies.filter(a => a.configs.length > 0).map(a => a.assembly_id) ?? []
+    )
+    const savedWireAsms = new Set(
+      existingWire?.assemblies.filter(a => a.material_id != null).map(a => a.assembly_id) ?? []
+    )
+    for (const asm of assemblies) {
+      if (asm.match_status !== 'MATCHED_STANDARD' || !asm.product?.id) continue
+      const preset = presetMap.get(asm.product.id)
+      if (!preset) continue
+      if (!savedPaintAsms.has(asm.id) && preset.paint_spec) {
+        for (const layer of preset.paint_spec.layers) {
+          pm.set(`${asm.id}_${layer.paint_type}` as PaintCellKey, { material_id: layer.material_id })
+        }
+      }
+      if (!savedWireAsms.has(asm.id) && preset.welding_spec) {
+        if (preset.welding_spec.material_id != null)
+          wm.set(asm.id, { material_id: preset.welding_spec.material_id })
+        wsm.set(asm.id, {
+          fillet_mm: preset.welding_spec.fillet_mm,
+          sides: preset.welding_spec.sides,
+          weld_layers: preset.welding_spec.weld_layers,
+        })
+      }
+    }
+
+    setPaintState(pm)
     setWireState(wm)
+    setWeldingSpecState(wsm)
   }, [assemblies, existingPaint, existingWire, paintFetched, wireFetched])
 
   const handlePaintChange = useCallback((key: PaintCellKey, value: PaintCell) => {
@@ -182,6 +221,7 @@ export function BomPaintConfig() {
     const wireConfigs = assemblies.map(asm => ({
       assembly_id: asm.id,
       material_id: wireState.get(asm.id)?.material_id ?? null,
+      ...(weldingSpecState.get(asm.id) ?? { fillet_mm: null, sides: null, weld_layers: null }),
     }))
     const matchAssignments = assemblies.map(asm => ({
       assembly_id: asm.id,
@@ -270,6 +310,7 @@ export function BomPaintConfig() {
             assemblies={assemblies}
             paintState={paintState}
             wireState={wireState}
+            weldingSpecState={weldingSpecState}
             matchState={matchState}
             productState={productState}
             onPaintChange={handlePaintChange}

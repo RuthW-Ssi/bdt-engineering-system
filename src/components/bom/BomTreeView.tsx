@@ -82,6 +82,27 @@ function AssemblyRow({
       )}
       <span className="flex-1" />
 
+      {/* Product code */}
+      {asm.product?.product_code && (
+        <span style={{ fontSize: 10, fontWeight: 600, color: '#27500A', background: '#EAF3DE', border: '1px solid #A8D08D', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
+          {asm.product.product_code}
+        </span>
+      )}
+
+      {/* Dimensions L×W×H */}
+      {(asm.length_mm != null || asm.width_mm != null || asm.height_mm != null) && (
+        <span style={{ fontSize: 10, color: '#888', whiteSpace: 'nowrap', flexShrink: 0, background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 5px' }}>
+          {[asm.length_mm, asm.width_mm, asm.height_mm].map(v => v ?? '—').join(' × ')}
+        </span>
+      )}
+
+      {/* Surface area */}
+      {asm.surface_area_m2 != null && (
+        <span style={{ fontSize: 11, color: '#777', minWidth: 60, textAlign: 'right', flexShrink: 0 }}>
+          {asm.surface_area_m2.toFixed(2)} m²
+        </span>
+      )}
+
       {/* Part count badge */}
       {hasParts && (
         <span style={{
@@ -172,6 +193,13 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
           padding: '1px 6px', flexShrink: 0,
         }}>
           {part.grade}
+        </span>
+      )}
+
+      {/* Length */}
+      {part.length_mm != null && (
+        <span style={{ fontSize: 11, color: '#555', background: '#F0F4FF', border: '1px solid #DBEAFE', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
+          {part.length_mm} mm
         </span>
       )}
 

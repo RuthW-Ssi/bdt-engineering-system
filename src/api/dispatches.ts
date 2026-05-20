@@ -46,6 +46,9 @@ export interface AssemblyDto {
   assembly_qty: number
   total_weight_kg: number | null
   surface_area_m2: number | null
+  length_mm: number | null
+  width_mm: number | null
+  height_mm: number | null
   parts: AssemblyPartDto[]
   match_status: string | null
   product: AssemblyProductDto | null

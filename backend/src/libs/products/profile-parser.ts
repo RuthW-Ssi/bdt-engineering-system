@@ -28,8 +28,23 @@ const RE_RB = /^(?:ROD)?RB(\d+(?:\.\d+)?)$/i
 // COUPLING or *THREAD* patterns
 const RE_ACCESSORY = /^COUPLING|THREAD/i
 
+// Normalize raw profile strings from Tekla / BOM sheets before regex matching.
+// Handles: dash separators (H300-300-10-15 → H300x300x10x15),
+//          multiplication sign (×), spaces around separators,
+//          and trailing-zero decimals (300.0 → 300, 139.8 stays).
+export function normalizeProfileString(raw: string): string {
+  let s = raw.trim()
+  // Replace non-standard separators between digits: dash / × / spaces-around-x → 'x'
+  s = s.replace(/(\d)\s*[-×]\s*(\d)/g, '$1x$2')
+  s = s.replace(/(\d)\s+x\s+(\d)/gi, '$1x$2')
+  // Remove purely-zero decimal suffixes: .0  .00  .000 — but keep .8 .25 etc.
+  s = s.replace(/\.\d+/g, dec => (/^\.0+$/.test(dec) ? '' : dec))
+  // Uppercase last so the inserted 'x' separators are also uppercased
+  return s.toUpperCase()
+}
+
 export function parseProfile(profile: string): VariantAttributes {
-  const s = profile.trim()
+  const s = normalizeProfileString(profile)
 
   if (RE_ACCESSORY.test(s)) {
     return { shape: 'ACCESSORY', method: 'ACCESSORY' }

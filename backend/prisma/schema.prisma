@@ -1082,6 +1082,9 @@ model bom_assembly {
   qty           Decimal?     @db.Decimal(12, 3)
   weight_kg     Decimal?     @db.Decimal(12, 3)
   surface_area_m2 Decimal?   @db.Decimal(12, 4)
+  length_mm     Decimal?     @db.Decimal(12, 2)
+  width_mm      Decimal?     @db.Decimal(12, 2)
+  height_mm     Decimal?     @db.Decimal(12, 2)
   attributes    Json         @default("{}")
   // Sprint 8: eBOM ↔ mBOM mapping
   product_id    Int?

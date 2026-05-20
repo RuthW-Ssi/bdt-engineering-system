@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import type { ProductSpecPreset } from './paint'
 
 export type WeldingPartType = 'TA-w' | 'TA-f' | 'TA-m' | 'TA-p' | 'unknown'
 
@@ -19,15 +20,35 @@ export interface WeldingConfigAssemblyDto {
   assembly_mark: string
   material_id: number | null
   material_name: string | null
+  fillet_mm: number | null
+  sides: number | null
+  weld_layers: number | null
 }
 
 export interface WeldingConfigResponseDto {
   dispatch_id: number
   assemblies: WeldingConfigAssemblyDto[]
+  available_presets: ProductSpecPreset[]
+}
+
+export interface WeldingSpecValues {
+  fillet_mm: number | null
+  sides: number | null
+  weld_layers: number | null
 }
 
 export interface SaveWeldingConfigPayload {
-  configs: { assembly_id: number; material_id: number | null }[]
+  configs: ({ assembly_id: number; material_id: number | null } & WeldingSpecValues)[]
+}
+
+export interface WeldingAssemblyBreakdownDto {
+  assembly_id: number
+  assembly_mark: string
+  asm_qty: number
+  fillet_mm: number
+  sides: number
+  weld_layers: number
+  rate_kg_per_m: number
 }
 
 export interface WeldingMbomItemDto {
@@ -38,6 +59,7 @@ export interface WeldingMbomItemDto {
   total_path_m: number
   total_consumption_kg: number
   total_packages: number
+  assembly_breakdown: WeldingAssemblyBreakdownDto[]
 }
 
 export interface WeldingMbomSummaryDto {

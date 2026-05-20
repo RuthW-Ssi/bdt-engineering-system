@@ -45,6 +45,14 @@ function parseWidth(profile: string | null): number | null {
   return null
 }
 
+const STEEL_DENSITY = 7.85
+const DEPOSITION_EFF = 0.90
+const TAK_INTERVAL_M = 0.5
+const TAK_LENGTH_M = 0.05
+const DEFAULT_FILLET_MM = 6
+const DEFAULT_SIDES = 2
+const DEFAULT_WELD_LAYERS = 1
+
 @Injectable()
 export class WeldingCalculatorService {
   private readonly logger = new Logger(WeldingCalculatorService.name)
@@ -52,14 +60,6 @@ export class WeldingCalculatorService {
   constructor(private readonly prisma: PrismaService) {}
 
   async compute(dispatchId: number): Promise<void> {
-    const STEEL_DENSITY = 7.85
-    const DEPOSITION_EFF = 0.90
-    const TAK_INTERVAL_M = 0.5
-    const TAK_LENGTH_M = 0.05
-    // fillet_mm / sides / weld_layers now come from per-assembly config (set from preset or user override)
-    const DEFAULT_FILLET_MM = 6
-    const DEFAULT_SIDES = 2
-    const DEFAULT_WELD_LAYERS = 1
 
     const configs = await this.prisma.dispatch_assembly_welding_config.findMany({
       where: { dispatch_id: dispatchId, material_id: { not: null } },
@@ -72,6 +72,7 @@ export class WeldingCalculatorService {
         assembly: {
           select: {
             assembly_mark: true,
+            qty: true,
             assembly_parts: {
               select: {
                 qty: true,
@@ -140,6 +141,7 @@ export class WeldingCalculatorService {
         assemblyPathM += pathM * partQty
       }
 
+      const asmQty = cfg.assembly.qty ? Number(cfg.assembly.qty) : 1
       const filletMm = cfg.fillet_mm ? Number(cfg.fillet_mm) : DEFAULT_FILLET_MM
       const sides = cfg.sides ?? DEFAULT_SIDES
       const weldLayers = cfg.weld_layers ?? DEFAULT_WELD_LAYERS
@@ -147,12 +149,12 @@ export class WeldingCalculatorService {
 
       const takPoints = assemblyPathM / TAK_INTERVAL_M + 4
       const effectiveLengthM = assemblyPathM + takPoints * TAK_LENGTH_M
-      const consumptionKg = effectiveLengthM * consumptionRate
+      const consumptionKg = effectiveLengthM * consumptionRate * asmQty
 
       const matId = cfg.material_id!
       const prev = acc.get(matId) ?? { total_path_m: 0, total_consumption_kg: 0, pkg_kg: pkgKg }
       acc.set(matId, {
-        total_path_m: prev.total_path_m + assemblyPathM,
+        total_path_m: prev.total_path_m + assemblyPathM * asmQty,
         total_consumption_kg: prev.total_consumption_kg + consumptionKg,
         pkg_kg: pkgKg,
       })
@@ -188,7 +190,7 @@ export class WeldingCalculatorService {
   }
 
   async getMbom(dispatchId: number): Promise<WeldingMbomSummaryDto> {
-    const [rows, dispatch] = await Promise.all([
+    const [rows, dispatch, cfgRows] = await Promise.all([
       this.prisma.dispatch_welding_requirement.findMany({
         where: { dispatch_id: dispatchId },
         orderBy: { material_id: 'asc' },
@@ -205,7 +207,40 @@ export class WeldingCalculatorService {
         where: { id: dispatchId },
         select: { welding_coverage_json: true },
       }),
+      this.prisma.dispatch_assembly_welding_config.findMany({
+        where: { dispatch_id: dispatchId, material_id: { not: null } },
+        select: {
+          material_id: true,
+          fillet_mm: true,
+          sides: true,
+          weld_layers: true,
+          assembly: { select: { id: true, assembly_mark: true, qty: true } },
+        },
+        orderBy: { assembly: { assembly_mark: 'asc' } },
+      }),
     ])
+
+    // assembly breakdown map: material_id → breakdown rows
+    type AsmSpec = { assembly_id: number; assembly_mark: string; asm_qty: number; fillet_mm: number; sides: number; weld_layers: number; rate_kg_per_m: number }
+    const breakdownMap = new Map<number, AsmSpec[]>()
+    for (const cfg of cfgRows) {
+      if (!cfg.material_id) continue
+      const fillet = cfg.fillet_mm ? Number(cfg.fillet_mm) : DEFAULT_FILLET_MM
+      const sides = cfg.sides ?? DEFAULT_SIDES
+      const weld_layers = cfg.weld_layers ?? DEFAULT_WELD_LAYERS
+      const rate = Math.round(((fillet ** 2 / 200) * 100 * sides * weld_layers * STEEL_DENSITY / DEPOSITION_EFF / 1000) * 10000) / 10000
+      const asm_qty = cfg.assembly.qty ? Number(cfg.assembly.qty) : 1
+      if (!breakdownMap.has(cfg.material_id)) breakdownMap.set(cfg.material_id, [])
+      breakdownMap.get(cfg.material_id)!.push({
+        assembly_id: cfg.assembly.id,
+        assembly_mark: cfg.assembly.assembly_mark,
+        asm_qty,
+        fillet_mm: fillet,
+        sides,
+        weld_layers,
+        rate_kg_per_m: rate,
+      })
+    }
 
     const computedAt = rows[0]?.computed_at?.toISOString() ?? null
 
@@ -217,6 +252,7 @@ export class WeldingCalculatorService {
       total_path_m: Number(r.total_path_m),
       total_consumption_kg: Number(r.total_consumption_kg),
       total_packages: r.total_packages,
+      assembly_breakdown: breakdownMap.get(r.material_id) ?? [],
     }))
 
     return {

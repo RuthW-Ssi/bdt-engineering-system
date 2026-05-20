@@ -120,6 +120,9 @@ export class BomUploadService {
               qty: a.qty,
               weight_kg: a.weight_kg,
               surface_area_m2: a.surface_area_m2,
+              length_mm: a.length_mm,
+              width_mm: a.width_mm,
+              height_mm: a.height_mm,
               create_uid: uid,
               write_uid: uid,
             })),
@@ -182,6 +185,9 @@ export class BomUploadService {
           })).filter(r => r.id)
           await this.matching.matchParts(tx as any, partRows, projectId, uid)
         }
+
+        // Downgrade any MATCHED_STANDARD assembly whose parts are not all MATCHED_STANDARD
+        await this.matching.enforceStandardIntegrity(tx as any, d.id, uid)
 
         // Determine final status
         const hasAssembly = (asmList?.assemblies.length ?? 0) > 0
@@ -288,6 +294,9 @@ export class BomUploadService {
             qty: true,
             weight_kg: true,
             surface_area_m2: true,
+            length_mm: true,
+            width_mm: true,
+            height_mm: true,
             match_status: true,
             product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
             assembly_parts: {
@@ -341,6 +350,9 @@ export class BomUploadService {
         assembly_qty: Number(a.qty ?? 1),
         total_weight_kg: a.weight_kg ? Number(a.weight_kg) : null,
         surface_area_m2: a.surface_area_m2 ? Number(a.surface_area_m2) : null,
+        length_mm: a.length_mm ? Number(a.length_mm) : null,
+        width_mm: a.width_mm ? Number(a.width_mm) : null,
+        height_mm: a.height_mm ? Number(a.height_mm) : null,
         match_status: a.match_status ?? null,
         product: a.product ?? null,
         parts: a.assembly_parts.map(ap => ({

@@ -64,11 +64,52 @@ export class PaintCalculatorService {
   }
 
   async getMbom(dispatchId: number): Promise<MbomSummaryDto> {
-    const rows = await this.prisma.dispatch_material_requirement.findMany({
-      where: { dispatch_id: dispatchId },
-      include: { material: { select: { name: true } } },
-      orderBy: { paint_type: 'asc' },
-    })
+    const [rows, cfgRows] = await Promise.all([
+      this.prisma.dispatch_material_requirement.findMany({
+        where: { dispatch_id: dispatchId },
+        include: { material: { select: { name: true, attributes: true } } },
+        orderBy: { paint_type: 'asc' },
+      }),
+      this.prisma.dispatch_assembly_paint_config.findMany({
+        where: { dispatch_id: dispatchId, material_id: { not: null } },
+        select: {
+          material_id: true,
+          paint_type: true,
+          layers: true,
+          assembly: { select: { id: true, assembly_mark: true, surface_area_m2: true, qty: true } },
+        },
+        orderBy: { assembly: { assembly_mark: 'asc' } },
+      }),
+    ])
+
+    // material params lookup
+    const coverageMap = new Map<number, number>()
+    const micronMap = new Map<number, number>()
+    for (const r of rows) {
+      const attrs = r.material.attributes as Record<string, unknown>
+      coverageMap.set(r.material_id, Math.max(Number(attrs['coverage_sqm_per_gallon'] ?? 5), 0.001))
+      micronMap.set(r.material_id, Number(attrs['paint_micron'] ?? 50))
+    }
+
+    // per-assembly breakdown map: `${materialId}__${paintType}` → rows
+    type AsmBreak = { assembly_id: number; assembly_mark: string; area_m2: number; qty: number; layers: number; gallons: number }
+    const breakdownMap = new Map<string, AsmBreak[]>()
+    for (const cfg of cfgRows) {
+      if (!cfg.material_id) continue
+      const area = Number(cfg.assembly.surface_area_m2 ?? 0)
+      const qty = Number(cfg.assembly.qty ?? 1)
+      const coverage = coverageMap.get(cfg.material_id) ?? 5
+      const key = `${cfg.material_id}__${cfg.paint_type}`
+      if (!breakdownMap.has(key)) breakdownMap.set(key, [])
+      breakdownMap.get(key)!.push({
+        assembly_id: cfg.assembly.id,
+        assembly_mark: cfg.assembly.assembly_mark,
+        area_m2: area,
+        qty,
+        layers: cfg.layers,
+        gallons: (area * qty * cfg.layers) / coverage,
+      })
+    }
 
     const latestRow = rows.reduce<Date | null>((acc, r) => {
       const t = r.computed_at
@@ -93,6 +134,9 @@ export class PaintCalculatorService {
           paint_type: r.paint_type,
           total_area_m2: Number(r.total_area_m2),
           total_qty_gallon: Number(r.total_qty_gallon),
+          micron: micronMap.get(r.material_id) ?? 50,
+          coverage_sqm_per_gallon: coverageMap.get(r.material_id) ?? 5,
+          assembly_breakdown: breakdownMap.get(`${r.material_id}__${r.paint_type}`) ?? [],
         })),
         subtotal_gallon: subtotal,
       }

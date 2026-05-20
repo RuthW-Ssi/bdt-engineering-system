@@ -543,13 +543,15 @@ export function NewStandardProductModal({ onClose }: Props) {
                         <span style={{ fontSize: 12, color: '#333', flex: 1 }}>{p.name}</span>
                         {p.profile && <span style={{ fontSize: 11, padding: '1px 6px', background: '#E6F1FB', color: '#0C447C', borderRadius: 3, fontFamily: 'monospace' }}>{p.profile}</span>}
                         {p.grade && <span style={{ fontSize: 11, padding: '1px 6px', background: '#EAF3DE', color: '#27500A', borderRadius: 3 }}>{p.grade}</span>}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                          <button type="button" onClick={() => setAssemblyParts(prev => prev.map((x, idx) => idx === i ? { ...x, qty: Math.max(1, x.qty - 1) } : x))}
-                            style={{ width: 20, height: 20, borderRadius: 3, border: '1px solid #E0E0E0', background: '#F5F5F5', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-                          <span style={{ fontSize: 12, fontWeight: 600, minWidth: 20, textAlign: 'center' }}>{p.qty}</span>
-                          <button type="button" onClick={() => setAssemblyParts(prev => prev.map((x, idx) => idx === i ? { ...x, qty: x.qty + 1 } : x))}
-                            style={{ width: 20, height: 20, borderRadius: 3, border: '1px solid #E0E0E0', background: '#F5F5F5', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-                        </div>
+                        <input
+                          type="number" min="1" required
+                          style={{ width: 44, height: 26, padding: '0 6px', fontSize: 12, fontWeight: 600, textAlign: 'center', border: '1px solid #E0E0E0', borderRadius: 4, background: '#fff' }}
+                          value={p.qty}
+                          onChange={e => {
+                            const v = Math.max(1, parseInt(e.target.value) || 1)
+                            setAssemblyParts(prev => prev.map((x, idx) => idx === i ? { ...x, qty: v } : x))
+                          }}
+                        />
                         <button type="button" onClick={() => setAssemblyParts(prev => prev.filter((_, idx) => idx !== i))}
                           style={{ padding: 2, background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD' }}><X size={13} /></button>
                       </div>

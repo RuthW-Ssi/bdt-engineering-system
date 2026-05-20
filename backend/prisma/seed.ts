@@ -659,6 +659,118 @@ async function main() {
   }
 
   // ══════════════════════════════════════════════════════════════
+  // Sprint 8: Standard Steel Products (STD-00013..STD-00066)
+  // ══════════════════════════════════════════════════════════════
+
+  const stdCateg = Object.fromEntries(
+    (await prisma.product_category.findMany({
+      where: { prefix_5: { in: ['PL000', 'HR000', 'CF000', 'PT000', 'MS000'] } },
+      select: { id: true, prefix_5: true },
+    })).map(c => [c.prefix_5!, c.id])
+  )
+  const C = {
+    PL:  stdCateg['PL000'], ANG: stdCateg['HR000'], HR:  stdCateg['HR000'],
+    CF:  stdCateg['CF000'], PT:  stdCateg['PT000'], MS:  stdCateg['MS000'],
+  }
+
+  const STEEL_STD = [
+    // ── PLATE SS400 ──────────────────────────────────────────────
+    { code:'STD-00013', name:'PL6x1500 SS400 (stock 6m)',   categ:C.PL,  va:{ profile:'PL6x1500',   shape:'PL', method:'PL', thickness_mm:6,  width_mm:1500, grade:'SS400' }, w:423.9 },
+    { code:'STD-00014', name:'PL9x1500 SS400 (stock 6m)',   categ:C.PL,  va:{ profile:'PL9x1500',   shape:'PL', method:'PL', thickness_mm:9,  width_mm:1500, grade:'SS400' }, w:635.85 },
+    { code:'STD-00015', name:'PL10x1500 SS400 (stock 6m)',  categ:C.PL,  va:{ profile:'PL10x1500',  shape:'PL', method:'PL', thickness_mm:10, width_mm:1500, grade:'SS400' }, w:706.5 },
+    { code:'STD-00016', name:'PL12x1500 SS400 (stock 6m)',  categ:C.PL,  va:{ profile:'PL12x1500',  shape:'PL', method:'PL', thickness_mm:12, width_mm:1500, grade:'SS400' }, w:847.8 },
+    { code:'STD-00017', name:'PL16x1500 SS400 (stock 6m)',  categ:C.PL,  va:{ profile:'PL16x1500',  shape:'PL', method:'PL', thickness_mm:16, width_mm:1500, grade:'SS400' }, w:1130.4 },
+    { code:'STD-00018', name:'PL20x1500 SS400 (stock 6m)',  categ:C.PL,  va:{ profile:'PL20x1500',  shape:'PL', method:'PL', thickness_mm:20, width_mm:1500, grade:'SS400' }, w:1413.0 },
+    { code:'STD-00019', name:'PL25x1500 SS400 (stock 6m)',  categ:C.PL,  va:{ profile:'PL25x1500',  shape:'PL', method:'PL', thickness_mm:25, width_mm:1500, grade:'SS400' }, w:1766.25 },
+    // ── PLATE HY370 ──────────────────────────────────────────────
+    { code:'STD-00020', name:'PL6x1500 HY370 (stock 6m)',   categ:C.PL,  va:{ profile:'PL6x1500',   shape:'PL', method:'PL', thickness_mm:6,  width_mm:1500, grade:'HY370' }, w:423.9 },
+    { code:'STD-00021', name:'PL10x1500 HY370 (stock 6m)',  categ:C.PL,  va:{ profile:'PL10x1500',  shape:'PL', method:'PL', thickness_mm:10, width_mm:1500, grade:'HY370' }, w:706.5 },
+    { code:'STD-00022', name:'PL16x1500 HY370 (stock 6m)',  categ:C.PL,  va:{ profile:'PL16x1500',  shape:'PL', method:'PL', thickness_mm:16, width_mm:1500, grade:'HY370' }, w:1130.4 },
+    { code:'STD-00023', name:'PL20x1500 HY370 (stock 6m)',  categ:C.PL,  va:{ profile:'PL20x1500',  shape:'PL', method:'PL', thickness_mm:20, width_mm:1500, grade:'HY370' }, w:1413.0 },
+    // ── L_ANGLE SS400 ────────────────────────────────────────────
+    { code:'STD-00024', name:'L50x50x5 SS400 (stock 6m)',     categ:C.ANG, va:{ profile:'L50x50x5',    shape:'L', method:'ANG', leg_a_mm:50,  leg_b_mm:50,  thickness_mm:5,  grade:'SS400' }, w:22.86 },
+    { code:'STD-00025', name:'L65x65x6 SS400 (stock 6m)',     categ:C.ANG, va:{ profile:'L65x65x6',    shape:'L', method:'ANG', leg_a_mm:65,  leg_b_mm:65,  thickness_mm:6,  grade:'SS400' }, w:35.46 },
+    { code:'STD-00026', name:'L75x75x6 SS400 (stock 6m)',     categ:C.ANG, va:{ profile:'L75x75x6',    shape:'L', method:'ANG', leg_a_mm:75,  leg_b_mm:75,  thickness_mm:6,  grade:'SS400' }, w:41.16 },
+    { code:'STD-00027', name:'L90x90x9 SS400 (stock 6m)',     categ:C.ANG, va:{ profile:'L90x90x9',    shape:'L', method:'ANG', leg_a_mm:90,  leg_b_mm:90,  thickness_mm:9,  grade:'SS400' }, w:73.62 },
+    { code:'STD-00028', name:'L100x100x10 SS400 (stock 6m)',  categ:C.ANG, va:{ profile:'L100x100x10', shape:'L', method:'ANG', leg_a_mm:100, leg_b_mm:100, thickness_mm:10, grade:'SS400' }, w:91.20 },
+    { code:'STD-00029', name:'L75x75x6 HY370 (stock 6m)',     categ:C.ANG, va:{ profile:'L75x75x6',    shape:'L', method:'ANG', leg_a_mm:75,  leg_b_mm:75,  thickness_mm:6,  grade:'HY370' }, w:41.16 },
+    { code:'STD-00030', name:'L100x100x10 HY370 (stock 6m)',  categ:C.ANG, va:{ profile:'L100x100x10', shape:'L', method:'ANG', leg_a_mm:100, leg_b_mm:100, thickness_mm:10, grade:'HY370' }, w:91.20 },
+    // ── H_BEAM SS400 ─────────────────────────────────────────────
+    { code:'STD-00031', name:'H200x200x8x12 SS400 (stock 12m)',   categ:C.HR, va:{ profile:'H200x200x8x12',   shape:'H', method:'HR', height_mm:200, width_mm:200, web_thickness_mm:8,  flange_thickness_mm:12, grade:'SS400'  }, w:595.2 },
+    { code:'STD-00032', name:'H250x250x9x14 SS400 (stock 12m)',   categ:C.HR, va:{ profile:'H250x250x9x14',   shape:'H', method:'HR', height_mm:250, width_mm:250, web_thickness_mm:9,  flange_thickness_mm:14, grade:'SS400'  }, w:866.4 },
+    { code:'STD-00033', name:'H300x300x10x15 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'H300x300x10x15',  shape:'H', method:'HR', height_mm:300, width_mm:300, web_thickness_mm:10, flange_thickness_mm:15, grade:'SS400'  }, w:1128.0 },
+    { code:'STD-00034', name:'H350x350x12x19 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'H350x350x12x19',  shape:'H', method:'HR', height_mm:350, width_mm:350, web_thickness_mm:12, flange_thickness_mm:19, grade:'SS400'  }, w:1620.0 },
+    { code:'STD-00035', name:'H400x400x13x21 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'H400x400x13x21',  shape:'H', method:'HR', height_mm:400, width_mm:400, web_thickness_mm:13, flange_thickness_mm:21, grade:'SS400'  }, w:2052.0 },
+    { code:'STD-00036', name:'H350x350x12x19 SM520B (stock 12m)', categ:C.HR, va:{ profile:'H350x350x12x19',  shape:'H', method:'HR', height_mm:350, width_mm:350, web_thickness_mm:12, flange_thickness_mm:19, grade:'SM520B' }, w:1620.0 },
+    { code:'STD-00037', name:'H400x400x13x21 SM520B (stock 12m)', categ:C.HR, va:{ profile:'H400x400x13x21',  shape:'H', method:'HR', height_mm:400, width_mm:400, web_thickness_mm:13, flange_thickness_mm:21, grade:'SM520B' }, w:2052.0 },
+    // ── C_CHANNEL ────────────────────────────────────────────────
+    { code:'STD-00038', name:'C100x50x5x7.5 SS400 (stock 6m)',   categ:C.HR, va:{ profile:'C100x50x5x7.5',  shape:'C', method:'HR', height_mm:100, width_mm:50, web_thickness_mm:5,   flange_thickness_mm:7.5, grade:'SS400' }, w:56.4 },
+    { code:'STD-00039', name:'C125x65x6x8 SS400 (stock 6m)',     categ:C.HR, va:{ profile:'C125x65x6x8',    shape:'C', method:'HR', height_mm:125, width_mm:65, web_thickness_mm:6,   flange_thickness_mm:8,   grade:'SS400' }, w:81.0 },
+    { code:'STD-00040', name:'C150x75x6.5x10 SS400 (stock 6m)',  categ:C.HR, va:{ profile:'C150x75x6.5x10', shape:'C', method:'HR', height_mm:150, width_mm:75, web_thickness_mm:6.5, flange_thickness_mm:10,  grade:'SS400' }, w:113.4 },
+    // ── CHS ──────────────────────────────────────────────────────
+    { code:'STD-00041', name:'CHS60.5x2.3 SS400 (stock 6m)',   categ:C.PT, va:{ profile:'CHS60.5x2.3',   shape:'CHS', method:'PIPE', outer_dia_mm:60.5,  thickness_mm:2.3, grade:'SS400' }, w:19.7 },
+    { code:'STD-00042', name:'CHS89.1x3.2 SS400 (stock 6m)',   categ:C.PT, va:{ profile:'CHS89.1x3.2',   shape:'CHS', method:'PIPE', outer_dia_mm:89.1,  thickness_mm:3.2, grade:'SS400' }, w:40.6 },
+    { code:'STD-00043', name:'CHS114.3x4.5 SS400 (stock 6m)',  categ:C.PT, va:{ profile:'CHS114.3x4.5',  shape:'CHS', method:'PIPE', outer_dia_mm:114.3, thickness_mm:4.5, grade:'SS400' }, w:73.2 },
+    // ── PIPE ─────────────────────────────────────────────────────
+    { code:'STD-00044', name:'PIPE60.5x2.3 SS400 (stock 6m)',   categ:C.PT, va:{ profile:'PIPE60.5x2.3',   shape:'PIPE', method:'PIPE', outer_dia_mm:60.5,  thickness_mm:2.3, grade:'SS400' }, w:19.7 },
+    { code:'STD-00045', name:'PIPE76.3x2.8 SS400 (stock 6m)',   categ:C.PT, va:{ profile:'PIPE76.3x2.8',   shape:'PIPE', method:'PIPE', outer_dia_mm:76.3,  thickness_mm:2.8, grade:'SS400' }, w:30.4 },
+    { code:'STD-00046', name:'PIPE114.3x4.5 SS400 (stock 6m)',  categ:C.PT, va:{ profile:'PIPE114.3x4.5',  shape:'PIPE', method:'PIPE', outer_dia_mm:114.3, thickness_mm:4.5, grade:'SS400' }, w:73.2 },
+    { code:'STD-00047', name:'PIPE165.2x5.0 SS400 (stock 6m)',  categ:C.PT, va:{ profile:'PIPE165.2x5.0',  shape:'PIPE', method:'PIPE', outer_dia_mm:165.2, thickness_mm:5.0, grade:'SS400' }, w:118.5 },
+    // ── RHS / SHS ────────────────────────────────────────────────
+    { code:'STD-00048', name:'RHS100x50x3.2 SS400 (stock 6m)',  categ:C.CF, va:{ profile:'RHS100x50x3.2', shape:'RHS', method:'PIPE', height_mm:100, width_mm:50,  thickness_mm:3.2, grade:'SS400' }, w:43.2 },
+    { code:'STD-00049', name:'RHS125x75x4.5 SS400 (stock 6m)',  categ:C.CF, va:{ profile:'RHS125x75x4.5', shape:'RHS', method:'PIPE', height_mm:125, width_mm:75,  thickness_mm:4.5, grade:'SS400' }, w:80.4 },
+    { code:'STD-00050', name:'SHS50x3.2 SS400 (stock 6m)',      categ:C.CF, va:{ profile:'SHS50x3.2',     shape:'SHS', method:'PIPE', width_mm:50,               thickness_mm:3.2, grade:'SS400' }, w:28.2 },
+    { code:'STD-00051', name:'SHS75x4.5 SS400 (stock 6m)',      categ:C.CF, va:{ profile:'SHS75x4.5',     shape:'SHS', method:'PIPE', width_mm:75,               thickness_mm:4.5, grade:'SS400' }, w:58.5 },
+    { code:'STD-00052', name:'SHS100x6 SS400 (stock 6m)',       categ:C.CF, va:{ profile:'SHS100x6',      shape:'SHS', method:'PIPE', width_mm:100,              thickness_mm:6.0, grade:'SS400' }, w:105.6 },
+    // ── ROD ──────────────────────────────────────────────────────
+    { code:'STD-00053', name:'RB12 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'RB12', shape:'RB', method:'BAR', dia_mm:12, grade:'SS400' }, w:10.66 },
+    { code:'STD-00054', name:'RB16 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'RB16', shape:'RB', method:'BAR', dia_mm:16, grade:'SS400' }, w:18.94 },
+    { code:'STD-00055', name:'RB19 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'RB19', shape:'RB', method:'BAR', dia_mm:19, grade:'SS400' }, w:26.71 },
+    { code:'STD-00056', name:'RB22 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'RB22', shape:'RB', method:'BAR', dia_mm:22, grade:'SS400' }, w:35.82 },
+    { code:'STD-00057', name:'RB25 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'RB25', shape:'RB', method:'BAR', dia_mm:25, grade:'SS400' }, w:46.25 },
+    { code:'STD-00058', name:'RB32 SS400 (stock 12m)',  categ:C.HR, va:{ profile:'RB32', shape:'RB', method:'BAR', dia_mm:32, grade:'SS400' }, w:75.78 },
+    { code:'STD-00059', name:'RB22 HY370 (stock 12m)',  categ:C.HR, va:{ profile:'RB22', shape:'RB', method:'BAR', dia_mm:22, grade:'HY370' }, w:35.82 },
+    // ── S275 extras ──────────────────────────────────────────────
+    { code:'STD-00060', name:'PL10x1500 S275 (stock 6m)',         categ:C.PL, va:{ profile:'PL10x1500',      shape:'PL', method:'PL',  thickness_mm:10, width_mm:1500, grade:'S275' }, w:706.5 },
+    { code:'STD-00061', name:'PL16x1500 S275 (stock 6m)',         categ:C.PL, va:{ profile:'PL16x1500',      shape:'PL', method:'PL',  thickness_mm:16, width_mm:1500, grade:'S275' }, w:1130.4 },
+    { code:'STD-00062', name:'H300x300x10x15 S275 (stock 12m)',   categ:C.HR, va:{ profile:'H300x300x10x15', shape:'H',  method:'HR',  height_mm:300, width_mm:300, web_thickness_mm:10, flange_thickness_mm:15, grade:'S275' }, w:1128.0 },
+    { code:'STD-00063', name:'L75x75x6 S275 (stock 6m)',          categ:C.ANG,va:{ profile:'L75x75x6',       shape:'L',  method:'ANG', leg_a_mm:75, leg_b_mm:75, thickness_mm:6, grade:'S275' }, w:41.16 },
+  ]
+
+  for (const p of STEEL_STD) {
+    await prisma.products.upsert({
+      where: { product_code: p.code },
+      update: {},
+      create: {
+        product_code:        p.code,
+        name:                p.name,
+        product_type:        'standard',
+        product_kind:        (p as any).kind ?? 'part',
+        state:               'released',
+        categ_id:            p.categ,
+        variant_attributes:  p.va,
+        attributes:          {},
+        cost_raw_material:   0,
+        cost_transport:      0,
+        cost_production:     0,
+        cost_warehouse:      0,
+        stock_policy:        (p as any).kind === 'assembly' ? undefined : 'reorder',
+        reorder_min:         (p as any).kind === 'assembly' ? undefined : 0,
+        reorder_max:         (p as any).kind === 'assembly' ? undefined : 100,
+        create_uid:          adminId,
+        write_uid:           adminId,
+      },
+    })
+  }
+
+  // Advance seq past seeded codes
+  await prisma.$executeRaw`
+    INSERT INTO product_code_seq (kind, next_run)
+    VALUES ('STD', 64)
+    ON CONFLICT (kind) DO UPDATE SET next_run = GREATEST(product_code_seq.next_run, EXCLUDED.next_run)
+  `
+
+  // ══════════════════════════════════════════════════════════════
   // Sprint 9: Paint materials catalog
   // ══════════════════════════════════════════════════════════════
 
@@ -779,6 +891,7 @@ async function main() {
   console.log('  - 2 mock customers (TST-001, LGT-001)')
   console.log('  - 5 bom_grade rows (Sprint 7 F2)')
   console.log(`  - ${PRODUCT_TEMPLATES.length} product_template rows (Sprint 7 F2)`)
+  console.log(`  - ${STEEL_STD.length} standard steel products STD-00013..STD-00063 (Sprint 8)`)
   console.log(`  - 1 Paint category + ${PAINT_MATERIALS.length} paint materials (Sprint 9)`)
   console.log(`  - 1 Welding Wire category + ${WELDING_WIRE_MATERIALS.length} wire materials (Sprint 9)`)
 }

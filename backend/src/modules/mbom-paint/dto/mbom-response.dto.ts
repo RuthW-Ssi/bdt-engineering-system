@@ -1,12 +1,24 @@
 import { ApiProperty } from '@nestjs/swagger'
 import type { ProductSpecPreset } from '../../../common/types/spec-preset.types'
 
+export class PaintAssemblyBreakdownDto {
+  @ApiProperty() assembly_id: number
+  @ApiProperty() assembly_mark: string
+  @ApiProperty() area_m2: number
+  @ApiProperty() qty: number
+  @ApiProperty() layers: number
+  @ApiProperty() gallons: number
+}
+
 export class MbomMaterialItemDto {
   @ApiProperty() material_id: number
   @ApiProperty() material_name: string
   @ApiProperty() paint_type: string
   @ApiProperty() total_area_m2: number
   @ApiProperty() total_qty_gallon: number
+  @ApiProperty() micron: number
+  @ApiProperty() coverage_sqm_per_gallon: number
+  @ApiProperty({ type: [PaintAssemblyBreakdownDto] }) assembly_breakdown: PaintAssemblyBreakdownDto[]
 }
 
 export class MbomByTypeDto {

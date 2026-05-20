@@ -222,14 +222,16 @@ export interface CreateStandardProductPayload {
 
 export interface CreateCustomProductPayload {
   product_type: 'custom'
+  product_kind?: 'part' | 'assembly'
   name: string
   categ_id: number
   project_id: number
   erection_zone_id?: number
   mark_prefix: string
   mark_number: string
-  engineer_hours_est?: number
   attributes?: Record<string, unknown>
+  default_paint_spec?: PaintSpecPreset
+  default_welding_spec?: WeldingSpecPreset
 }
 
 export type CreateProductPayload = CreateStandardProductPayload | CreateCustomProductPayload

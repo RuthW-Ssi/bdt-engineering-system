@@ -18,6 +18,16 @@ export class WeldingConfigResponseDto {
   available_presets: ProductSpecPreset[]
 }
 
+export class WeldingAssemblyBreakdownDto {
+  @ApiProperty() assembly_id: number
+  @ApiProperty() assembly_mark: string
+  @ApiProperty() asm_qty: number
+  @ApiProperty() fillet_mm: number
+  @ApiProperty() sides: number
+  @ApiProperty() weld_layers: number
+  @ApiProperty() rate_kg_per_m: number
+}
+
 export class WeldingMbomItemDto {
   @ApiProperty() material_id: number
   @ApiProperty() material_name: string
@@ -26,6 +36,7 @@ export class WeldingMbomItemDto {
   @ApiProperty() total_path_m: number
   @ApiProperty() total_consumption_kg: number
   @ApiProperty() total_packages: number
+  @ApiProperty({ type: [WeldingAssemblyBreakdownDto] }) assembly_breakdown: WeldingAssemblyBreakdownDto[]
 }
 
 export type WeldingSkipReason = 'no_length_mm' | 'profile_unparseable' | 'no_profile'
