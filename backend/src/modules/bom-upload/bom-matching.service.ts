@@ -85,8 +85,20 @@ export class BomMatchingService {
       const stdIndex = await this.buildStandardPartIndex(tx)
       for (const row of needProfile) {
         const parsed = parseProfile(row.profile!)
-        const key = parsed.profile ? `${parsed.profile}:${(row.grade ?? '').toUpperCase()}` : null
-        if (key && stdIndex.has(key)) profileMap.set(normalize(row.part_mark), stdIndex.get(key)!)
+        const grade = (row.grade ?? '').toUpperCase()
+
+        // Exact profile+grade match first
+        const exactKey = parsed.profile ? `${parsed.profile}:${grade}` : null
+        if (exactKey && stdIndex.has(exactKey)) {
+          profileMap.set(normalize(row.part_mark), stdIndex.get(exactKey)!)
+          continue
+        }
+
+        // Plate fallback: match by thickness only — PL is ordered as stock width and cut on-site
+        if (parsed.shape === 'PL' && parsed.thickness_mm != null) {
+          const plKey = `PL${parsed.thickness_mm}:${grade}`
+          if (stdIndex.has(plKey)) profileMap.set(normalize(row.part_mark), stdIndex.get(plKey)!)
+        }
       }
     }
 
@@ -139,8 +151,17 @@ export class BomMatchingService {
     const map = new Map<string, number>()
     for (const r of rows) {
       const va = r.variant_attributes as Record<string, unknown>
-      if (va?.profile && va?.grade) {
-        map.set(`${va.profile}:${String(va.grade).toUpperCase()}`, r.id)
+      if (!va?.profile || !va?.grade) continue
+      const profile = String(va.profile)
+      const grade = String(va.grade).toUpperCase()
+
+      // Exact key: e.g. "L100x100x10:SS400", "H300x300x10x15:SS400"
+      map.set(`${profile}:${grade}`, r.id)
+
+      // PL thickness-only key: e.g. "PL10:HY370" — plates are cut from stock width
+      if (profile.startsWith('PL') && va.thickness_mm != null) {
+        const plKey = `PL${va.thickness_mm}:${grade}`
+        if (!map.has(plKey)) map.set(plKey, r.id)
       }
     }
     return map
