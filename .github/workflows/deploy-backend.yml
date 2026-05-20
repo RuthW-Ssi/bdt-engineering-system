@@ -12,7 +12,6 @@ env:
   REGION: asia-southeast1
   SERVICE: staging-bdt-engineering-service
   IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/staging-bdt-engineering-service
-  INSTANCE_CONNECTION_NAME: building-technology-493907:asia-southeast1:staging-bdt-engineering-db
 
 jobs:
   deploy:
@@ -51,8 +50,8 @@ jobs:
             --platform managed \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
-            --add-cloudsql-instances ${{ env.INSTANCE_CONNECTION_NAME }} \
-            --set-secrets DATABASE_URL=staging-bdt-engineering-database-url:latest \
+            --set-secrets DATABASE_URL=supabase-staging-pooler-url:latest \
+            --set-secrets DIRECT_URL=supabase-staging-direct-url:latest \
             --set-secrets JWT_SECRET=staging-bdt-engineering-jwt-secret:latest \
             --set-secrets ADMIN_SEED_PASSWORD=staging-bdt-engineering-admin-seed-password:latest \
             --set-env-vars NODE_ENV=production \
