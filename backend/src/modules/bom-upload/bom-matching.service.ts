@@ -70,36 +70,38 @@ export class BomMatchingService {
       }
     }
 
-    // T-BE-1.6: Auto-create one custom product per unmatched unique mark
+    // T-BE-1.6: Auto-create one custom product per unmatched unique mark — batch to minimize round-trips
     if (unmatchedRows.length) {
       const categId = await this.getDefaultCategId(tx)
-      const seenMarks = new Map<string, number>() // to deduplicate within same upload
-      for (const row of unmatchedRows) {
-        const markKey = normalize(row.assembly_mark)
-        if (seenMarks.has(markKey)) {
-          rowResults.set(row.id, { product_id: seenMarks.get(markKey)!, match_status: 'MATCHED_CUSTOM' })
-          continue
-        }
-        const code = await this.generateCodeWithTx(tx)
-        const created = await tx.products.create({
-          data: {
-            product_code: code,
-            name: markKey,
-            categ_id: categId,
-            product_type: 'custom',
-            product_kind: 'assembly',
-            project_id: projectId,
-            create_uid: uid,
-            write_uid: uid,
-            attributes: {
-              source: 'auto_created_from_bom',
-              ...(row.weight_kg != null ? { weight_kg: Number(row.weight_kg) } : {}),
-              ...(row.surface_area_m2 != null ? { surface_area_m2: Number(row.surface_area_m2) } : {}),
+      const uniqueByMark = new Map<string, typeof unmatchedRows[0]>()
+      for (const row of unmatchedRows) uniqueByMark.set(normalize(row.assembly_mark), row)
+      const uniqueUnmatched = [...uniqueByMark.values()]
+
+      const codes = await this.generateManyCodesWithTx(tx, uniqueUnmatched.length)
+      const newProducts = await Promise.all(
+        uniqueUnmatched.map((row, i) =>
+          tx.products.create({
+            data: {
+              product_code: codes[i],
+              name: normalize(row.assembly_mark),
+              categ_id: categId,
+              product_type: 'custom',
+              product_kind: 'assembly',
+              project_id: projectId,
+              create_uid: uid,
+              write_uid: uid,
+              attributes: {
+                source: 'auto_created_from_bom',
+                ...(row.weight_kg != null ? { weight_kg: Number(row.weight_kg) } : {}),
+                ...(row.surface_area_m2 != null ? { surface_area_m2: Number(row.surface_area_m2) } : {}),
+              },
             },
-          },
-        })
-        seenMarks.set(markKey, created.id)
-        rowResults.set(row.id, { product_id: created.id, match_status: 'MATCHED_CUSTOM' })
+          }).then(p => [normalize(row.assembly_mark), p.id] as [string, number])
+        ),
+      )
+      const createdMap = new Map(newProducts)
+      for (const row of unmatchedRows) {
+        rowResults.set(row.id, { product_id: createdMap.get(normalize(row.assembly_mark))!, match_status: 'MATCHED_CUSTOM' })
       }
     }
 
@@ -187,35 +189,37 @@ export class BomMatchingService {
 
     if (unmatchedRows.length) {
       const categId = await this.getDefaultCategId(tx)
-      const seenMarks = new Map<string, number>()
-      for (const row of unmatchedRows) {
-        const markKey = normalize(row.part_mark)
-        if (seenMarks.has(markKey)) {
-          rowResults.set(row.id, { product_id: seenMarks.get(markKey)!, match_status: 'MATCHED_CUSTOM' })
-          continue
-        }
-        const code = await this.generateCodeWithTx(tx)
-        const created = await tx.products.create({
-          data: {
-            product_code: code,
-            name: markKey,
-            categ_id: categId,
-            product_type: 'custom',
-            product_kind: 'part',
-            project_id: projectId,
-            create_uid: uid,
-            write_uid: uid,
-            attributes: {
-              source: 'auto_created_from_bom',
-              ...(row.profile ? { profile: row.profile } : {}),
-              ...(row.grade ? { grade: row.grade } : {}),
-              ...(row.weight_kg != null ? { weight_kg: Number(row.weight_kg) } : {}),
-              ...(row.length_mm != null ? { length_mm: Number(row.length_mm) } : {}),
+      const uniqueByMark = new Map<string, typeof unmatchedRows[0]>()
+      for (const row of unmatchedRows) uniqueByMark.set(normalize(row.part_mark), row)
+      const uniqueUnmatched = [...uniqueByMark.values()]
+
+      const codes = await this.generateManyCodesWithTx(tx, uniqueUnmatched.length)
+      const newProducts = await Promise.all(
+        uniqueUnmatched.map((row, i) =>
+          tx.products.create({
+            data: {
+              product_code: codes[i],
+              name: normalize(row.part_mark),
+              categ_id: categId,
+              product_type: 'custom',
+              product_kind: 'part',
+              project_id: projectId,
+              create_uid: uid,
+              write_uid: uid,
+              attributes: {
+                source: 'auto_created_from_bom',
+                ...(row.profile ? { profile: row.profile } : {}),
+                ...(row.grade ? { grade: row.grade } : {}),
+                ...(row.weight_kg != null ? { weight_kg: Number(row.weight_kg) } : {}),
+                ...(row.length_mm != null ? { length_mm: Number(row.length_mm) } : {}),
+              },
             },
-          },
-        })
-        seenMarks.set(markKey, created.id)
-        rowResults.set(row.id, { product_id: created.id, match_status: 'MATCHED_CUSTOM' })
+          }).then(p => [normalize(row.part_mark), p.id] as [string, number])
+        ),
+      )
+      const createdMap = new Map(newProducts)
+      for (const row of unmatchedRows) {
+        rowResults.set(row.id, { product_id: createdMap.get(normalize(row.part_mark))!, match_status: 'MATCHED_CUSTOM' })
       }
     }
 
@@ -272,15 +276,18 @@ export class BomMatchingService {
     return map
   }
 
-  private async generateCodeWithTx(tx: Tx): Promise<string> {
-    const seq = await tx.$queryRaw<{ next_run: number }[]>`
-      SELECT next_run FROM product_code_seq WHERE kind = 'CUS' FOR UPDATE
+  // Atomically reserve `count` consecutive codes in one round-trip.
+  // Uses UPDATE…RETURNING to avoid a SELECT FOR UPDATE / UPDATE race outside a transaction.
+  private async generateManyCodesWithTx(tx: Tx, count: number): Promise<string[]> {
+    if (count === 0) return []
+    const res = await tx.$queryRaw<{ start_value: number | bigint }[]>`
+      UPDATE product_code_seq
+      SET next_run = next_run + ${count}
+      WHERE kind = 'CUS'
+      RETURNING (next_run - ${count}) AS start_value
     `
-    const next = seq[0].next_run
-    await tx.$executeRaw`
-      UPDATE product_code_seq SET next_run = ${next + 1} WHERE kind = 'CUS'
-    `
-    return `CUS-${next.toString().padStart(5, '0')}`
+    const start = Number(res[0].start_value)
+    return Array.from({ length: count }, (_, i) => `CUS-${(start + i).toString().padStart(5, '0')}`)
   }
 
   private async getDefaultCategId(tx: Tx): Promise<number> {
