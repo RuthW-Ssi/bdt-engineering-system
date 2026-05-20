@@ -76,6 +76,26 @@ export const STATE_TO_PRODUCT_STATUS: Record<string, string> = {
 // Sprint 2: Product Layer types
 // ═══════════════════════════════════════════════════════════════
 
+export type PaintLayerType = 'primer' | 'intermediate' | 'fireproof' | 'topcoat'
+
+export interface PaintLayerPreset {
+  paint_type: PaintLayerType
+  layers: number
+  material_code: string
+  microns?: number
+}
+
+export interface PaintSpecPreset {
+  layers: PaintLayerPreset[]
+}
+
+export interface WeldingSpecPreset {
+  material_code: string
+  fillet_mm: number
+  sides: number
+  weld_layers: number
+}
+
 export type ProductType = 'standard' | 'custom'
 export type ProductState = 'draft' | 'in_design' | 'in_review' | 'approved' | 'released' | 'obsolete'
 
@@ -112,6 +132,9 @@ export interface ProductDTO {
   // Sprint 4.2: Routing
   routing_template_id: number | null
   has_custom_routing: boolean
+  // Spec presets (standard products)
+  default_paint_spec?: PaintSpecPreset | null
+  default_welding_spec?: WeldingSpecPreset | null
   // Shared
   attributes: Record<string, unknown>
   odoo_ref_id: string | null
@@ -176,6 +199,7 @@ export interface MarkPrefixDTO {
 
 export interface CreateStandardProductPayload {
   product_type: 'standard'
+  product_kind?: 'part' | 'assembly'
   name: string
   categ_id: number
   engineering_code?: string
@@ -192,30 +216,34 @@ export interface CreateStandardProductPayload {
   reorder_min?: number
   reorder_max?: number
   attributes?: Record<string, unknown>
+  default_paint_spec?: PaintSpecPreset
+  default_welding_spec?: WeldingSpecPreset
 }
 
 export interface CreateCustomProductPayload {
   product_type: 'custom'
+  product_kind?: 'part' | 'assembly'
   name: string
   categ_id: number
   project_id: number
   erection_zone_id?: number
   mark_prefix: string
   mark_number: string
-  engineer_hours_est?: number
   attributes?: Record<string, unknown>
+  default_paint_spec?: PaintSpecPreset
+  default_welding_spec?: WeldingSpecPreset
 }
 
 export type CreateProductPayload = CreateStandardProductPayload | CreateCustomProductPayload
 
 // Product state → UI display
 export const PRODUCT_STATE_LABELS: Record<ProductState, string> = {
-  draft:      'ร่าง',
-  in_design:  'ออกแบบ',
-  in_review:  'รอตรวจสอบ',
-  approved:   'อนุมัติ',
-  released:   'เผยแพร่',
-  obsolete:   'ยกเลิก',
+  draft:      'Draft',
+  in_design:  'In Design',
+  in_review:  'In Review',
+  approved:   'Approved',
+  released:   'Released',
+  obsolete:   'Obsolete',
 }
 
 export const PRODUCT_STATE_COLORS: Record<ProductState, { bg: string; text: string }> = {

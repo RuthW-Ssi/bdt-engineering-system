@@ -6,6 +6,7 @@ import { ProductsService } from './products.service'
 import { CreateStandardProductDto } from './dto/create-standard-product.dto'
 import { CreateCustomProductDto } from './dto/create-custom-product.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
+import { UpdateSpecDto } from './dto/update-spec.dto'
 import { QueryProductDto } from './dto/query-product.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -85,6 +86,22 @@ export class ProductsController {
   @ApiOperation({ summary: 'Obsolete: released → obsolete' })
   actionObsolete(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
     return this.svc.doAction(code, 'action_obsolete', user.sub)
+  }
+
+  @Get(':product_code/spec')
+  @ApiOperation({ summary: 'Get mBOM spec presets (paint + welding) for a standard product' })
+  getSpec(@Param('product_code') code: string) {
+    return this.svc.getSpec(code)
+  }
+
+  @Patch(':product_code/spec')
+  @ApiOperation({ summary: 'Set or clear mBOM spec presets. Pass null to clear a spec.' })
+  updateSpec(
+    @Param('product_code') code: string,
+    @Body() dto: UpdateSpecDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateSpec(code, dto, user.sub)
   }
 
   @Get(':product_code/messages')

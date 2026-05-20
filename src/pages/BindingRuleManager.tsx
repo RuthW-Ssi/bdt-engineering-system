@@ -61,14 +61,14 @@ export function BindingRuleManager() {
           className="flex items-center gap-1.5 rounded-md text-white"
           style={{ height: 34, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
         >
-          <Plus size={13} /> เพิ่ม Rule
+          <Plus size={13} /> Add Rule
         </button>
       </div>
 
       {/* Add form */}
       {showForm && (
         <div className="bg-white rounded-lg border border-chrome-100 mb-4" style={{ padding: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#1F1F1F' }}>เพิ่ม Binding Rule</div>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#1F1F1F' }}>Add Binding Rule</div>
           <div className="flex flex-wrap gap-3 mb-3">
             <div>
               <div style={{ fontSize: 10, color: '#8E8E8E', marginBottom: 3 }}>Priority</div>
@@ -97,7 +97,7 @@ export function BindingRuleManager() {
                 className="border border-chrome-200 rounded"
                 style={{ width: 120, height: 30, padding: '0 6px', fontSize: 12 }}
               >
-                <option value="">— ทั้งหมด —</option>
+                <option value="">— All —</option>
                 <option value="standard">standard</option>
                 <option value="custom">custom</option>
               </select>
@@ -120,7 +120,7 @@ export function BindingRuleManager() {
                 className="border border-chrome-200 rounded"
                 style={{ width: 160, height: 30, padding: '0 6px', fontSize: 12 }}
               >
-                <option value="">— เลือก template —</option>
+                <option value="">— Select template —</option>
                 {templates.map(t => <option key={t.id} value={t.id}>{t.code} — {t.name}</option>)}
               </select>
             </div>
@@ -132,9 +132,9 @@ export function BindingRuleManager() {
               className="flex items-center gap-1.5 rounded-md text-white"
               style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
             >
-              {createMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} บันทึก
+              {createMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Save
             </button>
-            <button onClick={() => setShowForm(false)} className="flex items-center gap-1 rounded border border-chrome-200 hover:bg-chrome-50" style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}>ยกเลิก</button>
+            <button onClick={() => setShowForm(false)} className="flex items-center gap-1 rounded border border-chrome-200 hover:bg-chrome-50" style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}>Cancel</button>
           </div>
         </div>
       )}
@@ -153,11 +153,11 @@ export function BindingRuleManager() {
 
         {isLoading ? (
           <div className="flex items-center justify-center gap-2" style={{ padding: 32, color: '#8E8E8E', fontSize: 13 }}>
-            <Loader2 size={16} className="animate-spin" /> กำลังโหลด...
+            <Loader2 size={16} className="animate-spin" /> Loading...
           </div>
         ) : rules.length === 0 ? (
           <div style={{ padding: 32, textAlign: 'center', fontSize: 13, color: '#8E8E8E' }}>
-            ยังไม่มี binding rules
+            No binding rules yet
           </div>
         ) : (
           rules.map((rule: BindingRuleDTO) => (
@@ -171,7 +171,7 @@ export function BindingRuleManager() {
               <span className="font-mono" style={{ fontWeight: 600 }}>{rule.match_mark_prefix ?? <span style={{ color: '#C2C2C2' }}>—</span>}</span>
               <span style={{ fontWeight: 600, color: '#1F1F1F' }}>{rule.routing_template?.code} <span style={{ fontWeight: 400, color: '#8E8E8E', fontSize: 11 }}>— {rule.routing_template?.name}</span></span>
               <button
-                onClick={() => { if (confirm(`ลบ rule "${rule.description ?? rule.id}"?`)) deleteMut.mutate(rule.id) }}
+                onClick={() => { if (confirm(`Delete rule "${rule.description ?? rule.id}"?`)) deleteMut.mutate(rule.id) }}
                 disabled={deleteMut.isPending}
                 className="flex items-center justify-center rounded hover:bg-red-50"
                 style={{ width: 28, height: 28 }}

@@ -2,12 +2,14 @@ import { Module } from '@nestjs/common'
 import { BomUploadController } from './bom-upload.controller'
 import { BomUploadService } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
+import { BomMatchingService } from './bom-matching.service'
 import { XlsxParserService } from './xlsx-parser.service'
 import { FileStorageModule } from '../file-storage/file-storage.module'
+import { ProductDerivationModule } from '../product-derivation/product-derivation.module'
 
 @Module({
-  imports: [FileStorageModule],
+  imports: [FileStorageModule, ProductDerivationModule],
   controllers: [BomUploadController],
-  providers: [BomUploadService, BomDiffService, XlsxParserService],
+  providers: [BomUploadService, BomDiffService, BomMatchingService, XlsxParserService],
 })
 export class BomUploadModule {}

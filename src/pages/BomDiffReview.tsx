@@ -7,7 +7,7 @@ import type { BomDiffNode, DiffState } from '../types'
 import { useBomDiff } from '../hooks/useBomDiff'
 
 const STATE_BADGE: Record<DiffState, string> = { added: '+', removed: '−', modified: '~', unchanged: '=' }
-const STATE_LABEL: Record<DiffState, string> = { added: 'เพิ่มใหม่', removed: 'ลบออก', modified: 'แก้ไข', unchanged: 'ไม่เปลี่ยน' }
+const STATE_LABEL: Record<DiffState, string> = { added: 'Added', removed: 'Removed', modified: 'Modified', unchanged: 'Unchanged' }
 const STATE_COLOR: Record<DiffState, { bg: string; border: string; text: string; badge: string }> = {
   added:     { bg: '#EAF3DE', border: '#639922',   text: '#27500A', badge: '#639922' },
   removed:   { bg: '#FCEBEB', border: '#C8202A',   text: '#8A1520', badge: '#C8202A' },
@@ -98,7 +98,7 @@ export function BomDiffReview() {
   const [approveOpen, setApproveOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [approveChecked, setApproveChecked] = useState(false)
-  const [rejectReason, setRejectReason] = useState('อื่นๆ (ระบุ)')
+  const [rejectReason, setRejectReason] = useState('Other (specify)')
   const [rejectDetail, setRejectDetail] = useState('')
 
   const { bomList, diffNodes, fromVersionId, toVersionId, setFromVersionId, setToVersionId, loading, stats } = useBomDiff(code)
@@ -115,36 +115,36 @@ export function BomDiffReview() {
         </button>
         <span className="font-mono" style={{ fontSize: 14, fontWeight: 600 }}>{code}</span>
         <span style={{ color: '#C2C2C2' }}>·</span>
-        <span style={{ fontSize: 13, color: '#8E8E8E' }}>ตรวจสอบ BOM</span>
-        <span style={{ background: '#E6F1FB', color: '#0C447C', border: '1px solid #B5D4F4', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>รอตรวจสอบ</span>
+        <span style={{ fontSize: 13, color: '#8E8E8E' }}>BOM Review</span>
+        <span style={{ background: '#E6F1FB', color: '#0C447C', border: '1px solid #B5D4F4', borderRadius: 999, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>In Review</span>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
           <button className="flex items-center gap-1.5 rounded-md" style={{ height: 36, padding: '0 14px', fontSize: 13, color: '#3A3A3A', border: '1px solid #C2C2C2' }}>
-            <FileText size={14} />ดู Drawing
+            <FileText size={14} />View Drawing
           </button>
           <button className="flex items-center gap-1.5 rounded-md" style={{ height: 36, padding: '0 14px', fontSize: 13, color: '#3A3A3A', border: '1px solid #C2C2C2' }}>
-            <Box size={14} />ดู 3D BIM
+            <Box size={14} />View 3D BIM
           </button>
           <span style={{ width: 1, height: 24, background: '#E0E0E0' }} />
           <button onClick={() => setRejectOpen(true)} className="flex items-center gap-1.5 rounded-md text-white" style={{ height: 36, padding: '0 14px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}>
-            <XCircle size={14} />ปฏิเสธ
+            <XCircle size={14} />Reject
           </button>
           <button onClick={() => setApproveOpen(true)} className="flex items-center gap-1.5 rounded-md text-white" style={{ height: 36, padding: '0 14px', fontSize: 13, fontWeight: 600, background: '#639922' }}>
-            <CheckCircle size={14} />อนุมัติ
+            <CheckCircle size={14} />Approve
           </button>
         </div>
       </div>
 
       {/* Diff toolbar */}
       <div className="flex items-center gap-3 border-b border-chrome-100 px-5" style={{ height: 44, background: '#F5F5F5', flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: '#8E8E8E' }}>เปรียบ</span>
+        <span style={{ fontSize: 12, color: '#8E8E8E' }}>Compare</span>
         <select
           className="border border-chrome-200 rounded bg-white"
           style={{ height: 28, padding: '0 8px', fontSize: 12 }}
           value={fromVersionId ?? ''}
           onChange={e => setFromVersionId(Number(e.target.value))}
         >
-          <option value="">— (ใหม่)</option>
+          <option value="">— (New)</option>
           {bomList.map(b => <option key={b.id} value={b.id}>v{b.version} ({b.state})</option>)}
         </select>
         <ArrowLeft size={14} style={{ transform: 'rotate(180deg)', color: '#8E8E8E' }} />
@@ -157,13 +157,13 @@ export function BomDiffReview() {
           {bomList.map(b => <option key={b.id} value={b.id}>v{b.version} ({b.state})</option>)}
         </select>
         <span style={{ width: 1, height: 16, background: '#C2C2C2' }} />
-        <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#639922', fontWeight: 500 }}><PlusCircle size={13} />{stats.added} เพิ่ม</span>
-        <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#BA7517', fontWeight: 500 }}><Edit size={13} />{stats.modified} แก้ไข</span>
-        <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#C8202A', fontWeight: 500 }}><MinusCircle size={13} />{stats.removed} ลบ</span>
+        <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#639922', fontWeight: 500 }}><PlusCircle size={13} />{stats.added} added</span>
+        <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#BA7517', fontWeight: 500 }}><Edit size={13} />{stats.modified} modified</span>
+        <span className="flex items-center gap-1" style={{ fontSize: 12, color: '#C8202A', fontWeight: 500 }}><MinusCircle size={13} />{stats.removed} removed</span>
         <span className="flex-1" />
         <label className="flex items-center gap-2 cursor-pointer" style={{ fontSize: 12, color: '#555' }}>
           <input type="checkbox" checked={hideUnchanged} onChange={e => setHideUnchanged(e.target.checked)} style={{ accentColor: '#185FA5' }} />
-          ซ่อนที่ไม่เปลี่ยน
+          Hide unchanged
         </label>
         <button className="flex items-center gap-1.5 rounded hover:bg-chrome-100" style={{ height: 28, padding: '0 10px', fontSize: 12, color: '#555' }}>
           <Download size={13} />Export
@@ -180,18 +180,18 @@ export function BomDiffReview() {
               <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#185FA5' }}>
                 {toBom ? `v${toBom.version}` : '—'}
               </span>
-              <span style={{ fontSize: 12, color: '#555' }}>— ปัจจุบัน</span>
+              <span style={{ fontSize: 12, color: '#555' }}>— Current</span>
             </div>
             {fromBom && (
               <div className="flex items-center gap-2 rounded-lg border border-chrome-100 px-3 py-2" style={{ background: '#FAFAFA' }}>
                 <Clock size={14} style={{ color: '#8E8E8E' }} />
                 <span className="font-mono" style={{ fontSize: 13, fontWeight: 500, color: '#8E8E8E' }}>v{fromBom.version}</span>
-                <span style={{ fontSize: 12, color: '#8E8E8E' }}>— ก่อนหน้า</span>
+                <span style={{ fontSize: 12, color: '#8E8E8E' }}>— Previous</span>
               </div>
             )}
           </div>
           {loading
-            ? <div className="flex items-center justify-center py-12" style={{ color: '#8E8E8E', gap: 8, fontSize: 13 }}><span>กำลังโหลด diff...</span></div>
+            ? <div className="flex items-center justify-center py-12" style={{ color: '#8E8E8E', gap: 8, fontSize: 13 }}><span>Loading diff...</span></div>
             : diffNodes.map(node => <DiffRow key={node.id} node={node} hideUnchanged={hideUnchanged} />)
           }
         </div>
@@ -199,16 +199,16 @@ export function BomDiffReview() {
 
       {/* Status bar */}
       <div className="flex items-center" style={{ height: 40, background: '#1F1F1F', color: 'white', padding: '0 20px', gap: 16, fontSize: 12, flexShrink: 0 }}>
-        <span className="flex items-center gap-1.5" style={{ color: '#86C04B' }}><PlusCircle size={13} />{stats.added} เพิ่ม</span>
-        <span className="flex items-center gap-1.5" style={{ color: '#D9A75D' }}><Edit size={13} />{stats.modified} แก้ไข</span>
-        <span className="flex items-center gap-1.5" style={{ color: '#EE9B9B' }}><MinusCircle size={13} />{stats.removed} ลบ</span>
-        <span className="flex items-center gap-1.5" style={{ color: '#555' }}><Equal size={13} />{stats.unchanged} ไม่เปลี่ยน</span>
+        <span className="flex items-center gap-1.5" style={{ color: '#86C04B' }}><PlusCircle size={13} />{stats.added} added</span>
+        <span className="flex items-center gap-1.5" style={{ color: '#D9A75D' }}><Edit size={13} />{stats.modified} modified</span>
+        <span className="flex items-center gap-1.5" style={{ color: '#EE9B9B' }}><MinusCircle size={13} />{stats.removed} removed</span>
+        <span className="flex items-center gap-1.5" style={{ color: '#555' }}><Equal size={13} />{stats.unchanged} unchanged</span>
         <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        <span style={{ color: '#555' }}>เปรียบ {fromBom ? `v${fromBom.version}` : 'ใหม่'} → {toBom ? `v${toBom.version}` : '—'}</span>
+        <span style={{ color: '#555' }}>Compare {fromBom ? `v${fromBom.version}` : 'New'} → {toBom ? `v${toBom.version}` : '—'}</span>
         <span className="flex-1" />
         <span className="inline-flex items-center justify-center rounded-full font-mono" style={{ width: 24, height: 24, background: '#FAEEDA', color: '#854F0B', fontSize: 11, fontWeight: 600 }}>NP</span>
         <span style={{ color: '#8E8E8E' }}>nuch.p</span>
-        <span style={{ color: '#555' }}>ตรวจสอบเมื่อ 5 นาทีที่แล้ว</span>
+        <span style={{ color: '#555' }}>Reviewed 5 minutes ago</span>
       </div>
 
       {/* Approve Modal */}
@@ -218,32 +218,32 @@ export function BomDiffReview() {
             <div className="flex items-start gap-3 mb-4">
               <CheckCircle size={24} style={{ color: '#639922', flexShrink: 0, marginTop: 2 }} />
               <div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>ยืนยันการอนุมัติ</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>Confirm Approval</div>
                 <div style={{ fontSize: 13, color: '#8E8E8E', marginTop: 4 }}>{code}</div>
               </div>
             </div>
             <div className="rounded-lg" style={{ background: '#EAF3DE', border: '1px solid #C0DD97', padding: '14px 16px', marginBottom: 16 }}>
               <div className="grid gap-2" style={{ gridTemplateColumns: '120px 1fr', fontSize: 13 }}>
-                <span style={{ color: '#27500A' }}>ชิ้นงาน:</span><span className="font-mono">{code}</span>
-                <span style={{ color: '#27500A' }}>เวอร์ชัน:</span><span className="font-mono">v2.0.0</span>
-                <span style={{ color: '#27500A' }}>BOM:</span><span>8 รายการ</span>
+                <span style={{ color: '#27500A' }}>Product:</span><span className="font-mono">{code}</span>
+                <span style={{ color: '#27500A' }}>Version:</span><span className="font-mono">v2.0.0</span>
+                <span style={{ color: '#27500A' }}>BOM:</span><span>8 items</span>
                 <span style={{ color: '#27500A' }}>Routing:</span><span>6 steps</span>
-                <span style={{ color: '#27500A' }}>ผู้ส่ง:</span><span>somchai.k@ssi-steel.com</span>
+                <span style={{ color: '#27500A' }}>Submitted by:</span><span>somchai.k@ssi-steel.com</span>
               </div>
             </div>
             <label className="flex items-center gap-2 cursor-pointer mb-3" style={{ fontSize: 13, color: '#1F1F1F' }}>
               <input type="checkbox" checked={approveChecked} onChange={e => setApproveChecked(e.target.checked)} style={{ accentColor: '#639922', width: 16, height: 16 }} />
-              ฉันได้ตรวจสอบ BOM และ Routing ครบถ้วนแล้ว
+              I have fully reviewed the BOM and Routing
             </label>
-            <textarea className="w-full border border-chrome-200 rounded-md focus:outline-none focus:border-steel-600" rows={3} placeholder="หมายเหตุ (ไม่บังคับ)" style={{ padding: '8px 10px', fontSize: 13, resize: 'none', marginBottom: 16 }} />
+            <textarea className="w-full border border-chrome-200 rounded-md focus:outline-none focus:border-steel-600" rows={3} placeholder="Notes (optional)" style={{ padding: '8px 10px', fontSize: 13, resize: 'none', marginBottom: 16 }} />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setApproveOpen(false)} className="rounded-md hover:bg-chrome-50" style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>ยกเลิก</button>
+              <button onClick={() => setApproveOpen(false)} className="rounded-md hover:bg-chrome-50" style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>Cancel</button>
               <button
                 disabled={!approveChecked}
                 className="flex items-center gap-1.5 rounded-md text-white"
                 style={{ padding: '10px 18px', fontSize: 13, fontWeight: 600, background: '#639922', opacity: approveChecked ? 1 : 0.4, cursor: approveChecked ? 'pointer' : 'not-allowed' }}
               >
-                <CheckCircle size={14} />ยืนยันอนุมัติ
+                <CheckCircle size={14} />Confirm Approval
               </button>
             </div>
           </div>
@@ -257,12 +257,12 @@ export function BomDiffReview() {
             <div className="flex items-start gap-3 mb-4">
               <XCircle size={24} style={{ color: '#C8202A', flexShrink: 0, marginTop: 2 }} />
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>ปฏิเสธ BOM</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>Reject BOM</div>
                 <div style={{ fontSize: 13, color: '#8E8E8E', marginTop: 4 }}>{code}</div>
               </div>
             </div>
             <div className="flex flex-col gap-2 mb-4">
-              {['qty ไม่ถูกต้อง', 'ประเภท (category) ผิด', 'ขาด component ที่จำเป็น', 'Routing ไม่ครบ', 'อื่นๆ (ระบุ)'].map(r => (
+              {['Incorrect qty', 'Wrong category', 'Missing required component', 'Incomplete Routing', 'Other (specify)'].map(r => (
                 <label key={r} className="flex items-center gap-2 cursor-pointer rounded-md" style={{ padding: '8px 12px', fontSize: 13, background: rejectReason === r ? '#FCEBEB' : '#F5F5F5' }}>
                   <input type="radio" name="reason" checked={rejectReason === r} onChange={() => setRejectReason(r)} style={{ accentColor: '#C8202A' }} />
                   {r}
@@ -272,19 +272,19 @@ export function BomDiffReview() {
             <textarea
               className="w-full rounded-md focus:outline-none"
               rows={4}
-              placeholder="รายละเอียด (จำเป็น)"
+              placeholder="Details (required)"
               value={rejectDetail}
               onChange={e => setRejectDetail(e.target.value)}
               style={{ padding: '8px 10px', fontSize: 13, resize: 'none', marginBottom: 16, border: `1px solid ${rejectDetail ? '#C2C2C2' : '#EE9B9B'}`, borderRadius: 6, width: '100%', boxSizing: 'border-box' }}
             />
             <div className="flex justify-end gap-2">
-              <button onClick={() => setRejectOpen(false)} className="rounded-md hover:bg-chrome-50" style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>ยกเลิก</button>
+              <button onClick={() => setRejectOpen(false)} className="rounded-md hover:bg-chrome-50" style={{ padding: '10px 16px', fontSize: 13, color: '#555' }}>Cancel</button>
               <button
                 disabled={!rejectDetail.trim()}
                 className="flex items-center gap-1.5 rounded-md text-white"
                 style={{ padding: '10px 18px', fontSize: 13, fontWeight: 600, background: '#C8202A', opacity: rejectDetail.trim() ? 1 : 0.4, cursor: rejectDetail.trim() ? 'pointer' : 'not-allowed' }}
               >
-                <XCircle size={14} />ยืนยันปฏิเสธ
+                <XCircle size={14} />Confirm Rejection
               </button>
             </div>
           </div>

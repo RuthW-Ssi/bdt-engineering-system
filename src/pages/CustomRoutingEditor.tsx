@@ -61,7 +61,7 @@ function CustomOpCard({
           <span style={{ fontSize: 11, color: '#8E8E8E' }}>{op.activities.length} activities</span>
         </button>
         <button
-          onClick={() => { if (confirm(`ลบ operation "${op.name}"?`)) delOpMut.mutate() }}
+          onClick={() => { if (confirm(`Delete operation "${op.name}"?`)) delOpMut.mutate() }}
           disabled={delOpMut.isPending}
           className="flex items-center justify-center rounded hover:bg-red-50"
           style={{ width: 28, height: 28, flexShrink: 0 }}
@@ -80,7 +80,7 @@ function CustomOpCard({
           {/* Add activity form */}
           {addActForm ? (
             <div style={{ padding: '10px 16px', background: '#FAFAFA', borderTop: '1px dashed #E0E0E0' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#1F1F1F' }}>เพิ่ม Activity</div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: '#1F1F1F' }}>Add Activity</div>
               <div className="flex flex-wrap gap-2 mb-2">
                 {[
                   { label: 'Description', key: 'description', width: 220 },
@@ -110,9 +110,9 @@ function CustomOpCard({
                   className="flex items-center gap-1 rounded text-white"
                   style={{ height: 28, padding: '0 12px', fontSize: 11, fontWeight: 600, background: '#185FA5' }}
                 >
-                  {addActMut.isPending ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />} บันทึก
+                  {addActMut.isPending ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />} Save
                 </button>
-                <button onClick={() => setAddActForm(false)} className="flex items-center gap-1 rounded border border-chrome-200" style={{ height: 28, padding: '0 10px', fontSize: 11, color: '#555' }}>ยกเลิก</button>
+                <button onClick={() => setAddActForm(false)} className="flex items-center gap-1 rounded border border-chrome-200" style={{ height: 28, padding: '0 10px', fontSize: 11, color: '#555' }}>Cancel</button>
               </div>
             </div>
           ) : (
@@ -122,7 +122,7 @@ function CustomOpCard({
                 className="flex items-center gap-1 rounded border border-dashed border-chrome-200 hover:bg-chrome-50"
                 style={{ height: 26, padding: '0 10px', fontSize: 11, color: '#8E8E8E' }}
               >
-                <Plus size={10} /> เพิ่ม Activity
+                <Plus size={10} /> Add Activity
               </button>
             </div>
           )}
@@ -151,9 +151,9 @@ function ActivityRow({
       <span style={{ color: '#1F1F1F' }}>{act.description}</span>
       <span className="font-mono">{act.per_minute} min/{act.unit}</span>
       <span className="font-mono">{act.std_measure} {act.unit}</span>
-      <span>{act.manpower} คน</span>
+      <span>{act.manpower} ppl</span>
       <button
-        onClick={() => { if (confirm(`ลบ "${act.description}"?`)) delMut.mutate() }}
+        onClick={() => { if (confirm(`Delete "${act.description}"?`)) delMut.mutate() }}
         disabled={delMut.isPending}
         className="flex items-center justify-center rounded hover:bg-red-50"
         style={{ width: 24, height: 24 }}
@@ -222,13 +222,13 @@ export function CustomRoutingEditor() {
 
   if (loading) return (
     <div className="flex items-center justify-center gap-2" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
-      <Loader2 size={20} className="animate-spin" /> กำลังโหลด...
+      <Loader2 size={20} className="animate-spin" /> Loading...
     </div>
   )
 
   if (!product) return (
     <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E' }}>
-      ไม่พบ Product {code}
+      Product {code} not found
     </div>
   )
 
@@ -247,10 +247,10 @@ export function CustomRoutingEditor() {
           <div className="flex items-start gap-3 mb-4">
             <AlertTriangle size={20} style={{ color: '#F57F17', marginTop: 1 }} />
             <div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 6 }}>สร้าง Custom Routing</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 6 }}>Create Custom Routing</div>
               <div style={{ fontSize: 13, color: '#555', lineHeight: 1.6 }}>
-                Product นี้ยังไม่มี Custom Routing — กด "สร้าง" เพื่อแยก routing ออกจาก template
-                (clone จาก template ปัจจุบัน หรือเริ่มใหม่เปล่า)
+                This product has no Custom Routing yet — click "Create" to break out from the template
+                (clone from an existing template, or start blank)
               </div>
             </div>
           </div>
@@ -265,7 +265,7 @@ export function CustomRoutingEditor() {
                 style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
               >
                 {createMut.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
-                Clone จาก {t.code}
+                Clone from {t.code}
               </button>
             ))}
             <button
@@ -274,13 +274,13 @@ export function CustomRoutingEditor() {
               className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
               style={{ height: 36, padding: '0 16px', fontSize: 13, color: '#555' }}
             >
-              เริ่มใหม่เปล่า
+              Start blank
             </button>
           </div>
 
           {createMut.isError && (
             <div style={{ fontSize: 12, color: '#C8202A', marginTop: 8 }}>
-              {(createMut.error as any)?.response?.data?.message ?? 'สร้างไม่สำเร็จ'}
+              {(createMut.error as any)?.response?.data?.message ?? 'Create failed'}
             </div>
           )}
         </div>
@@ -320,14 +320,14 @@ export function CustomRoutingEditor() {
       {showRestoreConfirm && (
         <div className="bg-white border-b border-orange-100 px-6 py-3 flex items-center gap-3" style={{ background: '#FFF8F0' }}>
           <AlertTriangle size={16} style={{ color: '#E65100' }} />
-          <span style={{ fontSize: 12, color: '#555' }}>เลือก template ที่ต้องการ restore:</span>
+          <span style={{ fontSize: 12, color: '#555' }}>Select template to restore from:</span>
           <select
             value={restoreTemplateId}
             onChange={e => setRestoreTemplateId(e.target.value)}
             className="border border-chrome-200 rounded"
             style={{ height: 28, padding: '0 8px', fontSize: 12 }}
           >
-            <option value="">— เลือก template —</option>
+            <option value="">— Select template —</option>
             {templates.map(t => <option key={t.id} value={t.id}>{t.code} — {t.name}</option>)}
           </select>
           <button
@@ -336,9 +336,9 @@ export function CustomRoutingEditor() {
             className="flex items-center gap-1.5 rounded-md text-white"
             style={{ height: 28, padding: '0 12px', fontSize: 11, fontWeight: 600, background: '#E65100' }}
           >
-            {restoreMut.isPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />} ยืนยัน
+            {restoreMut.isPending ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />} Confirm
           </button>
-          <button onClick={() => setShowRestoreConfirm(false)} style={{ fontSize: 11, color: '#8E8E8E' }}>ยกเลิก</button>
+          <button onClick={() => setShowRestoreConfirm(false)} style={{ fontSize: 11, color: '#8E8E8E' }}>Cancel</button>
         </div>
       )}
 
@@ -347,7 +347,7 @@ export function CustomRoutingEditor() {
         <div className="flex items-center gap-2 rounded-lg mb-4" style={{ background: '#FFF3E0', border: '1px solid #FFCC80', padding: '10px 14px' }}>
           <AlertTriangle size={16} style={{ color: '#E65100' }} />
           <span style={{ fontSize: 12, color: '#E65100' }}>
-            Custom routing — ไม่ inherit จาก template | {customRouting?.ops.length ?? 0} operations
+            Custom routing — does not inherit from template | {customRouting?.ops.length ?? 0} operations
           </span>
         </div>
 
@@ -355,11 +355,11 @@ export function CustomRoutingEditor() {
         {promotionGroup && (
           <div className="flex items-center gap-3 rounded-lg mb-4" style={{ background: '#E8F5E9', border: '1px solid #A5D6A7', padding: '10px 14px' }}>
             <span style={{ fontSize: 12, color: '#2E7D32', flex: 1 }}>
-              {promotionGroup.count} products ใช้โครงสร้าง routing เดียวกัน — สามารถ promote เป็น shared template ได้
+              {promotionGroup.count} products share the same routing structure — can be promoted to a shared template
             </span>
             <button
               onClick={() => {
-                const name = window.prompt(`ชื่อ template ใหม่ (สำหรับ ${promotionGroup.count} products):`)
+                const name = window.prompt(`New template name (for ${promotionGroup.count} products):`)
                 if (name?.trim()) promoteMut.mutate(name.trim())
               }}
               disabled={promoteMut.isPending}
@@ -384,7 +384,7 @@ export function CustomRoutingEditor() {
         {/* Add op form */}
         {addOpForm ? (
           <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 16, marginTop: 8 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#1F1F1F' }}>เพิ่ม Operation</div>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#1F1F1F' }}>Add Operation</div>
             <div className="flex flex-wrap gap-3 mb-3">
               {[
                 { label: 'Op Code', key: 'op_code', width: 120 },
@@ -410,9 +410,9 @@ export function CustomRoutingEditor() {
                 className="flex items-center gap-1.5 rounded-md text-white"
                 style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
               >
-                {addOpMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} บันทึก
+                {addOpMut.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Save
               </button>
-              <button onClick={() => setAddOpForm(false)} className="flex items-center gap-1 rounded border border-chrome-200 hover:bg-chrome-50" style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}>ยกเลิก</button>
+              <button onClick={() => setAddOpForm(false)} className="flex items-center gap-1 rounded border border-chrome-200 hover:bg-chrome-50" style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}>Cancel</button>
             </div>
           </div>
         ) : (
@@ -421,7 +421,7 @@ export function CustomRoutingEditor() {
             className="flex items-center gap-2 rounded-lg border border-dashed border-chrome-200 hover:bg-chrome-50 w-full justify-center"
             style={{ height: 44, fontSize: 13, color: '#8E8E8E', marginTop: 8 }}
           >
-            <Plus size={14} /> เพิ่ม Operation
+            <Plus size={14} /> Add Operation
           </button>
         )}
       </div>

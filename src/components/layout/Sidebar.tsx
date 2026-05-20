@@ -132,7 +132,7 @@ export function Sidebar({ mobileOpen, onClose }: Props) {
                     {collapsed && (
                       <div className="absolute left-full top-1/2 -translate-y-1/2 translate-x-2.5 bg-chrome-900 text-white rounded-md whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 group-hover:translate-x-2 transition-all z-60"
                         style={{ fontSize: 12, padding: '5px 10px', marginLeft: 2 }}>
-                        {item.labelTh}
+                        {item.label}
                       </div>
                     )}
                   </div>
@@ -155,7 +155,7 @@ export function Sidebar({ mobileOpen, onClose }: Props) {
             {collapsed ? <ChevronRight size={16} /> : (
               <>
                 <ChevronLeft size={16} />
-                <span>ย่อเมนู</span>
+                <span>Collapse</span>
               </>
             )}
           </button>

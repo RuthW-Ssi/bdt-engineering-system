@@ -67,14 +67,14 @@ function TraceTooltip({ act, onClose }: { act: StepActivityDTO; onClose: () => v
       <div style={{ color: '#555', lineHeight: 1.9 }}>
         <div>Rate: <span className="font-mono">{perMin} min/{tpl.unit}</span></div>
         <div>Std measure: <span className="font-mono">{stdM} {tpl.unit}</span></div>
-        <div>Manpower: <span className="font-mono">{manpower} คน</span></div>
+        <div>Manpower: <span className="font-mono">{manpower} ppl</span></div>
       </div>
       {snap && ct != null && (
         <div className="font-mono mt-2" style={{ background: '#F5F5F5', borderRadius: 4, padding: '4px 8px', color: '#1F1F1F' }}>
           ceil({snap.inputValue.toFixed(1)}/{stdM}) × {perMin} × {manpower} = <strong>{Math.round(ct)} min</strong>
         </div>
       )}
-      {!snap && ct == null && <div style={{ color: '#8E8E8E', marginTop: 4 }}>ยังไม่ได้ Recompute</div>}
+      {!snap && ct == null && <div style={{ color: '#8E8E8E', marginTop: 4 }}>Not yet recomputed</div>}
     </div>
   )
 }
@@ -144,7 +144,7 @@ function ActivityRow({
           {[
             { label: `Rate (min/${tpl.unit})`, key: 'per_minute' as const },
             { label: `Std measure (${tpl.unit})`, key: 'std_measure' as const },
-            { label: 'Manpower (คน)', key: 'manpower' as const },
+            { label: 'Manpower (ppl)', key: 'manpower' as const },
           ].map(f => (
             <div key={f.key}>
               <div style={{ fontSize: 10, color: '#8E8E8E', marginBottom: 2 }}>{f.label}</div>
@@ -165,20 +165,20 @@ function ActivityRow({
               style={{ height: 28, padding: '0 10px', fontSize: 11, fontWeight: 600, background: '#185FA5' }}
             >
               {saveMut.isPending ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-              บันทึก
+              Save
             </button>
             <button
               onClick={() => setEditing(false)}
               className="flex items-center gap-1 rounded border border-chrome-200 hover:bg-chrome-50"
               style={{ height: 28, padding: '0 8px', fontSize: 11, color: '#555' }}
             >
-              <X size={11} /> ยกเลิก
+              <X size={11} /> Cancel
             </button>
           </div>
         </div>
         {saveMut.isError && (
           <div style={{ fontSize: 11, color: '#C8202A', marginTop: 4 }}>
-            {(saveMut.error as any)?.response?.data?.message ?? 'บันทึกไม่สำเร็จ'}
+            {(saveMut.error as any)?.response?.data?.message ?? 'Save failed'}
           </div>
         )}
       </div>
@@ -203,7 +203,7 @@ function ActivityRow({
 
       <div className="font-mono" style={{ color: '#3A3A3A' }}>{perMin} min/{tpl.unit}</div>
       <div className="font-mono">{stdM} {tpl.unit}</div>
-      <div>{manpower} คน</div>
+      <div>{manpower} ppl</div>
 
       {/* Cycle time + actions */}
       <div className="flex items-center justify-between gap-1">
@@ -320,12 +320,12 @@ function OpCard({
       {expanded && (
         <div style={{ borderTop: '1px solid #E0E0E0' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 60px 120px', padding: '4px 16px', background: '#F8F8F8', borderBottom: '1px solid #F0F0F0' }}>
-            {['กิจกรรม', 'Rate', 'Std Measure', 'Manpower', 'Cycle Time'].map(h => (
+            {['Activity', 'Rate', 'Std Measure', 'Manpower', 'Cycle Time'].map(h => (
               <span key={h} style={{ fontSize: 10, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>{h}</span>
             ))}
           </div>
           {op.activities.length === 0 ? (
-            <div style={{ padding: '12px 16px', fontSize: 12, color: '#8E8E8E' }}>ไม่มี activities</div>
+            <div style={{ padding: '12px 16px', fontSize: 12, color: '#8E8E8E' }}>No activities</div>
           ) : (
             op.activities.map(a => (
               <ActivityRow
@@ -370,23 +370,23 @@ export function RoutingEditor() {
 
   const handleActivate = async () => {
     try { await activate.mutateAsync() }
-    catch (e: any) { alert(e.response?.data?.message ?? 'เกิดข้อผิดพลาด') }
+    catch (e: any) { alert(e.response?.data?.message ?? 'An error occurred') }
   }
 
   const handleObsolete = async () => {
-    if (!confirm('ต้องการยกเลิก routing นี้ใช่ไหม?')) return
+    if (!confirm('Mark this routing as obsolete?')) return
     try { await obsolete.mutateAsync() }
-    catch (e: any) { alert(e.response?.data?.message ?? 'เกิดข้อผิดพลาด') }
+    catch (e: any) { alert(e.response?.data?.message ?? 'An error occurred') }
   }
 
   const handleRecompute = async () => {
     try {
       const result = await recompute.mutateAsync()
       await recomputeCost.mutateAsync()
-      setRecomputeResult(`คำนวณเสร็จ: ${Math.round(result.total_cycle_time_min)} นาที รวม`)
+      setRecomputeResult(`Recompute complete: ${Math.round(result.total_cycle_time_min)} min total`)
       setTimeout(() => setRecomputeResult(null), 4000)
     } catch (e: any) {
-      alert(e.response?.data?.message ?? 'คำนวณไม่สำเร็จ')
+      alert(e.response?.data?.message ?? 'Recompute failed')
     }
   }
 
@@ -399,9 +399,9 @@ export function RoutingEditor() {
   if (error) return (
     <div className="flex flex-col items-center justify-center gap-3" style={{ height: '60vh', color: '#C8202A' }}>
       <AlertCircle size={32} />
-      <div style={{ fontSize: 14 }}>โหลด routing ไม่สำเร็จ</div>
+      <div style={{ fontSize: 14 }}>Failed to load routing</div>
       <button onClick={() => navigate('/routings')} className="text-steel-600 hover:underline" style={{ fontSize: 13 }}>
-        ← กลับหน้ารายการ
+        ← Back to list
       </button>
     </div>
   )
@@ -422,7 +422,7 @@ export function RoutingEditor() {
           {state && <StatePill state={state} />}
           {editMode && (
             <span style={{ background: '#FFF8E1', color: '#854F0B', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
-              โหมด Override
+              Override Mode
             </span>
           )}
         </div>
@@ -433,7 +433,7 @@ export function RoutingEditor() {
             onClick={() => navigate(`/products/${code}/custom-routing`)}
             className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
             style={{ height: 32, padding: '0 12px', fontSize: 12, fontWeight: 500, color: '#E65100' }}
-            title="เพิ่ม/ลบ operations หรือ activities"
+            title="Add/remove operations or activities"
           >
             <ExternalLink size={13} /> Custom Routing
           </button>
@@ -484,7 +484,7 @@ export function RoutingEditor() {
               className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
               style={{ height: 32, padding: '0 12px', fontSize: 12, color: '#555' }}
             >
-              <Check size={13} /> เสร็จ
+              <Check size={13} /> Done
             </button>
           )}
 
@@ -518,7 +518,7 @@ export function RoutingEditor() {
       {editMode && (
         <div className="flex items-center gap-2" style={{ background: '#FFF8E1', borderBottom: '1px solid #FFE082', padding: '8px 24px', fontSize: 12, color: '#854F0B' }}>
           <Pencil size={13} />
-          คลิก ✎ บน activity เพื่อ override ค่าเฉพาะ product นี้ • คลิก ↺ เพื่อคืนค่าจาก template • การเปลี่ยน ops/activities ใช้ Custom Routing
+          Click ✎ on an activity to override values for this product • Click ↺ to reset to template defaults • To change ops/activities use Custom Routing
         </div>
       )}
 
@@ -534,7 +534,7 @@ export function RoutingEditor() {
         <div className="flex-1 overflow-y-auto" style={{ padding: 20 }}>
           {routing.length === 0 ? (
             <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-              ยังไม่มี routing operations สำหรับ {code}
+              No routing operations for {code} yet
             </div>
           ) : (
             routing.map(op => (
@@ -553,22 +553,22 @@ export function RoutingEditor() {
 
         {/* Right — Summary panel */}
         <div style={{ width: 300, borderLeft: '1px solid #E0E0E0', padding: 20, background: '#FAFAFA', flexShrink: 0, overflowY: 'auto' }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>สรุป</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Summary</div>
 
           <div className="flex flex-col gap-4">
             <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 8, padding: 14 }}>
               <div className="flex items-center gap-2" style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 4 }}>
-                <Clock size={12} /> เวลารวม
+                <Clock size={12} /> Total Time
               </div>
               <div className="font-mono" style={{ fontSize: 22, fontWeight: 700, color: totalTimeMin > 0 ? '#185FA5' : '#8E8E8E' }}>
                 {totalTimeMin > 0 ? fmtTime(totalTimeMin) : '—'}
               </div>
-              {totalTimeMin > 0 && <div style={{ fontSize: 11, color: '#8E8E8E', marginTop: 2 }}>{Math.round(totalTimeMin)} นาที</div>}
+              {totalTimeMin > 0 && <div style={{ fontSize: 11, color: '#8E8E8E', marginTop: 2 }}>{Math.round(totalTimeMin)} min</div>}
             </div>
 
             <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 8, padding: 14 }}>
               <div className="flex items-center gap-2" style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 10 }}>
-                <Layers size={12} /> การดำเนินการ
+                <Layers size={12} /> Operations
               </div>
               {routing.map(op => (
                 <div key={op.id} className="flex items-center justify-between" style={{ marginBottom: 6 }}>
@@ -582,12 +582,12 @@ export function RoutingEditor() {
 
             {stdCost && (
               <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 8, padding: 14 }}>
-                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 8 }}>ต้นทุนการผลิต</div>
+                <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 8 }}>Production Cost</div>
                 <div className="font-mono" style={{ fontSize: 18, fontWeight: 700, color: '#1F1F1F' }}>
-                  ฿{stdCost.total_production_cost.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  ฿{stdCost.total_production_cost.toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <div style={{ fontSize: 10, color: '#8E8E8E', marginTop: 4 }}>
-                  คำนวณเมื่อ {new Date(stdCost.computed_at).toLocaleDateString('th-TH')}
+                  Computed on {new Date(stdCost.computed_at).toLocaleDateString('en-GB')}
                 </div>
               </div>
             )}

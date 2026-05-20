@@ -100,7 +100,7 @@ function SortableZoneRow({
       {!reorderMode && isActive && (
         <div style={{ borderTop: '1px solid #F0F0F0', padding: '8px 16px 12px 16px' }}>
           {!subZones || subZones.length === 0 ? (
-            <p style={{ fontSize: 12, color: '#8E8E8E', margin: 0 }}>ยังไม่มี sub-zone — กด "Add Sub-zone" เพื่อเพิ่ม</p>
+            <p style={{ fontSize: 12, color: '#8E8E8E', margin: 0 }}>No sub-zones yet — click "Add Sub-zone" to add one</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {subZones.map(sz => (
@@ -236,14 +236,14 @@ export function ZoneList() {
                   onClick={() => setReorderMode(false)}
                   style={{ height: 36, padding: '0 14px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 6, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                  <X size={14} />ยกเลิก
+                  <X size={14} />Cancel
                 </button>
                 <button
                   onClick={saveReorder}
                   disabled={savingReorder}
                   style={{ height: 36, padding: '0 14px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: savingReorder ? '#C2C2C2' : '#1A7F4B', color: '#fff', cursor: savingReorder ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                  <Check size={14} />{savingReorder ? 'กำลังบันทึก...' : 'บันทึกลำดับ'}
+                  <Check size={14} />{savingReorder ? 'Saving...' : 'Save Order'}
                 </button>
               </>
             ) : (
@@ -253,14 +253,14 @@ export function ZoneList() {
                     onClick={enterReorder}
                     style={{ height: 36, padding: '0 14px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 6, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: '#555' }}
                   >
-                    <GripVertical size={14} />จัดลำดับ
+                    <GripVertical size={14} />Reorder
                   </button>
                 )}
                 <button
                   onClick={openZoneModal}
                   style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#C8202A', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
                 >
-                  <Plus size={14} />เพิ่ม Zone
+                  <Plus size={14} />Add Zone
                 </button>
               </>
             )}
@@ -272,7 +272,7 @@ export function ZoneList() {
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!projectId ? (
           <div className="flex items-center justify-center" style={{ height: 200, color: '#8E8E8E', fontSize: 14 }}>
-            เลือก Project จาก dropdown ด้านบนก่อน
+            Select a Project from the dropdown above first
           </div>
         ) : zonesLoading ? (
           <div className="flex items-center justify-center" style={{ height: 200 }}>
@@ -280,13 +280,13 @@ export function ZoneList() {
           </div>
         ) : zoneList.length === 0 ? (
           <div className="flex items-center justify-center" style={{ height: 200, color: '#8E8E8E', fontSize: 14 }}>
-            ไม่พบโซนในโปรเจกต์นี้
+            No zones found in this project
           </div>
         ) : (
           <div style={{ padding: '12px 24px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {reorderMode && (
               <p style={{ fontSize: 12, color: '#8E8E8E', marginBottom: 4 }}>
-                ลากเพื่อเรียงลำดับ — ตัวเลขจะอัปเดตตามตำแหน่ง กด <strong>บันทึกลำดับ</strong> เพื่อยืนยัน
+                Drag to reorder — numbers will update with position. Click <strong>Save Order</strong> to confirm.
               </p>
             )}
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
@@ -314,7 +314,7 @@ export function ZoneList() {
       {zoneModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '28px 32px', width: 460, boxShadow: '0 4px 24px rgba(0,0,0,0.16)' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>เพิ่ม Zone</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Add Zone</h2>
             <p style={{ fontSize: 12, color: '#8E8E8E', marginBottom: 20 }}>
               Project: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#C8202A' }}>{activeProject?.project_code}</span> · {activeProject?.name}
             </p>
@@ -324,32 +324,32 @@ export function ZoneList() {
                 <input
                   value={zoneForm.code ?? ''}
                   onChange={e => setZoneForm(f => ({ ...f, code: e.target.value }))}
-                  placeholder="เช่น A1, WH"
+                  placeholder="e.g. A1, WH"
                   style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${zoneTouched && !zoneForm.code?.trim() ? '#C8202A' : '#C2C2C2'}`, borderRadius: 4, fontFamily: 'monospace' }}
                 />
-                {zoneTouched && !zoneForm.code?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>กรุณากรอก Code</span>}
+                {zoneTouched && !zoneForm.code?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a Code</span>}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Label <span style={{ color: '#C8202A' }}>*</span></label>
                 <input
                   value={zoneForm.label ?? ''}
                   onChange={e => setZoneForm(f => ({ ...f, label: e.target.value }))}
-                  placeholder="เช่น โรงงาน Block A1"
+                  placeholder="e.g. Factory Block A1"
                   style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${zoneTouched && !zoneForm.label?.trim() ? '#C8202A' : '#C2C2C2'}`, borderRadius: 4 }}
                 />
-                {zoneTouched && !zoneForm.label?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>กรุณากรอก Label</span>}
+                {zoneTouched && !zoneForm.label?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a Label</span>}
               </div>
             </div>
             <div className="flex justify-end gap-2" style={{ marginTop: 24 }}>
               <button onClick={() => setZoneModal(false)} style={{ padding: '7px 16px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>
-                ยกเลิก
+                Cancel
               </button>
               <button
                 onClick={handleCreateZone}
                 disabled={createZoneMut.isPending}
                 style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: createZoneMut.isPending ? '#C2C2C2' : '#C8202A', color: '#fff', cursor: createZoneMut.isPending ? 'not-allowed' : 'pointer' }}
               >
-                {createZoneMut.isPending ? 'กำลังสร้าง...' : 'สร้าง Zone'}
+                {createZoneMut.isPending ? 'Creating...' : 'Create Zone'}
               </button>
             </div>
           </div>

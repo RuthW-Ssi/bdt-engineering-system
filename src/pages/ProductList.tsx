@@ -61,12 +61,12 @@ export function ProductList() {
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Engineer Products</span>
           <span style={{ color: '#C2C2C2' }}>·</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {isLoading ? '...' : `${total} รายการ`}
+            {isLoading ? '...' : `${total} items`}
           </span>
         </div>
         <button onClick={() => setShowModal(tab)} className="flex items-center gap-1.5 rounded-md text-white"
           style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: tab === 'standard' ? '#0C447C' : '#B45309' }}>
-          <Plus size={14} />เพิ่ม {tab === 'standard' ? 'Standard' : 'Custom'} Product
+          <Plus size={14} />Add {tab === 'standard' ? 'Standard' : 'Custom'} Product
         </button>
       </div>
 
@@ -92,27 +92,27 @@ export function ProductList() {
             <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
             <input className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
               style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 240 }}
-              placeholder="ค้นหารหัส / ชื่อ..."
+              placeholder="Search code / name..."
               value={searchQ} onChange={e => setParam('q', e.target.value)} />
           </div>
           {tab === 'custom' && (
             <select className="border border-chrome-200 rounded-md bg-white focus:outline-none"
               style={{ height: 32, padding: '0 8px', fontSize: 12, borderColor: projectFilter ? '#B45309' : '#E0E0E0', minWidth: 160 }}
               value={projectFilter} onChange={e => setParam('project_id', e.target.value)}>
-              <option value="">ทุก Project</option>
+              <option value="">All Projects</option>
               {projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)}
             </select>
           )}
           {(stateFilter || searchQ || projectFilter) && (
-            <button onClick={() => { setParam('state', ''); setParam('q', ''); setParam('project_id', '') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>ล้างตัวกรอง</button>
+            <button onClick={() => { setParam('state', ''); setParam('q', ''); setParam('project_id', '') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>Clear filters</button>
           )}
           <span className="flex-1" />
-          {!isLoading && <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {pageParam} / {totalPages} · {total} รายการ</span>}
+          {!isLoading && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Page {pageParam} / {totalPages} · {total} items</span>}
         </div>
 
         {/* State chips */}
         <div className="flex items-center gap-1.5 flex-wrap" style={{ padding: '8px 24px' }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>สถานะ:</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: 4 }}>Status:</span>
           {STATES.map(st => {
             const colors = PRODUCT_STATE_COLORS[st]
             const active = stateFilter === st
@@ -144,22 +144,22 @@ export function ProductList() {
         }}>
           {tab === 'standard' ? (
             <>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>รหัส</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>ชื่อ</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Code</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Name</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Eng. Code</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>กลุ่ม</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>สถานะ</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>อัปเดต</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Category</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Status</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Updated</div>
               <div />
             </>
           ) : (
             <>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>รหัส</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>ชื่อ</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Code</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Name</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Project / Mark</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>กลุ่ม</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>สถานะ</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>อัปเดต</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Category</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Status</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Updated</div>
               <div />
             </>
           )}
@@ -168,14 +168,14 @@ export function ProductList() {
         {/* Loading */}
         {isLoading && (
           <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
-            <Loader2 size={20} className="animate-spin" />กำลังโหลดข้อมูล...
+            <Loader2 size={20} className="animate-spin" />Loading data...
           </div>
         )}
 
         {/* Error */}
         {isError && !isLoading && (
           <div className="flex flex-col items-center justify-center gap-2" style={{ padding: 64, color: '#C8202A', fontSize: 13 }}>
-            ไม่สามารถโหลดข้อมูลได้ — ตรวจสอบว่า backend กำลังทำงาน
+            Unable to load data — verify that the backend is running
           </div>
         )}
 
@@ -183,7 +183,7 @@ export function ProductList() {
         {!isLoading && !isError && items.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
             <Search size={32} style={{ opacity: 0.3 }} />
-            <div>ไม่พบ Product ที่ตรงกับเงื่อนไข</div>
+            <div>No Products match the current filters</div>
           </div>
         )}
 
@@ -226,7 +226,7 @@ export function ProductList() {
 
             {/* Updated */}
             <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-              <div>{new Date(p.write_date).toLocaleDateString('th-TH')}</div>
+              <div>{new Date(p.write_date).toLocaleDateString('en-GB')}</div>
               <div style={{ fontSize: 11, color: '#C2C2C2' }}>{p.write_user?.name ?? '-'}</div>
             </div>
 
@@ -243,7 +243,7 @@ export function ProductList() {
       {/* Pagination — always at bottom */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-chrome-100 px-6 bg-white" style={{ height: 44, flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: '#8E8E8E' }}>หน้า {pageParam} / {totalPages} · {total} รายการ</span>
+          <span style={{ fontSize: 12, color: '#8E8E8E' }}>Page {pageParam} / {totalPages} · {total} items</span>
           <div className="flex items-center gap-1">
             <button onClick={() => setParam('page', String(Math.max(1, pageParam - 1)))} disabled={pageParam === 1}
               className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-40" style={{ width: 32, height: 32 }}>
@@ -265,7 +265,7 @@ export function ProductList() {
 
       {/* Status bar — always at bottom */}
       <div className="flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ height: 32, fontSize: 12, color: '#8E8E8E', flexShrink: 0 }}>
-        {isLoading ? 'กำลังโหลด...' : `แสดง ${items.length} จาก ${total} รายการ`}
+        {isLoading ? 'Loading...' : `Showing ${items.length} of ${total} items`}
       </div>
 
       {/* Modals */}

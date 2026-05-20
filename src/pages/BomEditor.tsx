@@ -11,8 +11,8 @@ import { activateBom } from '../api/boms'
 type ValidateState = null | 'pass' | 'fail'
 
 const ERRORS = [
-  { code: 'PP-00099', field: 'qty', message: 'Quantity ต้องมากกว่า 0' },
-  { code: 'SA-00123', field: 'scrap_pct', message: 'Scrap % เกิน 15% — ตรวจสอบด้วย' },
+  { code: 'PP-00099', field: 'qty', message: 'Quantity must be greater than 0' },
+  { code: 'SA-00123', field: 'scrap_pct', message: 'Scrap % exceeds 15% — please verify' },
 ]
 
 // ── BOM Node Row ──────────────────────────────────────────────
@@ -108,7 +108,7 @@ function BomRow({
           className="font-mono"
           style={{ fontSize: 13, fontWeight: 500, color: isRoot ? '#555' : '#1F1F1F', minWidth: 50, textAlign: 'right', padding: '2px 6px', cursor: isRoot ? 'default' : 'text', borderRadius: 4 }}
           onClick={e => { if (!isRoot) { e.stopPropagation(); setEditingQty(true) } }}
-          title={isRoot ? '' : 'คลิกเพื่อแก้ไข'}
+          title={isRoot ? '' : 'Click to edit'}
         >
           {node.qty}
         </span>
@@ -128,9 +128,9 @@ function BomRow({
       <div className="inline-flex gap-0.5" style={{ opacity: hovered ? 1 : 0, transition: 'opacity 120ms' }} onClick={e => e.stopPropagation()}>
         {!isRoot && (
           <>
-            <button onClick={() => onAdd(node.id)} className="flex items-center justify-center rounded hover:bg-chrome-200" style={{ width: 22, height: 22, color: '#8E8E8E' }} title="เพิ่ม child"><Plus size={12} /></button>
-            <button onClick={() => onDuplicate(node.id)} className="flex items-center justify-center rounded hover:bg-chrome-200" style={{ width: 22, height: 22, color: '#8E8E8E' }} title="ทำซ้ำ"><Copy size={12} /></button>
-            <button onClick={() => onDelete(node.id)} className="flex items-center justify-center rounded hover:bg-ssi-50" style={{ width: 22, height: 22, color: '#C8202A' }} title="ลบ"><Trash2 size={12} /></button>
+            <button onClick={() => onAdd(node.id)} className="flex items-center justify-center rounded hover:bg-chrome-200" style={{ width: 22, height: 22, color: '#8E8E8E' }} title="Add child"><Plus size={12} /></button>
+            <button onClick={() => onDuplicate(node.id)} className="flex items-center justify-center rounded hover:bg-chrome-200" style={{ width: 22, height: 22, color: '#8E8E8E' }} title="Duplicate"><Copy size={12} /></button>
+            <button onClick={() => onDelete(node.id)} className="flex items-center justify-center rounded hover:bg-ssi-50" style={{ width: 22, height: 22, color: '#C8202A' }} title="Delete"><Trash2 size={12} /></button>
           </>
         )}
       </div>
@@ -163,7 +163,7 @@ function updateQty(tree: BomNode, id: string, qty: number): BomNode {
 
 function addChild(tree: BomNode, parentId: string): BomNode {
   if (tree.id === parentId) {
-    const newNode: BomNode = { id: genId(), code: 'NEW-00001', name: 'ชิ้นงานใหม่', category: 'Part' as Category, qty: 1, uom: 'PCS', scrap_pct: 0, level: tree.level + 1, children: [], expanded: false }
+    const newNode: BomNode = { id: genId(), code: 'NEW-00001', name: 'New Item', category: 'Part' as Category, qty: 1, uom: 'PCS', scrap_pct: 0, level: tree.level + 1, children: [], expanded: false }
     return { ...tree, expanded: true, children: [...tree.children, newNode] }
   }
   return { ...tree, children: tree.children.map(c => addChild(c, parentId)) }
@@ -260,7 +260,7 @@ export function BomEditor() {
     return (
       <div className="flex flex-col items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E', gap: 12 }}>
         <Loader2 size={28} className="animate-spin" />
-        <span style={{ fontSize: 13 }}>กำลังโหลด BOM...</span>
+        <span style={{ fontSize: 13 }}>Loading BOM...</span>
       </div>
     )
   }
@@ -270,7 +270,7 @@ export function BomEditor() {
       <div className="flex flex-col items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#C8202A', gap: 12 }}>
         <AlertCircle size={28} />
         <span style={{ fontSize: 13 }}>{error}</span>
-        <button onClick={refresh} className="rounded-md" style={{ padding: '6px 16px', fontSize: 12, background: '#F5F5F5', border: '1px solid #C2C2C2', cursor: 'pointer' }}>ลองใหม่</button>
+        <button onClick={refresh} className="rounded-md" style={{ padding: '6px 16px', fontSize: 12, background: '#F5F5F5', border: '1px solid #C2C2C2', cursor: 'pointer' }}>Retry</button>
       </div>
     )
   }
@@ -279,7 +279,7 @@ export function BomEditor() {
     return (
       <div className="flex flex-col items-center justify-center" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E', gap: 12 }}>
         <GitBranch size={28} style={{ opacity: 0.3 }} />
-        <span style={{ fontSize: 13 }}>ยังไม่มี BOM สำหรับ {code}</span>
+        <span style={{ fontSize: 13 }}>No BOM found for {code}</span>
       </div>
     )
   }
@@ -298,7 +298,7 @@ export function BomEditor() {
         {bom && <span className="font-mono" style={{ fontSize: 11, color: '#8E8E8E' }}>v{bom.version}</span>}
 
         <div className="hidden md:flex items-center gap-2 mx-auto" style={{ fontSize: 12, color: '#8E8E8E' }}>
-          <GitBranch size={14} />{tree.children.length} รายการ{totalWeightKg > 0 ? ` · น้ำหนักรวม ${totalWeightKg.toLocaleString('th', { maximumFractionDigits: 1 })} kg` : ''}
+          <GitBranch size={14} />{tree.children.length} items{totalWeightKg > 0 ? ` · Total weight ${totalWeightKg.toLocaleString('en', { maximumFractionDigits: 1 })} kg` : ''}
         </div>
 
         <div className="flex items-center gap-1.5 ml-auto">
@@ -307,7 +307,7 @@ export function BomEditor() {
             disabled={loading}
             className="flex items-center justify-center rounded hover:bg-chrome-50"
             style={{ width: 32, height: 32, color: '#8E8E8E', border: '1px solid #E0E0E0' }}
-            title="รีเฟรช"
+            title="Refresh"
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
           </button>
@@ -324,13 +324,13 @@ export function BomEditor() {
               border: `1px solid ${validateState === 'fail' ? '#EE9B9B' : validateState === 'pass' ? '#C0DD97' : '#C2C2C2'}`,
             }}
           >
-            {validateState === 'fail' ? <><AlertCircle size={14} />มี {ERRORS.length} Errors</> : validateState === 'pass' ? <><CheckCircle2 size={14} />ตรวจสอบแล้ว</> : <><CheckCircle2 size={14} />Validate BOM</>}
+            {validateState === 'fail' ? <><AlertCircle size={14} />{ERRORS.length} Errors</> : validateState === 'pass' ? <><CheckCircle2 size={14} />Validated</> : <><CheckCircle2 size={14} />Validate BOM</>}
           </button>
           <button
             className="flex items-center gap-1.5 rounded-md text-white"
             style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, background: '#C8202A', opacity: validateState === 'pass' ? 1 : 0.4, cursor: validateState === 'pass' ? 'pointer' : 'not-allowed' }}
           >
-            ส่งตรวจสอบ
+            Submit for Review
           </button>
           {bomState === 'draft' && (
             <button
@@ -353,11 +353,11 @@ export function BomEditor() {
         <div className="flex-1 flex flex-col border-r border-chrome-100" style={{ background: '#F5F5F5' }}>
           {/* Hint bar */}
           <div className="flex items-center gap-3 border-b border-chrome-100 px-5" style={{ height: 36, background: '#FAFAFA', fontSize: 11, color: '#8E8E8E', flexShrink: 0 }}>
-            <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>+</kbd> เพิ่ม child</span>
-            <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>Del</kbd> ลบ</span>
-            <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>Space</kbd> ขยาย/ย่อ</span>
+            <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>+</kbd> Add child</span>
+            <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>Del</kbd> Delete</span>
+            <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>Space</kbd> Expand/Collapse</span>
             <span><kbd className="font-mono" style={{ background: '#E0E0E0', borderRadius: 3, padding: '1px 5px', fontSize: 10, color: '#555' }}>⌘Z</kbd> Undo</span>
-            <span className="flex-1 text-right text-chrome-400" style={{ fontSize: 11 }}>ภาพรวม › ชิ้นงาน › {code} › BOM</span>
+            <span className="flex-1 text-right text-chrome-400" style={{ fontSize: 11 }}>Overview › Products › {code} › BOM</span>
           </div>
 
           {/* Scrollable tree */}
@@ -378,7 +378,7 @@ export function BomEditor() {
               className="w-full flex items-center justify-center gap-2 hover:border-steel-600 hover:text-steel-600 hover:bg-steel-50 transition-all"
               style={{ height: 36, border: '2px dashed #C2C2C2', borderRadius: 6, cursor: 'pointer', color: '#8E8E8E', fontSize: 12, fontWeight: 500, marginTop: 8 }}
             >
-              <Plus size={14} />เพิ่มชิ้นงาน
+              <Plus size={14} />Add Item
             </button>
           </div>
         </div>
@@ -408,19 +408,19 @@ export function BomEditor() {
                 {validateState === null && (
                   <div className="text-center" style={{ color: '#8E8E8E', fontSize: 13, paddingTop: 32 }}>
                     <CheckCircle2 size={32} style={{ margin: '0 auto 8px', opacity: 0.3 }} />
-                    กด Validate BOM เพื่อตรวจสอบ
+                    Click Validate BOM to check
                   </div>
                 )}
                 {validateState === 'pass' && (
                   <div className="rounded-lg flex items-center gap-3" style={{ background: '#EAF3DE', border: '1px solid #C0DD97', padding: '12px 16px' }}>
                     <CheckCircle2 size={20} style={{ color: '#639922', flexShrink: 0 }} />
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#27500A' }}>BOM ผ่านการตรวจสอบ</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#27500A' }}>BOM passed validation</div>
                   </div>
                 )}
                 {validateState === 'fail' && (
                   <div className="flex flex-col gap-2">
                     <div className="rounded-lg" style={{ background: '#FCEBEB', border: '1px solid #EE9B9B', padding: '10px 14px' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#5C0D15' }}>พบ {ERRORS.length} ข้อผิดพลาด</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#5C0D15' }}>{ERRORS.length} errors found</div>
                     </div>
                     {ERRORS.map((err, i) => (
                       <div key={i} className="flex items-start gap-2 rounded-md" style={{ background: 'white', border: '1px solid #EE9B9B', padding: '10px 12px' }}>
@@ -441,15 +441,15 @@ export function BomEditor() {
                 {!selectedNode ? (
                   <div className="text-center" style={{ color: '#8E8E8E', fontSize: 13, paddingTop: 32 }}>
                     <Edit2 size={28} style={{ margin: '0 auto 8px', opacity: 0.3 }} />
-                    เลือก node เพื่อดูรายละเอียด
+                    Select a node to view details
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3">
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>{selectedNode.name}</div>
                     {[
-                      { label: 'รหัส', value: selectedNode.code, mono: true },
-                      { label: 'ประเภท', value: CAT_META[selectedNode.category].label, mono: false },
-                      { label: 'จำนวน', value: `${selectedNode.qty} ${selectedNode.uom}`, mono: true },
+                      { label: 'Code', value: selectedNode.code, mono: true },
+                      { label: 'Type', value: CAT_META[selectedNode.category].label, mono: false },
+                      { label: 'Qty', value: `${selectedNode.qty} ${selectedNode.uom}`, mono: true },
                       { label: 'Scrap %', value: `${selectedNode.scrap_pct}%`, mono: true },
                       { label: 'Level', value: String(selectedNode.level), mono: true },
                       { label: 'Sub-items', value: String(selectedNode.children.length), mono: true },
@@ -467,9 +467,9 @@ export function BomEditor() {
             {sidePanelTab === 'stats' && (
               <div className="flex flex-col gap-3">
                 {[
-                  { label: 'จำนวนรายการทั้งหมด', value: `${tree.children.length} รายการ`, icon: <GitBranch size={14} /> },
-                  { label: 'ความลึกสูงสุด', value: '1 ชั้น', icon: <Layers size={14} /> },
-                  { label: 'น้ำหนักรวม', value: totalWeightKg > 0 ? `${totalWeightKg.toLocaleString('th', { maximumFractionDigits: 1 })} kg` : '—', icon: <CheckCircle2 size={14} /> },
+                  { label: 'Total Items', value: `${tree.children.length} items`, icon: <GitBranch size={14} /> },
+                  { label: 'Max Depth', value: '1 level', icon: <Layers size={14} /> },
+                  { label: 'Total Weight', value: totalWeightKg > 0 ? `${totalWeightKg.toLocaleString('en', { maximumFractionDigits: 1 })} kg` : '—', icon: <CheckCircle2 size={14} /> },
                   { label: 'BOM Version', value: bom?.version ?? '—', icon: <CheckCircle2 size={14} /> },
                 ].map(s => (
                   <div key={s.label} className="flex items-center justify-between rounded-md border border-chrome-100" style={{ padding: '10px 14px' }}>
@@ -485,15 +485,15 @@ export function BomEditor() {
 
       {/* Status bar */}
       <div className="flex items-center" style={{ height: 40, background: '#1F1F1F', color: 'white', padding: '0 20px', gap: 16, fontSize: 12, flexShrink: 0 }}>
-        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><GitBranch size={14} />{tree.children.length} รายการ</span>
+        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><GitBranch size={14} />{tree.children.length} items</span>
         <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        {totalWeightKg > 0 && <><span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}>น้ำหนักรวม {totalWeightKg.toLocaleString('th', { maximumFractionDigits: 1 })} kg</span><span style={{ width: 1, height: 16, background: '#3A3A3A' }} /></>}
-        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><Layers size={14} />1 ชั้น</span>
+        {totalWeightKg > 0 && <><span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}>Total weight {totalWeightKg.toLocaleString('en', { maximumFractionDigits: 1 })} kg</span><span style={{ width: 1, height: 16, background: '#3A3A3A' }} /></>}
+        <span className="flex items-center gap-1.5" style={{ color: '#8E8E8E' }}><Layers size={14} />1 level</span>
         <span className="flex-1" />
-        {validateState === 'fail' && <span className="flex items-center gap-1.5" style={{ color: '#EE9B9B' }}><AlertCircle size={13} />มี {ERRORS.length} Errors</span>}
-        {validateState === 'pass' && <span className="flex items-center gap-1.5" style={{ color: '#86C04B' }}><CheckCircle2 size={13} />ตรวจสอบแล้ว</span>}
+        {validateState === 'fail' && <span className="flex items-center gap-1.5" style={{ color: '#EE9B9B' }}><AlertCircle size={13} />{ERRORS.length} Errors</span>}
+        {validateState === 'pass' && <span className="flex items-center gap-1.5" style={{ color: '#86C04B' }}><CheckCircle2 size={13} />Validated</span>}
         <span style={{ width: 1, height: 16, background: '#3A3A3A' }} />
-        <span style={{ color: '#555' }}>{bom ? `v${bom.version} · ${bomStateLabel[bomState]}` : 'ไม่มี BOM'}</span>
+        <span style={{ color: '#555' }}>{bom ? `v${bom.version} · ${bomStateLabel[bomState]}` : 'No BOM'}</span>
       </div>
     </div>
   )

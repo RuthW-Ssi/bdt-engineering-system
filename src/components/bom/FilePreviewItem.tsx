@@ -65,13 +65,13 @@ export function FilePreviewItem({ file, detectedType, onRemove, onTypeChange, er
           </span>
         ) : (
           <div className="flex items-center gap-1 mt-1">
-            <span style={{ fontSize: 11, color: '#B45309' }}>ระบุประเภทไฟล์:</span>
+            <span style={{ fontSize: 11, color: '#B45309' }}>Specify file type:</span>
             <select
               style={{ fontSize: 12, border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 6px', background: 'white' }}
               value=""
               onChange={e => onTypeChange?.(e.target.value as DocType)}
             >
-              <option value="" disabled>เลือก...</option>
+              <option value="" disabled>Select...</option>
               {DOC_TYPES.map(t => (
                 <option key={t} value={t}>{DOC_TYPE_LABELS[t]}</option>
               ))}

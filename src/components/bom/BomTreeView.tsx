@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
 import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
+import { MatchStatusBadge } from './MatchStatusBadge'
+import type { MatchStatus } from '../../api/dispatches'
 
 interface Props {
   assemblies: AssemblyDto[]
@@ -69,6 +71,9 @@ function AssemblyRow({
         {asm.assembly_mark}
       </span>
 
+      {/* Match status */}
+      {asm.match_status && <MatchStatusBadge status={asm.match_status as MatchStatus} size="xs" />}
+
       {/* Name */}
       {asm.name && (
         <span className="flex-1 truncate" style={{ fontSize: 13, color: '#555' }}>
@@ -76,6 +81,27 @@ function AssemblyRow({
         </span>
       )}
       <span className="flex-1" />
+
+      {/* Product code */}
+      {asm.product?.product_code && (
+        <span style={{ fontSize: 10, fontWeight: 600, color: '#27500A', background: '#EAF3DE', border: '1px solid #A8D08D', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
+          {asm.product.product_code}
+        </span>
+      )}
+
+      {/* Dimensions L×W×H */}
+      {(asm.length_mm != null || asm.width_mm != null || asm.height_mm != null) && (
+        <span style={{ fontSize: 10, color: '#888', whiteSpace: 'nowrap', flexShrink: 0, background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 5px' }}>
+          {[asm.length_mm, asm.width_mm, asm.height_mm].map(v => v ?? '—').join(' × ')}
+        </span>
+      )}
+
+      {/* Surface area */}
+      {asm.surface_area_m2 != null && (
+        <span style={{ fontSize: 11, color: '#777', minWidth: 60, textAlign: 'right', flexShrink: 0 }}>
+          {asm.surface_area_m2.toFixed(2)} m²
+        </span>
+      )}
 
       {/* Part count badge */}
       {hasParts && (
@@ -140,6 +166,9 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
         {part.part_mark}
       </span>
 
+      {/* Match status */}
+      {part.match_status && <MatchStatusBadge status={part.match_status as MatchStatus} size="xs" />}
+
       {/* Description */}
       <span className="flex-1 truncate" style={{ fontSize: 12, color: '#555' }}>
         {part.description ?? ''}
@@ -164,6 +193,13 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
           padding: '1px 6px', flexShrink: 0,
         }}>
           {part.grade}
+        </span>
+      )}
+
+      {/* Length */}
+      {part.length_mm != null && (
+        <span style={{ fontSize: 11, color: '#555', background: '#F0F4FF', border: '1px solid #DBEAFE', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
+          {part.length_mm} mm
         </span>
       )}
 
@@ -202,7 +238,7 @@ function AssemblyNode({ asm, searchTerm }: { asm: AssemblyDto; searchTerm?: stri
           ? asm.parts.map((p, i) => <PartRow key={i} part={p} searchTerm={searchTerm} />)
           : (
             <div style={{ marginLeft: 38, padding: '6px 10px', fontSize: 12, color: '#C2C2C2', fontStyle: 'italic' }}>
-              ยังไม่มี parts ใน assembly นี้
+              No parts in this assembly yet
             </div>
           )
       )}
@@ -219,7 +255,7 @@ export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts,
         <div style={{ fontSize: 14, fontWeight: 500 }}>
           {assemblyCount != null
             ? `${assemblyCount} assemblies · ${partCount ?? 0} parts`
-            : 'ยังไม่มีข้อมูล assembly'}
+            : 'No assembly data yet'}
         </div>
       </div>
     )
@@ -232,7 +268,7 @@ export function BomTreeView({ assemblies, assemblyCount, partCount, orphanParts,
       {orphanParts && orphanParts.length > 0 && (
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#8E8E8E', letterSpacing: '0.05em', marginBottom: 6, padding: '0 2px' }}>
-            PARTS ไม่ได้ระบุ ASSEMBLY ({orphanParts.length})
+            PARTS WITHOUT ASSEMBLY ({orphanParts.length})
           </div>
           {orphanParts.map((p, i) => <PartRow key={i} part={p} searchTerm={searchTerm} />)}
         </div>

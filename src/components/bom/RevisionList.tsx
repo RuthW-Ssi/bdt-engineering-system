@@ -15,7 +15,7 @@ export function RevisionList({ dispatchId }: Props) {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center gap-2" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-        <Loader2 size={18} className="animate-spin" />กำลังโหลด...
+        <Loader2 size={18} className="animate-spin" />Loading...
       </div>
     )
   }
@@ -24,7 +24,7 @@ export function RevisionList({ dispatchId }: Props) {
     return (
       <div className="flex flex-col items-center justify-center gap-2" style={{ padding: 64, color: '#C2C2C2' }}>
         <FileText size={32} style={{ opacity: 0.3 }} />
-        <div style={{ fontSize: 13 }}>ยังไม่มีประวัติการอัพโหลด</div>
+        <div style={{ fontSize: 13 }}>No upload history yet</div>
       </div>
     )
   }

@@ -43,3 +43,14 @@ export function useProductMessages(product_code: string) {
     enabled: !!product_code,
   })
 }
+
+export function useUpdateProductSpec(product_code: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: Parameters<typeof productsApi.updateSpec>[1]) =>
+      productsApi.updateSpec(product_code, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['product', product_code] })
+    },
+  })
+}

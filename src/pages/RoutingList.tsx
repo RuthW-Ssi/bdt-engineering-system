@@ -108,7 +108,7 @@ export function RoutingList() {
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Routings</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {data.length} รายการ
+            {data.length} items
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -136,7 +136,7 @@ export function RoutingList() {
           <input
             className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
             style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 280 }}
-            placeholder="ค้นหา รหัสชิ้นงาน หรือ ชื่อ..."
+            placeholder="Search product code or name..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -148,37 +148,37 @@ export function RoutingList() {
           className="border border-chrome-200 rounded-md bg-white cursor-pointer focus:outline-none"
           style={{ height: 32, padding: '0 10px', fontSize: 13 }}
         >
-          <option value="all">สถานะ — ทั้งหมด</option>
+          <option value="all">Status — All</option>
           <option value="draft">Draft</option>
           <option value="active">Active</option>
           <option value="obsolete">Obsolete</option>
         </select>
 
         {(search || filterState !== 'all') && (
-          <button onClick={() => { setSearch(''); setFilterState('all') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>รีเซ็ต</button>
+          <button onClick={() => { setSearch(''); setFilterState('all') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>Reset</button>
         )}
 
         <span className="flex-1" />
-        <span style={{ fontSize: 12, color: '#8E8E8E' }}>แสดง {filtered.length} จาก {data.length}</span>
+        <span style={{ fontSize: 12, color: '#8E8E8E' }}>Showing {filtered.length} of {data.length}</span>
       </div>
 
       {/* Table */}
       <div className="bg-white flex-1">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 130px 140px 140px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-          {['ชิ้นงาน', 'Ops', 'เวลารวม', 'สถานะ', 'Computed'].map((h, i) => (
+          {['Product', 'Ops', 'Total Time', 'Status', 'Computed'].map((h, i) => (
             <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
           ))}
         </div>
 
         {isLoading ? (
-          <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>กำลังโหลด...</div>
+          <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>Loading...</div>
         ) : error ? (
           <div className="flex items-center justify-center gap-2" style={{ padding: 48, color: '#C8202A', fontSize: 13 }}>
-            <AlertCircle size={16} /> โหลดข้อมูลไม่สำเร็จ
+            <AlertCircle size={16} /> Failed to load data
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-            {data.length === 0 ? 'ยังไม่มี routing ในระบบ' : 'ไม่พบ routing ที่ตรงกับเงื่อนไข'}
+            {data.length === 0 ? 'No routings in the system' : 'No routings match the current filters'}
           </div>
         ) : (
           filtered.map(r => (
@@ -204,14 +204,14 @@ export function RoutingList() {
                   {r.total_time_min > 0 ? fmtTime(r.total_time_min) : '—'}
                 </div>
                 {r.total_time_min > 0 && (
-                  <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(r.total_time_min)} นาที</div>
+                  <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(r.total_time_min)} min</div>
                 )}
               </div>
 
               <div><StatePill state={r.state} /></div>
 
               <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-                {r.last_computed_at ? new Date(r.last_computed_at).toLocaleDateString('th-TH') : '—'}
+                {r.last_computed_at ? new Date(r.last_computed_at).toLocaleDateString('en-GB') : '—'}
               </div>
             </div>
           ))
@@ -219,7 +219,7 @@ export function RoutingList() {
       </div>
 
       <div className="sticky flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ bottom: 0, height: 32, fontSize: 12, color: '#8E8E8E', zIndex: 30 }}>
-        แสดง {filtered.length} routing
+        Showing {filtered.length} routings
       </div>
     </div>
   )

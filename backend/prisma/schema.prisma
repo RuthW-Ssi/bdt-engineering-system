@@ -163,7 +163,11 @@ model materials {
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines product_bom_line[] @relation("BomLineMaterial")
+  bom_lines             product_bom_line[]               @relation("BomLineMaterial")
+  paint_configs         dispatch_assembly_paint_config[] @relation("PaintConfigMaterial")
+  material_requirements dispatch_material_requirement[]  @relation("MaterialRequirements")
+  assembly_welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfigMaterial")
+  welding_requirements  dispatch_welding_requirement[]   @relation("WeldingRequirements")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -346,6 +350,8 @@ model products {
   master_drawing_id  Int?
   master_drawing     shop_drawing? @relation("MasterDrawingProduct", fields: [master_drawing_id], references: [id])
   variant_attributes Json?
+  derivation_flags   Json          @default("[]")
+  confidence         String        @default("high") @db.VarChar(10)
   stock_policy       String?       @db.VarChar(20)
   reorder_min        Decimal?      @db.Decimal(12, 3)
   reorder_max        Decimal?      @db.Decimal(12, 3)
@@ -374,6 +380,10 @@ model products {
   // Engineering attributes
   attributes Json @default("{}")
 
+  // mBOM spec presets — engineer defines once, mBOM config auto-suggests
+  default_paint_spec   Json?
+  default_welding_spec Json?
+
   // Sprint 4.2: Routing Option 3
   routing_template_id Int?
   routing_template    routing_template?          @relation("ProductTemplateBind", fields: [routing_template_id], references: [id])
@@ -381,6 +391,9 @@ model products {
   custom_routing      custom_routing?            @relation("ProductCustomRouting")
   routing_overrides   product_routing_override[] @relation("ProductOverrides")
   simulator_fixtures  routing_template_test_fixture[] @relation("FixtureProduct")
+
+  // Sprint 8: eBOM ↔ mBOM kind — 'assembly' | 'part' | null (legacy products)
+  product_kind String? @db.VarChar(20)
 
   // Odoo sync
   odoo_ref_id String? @db.VarChar(40)
@@ -400,6 +413,10 @@ model products {
   boms                   product_bom[]          @relation("ProductBom")
   sub_product_bom_lines  product_bom_line[]     @relation("SubProductInBom")
   drawings               shop_drawing[]         @relation("ProductDrawings")
+  bom_assemblies         bom_assembly[]
+  bom_parts              bom_part[]
+
+  @@index([product_kind, product_type, name])
 }
 
 // ── 🟨 Product Variant (lazy-create — PD-10) ────────────────────
@@ -1012,6 +1029,8 @@ model bom_dispatch {
   // Aggregate counts — cached after processing
   assembly_total Int?
   part_total     Int?
+  // mBOM coverage — saved after welding compute()
+  welding_coverage_json Json?
   // Audit
   create_uid   Int
   create_user  res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
@@ -1020,9 +1039,13 @@ model bom_dispatch {
   write_user   res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
   write_date   DateTime     @default(now()) @db.Timestamptz
 
-  doc_revisions bom_doc_revision[]
-  assemblies    bom_assembly[]
-  parts         bom_part[]
+  doc_revisions         bom_doc_revision[]
+  assemblies            bom_assembly[]
+  parts                 bom_part[]
+  paint_configs         dispatch_assembly_paint_config[] @relation("DispatchPaintConfigs")
+  material_requirements dispatch_material_requirement[]  @relation("DispatchMaterialReqs")
+  assembly_welding_configs dispatch_assembly_welding_config[] @relation("DispatchAssemblyWeldingConfigs")
+  welding_requirements  dispatch_welding_requirement[]   @relation("DispatchWeldingReqs")
 
   @@index([project_id, status])
   @@index([zone_id])
@@ -1059,7 +1082,14 @@ model bom_assembly {
   qty           Decimal?     @db.Decimal(12, 3)
   weight_kg     Decimal?     @db.Decimal(12, 3)
   surface_area_m2 Decimal?   @db.Decimal(12, 4)
+  length_mm     Decimal?     @db.Decimal(12, 2)
+  width_mm      Decimal?     @db.Decimal(12, 2)
+  height_mm     Decimal?     @db.Decimal(12, 2)
   attributes    Json         @default("{}")
+  // Sprint 8: eBOM ↔ mBOM mapping
+  product_id    Int?
+  product       products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  match_status  String?      @db.VarChar(20) // MATCHED_STANDARD | MATCHED_CUSTOM | AUTO_CREATED
   // Audit
   create_uid    Int
   create_user   res_users    @relation("assembly_create", fields: [create_uid], references: [id])
@@ -1068,10 +1098,13 @@ model bom_assembly {
   write_user    res_users    @relation("assembly_write", fields: [write_uid], references: [id])
   write_date    DateTime     @default(now()) @db.Timestamptz
 
-  assembly_parts bom_assembly_part[]
+  assembly_parts  bom_assembly_part[]
+  paint_configs   dispatch_assembly_paint_config[] @relation("AssemblyPaintConfigs")
+  welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfig")
 
   @@unique([dispatch_id, assembly_mark])
   @@index([dispatch_id])
+  @@index([product_id])
 }
 
 // ── 🟥 BOM Part (soft ref — part_mark is a plain string) ─────────
@@ -1087,6 +1120,10 @@ model bom_part {
   length_mm   Decimal?     @db.Decimal(10, 2)
   weight_kg   Decimal?     @db.Decimal(12, 3)
   attributes  Json         @default("{}")
+  // Sprint 8: eBOM ↔ mBOM mapping
+  product_id  Int?
+  product     products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  match_status String?     @db.VarChar(20) // MATCHED_STANDARD | MATCHED_CUSTOM | AUTO_CREATED
   // Audit
   create_uid  Int
   create_user res_users    @relation("part_create", fields: [create_uid], references: [id])
@@ -1095,10 +1132,11 @@ model bom_part {
   write_user  res_users    @relation("part_write", fields: [write_uid], references: [id])
   write_date  DateTime     @default(now()) @db.Timestamptz
 
-  assembly_parts bom_assembly_part[]
+  assembly_parts  bom_assembly_part[]
 
   @@unique([dispatch_id, part_mark])
   @@index([dispatch_id])
+  @@index([product_id])
 }
 
 // ── 🟥 BOM Assembly-Part Junction ───────────────────────────────
@@ -1118,6 +1156,85 @@ model bom_assembly_part {
   @@unique([assembly_id, part_id])
   @@index([assembly_id])
   @@index([part_id])
+}
+
+// ── Sprint 9: mBOM Paint Config per dispatch assembly ──────────
+model dispatch_assembly_paint_config {
+  id          Int          @id @default(autoincrement())
+  dispatch_id Int
+  dispatch    bom_dispatch @relation("DispatchPaintConfigs", fields: [dispatch_id], references: [id], onDelete: Cascade)
+  assembly_id Int
+  assembly    bom_assembly @relation("AssemblyPaintConfigs", fields: [assembly_id], references: [id], onDelete: Cascade)
+  paint_type  String       @db.VarChar(20)
+  material_id Int?
+  material    materials?   @relation("PaintConfigMaterial", fields: [material_id], references: [id], onDelete: SetNull)
+  layers      Int          @default(1)
+  create_uid  Int
+  create_date DateTime     @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_date  DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([assembly_id, paint_type])
+  @@index([dispatch_id])
+  @@index([assembly_id])
+  @@index([material_id])
+}
+
+// ── Sprint 9: Computed mBOM material requirement per dispatch ───
+model dispatch_material_requirement {
+  id               Int          @id @default(autoincrement())
+  dispatch_id      Int
+  dispatch         bom_dispatch @relation("DispatchMaterialReqs", fields: [dispatch_id], references: [id], onDelete: Cascade)
+  material_id      Int
+  material         materials    @relation("MaterialRequirements", fields: [material_id], references: [id])
+  paint_type       String       @db.VarChar(20)
+  total_area_m2    Decimal      @db.Decimal(14, 4)
+  total_qty_gallon Decimal      @db.Decimal(14, 4)
+  computed_at      DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([dispatch_id, material_id, paint_type])
+  @@index([dispatch_id])
+  @@index([material_id])
+}
+
+// ── Sprint 9 (Wire): welding config per assembly ─────────────
+model dispatch_assembly_welding_config {
+  id          Int          @id @default(autoincrement())
+  dispatch_id Int
+  dispatch    bom_dispatch @relation("DispatchAssemblyWeldingConfigs", fields: [dispatch_id], references: [id], onDelete: Cascade)
+  assembly_id Int
+  assembly    bom_assembly @relation("AssemblyWeldingConfig", fields: [assembly_id], references: [id], onDelete: Cascade)
+  material_id Int?
+  material    materials?   @relation("AssemblyWeldingConfigMaterial", fields: [material_id], references: [id], onDelete: SetNull)
+  fillet_mm   Decimal?     @db.Decimal(4, 1)
+  sides       Int?
+  weld_layers Int?
+  create_uid  Int
+  create_date DateTime     @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_date  DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([dispatch_id, assembly_id])
+  @@index([dispatch_id])
+  @@index([assembly_id])
+  @@index([material_id])
+}
+
+// ── Sprint 9 (Wire): computed welding requirement per dispatch ─
+model dispatch_welding_requirement {
+  id                    Int          @id @default(autoincrement())
+  dispatch_id           Int
+  dispatch              bom_dispatch @relation("DispatchWeldingReqs", fields: [dispatch_id], references: [id], onDelete: Cascade)
+  material_id           Int
+  material              materials    @relation("WeldingRequirements", fields: [material_id], references: [id])
+  total_path_m          Decimal      @db.Decimal(14, 4)
+  total_consumption_kg  Decimal      @db.Decimal(14, 4)
+  total_packages        Int
+  computed_at           DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([dispatch_id, material_id])
+  @@index([dispatch_id])
+  @@index([material_id])
 }
 
 // ═══════════════════════════════════════════════════════════════
