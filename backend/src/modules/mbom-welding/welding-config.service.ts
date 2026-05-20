@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import type { WeldingConfigRowDto } from './dto/save-welding-config.dto'
 import type { WeldingConfigResponseDto } from './dto/welding-mbom-response.dto'
@@ -17,32 +18,23 @@ export class WeldingConfigService {
   async save(dispatchId: number, configs: WeldingConfigRowDto[], uid: number): Promise<void> {
     const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id: dispatchId }, select: { id: true } })
     if (!dispatch) throw new NotFoundException(`Dispatch ${dispatchId} not found`)
+    if (!configs.length) return
 
-    await this.prisma.$transaction(
-      configs.map(c =>
-        this.prisma.dispatch_assembly_welding_config.upsert({
-          where: { dispatch_id_assembly_id: { dispatch_id: dispatchId, assembly_id: c.assembly_id } },
-          update: {
-            material_id: c.material_id ?? null,
-            fillet_mm: c.fillet_mm ?? null,
-            sides: c.sides ?? null,
-            weld_layers: c.weld_layers ?? null,
-            write_uid: uid,
-            write_date: new Date(),
-          },
-          create: {
-            dispatch_id: dispatchId,
-            assembly_id: c.assembly_id,
-            material_id: c.material_id ?? null,
-            fillet_mm: c.fillet_mm ?? null,
-            sides: c.sides ?? null,
-            weld_layers: c.weld_layers ?? null,
-            create_uid: uid,
-            write_uid: uid,
-          },
-        }),
-      ),
+    const rows = configs.map(c =>
+      Prisma.sql`(${dispatchId}, ${c.assembly_id}, ${c.material_id ?? null}, ${c.fillet_mm ?? null}, ${c.sides ?? null}, ${c.weld_layers ?? null}, ${uid}, ${uid})`
     )
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO dispatch_assembly_welding_config
+        (dispatch_id, assembly_id, material_id, fillet_mm, sides, weld_layers, create_uid, write_uid)
+      VALUES ${Prisma.join(rows)}
+      ON CONFLICT (dispatch_id, assembly_id) DO UPDATE SET
+        material_id = EXCLUDED.material_id,
+        fillet_mm   = EXCLUDED.fillet_mm,
+        sides       = EXCLUDED.sides,
+        weld_layers = EXCLUDED.weld_layers,
+        write_uid   = EXCLUDED.write_uid,
+        write_date  = now()
+    `)
   }
 
   async getConfig(dispatchId: number): Promise<WeldingConfigResponseDto> {

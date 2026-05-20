@@ -1,6 +1,7 @@
 import {
   Injectable, Logger, NotFoundException, BadRequestException,
 } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import * as fs from 'fs'
 import * as path from 'path'
 import * as crypto from 'crypto'
@@ -516,19 +517,18 @@ export class BomUploadService {
     const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id: dispatchId }, select: { id: true } })
     if (!dispatch) throw new NotFoundException(`Dispatch ${dispatchId} not found`)
 
-    await this.prisma.$transaction(
-      assignments.map(a =>
-        this.prisma.bom_assembly.update({
-          where: { id: a.assembly_id },
-          data: {
-            match_status: a.match_status ?? null,
-            product_id: a.product_id !== undefined ? (a.product_id ?? null) : undefined,
-            write_uid: uid,
-            write_date: new Date(),
-          },
-        }),
-      ),
+    const rows = assignments.map(a =>
+      Prisma.sql`(${a.assembly_id}, ${a.match_status ?? null}, ${a.product_id !== undefined ? (a.product_id ?? null) : null})`
     )
+    await this.prisma.$executeRaw(Prisma.sql`
+      UPDATE bom_assembly ba
+      SET match_status = v.ms,
+          product_id   = v.pid::int,
+          write_uid    = ${uid},
+          write_date   = now()
+      FROM (VALUES ${Prisma.join(rows)}) AS v(aid, ms, pid)
+      WHERE ba.id = v.aid::int
+    `)
   }
 
   private validateFiles(files: FileInput[]) {
