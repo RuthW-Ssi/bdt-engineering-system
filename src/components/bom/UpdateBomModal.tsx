@@ -35,7 +35,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
       const detectedType = classifyFilename(f.name)
       const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
       if (detectedType && existingTypes.includes(detectedType)) {
-        entries.push({ file: f, detectedType, error: `มีไฟล์ประเภท "${detectedType}" อยู่แล้ว` })
+        entries.push({ file: f, detectedType, error: `A file of type "${detectedType}" already exists` })
       } else {
         entries.push({ file: f, detectedType })
       }
@@ -50,7 +50,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
     setFiles(prev => prev.map((entry, i) => {
       if (i !== index) return entry
       const otherTypes = prev.filter((_, j) => j !== i && !prev[j].error).map(e => e.detectedType)
-      if (otherTypes.includes(type)) return { ...entry, detectedType: type, error: `มีไฟล์ประเภท "${type}" อยู่แล้ว` }
+      if (otherTypes.includes(type)) return { ...entry, detectedType: type, error: `A file of type "${type}" already exists` }
       return { ...entry, detectedType: type, error: undefined }
     }))
   }
@@ -77,7 +77,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
       qc.invalidateQueries({ queryKey: ['dispatches'] })
       onClose()
     } catch {
-      setError('อัพโหลดไม่สำเร็จ — ตรวจสอบว่า backend พร้อมใช้งาน')
+      setError('Upload failed — check that the backend is running')
       setProgress(null)
     }
   }
@@ -96,7 +96,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
         </div>
 
         <div style={{ fontSize: 13, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 12px' }}>
-          จะเพิ่ม revision ใหม่ — ไม่ลบไฟล์เดิม ประวัติยังคงอยู่
+          A new revision will be added — existing files are not deleted, history is preserved
         </div>
 
         <FileDropzone
@@ -137,7 +137,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
 
         <div className="flex items-center justify-end gap-2">
           <button onClick={onClose} style={{ fontSize: 13, color: '#555', padding: '6px 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }}>
-            ยกเลิก
+            Cancel
           </button>
           <button
             onClick={handleSubmit}
@@ -146,7 +146,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
             style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
           >
             {uploadMutation.isPending
-              ? <><Loader2 size={13} className="animate-spin" />กำลังอัพโหลด...</>
+              ? <><Loader2 size={13} className="animate-spin" />Uploading...</>
               : <><Upload size={13} />Upload ({validFiles.length})</>}
           </button>
         </div>

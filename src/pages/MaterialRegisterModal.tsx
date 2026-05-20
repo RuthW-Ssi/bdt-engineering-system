@@ -11,19 +11,19 @@ interface Props {
 // Dynamic attribute fields per category prefix
 const ATTR_FIELDS: Record<string, { key: string; label: string; type: 'text' | 'number'; required?: boolean }[]> = {
   HR000: [
-    { key: 'grade', label: 'Grade (เช่น SS400)', type: 'text', required: true },
-    { key: 'height_h', label: 'H — ความสูง (mm)', type: 'number', required: true },
-    { key: 'width_b', label: 'B — ความกว้าง (mm)', type: 'number', required: true },
-    { key: 'web_tw', label: 'TW — ความหนา Web (mm)', type: 'number', required: true },
-    { key: 'flange_tf', label: 'TF — ความหนา Flange (mm)', type: 'number', required: true },
-    { key: 'length_mm', label: 'ความยาวมาตรฐาน (mm)', type: 'number' },
-    { key: 'weight_per_m', label: 'น้ำหนัก kg/m', type: 'number' },
+    { key: 'grade', label: 'Grade (e.g. SS400)', type: 'text', required: true },
+    { key: 'height_h', label: 'H — Height (mm)', type: 'number', required: true },
+    { key: 'width_b', label: 'B — Width (mm)', type: 'number', required: true },
+    { key: 'web_tw', label: 'TW — Web Thickness (mm)', type: 'number', required: true },
+    { key: 'flange_tf', label: 'TF — Flange Thickness (mm)', type: 'number', required: true },
+    { key: 'length_mm', label: 'Standard Length (mm)', type: 'number' },
+    { key: 'weight_per_m', label: 'Weight kg/m', type: 'number' },
   ],
   PL000: [
     { key: 'grade', label: 'Grade', type: 'text', required: true },
-    { key: 'thickness_t', label: 'T — ความหนา (mm)', type: 'number', required: true },
-    { key: 'width_mm', label: 'ความกว้าง (mm)', type: 'number' },
-    { key: 'length_mm', label: 'ความยาว (mm)', type: 'number' },
+    { key: 'thickness_t', label: 'T — Thickness (mm)', type: 'number', required: true },
+    { key: 'width_mm', label: 'Width (mm)', type: 'number' },
+    { key: 'length_mm', label: 'Length (mm)', type: 'number' },
   ],
   CF000: [
     { key: 'grade', label: 'Grade', type: 'text', required: true },
@@ -34,18 +34,18 @@ const ATTR_FIELDS: Record<string, { key: string; label: string; type: 'text' | '
   ],
   PT000: [
     { key: 'grade', label: 'Grade', type: 'text', required: true },
-    { key: 'diameter_d', label: 'D — เส้นผ่าศูนย์กลาง (mm)', type: 'number', required: true },
-    { key: 'thickness_t', label: 'T — ความหนา (mm)', type: 'number', required: true },
+    { key: 'diameter_d', label: 'D — Diameter (mm)', type: 'number', required: true },
+    { key: 'thickness_t', label: 'T — Thickness (mm)', type: 'number', required: true },
   ],
   BN000: [
     { key: 'grade', label: 'Grade', type: 'text' },
-    { key: 'diameter_d', label: 'D — ขนาดเกลียว (mm)', type: 'number', required: true },
-    { key: 'length_mm', label: 'ความยาว (mm)', type: 'number' },
+    { key: 'diameter_d', label: 'D — Thread Size (mm)', type: 'number', required: true },
+    { key: 'length_mm', label: 'Length (mm)', type: 'number' },
   ],
 }
 
 const DEFAULT_FIELDS: { key: string; label: string; type: 'text' | 'number'; required?: boolean }[] = [
-  { key: 'grade', label: 'Grade / ประเภท', type: 'text' },
+  { key: 'grade', label: 'Grade / Type', type: 'text' },
 ]
 
 export function MaterialRegisterModal({ onClose }: Props) {
@@ -81,13 +81,13 @@ export function MaterialRegisterModal({ onClose }: Props) {
 
   const validate = () => {
     const errs: Record<string, string> = {}
-    if (!form.categ_id) errs.categ_id = 'กรุณาเลือกกลุ่มวัสดุ'
-    if (!form.uom_id) errs.uom_id = 'กรุณาเลือกหน่วยนับ'
-    if (!form.name.trim()) errs.name = 'กรุณาระบุชื่อวัสดุ'
-    if (!form.description_sale.trim()) errs.description_sale = 'กรุณาระบุ Description (EN UPPERCASE)'
-    if (needsCriticality && !form.criticality) errs.criticality = 'กรุณาระบุ Criticality สำหรับกลุ่มนี้'
+    if (!form.categ_id) errs.categ_id = 'Please select a material category'
+    if (!form.uom_id) errs.uom_id = 'Please select a unit of measure'
+    if (!form.name.trim()) errs.name = 'Please enter a material name'
+    if (!form.description_sale.trim()) errs.description_sale = 'Please enter a Description (EN UPPERCASE)'
+    if (needsCriticality && !form.criticality) errs.criticality = 'Please specify Criticality for this category'
     for (const f of attrFields) {
-      if (f.required && !attrs[f.key]) errs[`attr_${f.key}`] = `กรุณาระบุ ${f.label}`
+      if (f.required && !attrs[f.key]) errs[`attr_${f.key}`] = `Please enter ${f.label}`
     }
     setErrors(errs)
     return Object.keys(errs).length === 0
@@ -117,9 +117,9 @@ export function MaterialRegisterModal({ onClose }: Props) {
     try {
       const result = await createMaterial(payload)
       setDuplicates(result.duplicates ?? [])
-      setSuccess(`สร้างสำเร็จ: ${result.default_code}`)
+      setSuccess(`Created successfully: ${result.default_code}`)
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'เกิดข้อผิดพลาด'
+      const msg = err?.response?.data?.message ?? 'An error occurred'
       setErrors(prev => ({ ...prev, _form: typeof msg === 'string' ? msg : JSON.stringify(msg) }))
     }
   }
@@ -134,7 +134,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
             {duplicates.length > 0 && (
               <div className="w-full rounded-lg border" style={{ padding: 12, background: '#FFFBEB', borderColor: '#FCD34D' }}>
                 <div className="flex items-center gap-2" style={{ fontSize: 12, fontWeight: 600, color: '#854F0B', marginBottom: 6 }}>
-                  <AlertTriangle size={14} /> พบวัสดุที่คล้ายกัน ({duplicates.length} รายการ)
+                  <AlertTriangle size={14} /> Similar materials found ({duplicates.length} items)
                 </div>
                 {(duplicates as any[]).map((d, i) => (
                   <div key={i} style={{ fontSize: 12, color: '#555', marginTop: 4 }}>
@@ -144,7 +144,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
               </div>
             )}
             <button onClick={onClose} className="rounded-md text-white" style={{ background: '#C8202A', padding: '8px 24px', fontWeight: 600 }}>
-              ปิด
+              Close
             </button>
           </div>
         </div>
@@ -157,7 +157,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
       <div className="bg-white rounded-xl shadow-xl flex flex-col" style={{ width: 580, maxHeight: '90vh', overflow: 'hidden' }}>
         {/* Header */}
         <div className="flex items-center justify-between px-6" style={{ height: 56, borderBottom: '1px solid #E0E0E0', flexShrink: 0 }}>
-          <span style={{ fontSize: 16, fontWeight: 600 }}>เพิ่มวัสดุใหม่</span>
+          <span style={{ fontSize: 16, fontWeight: 600 }}>Add New Material</span>
           <button onClick={onClose} className="rounded hover:bg-chrome-50" style={{ padding: 4 }}><X size={18} /></button>
         </div>
 
@@ -174,7 +174,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
 
             {/* Category */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>กลุ่มวัสดุ *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Material Category *</label>
               <select
                 className="w-full border rounded-md focus:outline-none"
                 style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.categ_id ? '#C8202A' : '#E0E0E0' }}
@@ -182,7 +182,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
                 onChange={e => { setField('categ_id', e.target.value); setAttrs({}) }}
                 disabled={loadingCats}
               >
-                <option value="">— เลือกกลุ่มวัสดุ —</option>
+                <option value="">— Select category —</option>
                 {categories.map(c => (
                   <option key={c.id} value={c.id}>{c.complete_name ?? c.name}</option>
                 ))}
@@ -192,7 +192,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
 
             {/* UoM */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>หน่วยนับ (UoM) *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Unit of Measure (UoM) *</label>
               <select
                 className="w-full border rounded-md focus:outline-none"
                 style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.uom_id ? '#C8202A' : '#E0E0E0' }}
@@ -200,7 +200,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
                 onChange={e => setField('uom_id', e.target.value)}
                 disabled={loadingUoms}
               >
-                <option value="">— เลือกหน่วยนับ —</option>
+                <option value="">— Select unit —</option>
                 {uoms.map(u => (
                   <option key={u.id} value={u.id}>{u.name}</option>
                 ))}
@@ -210,13 +210,13 @@ export function MaterialRegisterModal({ onClose }: Props) {
 
             {/* Name */}
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>ชื่อวัสดุ (ภาษาไทย/หลัก) *</label>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Material Name *</label>
               <input
                 className="w-full border rounded-md focus:outline-none"
                 style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.name ? '#C8202A' : '#E0E0E0' }}
                 value={form.name}
                 onChange={e => setField('name', e.target.value)}
-                placeholder="เช่น เหล็ก H-Beam SS400"
+                placeholder="e.g. H-Beam SS400"
               />
               {errors.name && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{errors.name}</div>}
             </div>
@@ -225,7 +225,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
             <div>
               <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>
                 Description (EN UPPERCASE) *
-                <span style={{ fontWeight: 400, marginLeft: 6, color: '#8E8E8E' }}>ตัวพิมพ์ใหญ่ภาษาอังกฤษ 2 ส่วน</span>
+                <span style={{ fontWeight: 400, marginLeft: 6, color: '#8E8E8E' }}>2-part uppercase English</span>
               </label>
               <input
                 className="w-full border rounded-md focus:outline-none font-mono"
@@ -285,7 +285,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
                   value={form.criticality}
                   onChange={e => setField('criticality', e.target.value)}
                 >
-                  <option value="">— เลือก —</option>
+                  <option value="">— Select —</option>
                   <option value="A">A — Critical</option>
                   <option value="B">B — Major</option>
                   <option value="C">C — Minor</option>
@@ -297,8 +297,8 @@ export function MaterialRegisterModal({ onClose }: Props) {
             {/* Prefix preview */}
             {selectedCat?.prefix_5 && (
               <div className="rounded-lg" style={{ padding: 10, background: '#E6F1FB', fontSize: 12, color: '#185FA5' }}>
-                รหัสที่จะได้รับ: <span className="font-mono font-bold">{selectedCat.prefix_5}-PEND</span>
-                <span style={{ marginLeft: 8, color: '#555' }}>(คลังวัสดุจะ assign เลข 5 หลักหลังภายหลัง)</span>
+                Code to be assigned: <span className="font-mono font-bold">{selectedCat.prefix_5}-PEND</span>
+                <span style={{ marginLeft: 8, color: '#555' }}>(Warehouse will assign a 5-digit suffix later)</span>
               </div>
             )}
           </div>
@@ -306,7 +306,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
           {/* Footer */}
           <div className="flex items-center justify-end gap-3 px-6" style={{ height: 60, borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
             <button type="button" onClick={onClose} className="rounded-md border" style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, borderColor: '#E0E0E0' }}>
-              ยกเลิก
+              Cancel
             </button>
             <button
               type="submit"
@@ -315,7 +315,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
               style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
             >
               {isPending && <Loader2 size={14} className="animate-spin" />}
-              บันทึก (Draft)
+              Save (Draft)
             </button>
           </div>
         </form>

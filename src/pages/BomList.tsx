@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X } from 'lucide-react'
 import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
@@ -7,7 +7,198 @@ import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
-import type { DispatchSummaryDto } from '../api/dispatches'
+import { PaintMaterialsTable } from '../components/bom/PaintMaterialsTable'
+import { WeldingMaterialsTable } from '../components/bom/WeldingMaterialsTable'
+import { useMbom } from '../hooks/usePaint'
+import { useWeldingMbom } from '../hooks/useWelding'
+import { MatchStatusBadge } from '../components/bom/MatchStatusBadge'
+import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto, MatchStatus } from '../api/dispatches'
+
+type ContentTab = 'tree' | 'assemblies' | 'parts' | 'paint' | 'wire'
+
+const CONTENT_TABS: { id: ContentTab; label: string }[] = [
+  { id: 'tree',       label: 'Tree' },
+  { id: 'assemblies', label: 'Assemblies' },
+  { id: 'parts',      label: 'Parts' },
+  { id: 'paint',      label: 'Paint' },
+  { id: 'wire',       label: 'Welding' },
+]
+
+// ── Assemblies flat table ──────────────────────────────────────
+function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
+  const TH: React.CSSProperties = {
+    position: 'sticky', top: 0, background: '#F5F5F5', zIndex: 2,
+    padding: '6px 10px', fontSize: 10, fontWeight: 600, color: '#555',
+    textAlign: 'left', borderBottom: '2px solid #D0D0D0', whiteSpace: 'nowrap',
+  }
+  const TD: React.CSSProperties = { padding: '5px 10px', fontSize: 12, borderBottom: '1px solid #F0F0F0' }
+
+  if (!assemblies.length) return (
+    <div style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>No assemblies</div>
+  )
+
+  return (
+    <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+        <thead>
+          <tr>
+            <th style={TH}>#</th>
+            <th style={TH}>Mark</th>
+            <th style={TH}>Name</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Qty</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Area (m²)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>L (mm)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>W (mm)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>H (mm)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Weight (kg)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Parts</th>
+            <th style={TH}>Status</th>
+            <th style={TH}>Product</th>
+          </tr>
+        </thead>
+        <tbody>
+          {assemblies.map((asm, i) => (
+            <tr key={asm.id} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
+              <td style={{ ...TD, color: '#AAA', width: 32 }}>{i + 1}</td>
+              <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{asm.assembly_mark}</td>
+              <td style={{ ...TD, color: '#555', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asm.name ?? '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', fontWeight: 500 }}>×{asm.assembly_qty}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.surface_area_m2 != null ? asm.surface_area_m2.toFixed(2) : '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.length_mm ?? '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.width_mm ?? '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.height_mm ?? '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.total_weight_kg != null ? asm.total_weight_kg.toFixed(1) : '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#185FA5' }}>{asm.parts.length}</td>
+              <td style={TD}>
+                {asm.match_status && <MatchStatusBadge status={asm.match_status as MatchStatus} size="xs" />}
+              </td>
+              <td style={{ ...TD, fontSize: 10, color: '#27500A', fontWeight: 600 }}>{asm.product?.product_code ?? '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ background: '#F5F5F5', borderTop: '2px solid #D0D0D0' }}>
+            <td colSpan={3} style={{ ...TD, fontWeight: 600, color: '#555' }}>Total ({assemblies.length})</td>
+            <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>
+              {assemblies.reduce((s, a) => s + a.assembly_qty, 0)}
+            </td>
+            <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>
+              {assemblies.every(a => a.surface_area_m2 == null) ? '—'
+                : assemblies.reduce((s, a) => s + (a.surface_area_m2 ?? 0) * a.assembly_qty, 0).toFixed(2)}
+            </td>
+            <td colSpan={3} style={{ ...TD, textAlign: 'center', color: '#CCC', fontSize: 10 }}>L / W / H</td>
+            <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>
+              {assemblies.every(a => a.total_weight_kg == null) ? '—'
+                : assemblies.reduce((s, a) => s + (a.total_weight_kg ?? 0) * a.assembly_qty, 0).toFixed(1)}
+            </td>
+            <td colSpan={3} />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+// ── Parts flat table (aggregated across assemblies) ────────────
+interface AggregatedPart {
+  part_mark: string
+  profile: string | null
+  grade: string | null
+  length_mm: number | null
+  unit_weight_kg: number | null
+  match_status: string | null
+  total_qty: number
+}
+
+function aggregateParts(assemblies: AssemblyDto[], orphanParts: AssemblyPartDto[]): AggregatedPart[] {
+  const map = new Map<string, AggregatedPart>()
+  const add = (p: AssemblyPartDto, qty: number) => {
+    const existing = map.get(p.part_mark)
+    if (existing) {
+      existing.total_qty += qty
+    } else {
+      map.set(p.part_mark, {
+        part_mark: p.part_mark,
+        profile: p.profile,
+        grade: p.grade,
+        length_mm: p.length_mm,
+        unit_weight_kg: p.unit_weight_kg,
+        match_status: p.match_status,
+        total_qty: qty,
+      })
+    }
+  }
+  for (const asm of assemblies)
+    for (const p of asm.parts) add(p, p.part_qty * asm.assembly_qty)
+  for (const p of orphanParts) add(p, p.part_qty)
+  return [...map.values()].sort((a, b) => a.part_mark.localeCompare(b.part_mark))
+}
+
+function PartsTable({ assemblies, orphanParts }: { assemblies: AssemblyDto[]; orphanParts: AssemblyPartDto[] }) {
+  const parts = useMemo(() => aggregateParts(assemblies, orphanParts), [assemblies, orphanParts])
+
+  const TH: React.CSSProperties = {
+    position: 'sticky', top: 0, background: '#F5F5F5', zIndex: 2,
+    padding: '6px 10px', fontSize: 10, fontWeight: 600, color: '#555',
+    textAlign: 'left', borderBottom: '2px solid #D0D0D0', whiteSpace: 'nowrap',
+  }
+  const TD: React.CSSProperties = { padding: '5px 10px', fontSize: 12, borderBottom: '1px solid #F0F0F0' }
+
+  if (!parts.length) return (
+    <div style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>No parts</div>
+  )
+
+  const totalWeight = parts.every(p => p.unit_weight_kg == null) ? null
+    : parts.reduce((s, p) => s + (p.unit_weight_kg ?? 0) * p.total_qty, 0)
+
+  return (
+    <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
+      <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
+        <thead>
+          <tr>
+            <th style={TH}>#</th>
+            <th style={TH}>Mark</th>
+            <th style={TH}>Profile</th>
+            <th style={TH}>Grade</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Length (mm)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Total Qty</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Unit Wt (kg)</th>
+            <th style={{ ...TH, textAlign: 'right' }}>Total Wt (kg)</th>
+            <th style={TH}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {parts.map((p, i) => (
+            <tr key={p.part_mark} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
+              <td style={{ ...TD, color: '#AAA', width: 32 }}>{i + 1}</td>
+              <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{p.part_mark}</td>
+              <td style={{ ...TD, fontFamily: 'monospace', fontSize: 11 }}>{p.profile ?? '—'}</td>
+              <td style={{ ...TD, fontSize: 11, color: '#B45309' }}>{p.grade ?? '—'}</td>
+              <td style={{ ...TD, textAlign: 'right' }}>{p.length_mm ?? '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{p.total_qty}</td>
+              <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{p.unit_weight_kg != null ? p.unit_weight_kg.toFixed(3) : '—'}</td>
+              <td style={{ ...TD, textAlign: 'right', fontWeight: 500 }}>
+                {p.unit_weight_kg != null ? (p.unit_weight_kg * p.total_qty).toFixed(1) : '—'}
+              </td>
+              <td style={TD}>
+                {p.match_status && <MatchStatusBadge status={p.match_status as MatchStatus} size="xs" />}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr style={{ background: '#F5F5F5', borderTop: '2px solid #D0D0D0' }}>
+            <td colSpan={6} style={{ ...TD, fontWeight: 600, color: '#555' }}>Total ({parts.length} unique)</td>
+            <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{parts.reduce((s, p) => s + p.total_qty, 0)}</td>
+            <td style={TD} />
+            <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>{totalWeight != null ? totalWeight.toFixed(1) : '—'}</td>
+            <td style={TD} />
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
 
 const PAGE_SIZE = 50
 
@@ -84,7 +275,7 @@ function VersionNode({
           <span style={{ color: '#777', fontStyle: 'normal', fontWeight: 500 }}>{item.uploader.name}</span>
           {' '}
           <span>updated on </span>
-          <span>{new Date(item.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+          <span>{new Date(item.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
         </div>
       </div>
     </div>
@@ -133,7 +324,7 @@ function DispatchGroup({
         )}
         <button
           onClick={() => onOpen(latestId)}
-          title="เปิดหน้า Dispatch Detail"
+          title="Open Dispatch Detail"
           style={{
             marginLeft: group.length > 1 ? 4 : 'auto',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -260,7 +451,14 @@ export function BomList() {
     setSelectedId(latestId)
   }, [latestId])
 
+  const [contentTab, setContentTab] = useState<ContentTab>('tree')
+
+  // Reset to tree tab when a different dispatch is selected
+  useEffect(() => { setContentTab('tree') }, [selectedId])
+
   const { data: detail, isLoading: detailLoading } = useDispatchDetail(selectedId ?? undefined)
+  const { data: mbom, isLoading: mbomLoading, isError: mbomError, refetch: refetchMbom } = useMbom(selectedId ?? undefined, contentTab === 'paint')
+  const { data: weldingMbom, isLoading: weldingLoading, isError: weldingError, refetch: refetchWelding } = useWeldingMbom(selectedId ?? undefined, contentTab === 'wire')
 
   const term = nameFilter.trim().toLowerCase()
 
@@ -271,16 +469,14 @@ export function BomList() {
       .filter(asm =>
         asm.assembly_mark.toLowerCase().includes(term) ||
         (asm.name ?? '').toLowerCase().includes(term) ||
-        asm.parts.some(p => p.part_mark.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term))
+        asm.parts.some(p => p.part_mark.toLowerCase().includes(term))
       )
       .map(asm => {
         const partMatch = asm.assembly_mark.toLowerCase().includes(term) || (asm.name ?? '').toLowerCase().includes(term)
         if (partMatch) return asm
         return {
           ...asm,
-          parts: asm.parts.filter(p =>
-            p.part_mark.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term)
-          ),
+          parts: asm.parts.filter(p => p.part_mark.toLowerCase().includes(term)),
         }
       })
   }, [detail?.assemblies, term])
@@ -288,9 +484,7 @@ export function BomList() {
   const filteredOrphanParts = useMemo(() => {
     const all = detail?.orphan_parts ?? []
     if (!term) return all
-    return all.filter(p =>
-      p.part_mark.toLowerCase().includes(term) || (p.description ?? '').toLowerCase().includes(term)
-    )
+    return all.filter(p => p.part_mark.toLowerCase().includes(term))
   }, [detail?.orphan_parts, term])
 
   const setParam = (key: string, value: string) => {
@@ -360,7 +554,7 @@ export function BomList() {
           onChange={e => setParam('zone_id', e.target.value)}
         >
           {zones.length === 0
-            ? <option value="" disabled>{hasProject ? 'ไม่พบ Zone' : '— เลือก Project ก่อน —'}</option>
+            ? <option value="" disabled>{hasProject ? 'No zones found' : '— Select a Project first —'}</option>
             : zones.map(z => <option key={z.id} value={z.id}>{z.code} — {z.label}</option>)
           }
         </select>
@@ -373,12 +567,12 @@ export function BomList() {
           onChange={e => setParam('sub_zone_id', e.target.value)}
         >
           {subZones.length === 0
-            ? <option value="" disabled>{!zoneFilter ? '— เลือก Zone ก่อน —' : 'ไม่พบ Sub-zone'}</option>
+            ? <option value="" disabled>{!zoneFilter ? '— Select a Zone first —' : 'No sub-zones found'}</option>
             : subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)
           }
         </select>
 
-        {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>เลือก Project ที่ header ก่อน</span>}
+        {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Select a Project from the header first</span>}
 
         <span style={{ width: 1, height: 20, background: '#E0E0E0', flexShrink: 0 }} />
 
@@ -387,7 +581,7 @@ export function BomList() {
           <Search size={13} style={{ position: 'absolute', left: 8, color: '#9CA3AF', pointerEvents: 'none' }} />
           <input
             type="text"
-            placeholder="ค้นหา Assembly / Part..."
+            placeholder="Search Assembly / Part..."
             value={nameFilter}
             onChange={e => setNameFilter(e.target.value)}
             style={{
@@ -417,22 +611,22 @@ export function BomList() {
       {!hasProject ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
-          <div style={{ fontSize: 14, fontWeight: 500 }}>เลือก Project ที่ header ก่อน</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>Select a Project from the header first</div>
         </div>
       ) : isLoading ? (
         <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
-          <Loader2 size={20} className="animate-spin" />กำลังโหลด...
+          <Loader2 size={20} className="animate-spin" />Loading...
         </div>
       ) : isError || allItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
-          <div style={{ fontSize: 14, fontWeight: 500 }}>ยังไม่มี BOM dispatch</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>No BOM dispatches yet</div>
           <button
             onClick={() => navigate('/bom/upload')}
             className="flex items-center gap-1.5 rounded-md text-white"
             style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', marginTop: 8 }}
           >
-            <Upload size={14} />Upload BOM แรก
+            <Upload size={14} />Upload First BOM
           </button>
         </div>
       ) : (
@@ -441,37 +635,86 @@ export function BomList() {
           {/* Left panel — tree view */}
           <div className="flex flex-col flex-1" style={{ overflow: 'hidden', minWidth: 0 }}>
 
-            {/* Tree header */}
-            {selectedItem && (
-              <div className="flex items-center gap-3 px-4 border-b border-chrome-100 bg-white" style={{ height: 40, flexShrink: 0 }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>
-                  {selectedItem.zone.code}
-                  {selectedItem.sub_zone && <span style={{ color: '#8E8E8E', fontWeight: 400 }}> / {selectedItem.sub_zone.code || selectedItem.sub_zone.name}</span>}
+            {/* Tab bar */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #E8E8E8', background: '#fff', flexShrink: 0 }}>
+              {CONTENT_TABS.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setContentTab(tab.id)}
+                  style={{
+                    padding: '9px 16px',
+                    fontSize: 12,
+                    fontWeight: contentTab === tab.id ? 600 : 400,
+                    color: contentTab === tab.id ? '#C8202A' : '#555',
+                    borderBottom: `2px solid ${contentTab === tab.id ? '#C8202A' : 'transparent'}`,
+                    background: 'none', border: 'none',
+                    borderBottomWidth: 2, borderBottomStyle: 'solid',
+                    borderBottomColor: contentTab === tab.id ? '#C8202A' : 'transparent',
+                    cursor: 'pointer', marginBottom: -1,
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+              {selectedItem && contentTab === 'tree' && (
+                <span style={{ marginLeft: 'auto', alignSelf: 'center', paddingRight: 12, fontSize: 11, color: '#8E8E8E' }}>
+                  {new Date(selectedItem.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {term && <span style={{ marginLeft: 8, color: '#185FA5', fontWeight: 500 }}>{filteredAssemblies.length} asm · {filteredOrphanParts.length} pt</span>}
                 </span>
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>
-                  {new Date(selectedItem.uploaded_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
-                </span>
-                {term && (
-                  <span style={{ marginLeft: 'auto', fontSize: 11, color: '#185FA5', fontWeight: 500 }}>
-                    {filteredAssemblies.length} asm · {filteredOrphanParts.length} part
-                  </span>
-                )}
+              )}
+            </div>
+
+            {/* Tab content */}
+            {contentTab === 'tree' && (
+              detailLoading ? (
+                <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
+                  <Loader2 size={18} className="animate-spin" />Loading...
+                </div>
+              ) : (
+                <BomTreeView
+                  assemblies={filteredAssemblies}
+                  assemblyCount={term ? filteredAssemblies.length : (detail?.assembly_count ?? null)}
+                  partCount={term ? null : (detail?.part_count ?? null)}
+                  orphanParts={filteredOrphanParts}
+                  searchTerm={term || undefined}
+                />
+              )
+            )}
+
+            {contentTab === 'assemblies' && (
+              detailLoading
+                ? <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}><Loader2 size={18} className="animate-spin" />Loading...</div>
+                : <AssembliesTable assemblies={detail?.assemblies ?? []} />
+            )}
+
+            {contentTab === 'parts' && (
+              detailLoading
+                ? <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}><Loader2 size={18} className="animate-spin" />Loading...</div>
+                : <PartsTable assemblies={detail?.assemblies ?? []} orphanParts={detail?.orphan_parts ?? []} />
+            )}
+
+            {contentTab === 'paint' && selectedId && (
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                <PaintMaterialsTable
+                  dispatchId={selectedId}
+                  data={mbom}
+                  isLoading={mbomLoading}
+                  isError={mbomError}
+                  onRetry={refetchMbom}
+                />
               </div>
             )}
 
-            {/* Tree content */}
-            {detailLoading ? (
-              <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
-                <Loader2 size={18} className="animate-spin" />กำลังโหลด tree...
+            {contentTab === 'wire' && selectedId && (
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                <WeldingMaterialsTable
+                  dispatchId={selectedId}
+                  data={weldingMbom}
+                  isLoading={weldingLoading}
+                  isError={weldingError}
+                  onRetry={refetchWelding}
+                />
               </div>
-            ) : (
-              <BomTreeView
-                assemblies={filteredAssemblies}
-                assemblyCount={term ? filteredAssemblies.length : (detail?.assembly_count ?? null)}
-                partCount={term ? null : (detail?.part_count ?? null)}
-                orphanParts={filteredOrphanParts}
-                searchTerm={term || undefined}
-              />
             )}
           </div>
 

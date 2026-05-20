@@ -1,5 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsOptional, IsString, IsBoolean, IsNumber, IsObject, MaxLength } from 'class-validator'
+import { Type } from 'class-transformer'
+import { IsOptional, IsString, IsBoolean, IsNumber, IsObject, MaxLength, ValidateNested } from 'class-validator'
+import { PaintSpecPresetDto, WeldingSpecPresetDto } from './spec-preset.dto'
 
 export class UpdateProductDto {
   @ApiPropertyOptional()
@@ -52,4 +54,16 @@ export class UpdateProductDto {
   @IsOptional()
   @IsNumber()
   engineer_hours_est?: number
+
+  @ApiPropertyOptional({ type: PaintSpecPresetDto, nullable: true, description: 'Replace paint spec entirely. Pass null to clear.' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PaintSpecPresetDto)
+  default_paint_spec?: PaintSpecPresetDto | null
+
+  @ApiPropertyOptional({ type: WeldingSpecPresetDto, nullable: true, description: 'Replace welding spec entirely. Pass null to clear.' })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WeldingSpecPresetDto)
+  default_welding_spec?: WeldingSpecPresetDto | null
 }

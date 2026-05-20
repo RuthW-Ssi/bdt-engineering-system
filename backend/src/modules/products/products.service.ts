@@ -10,11 +10,12 @@ import { ProductCodeGenerator } from './product-code.generator'
 import { CreateStandardProductDto } from './dto/create-standard-product.dto'
 import { CreateCustomProductDto } from './dto/create-custom-product.dto'
 import { UpdateProductDto } from './dto/update-product.dto'
+import { UpdateSpecDto } from './dto/update-spec.dto'
 import { QueryProductDto } from './dto/query-product.dto'
 import { assertProductTransition, PRODUCT_ACTIONS } from './products.state-machine'
 import { validateStandardProduct } from './validators/standard-product.validator'
 import { validateCustomProduct } from './validators/custom-product.validator'
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 
 type CreateProductDto = CreateStandardProductDto | CreateCustomProductDto
 
@@ -64,6 +65,7 @@ export class ProductsService {
         name: dto.name,
         categ_id: dto.categ_id,
         product_type: 'standard',
+        product_kind: dto.product_kind ?? 'part',
         odoo_type: dto.odoo_type ?? 'product',
         sale_ok: dto.sale_ok,
         purchase_ok: dto.purchase_ok,
@@ -76,6 +78,8 @@ export class ProductsService {
         reorder_min: dto.reorder_min,
         reorder_max: dto.reorder_max,
         attributes: (dto.attributes as Prisma.InputJsonValue) ?? {},
+        default_paint_spec: dto.default_paint_spec ? (dto.default_paint_spec as unknown as Prisma.InputJsonValue) : undefined,
+        default_welding_spec: dto.default_welding_spec ? (dto.default_welding_spec as unknown as Prisma.InputJsonValue) : undefined,
         state: 'draft',
         create_uid: userId,
         write_uid: userId,
@@ -112,12 +116,15 @@ export class ProductsService {
         name: dto.name,
         categ_id: dto.categ_id,
         product_type: 'custom',
+        product_kind: dto.product_kind ?? 'assembly',
         project_id: dto.project_id,
         erection_zone_id: dto.erection_zone_id,
         mark_prefix: dto.mark_prefix,
         mark_number: dto.mark_number,
         engineer_hours_est: dto.engineer_hours_est,
         attributes: (dto.attributes as Prisma.InputJsonValue) ?? {},
+        ...(dto.default_paint_spec ? { default_paint_spec: dto.default_paint_spec as unknown as Prisma.InputJsonValue } : {}),
+        ...(dto.default_welding_spec ? { default_welding_spec: dto.default_welding_spec as unknown as Prisma.InputJsonValue } : {}),
         state: 'draft',
         create_uid: userId,
         write_uid: userId,
@@ -223,6 +230,12 @@ export class ProductsService {
         ...(dto.variant_attributes ? { variant_attributes: dto.variant_attributes as Prisma.InputJsonValue } : {}),
         ...(dto.attributes ? { attributes: dto.attributes as Prisma.InputJsonValue } : {}),
         ...(dto.engineer_hours_est !== undefined ? { engineer_hours_est: dto.engineer_hours_est } : {}),
+        ...('default_paint_spec' in dto
+          ? { default_paint_spec: dto.default_paint_spec === null ? Prisma.JsonNull : (dto.default_paint_spec as unknown as Prisma.InputJsonValue) }
+          : {}),
+        ...('default_welding_spec' in dto
+          ? { default_welding_spec: dto.default_welding_spec === null ? Prisma.JsonNull : (dto.default_welding_spec as unknown as Prisma.InputJsonValue) }
+          : {}),
         write_uid: userId,
         write_date: new Date(),
       },
@@ -266,6 +279,33 @@ export class ProductsService {
     })
 
     return updated
+  }
+
+  async getSpec(product_code: string) {
+    const product = await this.prisma.products.findUnique({
+      where: { product_code },
+      select: { product_code: true, name: true, default_paint_spec: true, default_welding_spec: true },
+    })
+    if (!product) throw new NotFoundException(`Product ${product_code} not found`)
+    return product
+  }
+
+  async updateSpec(product_code: string, dto: UpdateSpecDto, userId: number) {
+    await this.findOne(product_code)
+    return this.prisma.products.update({
+      where: { product_code },
+      data: {
+        ...('default_paint_spec' in dto
+          ? { default_paint_spec: dto.default_paint_spec === null ? Prisma.JsonNull : (dto.default_paint_spec as unknown as Prisma.InputJsonValue) }
+          : {}),
+        ...('default_welding_spec' in dto
+          ? { default_welding_spec: dto.default_welding_spec === null ? Prisma.JsonNull : (dto.default_welding_spec as unknown as Prisma.InputJsonValue) }
+          : {}),
+        write_uid: userId,
+        write_date: new Date(),
+      },
+      select: { product_code: true, name: true, default_paint_spec: true, default_welding_spec: true },
+    })
   }
 
   getMessages(product_code: string) {

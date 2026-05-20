@@ -1,10 +1,17 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsIn, IsString, IsOptional, IsInt, IsNumber, IsObject, MaxLength } from 'class-validator'
+import { IsIn, IsString, IsOptional, IsInt, IsNumber, IsObject, MaxLength, ValidateNested } from 'class-validator'
+import { Type } from 'class-transformer'
+import { PaintSpecPresetDto, WeldingSpecPresetDto } from './spec-preset.dto'
 
 export class CreateCustomProductDto {
   @ApiProperty({ enum: ['custom'] })
   @IsIn(['custom'])
   product_type: 'custom'
+
+  @ApiPropertyOptional({ enum: ['part', 'assembly'], default: 'assembly' })
+  @IsOptional()
+  @IsIn(['part', 'assembly'])
+  product_kind?: 'part' | 'assembly'
 
   @ApiProperty({ example: 'Column C-1 WH' })
   @IsString()
@@ -43,4 +50,16 @@ export class CreateCustomProductDto {
   @IsOptional()
   @IsObject()
   attributes?: Record<string, unknown>
+
+  @ApiPropertyOptional({ type: PaintSpecPresetDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PaintSpecPresetDto)
+  default_paint_spec?: PaintSpecPresetDto
+
+  @ApiPropertyOptional({ type: WeldingSpecPresetDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => WeldingSpecPresetDto)
+  default_welding_spec?: WeldingSpecPresetDto
 }

@@ -1,0 +1,70 @@
+[
+  {
+    "assembly_mark": "TH-2CO1",
+    "parts": [
+      { "profile": "PL6x950", "grade": "HY370", "length_mm": 9050, "qty": 1 },
+      { "profile": "PL6x150", "grade": "HY370", "length_mm": 9050, "qty": 2 },
+      { "profile": "PL10x200", "grade": "HY370", "length_mm": 200, "qty": 2 },
+      { "profile": "PL8x100", "grade": "HY370", "length_mm": 150, "qty": 4 },
+      { "profile": "COUPLING_M20", "grade": null, "length_mm": null, "qty": 4 }
+    ],
+    "expected_shape": "H",
+    "expected_method": "BH",
+    "expected_height_mm": 950,
+    "expected_width_mm": 150,
+    "expected_grade": "HY370",
+    "expected_confidence": "high",
+    "expected_mark_prefix": "CO"
+  },
+  {
+    "assembly_mark": "TH-2RF1",
+    "parts": [
+      { "profile": "PL6x750", "grade": "HY370", "length_mm": 6000, "qty": 1 },
+      { "profile": "PL6x150", "grade": "HY370", "length_mm": 6000, "qty": 2 },
+      { "profile": "PL10x200", "grade": "HY370", "length_mm": 200, "qty": 2 },
+      { "profile": "PL8x80", "grade": "HY370", "length_mm": 120, "qty": 6 }
+    ],
+    "expected_shape": "H",
+    "expected_method": "BH",
+    "expected_height_mm": 750,
+    "expected_width_mm": 150,
+    "expected_grade": "HY370",
+    "expected_confidence": "high",
+    "expected_mark_prefix": "RF"
+  },
+  {
+    "assembly_mark": "TH-2FB1",
+    "parts": [
+      { "profile": "L75x75x6", "grade": "SS400", "length_mm": 1500, "qty": 1 },
+      { "profile": "COUPLING_M16", "grade": null, "length_mm": null, "qty": 2 }
+    ],
+    "expected_shape": "L",
+    "expected_method": "ANG",
+    "expected_grade": "SS400",
+    "expected_confidence": "high",
+    "expected_mark_prefix": "FB"
+  },
+  {
+    "assembly_mark": "TH-2BR1",
+    "parts": [
+      { "profile": "L50x50x5", "grade": "SS400", "length_mm": 2200, "qty": 1 },
+      { "profile": "PL8x80", "grade": "SS400", "length_mm": 100, "qty": 2 }
+    ],
+    "expected_shape": "L",
+    "expected_method": "ANG",
+    "expected_grade": "SS400",
+    "expected_confidence": "high",
+    "expected_mark_prefix": "BR"
+  },
+  {
+    "assembly_mark": "TH-2PS1",
+    "parts": [
+      { "profile": "PIPE114.3x4.5", "grade": "SS400", "length_mm": 3000, "qty": 1 }
+    ],
+    "expected_shape": "PIPE",
+    "expected_method": "PIPE",
+    "expected_grade": "SS400",
+    "expected_confidence": "high",
+    "expected_mark_prefix": "PS"
+  }
+]

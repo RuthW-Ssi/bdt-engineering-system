@@ -1,5 +1,5 @@
 import {
-  Injectable, NotFoundException, BadRequestException,
+  Injectable, Logger, NotFoundException, BadRequestException,
 } from '@nestjs/common'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -7,8 +7,11 @@ import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
+import { ProductDerivationService } from '../product-derivation/product-derivation.service'
+import { BomMatchingService } from './bom-matching.service'
 import type { BomDocType } from './filename-classifier'
 import type { QueryDispatchDto } from './dto/dispatch.dto'
+import type { DispatchMappingDto } from './dto/mapping.dto'
 
 const ALLOWED_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -28,10 +31,14 @@ export interface FileInput {
 
 @Injectable()
 export class BomUploadService {
+  private readonly logger = new Logger(BomUploadService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: FileStorageService,
     private readonly parser: XlsxParserService,
+    private readonly derivation: ProductDerivationService,
+    private readonly matching: BomMatchingService,
   ) {}
 
   // ─── Upload ──────────────────────────────────────────────────
@@ -113,6 +120,9 @@ export class BomUploadService {
               qty: a.qty,
               weight_kg: a.weight_kg,
               surface_area_m2: a.surface_area_m2,
+              length_mm: a.length_mm,
+              width_mm: a.width_mm,
+              height_mm: a.height_mm,
               create_uid: uid,
               write_uid: uid,
             })),
@@ -151,6 +161,34 @@ export class BomUploadService {
           if (junctions.length) await tx.bom_assembly_part.createMany({ data: junctions })
         }
 
+        // Match assemblies to standard products (by name) inside the same transaction
+        if (asmList?.assemblies.length) {
+          const asmRows = asmList.assemblies.map(a => ({
+            id: assemblyIdByMark.get(a.assembly_mark)!,
+            assembly_mark: a.assembly_mark,
+            name: a.name ?? '',
+            weight_kg: a.weight_kg ?? null,
+            surface_area_m2: a.surface_area_m2 ?? null,
+          })).filter(r => r.id)
+          await this.matching.matchAssemblies(tx as any, asmRows, projectId, uid)
+        }
+
+        // Match parts to standard/custom products inside the same transaction
+        if (partList?.parts.length) {
+          const partRows = partList.parts.map(p => ({
+            id: partIdByMark.get(p.part_mark)!,
+            part_mark: p.part_mark,
+            profile: p.profile ?? null,
+            grade: p.grade ?? null,
+            weight_kg: p.weight_kg ?? null,
+            length_mm: p.length_mm ?? null,
+          })).filter(r => r.id)
+          await this.matching.matchParts(tx as any, partRows, projectId, uid)
+        }
+
+        // Downgrade any MATCHED_STANDARD assembly whose parts are not all MATCHED_STANDARD
+        await this.matching.enforceStandardIntegrity(tx as any, d.id, uid)
+
         // Determine final status
         const hasAssembly = (asmList?.assemblies.length ?? 0) > 0
         const hasPart = (partList?.parts.length ?? 0) > 0
@@ -166,6 +204,11 @@ export class BomUploadService {
           },
         })
       }, { timeout: 30000 })
+
+      // Trigger product derivation asynchronously — failure must not roll back the upload
+      this.derivation.deriveForDispatch(dispatch.id, uid).catch(err =>
+        this.logger.error(`Product derivation failed for dispatch ${dispatch.id}: ${err?.message}`, err?.stack),
+      )
 
       return this.findOne(dispatch.id)
     } catch (err) {
@@ -245,21 +288,32 @@ export class BomUploadService {
         assemblies: {
           orderBy: { assembly_mark: 'asc' },
           select: {
+            id: true,
             assembly_mark: true,
             name: true,
             qty: true,
             weight_kg: true,
+            surface_area_m2: true,
+            length_mm: true,
+            width_mm: true,
+            height_mm: true,
+            match_status: true,
+            product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
             assembly_parts: {
               orderBy: { sequence: 'asc' },
               select: {
                 qty: true,
                 part: {
                   select: {
+                    id: true,
                     part_mark: true,
                     description: true,
                     profile: true,
                     grade: true,
+                    length_mm: true,
                     weight_kg: true,
+                    match_status: true,
+                    product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
                   },
                 },
               },
@@ -276,7 +330,7 @@ export class BomUploadService {
     const orphans = await this.prisma.bom_part.findMany({
       where: { dispatch_id: id, assembly_parts: { none: {} } },
       orderBy: { part_mark: 'asc' },
-      select: { part_mark: true, description: true, profile: true, grade: true, qty: true, weight_kg: true },
+      select: { id: true, part_mark: true, description: true, profile: true, grade: true, length_mm: true, qty: true, weight_kg: true, match_status: true },
     })
 
     return {
@@ -290,27 +344,109 @@ export class BomUploadService {
         uploader: r.create_user,
       })),
       assemblies: d.assemblies.map(a => ({
+        id: a.id,
         assembly_mark: a.assembly_mark,
         name: a.name ?? null,
         assembly_qty: Number(a.qty ?? 1),
         total_weight_kg: a.weight_kg ? Number(a.weight_kg) : null,
+        surface_area_m2: a.surface_area_m2 ? Number(a.surface_area_m2) : null,
+        length_mm: a.length_mm ? Number(a.length_mm) : null,
+        width_mm: a.width_mm ? Number(a.width_mm) : null,
+        height_mm: a.height_mm ? Number(a.height_mm) : null,
+        match_status: a.match_status ?? null,
+        product: a.product ?? null,
         parts: a.assembly_parts.map(ap => ({
+          id: ap.part.id,
           part_mark: ap.part.part_mark,
           description: ap.part.description ?? null,
           profile: ap.part.profile ?? null,
           grade: ap.part.grade ?? null,
+          length_mm: ap.part.length_mm ? Number(ap.part.length_mm) : null,
           part_qty: Number(ap.qty),
           unit_weight_kg: ap.part.weight_kg ? Number(ap.part.weight_kg) : null,
+          match_status: ap.part.match_status ?? null,
+          product: ap.part.product ?? null,
         })),
       })),
       orphan_parts: orphans.map(p => ({
+        id: p.id,
         part_mark: p.part_mark,
         description: p.description ?? null,
         profile: p.profile ?? null,
         grade: p.grade ?? null,
+        length_mm: p.length_mm ? Number(p.length_mm) : null,
         part_qty: Number(p.qty),
         unit_weight_kg: p.weight_kg ? Number(p.weight_kg) : null,
+        match_status: p.match_status ?? null,
       })),
+    }
+  }
+
+  // ─── Mapping (Sprint 8 T-BE-1.8) ─────────────────────────────
+
+  async getMapping(id: number): Promise<DispatchMappingDto> {
+    const exists = await this.prisma.bom_dispatch.findUnique({ where: { id }, select: { id: true } })
+    if (!exists) throw new NotFoundException(`Dispatch ${id} not found`)
+
+    const [assemblies, parts] = await Promise.all([
+      this.prisma.bom_assembly.findMany({
+        where: { dispatch_id: id },
+        orderBy: { assembly_mark: 'asc' },
+        select: {
+          id: true,
+          assembly_mark: true,
+          product_id: true,
+          match_status: true,
+          product: { select: { product_code: true, name: true } },
+        },
+      }),
+      this.prisma.bom_part.findMany({
+        where: { dispatch_id: id },
+        orderBy: { part_mark: 'asc' },
+        select: {
+          id: true,
+          part_mark: true,
+          product_id: true,
+          match_status: true,
+          product: { select: { product_code: true, name: true } },
+        },
+      }),
+    ])
+
+    const countByStatus = (rows: Array<{ match_status: string | null }>, status: string) =>
+      rows.filter(r => r.match_status === status).length
+    const unmatched = (rows: Array<{ match_status: string | null }>) =>
+      rows.filter(r => r.match_status === null).length
+
+    const allRows = [...assemblies, ...parts]
+    const summary = {
+      total_assemblies: assemblies.length,
+      total_parts: parts.length,
+      MATCHED_STANDARD: countByStatus(allRows, 'MATCHED_STANDARD'),
+      MATCHED_CUSTOM: countByStatus(allRows, 'MATCHED_CUSTOM'),
+      AUTO_CREATED: countByStatus(allRows, 'AUTO_CREATED'),
+      UNMATCHED: unmatched(allRows),
+    }
+
+    return {
+      dispatch_id: id,
+      assemblies: assemblies.map(a => ({
+        id: a.id,
+        assembly_mark: a.assembly_mark,
+        product_id: a.product_id,
+        match_status: a.match_status,
+        product_code: a.product?.product_code ?? null,
+        product_name: a.product?.name ?? null,
+      })),
+      parts: parts.map(p => ({
+        id: p.id,
+        part_mark: p.part_mark,
+        product_id: p.product_id,
+        match_status: p.match_status,
+        product_code: p.product?.product_code ?? null,
+        product_name: p.product?.name ?? null,
+      })),
+      summary,
     }
   }
 
@@ -367,6 +503,29 @@ export class BomUploadService {
       part_count: d.part_total,
       total_weight_kg: null, // computed on demand in detail view if needed
     }
+  }
+
+  async saveAssemblyMatch(
+    dispatchId: number,
+    assignments: { assembly_id: number; match_status?: string | null; product_id?: number | null }[],
+    uid: number,
+  ): Promise<void> {
+    const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id: dispatchId }, select: { id: true } })
+    if (!dispatch) throw new NotFoundException(`Dispatch ${dispatchId} not found`)
+
+    await this.prisma.$transaction(
+      assignments.map(a =>
+        this.prisma.bom_assembly.update({
+          where: { id: a.assembly_id },
+          data: {
+            match_status: a.match_status ?? null,
+            product_id: a.product_id !== undefined ? (a.product_id ?? null) : undefined,
+            write_uid: uid,
+            write_date: new Date(),
+          },
+        }),
+      ),
+    )
   }
 
   private validateFiles(files: FileInput[]) {

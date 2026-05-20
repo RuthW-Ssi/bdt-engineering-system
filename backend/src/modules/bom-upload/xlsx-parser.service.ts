@@ -8,6 +8,9 @@ export interface ParsedAssembly {
   qty?: number
   weight_kg?: number
   surface_area_m2?: number
+  length_mm?: number
+  width_mm?: number
+  height_mm?: number
 }
 
 export interface ParsedPart {
@@ -58,6 +61,9 @@ const SURFACE_COLS = [
   'surface area', 'surface_area', 'sa', 'surface area (m2)', 'sa (m2)',
   'area(m2)/pcs.', 'area/1pcs.', 'area',
 ]
+const ASM_LENGTH_COLS = ['length', 'length (mm)', 'length_mm', 'len', 'len (mm)', 'len_mm']
+const ASM_WIDTH_COLS  = ['width', 'width (mm)', 'width_mm', 'w', 'wid']
+const ASM_HEIGHT_COLS = ['height', 'height (mm)', 'height_mm', 'higth', 'high', 'h', 'hgt']
 
 // Iterate aliases in priority order so more specific names win over generic ones
 // (e.g. "q'ty" beats "no." when both appear in the same header)
@@ -135,11 +141,14 @@ export class XlsxParserService {
     if (!found) throw new BadRequestException('Assembly List: cannot find assembly mark column')
 
     const { headerIdx, header } = found
-    const markCol = findCol(header, ASSEMBLY_MARK_COLS)
-    const nameCol = findCol(header, NAME_COLS)
-    const qtyCol = findCol(header, QTY_COLS)
+    const markCol   = findCol(header, ASSEMBLY_MARK_COLS)
+    const nameCol   = findCol(header, NAME_COLS)
+    const qtyCol    = findCol(header, QTY_COLS)
     const weightCol = findCol(header, WEIGHT_COLS)
-    const surfaceCol = findCol(header, SURFACE_COLS)
+    const surfaceCol  = findCol(header, SURFACE_COLS)
+    const lengthCol   = findCol(header, ASM_LENGTH_COLS)
+    const widthCol    = findCol(header, ASM_WIDTH_COLS)
+    const heightCol   = findCol(header, ASM_HEIGHT_COLS)
 
     const dataRows = filterDataRows(rows.slice(headerIdx + 1))
     if (dataRows.length === 0) throw new BadRequestException('Assembly List: sheet has no data rows')
@@ -155,6 +164,9 @@ export class XlsxParserService {
         qty: cellNum(r, qtyCol),
         weight_kg: cellNum(r, weightCol),
         surface_area_m2: cellNum(r, surfaceCol),
+        length_mm: cellNum(r, lengthCol),
+        width_mm: cellNum(r, widthCol),
+        height_mm: cellNum(r, heightCol),
       })
     }
 

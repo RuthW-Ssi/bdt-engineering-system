@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ProductDTO, ProductListResponse, CreateProductPayload } from './types'
+import type { ProductDTO, ProductListResponse, CreateProductPayload, PaintSpecPreset, WeldingSpecPreset } from './types'
 
 export const productsApi = {
   list(params?: {
@@ -32,5 +32,13 @@ export const productsApi = {
 
   getMessages(product_code: string) {
     return apiClient.get(`/products/${product_code}/messages`).then(r => r.data)
+  },
+
+  getSpec(product_code: string): Promise<{ product_code: string; name: string; default_paint_spec: PaintSpecPreset | null; default_welding_spec: WeldingSpecPreset | null }> {
+    return apiClient.get(`/products/${product_code}/spec`).then(r => r.data)
+  },
+
+  updateSpec(product_code: string, payload: { default_paint_spec?: PaintSpecPreset | null; default_welding_spec?: WeldingSpecPreset | null }) {
+    return apiClient.patch(`/products/${product_code}/spec`, payload).then(r => r.data)
   },
 }

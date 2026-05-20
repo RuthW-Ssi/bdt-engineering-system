@@ -38,11 +38,11 @@ function ContinuousCard({ label, metric, unit }: { label: string; metric: DiffMe
           {pct != null && <span style={{ fontSize: 10, color: '#9CA3AF' }}>({pct > 0 ? '+' : ''}{pct.toFixed(1)}%)</span>}
         </div>
       ) : (
-        <span style={{ fontSize: 11, color: '#D1D5DB' }}>— ไม่มีข้อมูลก่อนหน้า</span>
+        <span style={{ fontSize: 11, color: '#D1D5DB' }}>— No previous data</span>
       )}
       {prev != null && (
         <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 6, marginTop: 2, fontSize: 10, color: '#9CA3AF' }}>
-          เดิม: <span style={{ fontWeight: 600 }}>{fmt(prev, true)} {unit}</span>
+          Previous: <span style={{ fontWeight: 600 }}>{fmt(prev, true)} {unit}</span>
         </div>
       )}
     </div>
@@ -79,22 +79,22 @@ function CountCard({ label, subtitle, metric, unit, changes }: {
       {hasAnyChange ? (
         <div style={{ display: 'flex', gap: 4 }}>
           {changes.added > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#065F46', background: '#D1FAE5', borderRadius: 5, padding: '2px 7px' }}>+{changes.added} เพิ่ม</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#065F46', background: '#D1FAE5', borderRadius: 5, padding: '2px 7px' }}>+{changes.added} added</span>
           )}
           {changes.removed > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', background: '#FEE2E2', borderRadius: 5, padding: '2px 7px' }}>-{changes.removed} ลบ</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#991B1B', background: '#FEE2E2', borderRadius: 5, padding: '2px 7px' }}>-{changes.removed} removed</span>
           )}
           {changes.changed > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: '#92400E', background: '#FEF3C7', borderRadius: 5, padding: '2px 7px' }}>~{changes.changed} เปลี่ยน</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#92400E', background: '#FEF3C7', borderRadius: 5, padding: '2px 7px' }}>~{changes.changed} changed</span>
           )}
         </div>
       ) : (
-        <span style={{ fontSize: 11, color: '#9CA3AF' }}>ไม่มีการเปลี่ยนแปลง</span>
+        <span style={{ fontSize: 11, color: '#9CA3AF' }}>No changes</span>
       )}
 
       {prev != null && (
         <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 6, marginTop: 2, fontSize: 10, color: '#9CA3AF' }}>
-          เดิม: <span style={{ fontWeight: 600 }}>{fmt(prev, false)} {unit}</span>
+          Previous: <span style={{ fontWeight: 600 }}>{fmt(prev, false)} {unit}</span>
         </div>
       )}
     </div>
@@ -107,10 +107,10 @@ export function DiffAggregateCard({ aggregate }: { aggregate: DiffAggregateDto }
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <ContinuousCard label="น้ำหนักรวม" metric={aggregate.weight_kg} unit="kg" />
-        <ContinuousCard label="พื้นที่ผิว"  metric={aggregate.area_m2}   unit="m²" />
-        <CountCard label="Assembly"         metric={aggregate.assembly_count} unit="รายการ" changes={aggregate.assembly_changes} />
-        <CountCard label="Parts ทั้งหมด" metric={aggregate.part_total} unit="รายการ" changes={aggregate.part_changes} />
+        <ContinuousCard label="Total Weight" metric={aggregate.weight_kg} unit="kg" />
+        <ContinuousCard label="Surface Area"  metric={aggregate.area_m2}   unit="m²" />
+        <CountCard label="Assembly"         metric={aggregate.assembly_count} unit="items" changes={aggregate.assembly_changes} />
+        <CountCard label="Total Parts" metric={aggregate.part_total} unit="items" changes={aggregate.part_changes} />
       </div>
     </div>
   )

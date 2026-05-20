@@ -55,7 +55,7 @@ function PreviewModal({ template, onClose }: {
     const attrs: Record<string, number> = {}
     for (const [k, v] of Object.entries(inputs)) {
       const n = parseFloat(v)
-      if (isNaN(n)) { setError(`"${k}" ต้องเป็นตัวเลข`); return }
+      if (isNaN(n)) { setError(`"${k}" must be a number`); return }
       attrs[k] = n
     }
     setLoading(true)
@@ -64,7 +64,7 @@ function PreviewModal({ template, onClose }: {
       const res = await previewTemplate(template.id, attrs)
       setResult(res)
     } catch (e: any) {
-      setError(e.response?.data?.message ?? 'คำนวณไม่สำเร็จ')
+      setError(e.response?.data?.message ?? 'Calculation failed')
     } finally {
       setLoading(false)
     }
@@ -93,11 +93,11 @@ function PreviewModal({ template, onClose }: {
         <div style={{ padding: 20 }}>
           {/* Defaults */}
           <div style={{ background: '#F8F8F8', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 12, color: '#555' }}>
-            <div style={{ fontWeight: 600, marginBottom: 8, color: '#3A3A3A' }}>ค่าตั้งต้น (Template)</div>
+            <div style={{ fontWeight: 600, marginBottom: 8, color: '#3A3A3A' }}>Defaults (Template)</div>
             <div className="flex gap-4">
               <div><span style={{ color: '#8E8E8E' }}>Rate:</span> <span className="font-mono">{template.per_minute} min/{template.unit}</span></div>
               <div><span style={{ color: '#8E8E8E' }}>Std Measure:</span> <span className="font-mono">{template.std_measure} {template.unit}</span></div>
-              <div><span style={{ color: '#8E8E8E' }}>Manpower:</span> <span className="font-mono">{template.manpower} คน</span></div>
+              <div><span style={{ color: '#8E8E8E' }}>Manpower:</span> <span className="font-mono">{template.manpower} ppl</span></div>
             </div>
             {fp?.formula_expression && (
               <div className="mt-2 font-mono" style={{ fontSize: 11, background: '#EFEFEF', borderRadius: 4, padding: '4px 8px', color: '#3A3A3A' }}>
@@ -109,7 +109,7 @@ function PreviewModal({ template, onClose }: {
           {/* Inputs */}
           {requiredInputs.length > 0 ? (
             <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#3A3A3A', marginBottom: 8 }}>ค่า Input สำหรับทดสอบ</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#3A3A3A', marginBottom: 8 }}>Test Input Values</div>
               <div className="flex flex-col gap-2">
                 {requiredInputs.map(key => (
                   <div key={key} className="flex items-center gap-3">
@@ -126,7 +126,7 @@ function PreviewModal({ template, onClose }: {
               </div>
             </div>
           ) : (
-            <div style={{ marginBottom: 16, fontSize: 12, color: '#8E8E8E' }}>ไม่ต้องการ input (ใช้ค่าคงที่)</div>
+            <div style={{ marginBottom: 16, fontSize: 12, color: '#8E8E8E' }}>No input required (uses constant value)</div>
           )}
 
           {/* Error */}
@@ -139,7 +139,7 @@ function PreviewModal({ template, onClose }: {
           {/* Result */}
           {result && (
             <div style={{ background: '#EAF5E9', borderRadius: 8, padding: 12, marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#2E7D32', marginBottom: 8 }}>ผลการคำนวณ</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#2E7D32', marginBottom: 8 }}>Calculation Result</div>
               <div className="flex gap-6">
                 <div>
                   <div style={{ fontSize: 10, color: '#8E8E8E' }}>Input Value</div>
@@ -151,7 +151,7 @@ function PreviewModal({ template, onClose }: {
                 </div>
               </div>
               <div className="font-mono mt-2" style={{ fontSize: 11, color: '#555' }}>
-                ceil({result.input_value.toFixed(2)} / {result.std_measure}) × {result.per_minute} × {result.manpower} คน
+                ceil({result.input_value.toFixed(2)} / {result.std_measure}) × {result.per_minute} × {result.manpower} ppl
               </div>
             </div>
           )}
@@ -164,7 +164,7 @@ function PreviewModal({ template, onClose }: {
             style={{ height: 36, background: '#185FA5', fontSize: 13, fontWeight: 600 }}
           >
             {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-            คำนวณ Cycle Time
+            Calculate Cycle Time
           </button>
         </div>
       </div>
@@ -218,7 +218,7 @@ export function ActivityTemplateMaster() {
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Activity Templates</span>
           {meta && (
             <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-              {meta.total} รายการ
+              {meta.total} items
             </span>
           )}
         </div>
@@ -232,7 +232,7 @@ export function ActivityTemplateMaster() {
           <input
             className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
             style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 240 }}
-            placeholder="ค้นหา ชื่อกิจกรรม, op_code..."
+            placeholder="Search activity name, op_code..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -254,7 +254,7 @@ export function ActivityTemplateMaster() {
           className="border border-chrome-200 rounded-md bg-white cursor-pointer focus:outline-none"
           style={{ height: 32, padding: '0 10px', fontSize: 13 }}
         >
-          <option value="">Work Center — ทั้งหมด</option>
+          <option value="">Work Center — All</option>
           {(wcs ?? []).map(wc => (
             <option key={wc.id} value={wc.id}>{wc.code} — {wc.name}</option>
           ))}
@@ -266,14 +266,14 @@ export function ActivityTemplateMaster() {
             className="text-steel-600 hover:underline"
             style={{ fontSize: 12 }}
           >
-            รีเซ็ต
+            Reset
           </button>
         )}
 
         <span className="flex-1" />
         {meta && (
           <span style={{ fontSize: 12, color: '#8E8E8E' }}>
-            แสดง {filtered.length} จาก {meta.total}
+            Showing {filtered.length} of {meta.total}
           </span>
         )}
       </div>
@@ -282,22 +282,22 @@ export function ActivityTemplateMaster() {
       <div className="bg-white flex-1">
         {/* Column headers */}
         <div style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 70px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-          {['กิจกรรม', 'Op Code', 'Work Center', 'Formula', 'Rate', 'Std Measure', 'Manpower', ''].map((h, i) => (
+          {['Activity', 'Op Code', 'Work Center', 'Formula', 'Rate', 'Std Measure', 'Manpower', ''].map((h, i) => (
             <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
           ))}
         </div>
 
         {isLoading ? (
           <div className="flex items-center justify-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13, gap: 8 }}>
-            <Loader2 size={16} className="animate-spin" /> กำลังโหลด...
+            <Loader2 size={16} className="animate-spin" /> Loading...
           </div>
         ) : error ? (
           <div className="flex items-center justify-center gap-2" style={{ padding: 48, color: '#C8202A', fontSize: 13 }}>
-            <AlertCircle size={16} /> โหลดข้อมูลไม่สำเร็จ
+            <AlertCircle size={16} /> Failed to load data
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-            ไม่พบ activity template ที่ตรงกับเงื่อนไข
+            No activity templates match the current filters
           </div>
         ) : (
           filtered.map(t => (
@@ -326,7 +326,7 @@ export function ActivityTemplateMaster() {
 
               <div className="font-mono" style={{ fontSize: 12, color: '#3A3A3A' }}>{t.std_measure} {t.unit}</div>
 
-              <div style={{ fontSize: 12, color: '#555' }}>{t.manpower} คน</div>
+              <div style={{ fontSize: 12, color: '#555' }}>{t.manpower} ppl</div>
 
               <div onClick={e => e.stopPropagation()}>
                 <HistoryDrawer type="activity" id={t.id} name={t.description} />
@@ -340,7 +340,7 @@ export function ActivityTemplateMaster() {
       {meta && meta.pages > 1 && (
         <div className="sticky flex items-center justify-between border-t border-chrome-100 px-6 bg-white" style={{ bottom: 0, height: 44, zIndex: 30 }}>
           <span style={{ fontSize: 12, color: '#8E8E8E' }}>
-            หน้า {meta.page} จาก {meta.pages} ({meta.total} รายการ)
+            Page {meta.page} of {meta.pages} ({meta.total} items)
           </span>
           <div className="flex items-center gap-1">
             <button

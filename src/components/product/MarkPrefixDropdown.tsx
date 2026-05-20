@@ -36,7 +36,7 @@ export function MarkPrefixDropdown({ value, onChange, error }: Props) {
         onChange={e => onChange(e.target.value)}
         disabled={isLoading}
       >
-        <option value="">— เลือก Mark Prefix —</option>
+        <option value="">— Select Mark Prefix —</option>
         {Object.entries(grouped).map(([cat, items]) => (
           <optgroup key={cat} label={CATEGORY_LABELS[cat] ?? cat}>
             {items.map(p => (
