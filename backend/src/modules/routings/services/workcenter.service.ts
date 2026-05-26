@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { MailMessageService } from '../../mail/mail-message.service'
+import { CreateWorkcenterDto } from '../dto/create-workcenter.dto'
 import { UpdateWorkcenterDto } from '../dto/update-workcenter.dto'
 
 @Injectable()
@@ -9,6 +10,39 @@ export class WorkcenterService {
     private readonly prisma: PrismaService,
     private readonly mail: MailMessageService,
   ) {}
+
+  async create(dto: CreateWorkcenterDto, userId: number) {
+    const existing = await this.prisma.mrp_workcenter.findUnique({ where: { code: dto.code } })
+    if (existing) throw new ConflictException(`Work center code "${dto.code}" already exists`)
+
+    const maxSeq = await this.prisma.mrp_workcenter.aggregate({ _max: { sequence: true } })
+    const sequence = dto.sequence ?? ((maxSeq._max.sequence ?? 0) + 10)
+
+    const wc = await this.prisma.mrp_workcenter.create({
+      data: {
+        code: dto.code,
+        name: dto.name,
+        sequence,
+        oee_target: dto.oee_target ?? 90,
+        availability: dto.availability ?? 100,
+        performance: dto.performance ?? 100,
+        quality: dto.quality ?? 100,
+        labor_mix: (dto.labor_mix ?? { operator: 100, skilled: 0, group_head: 0 }) as any,
+        labor_cost_per_min: dto.labor_cost_per_min ?? 0,
+        electricity_cost_per_min: dto.electricity_cost_per_min ?? 0,
+        consumable_cost_per_min: dto.consumable_cost_per_min ?? 0,
+        overhead_cost_per_min: dto.overhead_cost_per_min ?? 0,
+        create_uid: userId,
+        write_uid: userId,
+      },
+    })
+
+    await this.mail.log({
+      model: 'mrp_workcenter', res_id: wc.id, author_id: userId,
+      message_type: 'audit', subject: `Work center created: ${wc.code}`,
+    })
+    return wc
+  }
 
   async findAll() {
     return this.prisma.mrp_workcenter.findMany({

@@ -39,14 +39,20 @@ class PageErrorBoundary extends Component<
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   return (
     <div className="min-h-screen bg-chrome-50">
       <Topbar onMobileMenuToggle={() => setMobileOpen(o => !o)} />
-      <Sidebar mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <Sidebar
+        mobileOpen={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+      />
       <main
         className="transition-all duration-200"
-        style={{ paddingTop: 56, paddingLeft: 240 }}
+        style={{ paddingTop: 56, paddingLeft: sidebarCollapsed ? 60 : 240 }}
       >
         <PageErrorBoundary>
           <Outlet />

@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { WorkcenterService } from './services/workcenter.service'
+import { CreateWorkcenterDto } from './dto/create-workcenter.dto'
 import { UpdateWorkcenterDto } from './dto/update-workcenter.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -17,6 +18,12 @@ export class WorkcentersController {
   @ApiOperation({ summary: 'List all work centers' })
   findAll() {
     return this.wcService.findAll()
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new work center' })
+  create(@Body() dto: CreateWorkcenterDto, @CurrentUser() user: JwtPayload) {
+    return this.wcService.create(dto, user.sub)
   }
 
   @Get(':id')

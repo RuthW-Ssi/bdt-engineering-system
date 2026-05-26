@@ -7,6 +7,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common'
@@ -42,6 +43,9 @@ import {
   UpdateBindingRuleDto,
   ReorderBindingRulesDto,
 } from './dto/create-binding-rule.dto'
+import { CreateActivityTemplateDto, UpdateActivityTemplateDto } from './dto/create-activity-template.dto'
+import { UpsertTemplateSnapshotDto } from './dto/upsert-template-snapshot.dto'
+import { OpTypeService, CreateOpTypeDto, UpdateOpTypeDto } from './services/op-type.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
@@ -64,6 +68,7 @@ export class RoutingsController {
     private readonly simulatorService: TemplateSimulatorService,
     private readonly bulkOverrideService: BulkOverrideService,
     private readonly promotionService: RoutingPromotionService,
+    private readonly opTypeService: OpTypeService,
   ) {}
 
   // ── Routing per product ─────────────────────────────────────────
@@ -351,6 +356,74 @@ export class RoutingsController {
     return this.prismaCreateTemplate(dto, user.sub)
   }
 
+  @Get('routing-templates/operations-library')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'All operations across templates — for drag-and-reuse library' })
+  getOperationsLibrary(@Query('search') search?: string) {
+    return this.routingService.findOperationsLibrary(search)
+  }
+
+  @Put('routing-templates/:id/snapshot')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Full canvas snapshot save — atomic upsert of all ops + edges + metadata' })
+  upsertTemplateSnapshot(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpsertTemplateSnapshotDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.routingService.upsertTemplateSnapshot(id, dto, user.sub)
+  }
+
+  @Get('routing-templates/:id')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Get a single routing template with full operations' })
+  getRoutingTemplate(@Param('id', ParseIntPipe) id: number) {
+    return this.routingService.getTemplateById(id)
+  }
+
+  @Post('routing-templates/:id/operations')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Add an operation to a routing template by template id' })
+  addOperationToTemplate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddOperationDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.routingService.addOperationToTemplate(id, dto, user.sub)
+  }
+
+  @Patch('routing-templates/:id/operations/:opId')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Update an operation on a routing template' })
+  updateTemplateOperation(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('opId', ParseIntPipe) opId: number,
+    @Body() dto: UpdateOperationDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.routingService.updateTemplateOperation(id, opId, dto, user.sub)
+  }
+
+  @Post('routing-templates/:id/reorder-ops')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Atomically reorder all operations on a routing template' })
+  reorderTemplateOps(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: ReorderOperationsDto,
+  ) {
+    return this.routingService.reorderTemplateOperations(id, dto.items)
+  }
+
+  @Delete('routing-templates/:id/operations/:opId')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Delete an operation from a routing template' })
+  deleteTemplateOperation(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('opId', ParseIntPipe) opId: number,
+  ) {
+    return this.routingService.deleteTemplateOperation(id, opId)
+  }
+
   @Patch('routing-templates/:id')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Update routing template metadata' })
@@ -431,17 +504,38 @@ export class RoutingsController {
   @ApiOperation({ summary: 'List activity templates (paginated, filterable)' })
   listActivityTemplates(
     @Query('op_code') opCode?: string,
-    @Query('workcenter_id', new ParseIntPipe({ optional: true })) workcenterId?: number,
-    @Query('page', new ParseIntPipe({ optional: true })) page?: number,
-    @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    @Query('workcenter_id') workcenterId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
-    return this.actService.findAll(opCode, workcenterId, page ?? 1, limit ?? 50)
+    return this.actService.findAll(
+      opCode,
+      workcenterId ? +workcenterId : undefined,
+      page ? +page : 1,
+      limit ? +limit : 50,
+    )
+  }
+
+  @Post('activity-templates')
+  @ApiOperation({ summary: 'Create a new activity template' })
+  createActivityTemplate(@Body() dto: CreateActivityTemplateDto, @CurrentUser() user: JwtPayload) {
+    return this.actService.create(dto, user.sub)
   }
 
   @Get('activity-templates/:id')
   @ApiOperation({ summary: 'Get activity template by id' })
   getTemplate(@Param('id', ParseIntPipe) id: number) {
     return this.actService.findOne(id)
+  }
+
+  @Patch('activity-templates/:id')
+  @ApiOperation({ summary: 'Update activity template fields' })
+  updateActivityTemplate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateActivityTemplateDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.actService.update(id, dto, user.sub)
   }
 
   @Post('activity-templates/:id/preview')
@@ -618,15 +712,28 @@ export class RoutingsController {
   // ── Inline Prisma helpers for template + binding-rule CRUD ─────
 
   private prismaCreateTemplate(dto: CreateRoutingTemplateDto, uid: number) {
+    const { canvas_edges, ...rest } = dto
     return this.prisma.routing_template.create({
-      data: { ...dto, active: dto.active ?? true, create_uid: uid, write_uid: uid },
+      data: {
+        ...rest,
+        active: rest.active ?? true,
+        create_uid: uid,
+        write_uid: uid,
+        ...(canvas_edges !== undefined && { canvas_edges: canvas_edges as object[] }),
+      },
     })
   }
 
   private prismaUpdateTemplate(id: number, dto: UpdateRoutingTemplateDto, uid: number) {
+    const { canvas_edges, ...rest } = dto
     return this.prisma.routing_template.update({
       where: { id },
-      data: { ...dto, write_uid: uid, write_date: new Date() },
+      data: {
+        ...rest,
+        write_uid: uid,
+        write_date: new Date(),
+        ...(canvas_edges !== undefined && { canvas_edges: canvas_edges as object[] }),
+      },
     })
   }
 
@@ -637,6 +744,34 @@ export class RoutingsController {
       include: { routing_template: { select: { id: true, code: true, name: true } } },
     })
   }
+
+  // ── Op Types ────────────────────────────────────────────────────
+
+  @Get('op-types')
+  @ApiOperation({ summary: 'List operation types (palette source)' })
+  listOpTypes(@Query('include_inactive') includeInactive?: string) {
+    return this.opTypeService.findAll(includeInactive === 'true')
+  }
+
+  @Post('op-types')
+  @ApiOperation({ summary: 'Create a new operation type' })
+  createOpType(@Body() dto: CreateOpTypeDto) {
+    return this.opTypeService.create(dto)
+  }
+
+  @Patch('op-types/:id')
+  @ApiOperation({ summary: 'Update an operation type' })
+  updateOpType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOpTypeDto) {
+    return this.opTypeService.update(id, dto)
+  }
+
+  @Delete('op-types/:id')
+  @ApiOperation({ summary: 'Deactivate an operation type' })
+  removeOpType(@Param('id', ParseIntPipe) id: number) {
+    return this.opTypeService.remove(id)
+  }
+
+  // ── Private helpers ─────────────────────────────────────────────
 
   private prismaCreateBindingRule(dto: CreateBindingRuleDto, uid: number) {
     return this.prisma.routing_template_binding_rule.create({

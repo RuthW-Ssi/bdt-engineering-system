@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { FormulaService } from './formula.service'
+import { CreateActivityTemplateDto, UpdateActivityTemplateDto } from '../dto/create-activity-template.dto'
 
 @Injectable()
 export class ActivityTemplatesService {
@@ -72,6 +73,46 @@ export class ActivityTemplatesService {
       manpower: Number(tpl.manpower),
       cycle_time_min: cycleTime,
     }
+  }
+
+  private readonly INCLUDE = {
+    formula_param: { select: { code: true, formula_expression: true, inputs_required: true } },
+    workcenter: { select: { id: true, code: true, name: true } },
+  }
+
+  async create(dto: CreateActivityTemplateDto, userId: number) {
+    const maxSeq = await this.prisma.routing_activity_template.aggregate({
+      where: { op_code: dto.op_code },
+      _max: { sequence: true },
+    })
+    return this.prisma.routing_activity_template.create({
+      data: {
+        op_code: dto.op_code,
+        description: dto.description,
+        workcenter_id: dto.workcenter_id,
+        formula_param_code: dto.formula_param_code,
+        per_minute: dto.per_minute,
+        std_measure: dto.std_measure,
+        unit: dto.unit,
+        manpower: dto.manpower ?? 1,
+        sequence: dto.sequence ?? ((maxSeq._max.sequence ?? 0) + 10),
+        equipment_ref: dto.equipment_ref ?? null,
+        consumable_note: dto.consumable_note ?? null,
+        source: 'manual',
+        create_uid: userId,
+        write_uid: userId,
+      },
+      include: this.INCLUDE,
+    })
+  }
+
+  async update(id: number, dto: UpdateActivityTemplateDto, userId: number) {
+    await this.findOne(id)
+    return this.prisma.routing_activity_template.update({
+      where: { id },
+      data: { ...dto, write_uid: userId, write_date: new Date() },
+      include: this.INCLUDE,
+    })
   }
 
   async findAllParams() {

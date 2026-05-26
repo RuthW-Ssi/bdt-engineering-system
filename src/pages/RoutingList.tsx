@@ -1,19 +1,20 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Clock, Layers, AlertCircle } from 'lucide-react'
+import { Search, Layers, AlertCircle, Plus } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
-import type { RoutingOpDTO } from '../api/routings'
 
 // ── Types ──────────────────────────────────────────────────────
 
-interface ProductRoutingSummary {
-  product_code: string
-  product_name: string
+interface RoutingTemplateSummary {
+  id: number
+  code: string
+  name: string
   state: string
-  op_count: number
-  total_time_min: number
-  last_computed_at: string | null
+  applies_to_product_type: string | null
+  operation_count: number
+  bound_product_count: number
+  write_date: string
 }
 
 // ── State pill ─────────────────────────────────────────────────
@@ -33,50 +34,11 @@ function StatePill({ state }: { state: string }) {
   )
 }
 
-function fmtTime(min: number) {
-  const h = Math.floor(min / 60)
-  const m = Math.round(min % 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
+// ── Fetch routing templates ────────────────────────────────────
 
-// ── Fetch all products that have routing ops ───────────────────
-
-async function fetchRoutingSummaries(): Promise<ProductRoutingSummary[]> {
-  // Paginate through all custom products (API max limit=100)
-  let allProducts: Array<{ product_code: string; name: string }> = []
-  let page = 1
-  while (true) {
-    const { data } = await apiClient.get('/products', {
-      params: { product_type: 'custom', limit: 100, page },
-    })
-    const items = (data.items ?? data) as Array<{ product_code: string; name: string }>
-    allProducts = allProducts.concat(items)
-    const meta = data.meta
-    if (!meta || page >= meta.pages) break
-    page++
-  }
-
-  const results: ProductRoutingSummary[] = []
-  await Promise.all(
-    allProducts.map(async (p) => {
-      try {
-        const { data: ops } = await apiClient.get<RoutingOpDTO[]>(`/products/${p.product_code}/routing`)
-        if (!Array.isArray(ops) || ops.length === 0) return
-        results.push({
-          product_code: p.product_code,
-          product_name: p.name,
-          state: ops[0]?.state ?? 'draft',
-          op_count: ops.length,
-          total_time_min: ops.reduce((s, o) => s + Number(o.time_cycle), 0),
-          last_computed_at: ops[0]?.last_computed_at ?? null,
-        })
-      } catch {
-        // product has no routing — skip silently
-      }
-    }),
-  )
-  results.sort((a, b) => a.product_code.localeCompare(b.product_code))
-  return results
+async function fetchRoutingTemplates(): Promise<RoutingTemplateSummary[]> {
+  const { data } = await apiClient.get<RoutingTemplateSummary[]>('/routing-templates')
+  return Array.isArray(data) ? data : []
 }
 
 // ── Component ──────────────────────────────────────────────────
@@ -87,8 +49,8 @@ export function RoutingList() {
   const [filterState, setFilterState] = useState<string>('all')
 
   const { data = [], isLoading, error } = useQuery({
-    queryKey: ['routing-summaries'],
-    queryFn: fetchRoutingSummaries,
+    queryKey: ['routing-templates'],
+    queryFn: fetchRoutingTemplates,
     staleTime: 2 * 60 * 1000,
   })
 
@@ -96,8 +58,8 @@ export function RoutingList() {
     const matchState = filterState === 'all' || r.state === filterState
     const q = search.toLowerCase()
     const matchSearch = !q ||
-      r.product_code.toLowerCase().includes(q) ||
-      r.product_name.toLowerCase().includes(q)
+      r.code.toLowerCase().includes(q) ||
+      r.name.toLowerCase().includes(q)
     return matchState && matchSearch
   })
 
@@ -106,12 +68,19 @@ export function RoutingList() {
       {/* Header */}
       <div className="bg-white flex items-center justify-between sticky top-14 z-40 border-b border-chrome-100 px-6" style={{ height: 56 }}>
         <div className="flex items-center gap-3">
-          <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Routings</span>
+          <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Routing Templates</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {data.length} items
+            {data.length} templates
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/routings/new')}
+            className="rounded-md flex items-center gap-1.5"
+            style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer' }}
+          >
+            <Plus size={13} /> New Template
+          </button>
           <button
             onClick={() => navigate('/admin/workcenters')}
             className="rounded-md border border-chrome-200 bg-white hover:bg-chrome-50 text-chrome-700"
@@ -120,11 +89,11 @@ export function RoutingList() {
             Work Centers
           </button>
           <button
-            onClick={() => navigate('/admin/activity-templates')}
+            onClick={() => navigate('/admin/binding-rules')}
             className="rounded-md border border-chrome-200 bg-white hover:bg-chrome-50 text-chrome-700"
             style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 500 }}
           >
-            Activity Templates
+            Binding Rules
           </button>
         </div>
       </div>
@@ -136,7 +105,7 @@ export function RoutingList() {
           <input
             className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
             style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 280 }}
-            placeholder="Search product code or name..."
+            placeholder="Search template code or name..."
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
@@ -164,8 +133,8 @@ export function RoutingList() {
 
       {/* Table */}
       <div className="bg-white flex-1">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 130px 140px 140px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-          {['Product', 'Ops', 'Total Time', 'Status', 'Computed'].map((h, i) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 70px 80px 110px 120px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
+          {['Template', 'Type', 'Ops', 'Bound', 'State', 'Updated'].map((h, i) => (
             <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
           ))}
         </div>
@@ -178,40 +147,40 @@ export function RoutingList() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-            {data.length === 0 ? 'No routings in the system' : 'No routings match the current filters'}
+            {data.length === 0 ? 'No routing templates in the system' : 'No templates match the current filters'}
           </div>
         ) : (
           filtered.map(r => (
             <div
-              key={r.product_code}
-              onClick={() => navigate(`/routings/${r.product_code}`)}
-              className="cursor-pointer hover:bg-chrome-50 transition-colors"
-              style={{ display: 'grid', gridTemplateColumns: '1fr 80px 130px 140px 140px', alignItems: 'center', padding: '0 20px', height: 52, borderBottom: '1px solid #E0E0E0' }}
+              key={r.id}
+              className="hover:bg-chrome-50 transition-colors cursor-pointer"
+              onClick={() => navigate(`/routings/${r.id}/edit`)}
+              style={{ display: 'grid', gridTemplateColumns: '1fr 110px 70px 80px 110px 120px', alignItems: 'center', padding: '0 20px', height: 52, borderBottom: '1px solid #E0E0E0' }}
             >
               <div>
-                <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.product_code}</div>
-                <div className="truncate" style={{ fontSize: 12, color: '#555', maxWidth: 280 }}>{r.product_name}</div>
+                <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.code}</div>
+                <div className="truncate" style={{ fontSize: 12, color: '#555', maxWidth: 300 }}>{r.name}</div>
+              </div>
+
+              <div style={{ fontSize: 12, color: '#555' }}>
+                {r.applies_to_product_type ?? <span style={{ color: '#BDBDBD' }}>All types</span>}
               </div>
 
               <div className="flex items-center gap-1" style={{ fontSize: 13, color: '#555' }}>
                 <Layers size={13} style={{ color: '#8E8E8E' }} />
-                {r.op_count}
+                {r.operation_count}
               </div>
 
-              <div>
-                <div className="flex items-center gap-1 font-mono" style={{ fontSize: 13, fontWeight: 500, color: '#3A3A3A' }}>
-                  <Clock size={12} style={{ color: '#8E8E8E' }} />
-                  {r.total_time_min > 0 ? fmtTime(r.total_time_min) : '—'}
-                </div>
-                {r.total_time_min > 0 && (
-                  <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(r.total_time_min)} min</div>
-                )}
+              <div style={{ fontSize: 13, color: '#555' }}>
+                {r.bound_product_count > 0
+                  ? <span style={{ fontWeight: 600, color: '#1F1F1F' }}>{r.bound_product_count}</span>
+                  : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
 
               <div><StatePill state={r.state} /></div>
 
               <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-                {r.last_computed_at ? new Date(r.last_computed_at).toLocaleDateString('en-GB') : '—'}
+                {new Date(r.write_date).toLocaleDateString('en-GB')}
               </div>
             </div>
           ))
@@ -219,7 +188,7 @@ export function RoutingList() {
       </div>
 
       <div className="sticky flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ bottom: 0, height: 32, fontSize: 12, color: '#8E8E8E', zIndex: 30 }}>
-        Showing {filtered.length} routings
+        Showing {filtered.length} templates
       </div>
     </div>
   )

@@ -68,3 +68,12 @@ html, body {
 .scroll-thin::-webkit-scrollbar { width: 6px; }
 .scroll-thin::-webkit-scrollbar-thumb { background: #E0E0E0; border-radius: 999px; }
 .scroll-thin::-webkit-scrollbar-track { background: transparent; }
+
+/* Simulation active node — blinking red border */
+@keyframes blink-border {
+  0%, 100% { box-shadow: 0 0 0 1.5px #E57373; }
+  50% { box-shadow: 0 0 0 1.5px transparent; }
+}
+.sim-blink-border {
+  animation: blink-border 1s ease-in-out infinite;
+}

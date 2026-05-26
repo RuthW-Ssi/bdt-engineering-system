@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getRouting, createRouting, activateRouting, obsoleteRouting,
   recomputeCycleTime, getStdCost, recomputeStdCost,
-  getWorkcenters, getWorkcenter, updateWorkcenter,
+  getWorkcenters, getWorkcenter, updateWorkcenter, createWorkcenter,
   getActivityTemplates, previewTemplate, getFormulaParams,
+  createActivityTemplate, updateActivityTemplate,
   deleteRoutingOp, reorderRoutingOps,
 } from '../api/routings'
 
@@ -97,11 +98,17 @@ export function useStdCost(productCode: string | undefined) {
 // ── Workcenter hooks ───────────────────────────────────────────
 
 export function useWorkcenters() {
-  return useQuery({
+  const qc = useQueryClient()
+  const query = useQuery({
     queryKey: ['workcenters'],
     queryFn: getWorkcenters,
     staleTime: 10 * 60 * 1000,
   })
+  const create = useMutation({
+    mutationFn: createWorkcenter,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['workcenters'] }),
+  })
+  return { ...query, create }
 }
 
 export function useWorkcenter(id: number | undefined) {
@@ -135,11 +142,22 @@ export function useActivityTemplates(params?: {
   page?: number
   limit?: number
 }) {
-  return useQuery({
+  const qc = useQueryClient()
+  const query = useQuery({
     queryKey: ['activity-templates', params],
     queryFn: () => getActivityTemplates(params),
     staleTime: 10 * 60 * 1000,
   })
+  const create = useMutation({
+    mutationFn: createActivityTemplate,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-templates'] }),
+  })
+  const update = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: Parameters<typeof updateActivityTemplate>[1] }) =>
+      updateActivityTemplate(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-templates'] }),
+  })
+  return { ...query, create, update }
 }
 
 export function useTemplatePreview(id: number | null, attrs: Record<string, number>) {

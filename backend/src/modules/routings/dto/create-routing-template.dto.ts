@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength } from 'class-validator'
+import { IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator'
 
 export class CreateRoutingTemplateDto {
   @IsString() @MaxLength(20)
@@ -15,6 +15,18 @@ export class CreateRoutingTemplateDto {
 
   @IsBoolean() @IsOptional()
   active?: boolean
+
+  @IsString() @IsOptional() @MaxLength(500)
+  bg_image_url?: string
+
+  @IsNumber() @IsOptional()
+  bg_rotation?: number
+
+  @IsNumber() @IsOptional()
+  bg_scale?: number
+
+  @IsArray() @IsOptional()
+  canvas_edges?: unknown[]
 }
 
 export class UpdateRoutingTemplateDto {
@@ -26,4 +38,16 @@ export class UpdateRoutingTemplateDto {
 
   @IsBoolean() @IsOptional()
   active?: boolean
+
+  @IsString() @IsOptional() @MaxLength(500)
+  bg_image_url?: string
+
+  @IsNumber() @IsOptional()
+  bg_rotation?: number
+
+  @IsNumber() @IsOptional()
+  bg_scale?: number
+
+  @IsArray() @IsOptional()
+  canvas_edges?: unknown[]
 }

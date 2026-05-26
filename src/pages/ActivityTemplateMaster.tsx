@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, ArrowLeft, X, ChevronLeft, ChevronRight, Loader2, AlertCircle, Play } from 'lucide-react'
+import { Search, ArrowLeft, X, ChevronLeft, ChevronRight, Loader2, AlertCircle, Play, Plus, Edit2, Save } from 'lucide-react'
 import { useActivityTemplates, useWorkcenters, useFormulaParams } from '../hooks/useRoutings'
 import { previewTemplate } from '../api/routings'
 import type { ActivityTemplateDTO } from '../api/routings'
@@ -172,6 +172,185 @@ function PreviewModal({ template, onClose }: {
   )
 }
 
+// ── Activity Form Modal (create + edit) ───────────────────────
+
+const COMMON_UNITS = ['m', 'kg', 'pc', 'min', 'm²', 'joint', 'pass']
+const COMMON_OP_CODES = ['buildup_fit', 'buildup_welding', 'fitup', 'welding', 'painting']
+
+function ActivityFormModal({
+  existing,
+  onClose,
+}: {
+  existing?: ActivityTemplateDTO
+  onClose: () => void
+}) {
+  const { create, update } = useActivityTemplates()
+  const { data: wcs = [] } = useWorkcenters()
+  const { data: params = [] } = useFormulaParams()
+
+  const isEdit = !!existing
+
+  const [opCode, setOpCode] = useState(existing?.op_code ?? '')
+  const [description, setDescription] = useState(existing?.description ?? '')
+  const [workcenterId, setWorkcenterId] = useState<number | ''>(existing?.workcenter.id ?? '')
+  const [formulaParam, setFormulaParam] = useState(existing?.formula_param_code ?? '')
+  const [perMinute, setPerMinute] = useState(existing?.per_minute ?? 0)
+  const [stdMeasure, setStdMeasure] = useState(existing?.std_measure ?? 1)
+  const [unit, setUnit] = useState(existing?.unit ?? 'm')
+  const [manpower, setManpower] = useState(existing?.manpower ?? 1)
+  const [sequence, setSequence] = useState(existing?.sequence ?? 10)
+  const [error, setError] = useState<string | null>(null)
+
+  const isPending = create.isPending || update.isPending
+
+  const handleSave = async () => {
+    if (!opCode.trim()) { setError('Op Code is required'); return }
+    if (!description.trim()) { setError('Description is required'); return }
+    if (!workcenterId) { setError('Work Center is required'); return }
+    if (!formulaParam) { setError('Formula Param is required'); return }
+    setError(null)
+    try {
+      if (isEdit) {
+        await update.mutateAsync({
+          id: existing.id,
+          body: { op_code: opCode, description, workcenter_id: Number(workcenterId), formula_param_code: formulaParam, per_minute: Number(perMinute), std_measure: Number(stdMeasure), unit, manpower: Number(manpower), sequence: Number(sequence) },
+        })
+      } else {
+        await create.mutateAsync({ op_code: opCode, description, workcenter_id: Number(workcenterId), formula_param_code: formulaParam, per_minute: Number(perMinute), std_measure: Number(stdMeasure), unit, manpower: Number(manpower), sequence: Number(sequence) })
+      }
+      onClose()
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Save failed')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', zIndex: 100 }}>
+      <div style={{ background: 'white', borderRadius: 12, width: 520, maxHeight: '90vh', overflowY: 'auto', padding: 24 }}>
+        <div className="flex items-center justify-between" style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>{isEdit ? `Edit: ${existing.description}` : 'New Activity Template'}</div>
+          <button onClick={onClose}><X size={18} style={{ color: '#8E8E8E' }} /></button>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          {/* Op Code */}
+          <div className="flex gap-3">
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Op Code <span style={{ color: '#C8202A' }}>*</span></label>
+              <input
+                list="op-code-list"
+                className="border border-chrome-200 rounded-md font-mono focus:outline-none focus:border-steel-600"
+                style={{ width: '100%', height: 34, padding: '0 10px', fontSize: 13 }}
+                placeholder="e.g. buildup_fit"
+                value={opCode}
+                onChange={e => setOpCode(e.target.value)}
+              />
+              <datalist id="op-code-list">
+                {COMMON_OP_CODES.map(c => <option key={c} value={c} />)}
+              </datalist>
+            </div>
+            <div style={{ width: 80 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Sequence</label>
+              <input type="number" min={1} value={sequence} onChange={e => setSequence(Number(e.target.value))}
+                className="border border-chrome-200 rounded-md font-mono focus:outline-none"
+                style={{ width: '100%', height: 34, padding: '0 8px', fontSize: 13 }} />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Description <span style={{ color: '#C8202A' }}>*</span></label>
+            <input
+              className="border border-chrome-200 rounded-md focus:outline-none focus:border-steel-600"
+              style={{ width: '100%', height: 34, padding: '0 10px', fontSize: 13 }}
+              placeholder="e.g. Fit-up cut pass"
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+            />
+          </div>
+
+          {/* Work Center */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Work Center <span style={{ color: '#C8202A' }}>*</span></label>
+            <select value={workcenterId} onChange={e => setWorkcenterId(Number(e.target.value))}
+              className="border border-chrome-200 rounded-md bg-white focus:outline-none"
+              style={{ width: '100%', height: 34, padding: '0 10px', fontSize: 13 }}>
+              <option value="">Select work center…</option>
+              {wcs.map(w => <option key={w.id} value={w.id}>{w.code} — {w.name}</option>)}
+            </select>
+          </div>
+
+          {/* Formula Param */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Formula Param <span style={{ color: '#C8202A' }}>*</span></label>
+            <select value={formulaParam} onChange={e => setFormulaParam(e.target.value)}
+              className="border border-chrome-200 rounded-md bg-white focus:outline-none"
+              style={{ width: '100%', height: 34, padding: '0 10px', fontSize: 13 }}>
+              <option value="">Select formula param…</option>
+              {(params as any[]).map((p: any) => (
+                <option key={p.code} value={p.code}>{p.code} — {p.description}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Rate fields */}
+          <div style={{ background: '#F8F8F8', borderRadius: 8, padding: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#3A3A3A', marginBottom: 10 }}>Rate & Measure</div>
+            <div className="flex gap-3">
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 4 }}>Per Minute (rate)</label>
+                <input type="number" min={0} step={0.0001} value={perMinute} onChange={e => setPerMinute(Number(e.target.value))}
+                  className="border border-chrome-200 rounded-md font-mono focus:outline-none"
+                  style={{ width: '100%', height: 32, padding: '0 8px', fontSize: 12 }} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 4 }}>Std Measure</label>
+                <input type="number" min={0} step={0.01} value={stdMeasure} onChange={e => setStdMeasure(Number(e.target.value))}
+                  className="border border-chrome-200 rounded-md font-mono focus:outline-none"
+                  style={{ width: '100%', height: 32, padding: '0 8px', fontSize: 12 }} />
+              </div>
+              <div style={{ width: 90 }}>
+                <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 4 }}>Unit</label>
+                <input list="unit-list" value={unit} onChange={e => setUnit(e.target.value)}
+                  className="border border-chrome-200 rounded-md focus:outline-none"
+                  style={{ width: '100%', height: 32, padding: '0 8px', fontSize: 12 }} />
+                <datalist id="unit-list">
+                  {COMMON_UNITS.map(u => <option key={u} value={u} />)}
+                </datalist>
+              </div>
+              <div style={{ width: 80 }}>
+                <label style={{ fontSize: 11, color: '#555', display: 'block', marginBottom: 4 }}>Manpower</label>
+                <input type="number" min={1} step={0.5} value={manpower} onChange={e => setManpower(Number(e.target.value))}
+                  className="border border-chrome-200 rounded-md font-mono focus:outline-none"
+                  style={{ width: '100%', height: 32, padding: '0 8px', fontSize: 12 }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: '#8E8E8E', marginTop: 8 }}>
+              cycle_time = ⌈measure / {stdMeasure || '?'}⌉ × {perMinute || '?'} × {manpower || '?'} ppl
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2" style={{ background: '#FFF0F0', borderRadius: 6, padding: '8px 12px', marginTop: 16, fontSize: 12, color: '#C8202A' }}>
+            <AlertCircle size={13} />{error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2" style={{ marginTop: 20 }}>
+          <button onClick={onClose} className="rounded-md border border-chrome-200 hover:bg-chrome-50" style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={isPending}
+            className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}>
+            {isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+            {isEdit ? 'Save Changes' : 'Create'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────
 
 export function ActivityTemplateMaster() {
@@ -181,6 +360,8 @@ export function ActivityTemplateMaster() {
   const [wcFilter, setWcFilter] = useState<number | ''>('')
   const [page, setPage] = useState(1)
   const [selectedTemplate, setSelectedTemplate] = useState<ActivityTemplateDTO | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<ActivityTemplateDTO | null>(null)
 
   const { data: wcs } = useWorkcenters()
   const { data, isLoading, error } = useActivityTemplates({
@@ -208,6 +389,8 @@ export function ActivityTemplateMaster() {
       {selectedTemplate && (
         <PreviewModal template={selectedTemplate} onClose={() => setSelectedTemplate(null)} />
       )}
+      {creating && <ActivityFormModal onClose={() => setCreating(false)} />}
+      {editing && <ActivityFormModal existing={editing} onClose={() => setEditing(null)} />}
 
       {/* Header */}
       <div className="bg-white flex items-center justify-between sticky top-14 z-40 border-b border-chrome-100 px-6" style={{ height: 56 }}>
@@ -222,6 +405,13 @@ export function ActivityTemplateMaster() {
             </span>
           )}
         </div>
+        <button
+          onClick={() => setCreating(true)}
+          className="rounded-md flex items-center gap-1.5"
+          style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer' }}
+        >
+          <Plus size={13} /> New Activity
+        </button>
       </div>
 
       {/* Filter Bar */}
@@ -281,7 +471,7 @@ export function ActivityTemplateMaster() {
       {/* Table */}
       <div className="bg-white flex-1">
         {/* Column headers */}
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 70px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 110px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
           {['Activity', 'Op Code', 'Work Center', 'Formula', 'Rate', 'Std Measure', 'Manpower', ''].map((h, i) => (
             <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
           ))}
@@ -305,7 +495,7 @@ export function ActivityTemplateMaster() {
               key={t.id}
               onClick={() => setSelectedTemplate(t)}
               className="cursor-pointer hover:bg-chrome-50 transition-colors"
-              style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 70px', alignItems: 'center', padding: '0 20px', height: 48, borderBottom: '1px solid #F0F0F0' }}
+              style={{ display: 'grid', gridTemplateColumns: '200px 80px 1fr 90px 80px 80px 80px 110px', alignItems: 'center', padding: '0 20px', height: 48, borderBottom: '1px solid #F0F0F0' }}
             >
               <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{t.description}</div>
 
@@ -328,7 +518,14 @@ export function ActivityTemplateMaster() {
 
               <div style={{ fontSize: 12, color: '#555' }}>{t.manpower} ppl</div>
 
-              <div onClick={e => e.stopPropagation()}>
+              <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => setEditing(t)}
+                  className="flex items-center gap-1 rounded border border-chrome-200 hover:bg-chrome-50"
+                  style={{ height: 26, padding: '0 8px', fontSize: 11, color: '#555' }}
+                >
+                  <Edit2 size={11} /> Edit
+                </button>
                 <HistoryDrawer type="activity" id={t.id} name={t.description} />
               </div>
             </div>

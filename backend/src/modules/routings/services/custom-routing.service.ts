@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { MailMessageService } from '../../mail/mail-message.service'
 
@@ -38,24 +39,31 @@ export class CustomRoutingService {
 
     const templateId = fromTemplateId ?? product.routing_template_id ?? null
 
-    const customRouting = await this.prisma.custom_routing.create({
-      data: {
-        product_id: product.id,
-        name: `Custom routing — ${productCode}`,
-        state: 'draft',
-        cloned_from_template_id: templateId,
-        create_uid: userId,
-        write_uid: userId,
-      },
-    })
+    const customRouting = await this.prisma.$transaction(async (tx) => {
+      const cr = await tx.custom_routing.create({
+        data: {
+          product_id: product.id,
+          name: `Custom routing — ${productCode}`,
+          state: 'draft',
+          cloned_from_template_id: templateId,
+          create_uid: userId,
+          write_uid: userId,
+        },
+      })
 
-    if (templateId) {
-      await this.cloneTemplateOps(customRouting.id, templateId)
-    }
+      if (templateId) {
+        await this.cloneTemplateOps(cr.id, templateId, tx)
+      }
 
-    await this.prisma.products.update({
-      where: { id: product.id },
-      data: { has_custom_routing: true, routing_template_id: null },
+      await tx.products.update({
+        where: { id: product.id },
+        data: { has_custom_routing: true, routing_template_id: null },
+      })
+
+      return tx.custom_routing.findUniqueOrThrow({
+        where: { id: cr.id },
+        include: { ops: { orderBy: { sequence: 'asc' }, include: CUSTOM_OP_INCLUDE } },
+      })
     })
 
     await this.mail.log({
@@ -63,10 +71,7 @@ export class CustomRoutingService {
       message_type: 'audit', subject: `Custom routing created${templateId ? ` (cloned from template ${templateId})` : ''}`,
     })
 
-    return this.prisma.custom_routing.findUniqueOrThrow({
-      where: { id: customRouting.id },
-      include: { ops: { orderBy: { sequence: 'asc' }, include: CUSTOM_OP_INCLUDE } },
-    })
+    return customRouting
   }
 
   async addOp(productCode: string, dto: { sequence?: number; name: string; op_code: string; workcenter_id: number }, userId: number) {
@@ -85,6 +90,7 @@ export class CustomRoutingService {
         name: dto.name,
         op_code: dto.op_code,
         workcenter_id: dto.workcenter_id,
+        blocked_by_op_ids: [],
       },
       include: CUSTOM_OP_INCLUDE,
     })
@@ -220,27 +226,28 @@ export class CustomRoutingService {
     })
   }
 
-  private async cloneTemplateOps(customRoutingId: number, templateId: number) {
-    const ops = await this.prisma.mrp_routing_workcenter.findMany({
+  private async cloneTemplateOps(customRoutingId: number, templateId: number, tx: Prisma.TransactionClient) {
+    const ops = await tx.mrp_routing_workcenter.findMany({
       where: { template_id: templateId },
       orderBy: { sequence: 'asc' },
       include: { op_activities: { include: { activity_template: true } } },
     })
 
     for (const op of ops) {
-      const customOp = await this.prisma.custom_routing_op.create({
+      const customOp = await tx.custom_routing_op.create({
         data: {
           custom_routing_id: customRoutingId,
           sequence: op.sequence,
           name: op.name,
           op_code: op.op_code,
           workcenter_id: op.workcenter_id,
+          blocked_by_op_ids: [],
         },
       })
 
       for (const opAct of op.op_activities) {
         const tpl = opAct.activity_template
-        await this.prisma.custom_routing_activity.create({
+        await tx.custom_routing_activity.create({
           data: {
             op_id: customOp.id,
             sequence: opAct.sequence,

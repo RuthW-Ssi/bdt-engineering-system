@@ -181,6 +181,9 @@ export const getWorkcenter = (id: number): Promise<WorkcenterDTO> =>
 export const updateWorkcenter = (id: number, body: Partial<WorkcenterDTO>): Promise<WorkcenterDTO> =>
   apiClient.patch(`/workcenters/${id}`, body).then(r => r.data)
 
+export const createWorkcenter = (body: { code: string; name: string } & Partial<WorkcenterDTO>): Promise<WorkcenterDTO> =>
+  apiClient.post('/workcenters', body).then(r => r.data)
+
 // ── Activity Templates API ─────────────────────────────────────
 
 export const getActivityTemplates = (params?: {
@@ -205,6 +208,22 @@ export const previewTemplate = (
   manpower: number
   cycle_time_min: number
 }> => apiClient.post(`/activity-templates/${id}/preview`, { attributes }).then(r => r.data)
+
+export const createActivityTemplate = (body: {
+  op_code: string; description: string; workcenter_id: number
+  formula_param_code: string; per_minute: number; std_measure: number
+  unit: string; manpower?: number; sequence?: number
+  equipment_ref?: string; consumable_note?: string
+}): Promise<ActivityTemplateDTO> =>
+  apiClient.post('/activity-templates', body).then(r => r.data)
+
+export const updateActivityTemplate = (id: number, body: Partial<{
+  op_code: string; description: string; workcenter_id: number
+  formula_param_code: string; per_minute: number; std_measure: number
+  unit: string; manpower: number; sequence: number
+  equipment_ref: string; consumable_note: string
+}>): Promise<ActivityTemplateDTO> =>
+  apiClient.patch(`/activity-templates/${id}`, body).then(r => r.data)
 
 // ── Formula Params API ─────────────────────────────────────────
 

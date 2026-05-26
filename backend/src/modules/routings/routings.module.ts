@@ -15,13 +15,19 @@ import { CustomRoutingService } from './services/custom-routing.service'
 import { TemplateSimulatorService } from './services/template-simulator.service'
 import { BulkOverrideService } from './services/bulk-override.service'
 import { RoutingPromotionService } from './services/routing-promotion.service'
+import { OpTypeService } from './services/op-type.service'
+import { OperationTemplatesController } from './operation-templates.controller'
+import { OperationTemplateService } from './services/operation-template.service'
+import { EquipmentResourcesController } from './equipment-resources.controller'
+import { EquipmentResourceService } from './services/equipment-resource.service'
 
 @Module({
   imports: [PrismaModule, MailModule],
-  controllers: [RoutingsController, WorkcentersController],
+  controllers: [RoutingsController, WorkcentersController, OperationTemplatesController, EquipmentResourcesController],
   providers: [
     RoutingService,
     WorkcenterService,
+    OpTypeService,
     ActivityTemplatesService,
     FormulaService,
     CycleTimeService,
@@ -32,6 +38,8 @@ import { RoutingPromotionService } from './services/routing-promotion.service'
     TemplateSimulatorService,
     BulkOverrideService,
     RoutingPromotionService,
+    OperationTemplateService,
+    EquipmentResourceService,
   ],
   exports: [RoutingService, FormulaService, CycleTimeService, StdCostService, OverrideService],
 })
