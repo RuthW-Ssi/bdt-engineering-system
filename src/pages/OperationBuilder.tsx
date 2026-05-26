@@ -349,15 +349,6 @@ export default function OperationBuilder() {
   const removeActivity = (localId: string) =>
     patch({ activities: form.activities.filter(a => a.localId !== localId) })
 
-  const moveActivity = (localId: string, dir: -1 | 1) => {
-    const acts = [...form.activities]
-    const idx = acts.findIndex(a => a.localId === localId)
-    const to = idx + dir
-    if (to < 0 || to >= acts.length) return
-    ;[acts[idx], acts[to]] = [acts[to], acts[idx]]
-    patch({ activities: acts })
-  }
-
   const patchActivity = (localId: string, p: Partial<FormActivity>) =>
     patch({ activities: form.activities.map(a => a.localId === localId ? { ...a, ...p } : a) })
 
@@ -496,7 +487,7 @@ export default function OperationBuilder() {
                       <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                     ))}
                   </div>
-                  {form.activities.map((act, idx) => {
+                  {form.activities.map((act, _idx) => {
                     const pm = Number(act.per_minute); const sm = Number(act.std_measure)
                     const estMin = pm > 0 && sm > 0 ? sm / pm : null
                     const isPickerOpen = (kind: 'tool' | 'consumable') => openPicker?.actId === act.localId && openPicker.kind === kind

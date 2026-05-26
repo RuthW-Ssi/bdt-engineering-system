@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GitMerge, GripVertical, ImageIcon, LayoutGrid, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GitMerge, GripVertical, ImageIcon, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { apiClient } from '../api/client'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
@@ -107,8 +107,6 @@ interface ZoneData extends Record<string, unknown> {
   color: string
 }
 
-const ZONE_COLORS = ['#1565C0', '#2E7D32', '#E65100', '#6A1B9A', '#00695C', '#B71C1C']
-const ZONE_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 
 interface LibraryOpItem {
   id: number; op_code: string; name: string
@@ -155,16 +153,6 @@ interface ExistingTemplate {
       activity_template: ActivityTemplateItem
     }>
   }>
-}
-
-// ── Activity Library metadata ──────────────────────────────────
-
-const OP_CODE_META: Record<string, { label: string; color: string }> = {
-  buildup_fit:     { label: 'Built-up Fit',    color: '#1565C0' },
-  buildup_welding: { label: 'Built-up Welding', color: '#F9A825' },
-  fitup:           { label: 'Fit-up',          color: '#2E7D32' },
-  welding:         { label: 'Welding',         color: '#E65100' },
-  painting:        { label: 'Painting',        color: '#AD1457' },
 }
 
 // ── Helpers ────────────────────────────────────────────────────
@@ -267,14 +255,12 @@ const OpTypeCtx = createContext<OpTypeItem[]>([])
 // ── Styles ─────────────────────────────────────────────────────
 
 const labelStyle: React.CSSProperties = { fontSize: 9, color: '#9E9E9E', marginBottom: 3, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }
-const inputStyle: React.CSSProperties = { width: '100%', border: '1px solid #E8E8E8', borderRadius: 5, padding: '5px 8px', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff' }
 const inspSectionHead: React.CSSProperties = { fontSize: 9, fontWeight: 800, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10, paddingBottom: 6, borderBottom: '1px solid #F0F0F0' }
 
 // ── OperationNode — compact summary card ──────────────────────
 
 function OperationNode({ id, selected }: NodeProps) {
   const { getNode } = useReactFlow()
-  const seqMap = useContext(SequenceCtx)
   const { previewMode, inputs } = useContext(PreviewCtx)
   const { simPhase, activeOpId, simPastIds } = useContext(SimCtx)
   const opTypes = useContext(OpTypeCtx)
@@ -282,7 +268,6 @@ function OperationNode({ id, selected }: NodeProps) {
   const node = getNode(id)
   if (!node) return null
   const d = node.data as OperationData
-  const seq = seqMap.get(id)
   const opDef = opTypes.find(t => t.id === d.op_type_id) ?? opTypes.find(t => t.key === d.operation_type)
   const ready = isOpReady(d)
   const estimate = previewMode ? estimateOpMin(d, inputs) : null
@@ -468,7 +453,7 @@ function EditableLabelEdge({
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={{ ...(markerEnd as object ?? {}), color: edgeColor } as typeof markerEnd} style={edgeStyle} />
+      <BaseEdge path={edgePath} markerEnd={(typeof markerEnd === 'object' && markerEnd != null ? { ...(markerEnd as object), color: edgeColor } as typeof markerEnd : markerEnd)} style={edgeStyle} />
       <EdgeLabelRenderer>
         {hasLabel && (
           <div
@@ -831,15 +816,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
   const removeAct = (localId: string) =>
     patch({ activities: form.activities.filter(a => a.localId !== localId) })
 
-  const moveAct = (localId: string, dir: -1 | 1) => {
-    const acts = [...form.activities]
-    const idx = acts.findIndex(a => a.localId === localId)
-    const to = idx + dir
-    if (to < 0 || to >= acts.length) return
-    ;[acts[idx], acts[to]] = [acts[to], acts[idx]]
-    patch({ activities: acts })
-  }
-
   const [openInspPicker, setOpenInspPicker] = useState<{ actId: string; kind: 'tool' | 'consumable' } | null>(null)
   useEffect(() => {
     if (!openInspPicker) return
@@ -1139,223 +1115,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
     </>
   )
 })
-
-// ── ActivityLibraryPanel ───────────────────────────────────────
-
-function ActivityLibraryPanel({ selectedNodeId }: { selectedNodeId: string | null }) {
-  const { getNode, setNodes } = useReactFlow()
-  const [search, setSearch] = useState('')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-
-  const { data, isLoading } = useQuery<ActivityTemplateItem[]>({
-    queryKey: ['activity-templates-library'],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/activity-templates', { params: { limit: 100 } })
-      return data.items ?? data ?? []
-    },
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const items = data ?? []
-  const q = search.trim().toLowerCase()
-  const filtered = q
-    ? items.filter(t =>
-        t.description.toLowerCase().includes(q) ||
-        t.op_code.toLowerCase().includes(q) ||
-        (t.formula_param_code ?? '').toLowerCase().includes(q)
-      )
-    : items
-
-  const groups: Record<string, ActivityTemplateItem[]> = {}
-  for (const t of filtered) {
-    if (!groups[t.op_code]) groups[t.op_code] = []
-    groups[t.op_code].push(t)
-  }
-
-  const node = selectedNodeId ? getNode(selectedNodeId) : null
-  const d = node?.data as OperationData | undefined
-  const canAdd = !!node && d?.time_mode === 'activities'
-
-  const addActivity = (tpl: ActivityTemplateItem) => {
-    if (!selectedNodeId) return
-    setNodes(nds => nds.map(n => {
-      if (n.id !== selectedNodeId) return n
-      const nd = n.data as OperationData
-      if (nd.activities.some(a => a.templateId === tpl.id)) return n
-      return {
-        ...n,
-        data: {
-          ...nd,
-          time_mode: 'activities' as TimeMode,
-          activities: [...nd.activities, {
-            localId: newLocalId(),
-            templateId: tpl.id,
-            name: tpl.description,
-            measure: tpl.formula_param_code ?? '',
-            perMinute: tpl.per_minute ? Number(tpl.per_minute) : undefined,
-            unit: tpl.unit ?? undefined,
-            stdMeasure: tpl.std_measure ? Number(tpl.std_measure) : undefined,
-            machineId: null,
-            toolIds: [],
-            consumables: [],
-          }],
-        },
-      }
-    }))
-  }
-
-  const toggleGroup = (opCode: string) =>
-    setCollapsed(c => ({ ...c, [opCode]: !c[opCode] }))
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-
-      {/* Search bar */}
-      <div style={{ padding: '8px 8px 6px', flexShrink: 0 }}>
-        <div style={{ position: 'relative' }}>
-          <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search…"
-            style={{ width: '100%', border: '1px solid #E8E8E8', borderRadius: 5, padding: '5px 8px 5px 26px', fontSize: 11, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff' }}
-          />
-        </div>
-      </div>
-
-      {/* Context hint */}
-      <div style={{ padding: '0 8px 6px', fontSize: 9, color: canAdd ? '#2E7D32' : selectedNodeId ? '#E65100' : '#BDBDBD', fontWeight: 600, flexShrink: 0 }}>
-        {canAdd
-          ? '● Click activity to add to operation'
-          : selectedNodeId
-            ? '● Switch op to "Activities" mode first'
-            : '● Select an operation node first'}
-      </div>
-
-      {/* Total count */}
-      {!isLoading && (
-        <div style={{ padding: '0 8px 4px', fontSize: 9, color: '#9E9E9E', flexShrink: 0 }}>
-          {filtered.length} activit{filtered.length !== 1 ? 'ies' : 'y'} · {Object.keys(groups).length} op group{Object.keys(groups).length !== 1 ? 's' : ''}
-        </div>
-      )}
-
-      {/* Groups */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px 8px' }}>
-        {isLoading ? (
-          <div style={{ padding: 20, fontSize: 11, color: '#9E9E9E', textAlign: 'center' }}>Loading…</div>
-        ) : Object.keys(groups).length === 0 ? (
-          <div style={{ padding: 20, fontSize: 11, color: '#9E9E9E', textAlign: 'center' }}>No activities found</div>
-        ) : (
-          Object.entries(groups).map(([opCode, acts]) => {
-            const meta = OP_CODE_META[opCode] ?? { label: opCode.replace(/_/g, ' '), color: '#555' }
-            const isOpen = !collapsed[opCode]
-            return (
-              <div key={opCode} style={{ marginBottom: 8 }}>
-
-                {/* Group header */}
-                <button
-                  onClick={() => toggleGroup(opCode)}
-                  style={{
-                    width: '100%', display: 'flex', alignItems: 'center', gap: 6,
-                    background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
-                    padding: '4px 2px', marginBottom: isOpen ? 4 : 0,
-                  }}
-                >
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color, flexShrink: 0 }} />
-                  <span style={{
-                    fontSize: 9, fontWeight: 800, color: meta.color, textTransform: 'uppercase',
-                    letterSpacing: '0.09em', flex: 1, textAlign: 'left',
-                  }}>
-                    {meta.label}
-                  </span>
-                  <span style={{
-                    fontSize: 9, background: `${meta.color}18`, color: meta.color,
-                    borderRadius: 999, padding: '0 5px', fontWeight: 700,
-                  }}>
-                    {acts.length}
-                  </span>
-                  <ChevronDown size={10} style={{
-                    color: '#BDBDBD', flexShrink: 0,
-                    transform: isOpen ? 'none' : 'rotate(-90deg)',
-                    transition: 'transform 0.15s',
-                  }} />
-                </button>
-
-                {/* Activity cards */}
-                {isOpen && acts.map(act => {
-                  const alreadyAdded = d?.activities.some(a => a.templateId === act.id)
-                  return (
-                    <div
-                      key={act.id}
-                      onClick={() => !alreadyAdded && addActivity(act)}
-                      style={{
-                        background: alreadyAdded ? '#FAFAFA' : '#fff',
-                        border: `1px solid ${alreadyAdded ? '#F0F0F0' : '#E8E8E8'}`,
-                        borderLeft: `3px solid ${alreadyAdded ? '#D0D0D0' : meta.color}`,
-                        borderRadius: '0 5px 5px 0',
-                        padding: '5px 7px 5px 7px',
-                        marginBottom: 3,
-                        cursor: alreadyAdded ? 'default' : canAdd ? 'pointer' : 'not-allowed',
-                        opacity: alreadyAdded ? 0.55 : 1,
-                        transition: 'box-shadow 0.1s',
-                      }}
-                      onMouseEnter={e => {
-                        if (!alreadyAdded && canAdd)
-                          (e.currentTarget as HTMLElement).style.boxShadow = '0 1px 6px rgba(0,0,0,0.10)'
-                      }}
-                      onMouseLeave={e => {
-                        (e.currentTarget as HTMLElement).style.boxShadow = 'none'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{
-                            fontSize: 11, fontWeight: 600, color: alreadyAdded ? '#9E9E9E' : '#1F1F1F',
-                            lineHeight: 1.3, wordBreak: 'break-word',
-                          }}>
-                            {act.description}
-                          </div>
-                          <div style={{ display: 'flex', gap: 4, marginTop: 3, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {act.formula_param_code && (
-                              <span style={{
-                                fontSize: 9, background: '#F0F4FF', color: '#185FA5',
-                                borderRadius: 3, padding: '1px 4px', fontFamily: 'monospace',
-                              }}>
-                                {act.formula_param_code}
-                              </span>
-                            )}
-                            {act.per_minute != null && (
-                              <span style={{ fontSize: 9, color: '#8E8E8E', fontFamily: 'monospace' }}>
-                                {act.per_minute}/{act.unit ?? 'unit'}
-                              </span>
-                            )}
-                            {act.std_measure && (
-                              <span style={{ fontSize: 9, color: '#BDBDBD' }}>
-                                std {act.std_measure}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div style={{ flexShrink: 0, marginTop: 1 }}>
-                          {alreadyAdded
-                            ? <span style={{ fontSize: 9, color: '#9E9E9E' }}>✓</span>
-                            : canAdd
-                              ? <Plus size={10} style={{ color: meta.color }} />
-                              : null
-                          }
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })
-        )}
-      </div>
-    </div>
-  )
-}
 
 // ── NewOpModal — create-operation drawer ──────────────────────
 
@@ -1938,21 +1697,6 @@ function ExpandAllControl() {
   )
 }
 
-// ── LeftPanelControl — custom Controls button ─────────────────
-
-function LeftPanelControl() {
-  const { leftPanelOpen, toggleLeftPanel } = useContext(ExpandCtx)
-  return (
-    <ControlButton
-      onClick={toggleLeftPanel}
-      title={leftPanelOpen ? 'ซ่อน Operation List' : 'แสดง Operation List'}
-      style={{ color: leftPanelOpen ? '#555' : '#C8202A' }}
-    >
-      {leftPanelOpen ? <ChevronLeft size={12} /> : <ChevronRight size={12} />}
-    </ControlButton>
-  )
-}
-
 // ── MiniMapControl — custom Controls button ────────────────────
 
 function MiniMapControl() {
@@ -2123,7 +1867,7 @@ function RoutingBuilderInner() {
       const canvas = document.createElement('canvas')
       canvas.width = vp.width
       canvas.height = vp.height
-      await page.render({ canvasContext: canvas.getContext('2d')!, viewport: vp }).promise
+      await page.render({ canvas, viewport: vp }).promise
       applyBg(canvas.toDataURL('image/jpeg', 0.85))
     } else {
       const reader = new FileReader()
@@ -2436,7 +2180,7 @@ function RoutingBuilderInner() {
     const opData = JSON.parse(raw) as Omit<OperationData, 'existing_op_id'>
     const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY })
     const nid = `op-${Date.now()}`
-    const nodeData: OperationData = { ...opData, existing_op_id: undefined }
+    const nodeData = { ...opData, existing_op_id: undefined } as OperationData
     dropDataRef.current[nid] = nodeData
     setNodes(nds => [...nds, { id: nid, type: 'operation', position: pos, data: nodeData }])
     setSelectedNodeId(nid)
@@ -2839,7 +2583,6 @@ function RoutingBuilderInner() {
                       const fillMin = Math.min(op.estMin, Math.max(0, simElapsed - opStart))
                       const fillPct = op.estMin > 0 ? (fillMin / op.estMin) * 100 : 0
                       const isActive = op.id === activeOpId
-                      const isPast = simPastIds.has(op.id)
                       return (
                         <div key={op.id} style={{ flex: op.estMin, position: 'relative', background: `${op.color}33`, borderRight: '1px solid #E0E0E0', minWidth: 0 }}>
                           <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${fillPct}%`, background: isActive ? op.color : `${op.color}CC`, transition: 'width 0.1s linear' }} />
