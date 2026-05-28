@@ -162,12 +162,6 @@ function WorkcenterZoneTable({ rows }: { rows: ZoneWorkcenterRow[] }) {
   )
 }
 
-// ── Per-assembly accordion ──────────────────────────────────────
-
-function AssemblyBreakdown({ summary }: { assembly: ZoneSummaryDto['by_assembly'][number], summary: ZoneSummaryDto }) {
-  return null // placeholder - detail is in the zone tables above
-}
-
 // ── Main component ──────────────────────────────────────────────
 
 export function ZoneSummaryTab({ dispatchId }: { dispatchId: number }) {

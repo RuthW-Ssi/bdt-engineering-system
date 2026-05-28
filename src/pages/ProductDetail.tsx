@@ -113,10 +113,6 @@ export function ProductDetail() {
 
   const actions = ACTION_BUTTONS[product.state] ?? []
 
-  const markDisplay = product.product_type === 'custom'
-    ? [product.erection_zone?.code, product.mark_prefix, product.mark_number].filter(Boolean).join('-')
-    : null
-
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
       {/* Header */}

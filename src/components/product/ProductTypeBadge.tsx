@@ -3,6 +3,7 @@ import type { ProductType } from '../../api/types'
 const META: Record<ProductType, { label: string; bg: string; text: string }> = {
   standard: { label: 'Standard', bg: '#E6F1FB', text: '#0C447C' },
   custom:   { label: 'Custom',   bg: '#FFF3E0', text: '#B45309' },
+  library:  { label: 'Library',  bg: '#E6F5EC', text: '#166534' },
 }
 
 export function ProductTypeBadge({ type }: { type: ProductType }) {

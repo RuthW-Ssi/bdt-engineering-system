@@ -4,14 +4,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ReactFlow, Background, Controls, ControlButton, MiniMap,
-  addEdge, useNodesState, useEdgesState, useReactFlow, useEdges,
+  addEdge, useNodesState, useEdgesState, useReactFlow,
   Handle, Position, ReactFlowProvider, BackgroundVariant, NodeResizer,
   getBezierPath, BaseEdge, EdgeLabelRenderer, MarkerType,
   type NodeProps, type EdgeProps, type Connection, type Edge, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GitMerge, GripVertical, ImageIcon, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Settings, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, ImageIcon, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Settings, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { apiClient } from '../api/client'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
@@ -100,6 +100,7 @@ interface OperationData extends Record<string, unknown> {
   duration_min?: number
   formula?: string
   activities: ActivityRef[]
+  sequence?: number
 }
 
 interface ZoneData extends Record<string, unknown> {
@@ -1184,7 +1185,7 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
     return () => document.removeEventListener('mousedown', close)
   }, [openModalPicker])
 
-  const addedIds = new Set(form.activities.map(a => a.source_activity_template_id).filter(Boolean))
+  const addedIds = new Set(form.activities.map(a => a.source_activity_template_id).filter((id): id is number => id !== null))
 
   return (
     <>
@@ -1602,74 +1603,9 @@ function GatherControl() {
   )
 }
 
-// ── AutoEdgeControl — clear edges / re-layout + connect ──────────
-
 const NODE_W = 190
 const LAYOUT_GAP_X = 60
 const LAYOUT_START = { x: 60, y: 200 }
-
-function AutoEdgeControl() {
-  const { getNodes, getEdges, setNodes, setEdges, fitView } = useReactFlow()
-
-  const handleToggle = useCallback(() => {
-    // First click: clear edges only
-    if (getEdges().length > 0) {
-      setEdges([])
-      return
-    }
-
-    // Second click: re-layout nodes by sequence, then connect
-    const allNodes = getNodes()
-    const ops = allNodes
-      .filter(n => n.type === 'operation')
-      .sort((a, b) => ((a.data as OperationData).sequence ?? 0) - ((b.data as OperationData).sequence ?? 0))
-
-    if (ops.length === 0) return
-
-    const colStep = NODE_W + LAYOUT_GAP_X
-
-    const opPos = (idx: number) => ({
-      x: LAYOUT_START.x + (idx + 1) * colStep,
-      y: LAYOUT_START.y,
-    })
-
-    const lastPos = opPos(ops.length - 1)
-
-    const positioned = allNodes.map(n => {
-      if (n.type === 'start') return { ...n, position: { x: LAYOUT_START.x, y: LAYOUT_START.y } }
-      if (n.type === 'end')   return { ...n, position: { x: lastPos.x + colStep, y: LAYOUT_START.y } }
-      const idx = ops.findIndex(o => o.id === n.id)
-      return idx === -1 ? n : { ...n, position: opPos(idx) }
-    })
-
-    setNodes(positioned)
-
-    const mkEdge = (id: string, source: string, target: string, num: number): Edge => ({
-      id, source, target, type: 'labeled', label: String(num),
-      animated: true, style: { stroke: '#C8202A', strokeWidth: 2 },
-      markerEnd: { type: MarkerType.ArrowClosed, color: '#C8202A' },
-    })
-    setEdges([
-      mkEdge(`ae-start-${ops[0].id}`, 'start', ops[0].id, 1),
-      ...ops.slice(0, -1).map((op, i) => mkEdge(`ae-${op.id}-${ops[i + 1].id}`, op.id, ops[i + 1].id, i + 2)),
-      mkEdge(`ae-${ops[ops.length - 1].id}-end`, ops[ops.length - 1].id, 'end', ops.length + 1),
-    ])
-
-    setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
-  }, [getNodes, getEdges, setNodes, setEdges, fitView])
-
-  const hasEdges = useEdges().length > 0
-
-  return (
-    <ControlButton
-      onClick={handleToggle}
-      title={hasEdges ? 'ลบเส้นเชื่อมทั้งหมด' : 'จัด Layout + ต่อเส้น Auto'}
-      style={{ color: hasEdges ? '#C8202A' : '#2E7D32' }}
-    >
-      <GitMerge size={12} />
-    </ControlButton>
-  )
-}
 
 // ── RoutingBuilderInner ────────────────────────────────────────
 

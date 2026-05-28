@@ -68,7 +68,6 @@ export function ProductList() {
   }
 
   const isLibLoading = tab === 'library' ? libLoading : isLoading
-  const isLibError = tab === 'library' ? libError : isError
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>

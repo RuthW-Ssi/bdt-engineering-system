@@ -232,6 +232,7 @@ export interface CreateCustomProductPayload {
   attributes?: Record<string, unknown>
   default_paint_spec?: PaintSpecPreset
   default_welding_spec?: WeldingSpecPreset
+  library_id?: number
 }
 
 export type CreateProductPayload = CreateStandardProductPayload | CreateCustomProductPayload
