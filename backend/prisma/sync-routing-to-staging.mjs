@@ -11,8 +11,13 @@ import { createRequire } from 'module'
 const require = createRequire(import.meta.url)
 const { PrismaClient } = require('../node_modules/.pnpm/@prisma+client@6.19.3_prisma@6.19.3_typescript@5.9.3__typescript@5.9.3/node_modules/@prisma/client')
 
-const DEV_URL     = 'postgresql://postgres:BdtDev2026%21@127.0.0.1:5432/bdt_dev?schema=public'
-const STAGING_URL = 'postgresql://postgres.eebubyfkzeqhzwzqrqfz:BdtDev2026!@aws-1-ap-northeast-1.pooler.supabase.com:5432/postgres?sslmode=require'
+const DEV_URL     = process.env.DEV_DATABASE_URL     ?? 'postgresql://postgres:BdtDev2026%21@127.0.0.1:5432/bdt_dev?schema=public'
+const STAGING_URL = process.env.STAGING_DATABASE_URL
+
+if (!STAGING_URL) {
+  console.error('ERROR: Set STAGING_DATABASE_URL env var before running this script.')
+  process.exit(1)
+}
 
 const dev     = new PrismaClient({ datasources: { db: { url: DEV_URL } } })
 const staging = new PrismaClient({ datasources: { db: { url: STAGING_URL } } })
