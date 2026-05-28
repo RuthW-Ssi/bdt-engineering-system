@@ -96,7 +96,7 @@ export function BomUpload() {
         formData,
         onProgress: pct => setProgress(pct),
       })
-      navigate(`/bom/dispatch/${res.id}/paint`)
+      navigate(`/bom/dispatch/${res.id}/routing`)
     } catch {
       setSubmitError('Upload failed — verify that the backend is ready (Batch 2)')
       setProgress(null)

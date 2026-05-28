@@ -243,10 +243,6 @@ export function ProductDetail() {
                         </div>
                       </div>
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>Mark</div>
-                        <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: '#B45309' }}>{markDisplay}</div>
-                      </div>
-                      <div>
                         <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', marginBottom: 4 }}>Mark Prefix</div>
                         <div style={{ fontSize: 13, color: '#555' }}>
                           {product.mark ? `${product.mark.code} — ${product.mark.label}` : '-'}

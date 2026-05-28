@@ -7,7 +7,7 @@ export interface TrackingField {
   new_value: unknown
 }
 
-export type AuditModel = 'material' | 'product' | 'project' | 'mrp_routing' | 'mrp_workcenter' | 'routing_template'
+export type AuditModel = 'material' | 'product' | 'project' | 'mrp_routing' | 'mrp_workcenter' | 'routing_template' | 'product_library'
 
 @Injectable()
 export class MailMessageService {

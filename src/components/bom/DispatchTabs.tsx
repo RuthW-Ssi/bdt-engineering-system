@@ -1,8 +1,7 @@
-export type DispatchTab = 'compare' | 'mbom'
+export type DispatchTab = 'compare'
 
 const TABS: { id: DispatchTab; label: string }[] = [
   { id: 'compare', label: 'Compare' },
-  { id: 'mbom', label: 'mBOM Materials' },
 ]
 
 interface Props {

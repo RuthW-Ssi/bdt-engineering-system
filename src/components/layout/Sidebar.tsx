@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
-  ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen,
+  ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Wrench, Puzzle,
 } from 'lucide-react'
 
 interface NavItem {
@@ -39,7 +39,8 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
       {
         label: 'Routings', labelTh: 'ผังการผลิต', icon: <Workflow size={18} />, path: '/routings',
         children: [
-          { label: 'Routing Template', labelTh: 'เทมเพลต', icon: <Workflow size={14} />, path: '/routings' },
+          { label: 'Install', labelTh: 'ติดตั้ง Routing', icon: <Wrench size={14} />, path: '/routings/apply' },
+          { label: 'Routing Template', labelTh: 'เทมเพลต', icon: <Puzzle size={14} />, path: '/routings' },
           { label: 'Op Library', labelTh: 'คลังออเปอเรชัน', icon: <BookOpen size={14} />, path: '/admin/operation-library' },
         ],
       },

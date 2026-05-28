@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
+import { ProductCodeGenerator } from '../products/product-code.generator'
 
 type Tx = Omit<PrismaService, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
@@ -10,9 +11,16 @@ export interface MatchResult {
   match_status: MatchStatus
 }
 
+const DEFAULT_CATEG_ID = 24 // MS000 — Main Structures
+
 @Injectable()
 export class BomMatchingService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(BomMatchingService.name)
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly codeGen: ProductCodeGenerator,
+  ) {}
 
   async matchAssemblies(
     tx: Tx,
@@ -84,6 +92,111 @@ export class BomMatchingService {
     ))
   }
 
+  async autoCreateCustomProducts(
+    dispatchId: number,
+    projectId: number,
+    zoneId: number,
+    uid: number,
+  ): Promise<number> {
+    const unmatched = await this.prisma.bom_assembly.findMany({
+      where: { dispatch_id: dispatchId, match_status: null },
+      select: {
+        id: true, assembly_mark: true, name: true,
+        weight_kg: true, surface_area_m2: true,
+        length_mm: true, width_mm: true, height_mm: true,
+      },
+    })
+
+    if (!unmatched.length) return 0
+
+    // Batch-load library entries matching assembly names (case-insensitive)
+    const assemblyNames = [...new Set(unmatched.map(a => a.name?.trim()).filter(Boolean))] as string[]
+    const libraryEntries = await this.prisma.product_library.findMany({
+      where: { active: true, name: { in: assemblyNames, mode: 'insensitive' } },
+      select: { id: true, name: true },
+    })
+    const libraryByName = new Map(libraryEntries.map(e => [e.name.trim().toLowerCase(), e]))
+
+    // Fetch project_code and zone_code once for sMark construction
+    const [proj, zone] = await Promise.all([
+      this.prisma.project.findUnique({ where: { id: projectId }, select: { project_code: true } }),
+      this.prisma.project_zone.findUnique({ where: { id: zoneId }, select: { code: true } }),
+    ])
+    const projectCode = proj?.project_code ?? ''
+    const zoneCode = zone?.code ?? ''
+
+    let created = 0
+    let skipped = 0
+    for (const asm of unmatched) {
+      const nameKey = asm.name?.trim().toLowerCase() ?? ''
+      const libEntry = libraryByName.get(nameKey)
+      if (!libEntry) {
+        this.logger.warn(`autoCreate: skip ${asm.assembly_mark} — '${asm.name}' not in library`)
+        skipped++
+        continue
+      }
+
+      const { prefix, number } = parseAssemblyMark(asm.assembly_mark)
+
+      const segment = asm.assembly_mark.includes('-') ? asm.assembly_mark.split('-').pop()! : asm.assembly_mark
+      const oMark = asm.assembly_mark
+      const sMark = [projectCode, zoneCode, segment].filter(Boolean).join('-')
+
+      const attrs: Record<string, unknown> = { oMark, sMark }
+      if (asm.weight_kg)       attrs.weight_kg = Number(asm.weight_kg)
+      if (asm.surface_area_m2) attrs.area_m2   = Number(asm.surface_area_m2)
+      if (asm.length_mm)       attrs.length_mm = Number(asm.length_mm)
+      if (asm.width_mm)        attrs.width_mm  = Number(asm.width_mm)
+      if (asm.height_mm)       attrs.height_mm = Number(asm.height_mm)
+
+      await this.prisma.mark_prefix_master.upsert({
+        where: { code: prefix },
+        update: {},
+        create: { code: prefix, label: prefix, category: 'assembly', part_type_code: 'p' },
+      })
+
+      // Reuse existing product if same mark already exists in this project/zone
+      let product = await this.prisma.products.findFirst({
+        where: { product_type: 'custom', project_id: projectId, erection_zone_id: zoneId, mark_prefix: prefix, mark_number: number },
+        select: { id: true, product_code: true },
+      })
+
+      if (!product) {
+        const productCode = await this.codeGen.generate('CUS')
+        product = await this.prisma.products.create({
+          data: {
+            product_code: productCode,
+            name: libEntry.name,
+            library_id: libEntry.id,
+            categ_id: DEFAULT_CATEG_ID,
+            product_type: 'custom',
+            product_kind: 'assembly',
+            project_id: projectId,
+            erection_zone_id: zoneId,
+            mark_prefix: prefix,
+            mark_number: number,
+            attributes: attrs as import('@prisma/client').Prisma.InputJsonValue,
+            state: 'draft',
+            create_uid: uid,
+            write_uid: uid,
+          },
+          select: { id: true, product_code: true },
+        })
+      }
+
+      await this.prisma.bom_assembly.update({
+        where: { id: asm.id },
+        data: { product_id: product.id, match_status: 'AUTO_CREATED', write_uid: uid },
+      })
+
+      this.logger.log(`autoCreate: ${asm.assembly_mark} → ${product.product_code} (lib: ${libEntry.name})`)
+      created++
+    }
+
+    this.logger.log(`autoCreate: created ${created}, skipped ${skipped} for dispatch ${dispatchId}`)
+    return created
+  }
+
   async enforceStandardIntegrity(tx: Tx, dispatchId: number, uid: number): Promise<void> {
     const violated = await tx.$queryRaw<Array<{ id: number }>>`
       SELECT DISTINCT ba.id
@@ -102,4 +215,12 @@ export class BomMatchingService {
       WHERE id = ANY(${ids}::int[])
     `
   }
+}
+
+function parseAssemblyMark(mark: string): { prefix: string; number: string } {
+  // Format: optional {text}-{digits}{LETTERS}{digits}, e.g. "TH-2CO1" → prefix="CO", number="1"
+  const segment = mark.includes('-') ? mark.split('-').pop()! : mark
+  const m = segment.match(/^\d*([A-Za-z]+)(\d+.*)$/)
+  if (!m) return { prefix: mark.toUpperCase(), number: '' }
+  return { prefix: m[1].toUpperCase(), number: m[2] }
 }

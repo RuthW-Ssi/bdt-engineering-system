@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service'
 import { MailMessageService } from '../mail/mail-message.service'
 import { MasterDataService } from '../master-data/master-data.service'
+import { ProductLibraryService } from '../product-library/services/product-library.service'
 import { ProductCodeGenerator } from './product-code.generator'
 import { CreateStandardProductDto } from './dto/create-standard-product.dto'
 import { CreateCustomProductDto } from './dto/create-custom-product.dto'
@@ -26,6 +27,7 @@ export class ProductsService {
     private readonly mail: MailMessageService,
     private readonly masterData: MasterDataService,
     private readonly codeGen: ProductCodeGenerator,
+    private readonly libraryService: ProductLibraryService,
   ) {}
 
   private async guardCategory(id: number) {
@@ -45,6 +47,15 @@ export class ProductsService {
   }
 
   private async createStandard(dto: CreateStandardProductDto, userId: number) {
+    // Sprint 11: library_id required for standard products
+    if (!dto.library_id) {
+      throw new UnprocessableEntityException('library_id is required for standard products')
+    }
+    const libraryEntry = await this.libraryService.findOne(dto.library_id)
+    if (!libraryEntry.active) {
+      throw new UnprocessableEntityException('library entry is archived')
+    }
+
     validateStandardProduct({
       sale_ok: dto.sale_ok,
       purchase_ok: dto.purchase_ok,
@@ -62,7 +73,8 @@ export class ProductsService {
         product_code: productCode,
         engineering_code: dto.engineering_code,
         item_code: dto.item_code,
-        name: dto.name,
+        name: libraryEntry.name,  // sync name from library
+        library_id: dto.library_id,
         categ_id: dto.categ_id,
         product_type: 'standard',
         product_kind: dto.product_kind ?? 'part',
@@ -100,6 +112,16 @@ export class ProductsService {
   }
 
   private async createCustom(dto: CreateCustomProductDto, userId: number) {
+    // Sprint 11: library_id optional for custom — validate FK if provided
+    let customLibraryName: string | undefined
+    if (dto.library_id) {
+      const libEntry = await this.libraryService.findOne(dto.library_id)
+      if (!libEntry.active) {
+        throw new UnprocessableEntityException('library entry is archived')
+      }
+      customLibraryName = libEntry.name
+    }
+
     await validateCustomProduct(this.prisma, {
       project_id: dto.project_id,
       erection_zone_id: dto.erection_zone_id,
@@ -113,7 +135,8 @@ export class ProductsService {
     const product = await this.prisma.products.create({
       data: {
         product_code: productCode,
-        name: dto.name,
+        name: customLibraryName ?? dto.name,  // use library name if linked
+        library_id: dto.library_id ?? null,
         categ_id: dto.categ_id,
         product_type: 'custom',
         product_kind: dto.product_kind ?? 'assembly',

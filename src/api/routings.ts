@@ -354,6 +354,45 @@ export interface RoutingTemplateDTO {
 export const getRoutingTemplates = (): Promise<RoutingTemplateDTO[]> =>
   apiClient.get('/routing-templates').then(r => r.data)
 
+export interface TemplateActivityDetailDTO {
+  id: number
+  sequence: number
+  description: string
+  op_code: string
+  activity_template: {
+    id: number
+    op_code: string
+    description: string
+    formula_param_code: string
+    per_minute: string
+    std_measure: string
+    unit: string
+    machine_id: number | null
+  }
+  machine: { id: number; code: string; name: string } | null
+  tools: { resource: { id: number; code: string; name: string } }[]
+  consumables: { qty: string | null; unit: string | null; consumption_basis: string | null; resource: { id: number; code: string; name: string; rate_unit: string } }[]
+}
+
+export interface TemplateOperationDetailDTO {
+  id: number
+  name: string
+  op_code: string
+  sequence: number
+  workcenter: { id: number; code: string; name: string }
+  op_activities: TemplateActivityDetailDTO[]
+}
+
+export interface RoutingTemplateDetailDTO {
+  id: number
+  code: string
+  name: string
+  operations: TemplateOperationDetailDTO[]
+}
+
+export const getRoutingTemplate = (id: number): Promise<RoutingTemplateDetailDTO> =>
+  apiClient.get(`/routing-templates/${id}`).then(r => r.data)
+
 // ── Sprint 4.2: Binding Rules ──────────────────────────────────
 
 export interface BindingRuleDTO {
@@ -519,3 +558,42 @@ export const getActivityTemplateHistory = (actId: number, page = 1): Promise<His
 
 export const getOverrideHistory = (productCode: string, actId: number, page = 1): Promise<OverrideHistoryEntryDTO[]> =>
   apiClient.get(`/products/${productCode}/routing-overrides/${actId}/history`, { params: { page } }).then(r => r.data)
+
+// ── Zone Summary ───────────────────────────────────────────────
+
+export interface ZoneConsumableRow {
+  resource_code: string
+  resource_name: string
+  unit: string | null
+  consumption_basis: string | null
+  total_qty: number | null
+  breakdown: { assembly_mark: string; assembly_qty: number; qty_per_piece: number | null; total_qty: number | null }[]
+}
+
+export interface ZoneWorkcenterRow {
+  workcenter_code: string
+  workcenter_name: string
+  total_minutes: number
+  breakdown: { assembly_mark: string; assembly_qty: number; minutes_per_piece: number; total_minutes: number }[]
+}
+
+export interface ZoneSummaryDto {
+  dispatch_id: number
+  applied_count: number
+  total_matched: number
+  consumables: ZoneConsumableRow[]
+  workcenter_times: ZoneWorkcenterRow[]
+  by_assembly: {
+    assembly_id: number
+    assembly_mark: string
+    assembly_qty: number
+    weight_kg: number | null
+    surface_area_m2: number | null
+    template_code: string | null
+    consumables: { resource_code: string; resource_name: string; unit: string | null; qty_per_piece: number | null; total_qty: number | null }[]
+    workcenter_times: { workcenter_code: string; workcenter_name: string; minutes_per_piece: number; total_minutes: number }[]
+  }[]
+}
+
+export const getZoneSummary = (dispatchId: number): Promise<ZoneSummaryDto> =>
+  apiClient.get(`/dispatches/${dispatchId}/zone-summary`).then(r => r.data)

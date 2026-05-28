@@ -29,6 +29,8 @@ import { MbomPaintModule } from './modules/mbom-paint/mbom-paint.module'
 import { MbomWeldingModule } from './modules/mbom-welding/mbom-welding.module'
 // Sprint 10
 import { ProductDerivationModule } from './modules/product-derivation/product-derivation.module'
+// Sprint 11
+import { ProductLibraryModule } from './modules/product-library/product-library.module'
 
 @Module({
   imports: [
@@ -62,6 +64,8 @@ import { ProductDerivationModule } from './modules/product-derivation/product-de
     MbomWeldingModule,
     // Sprint 10
     ProductDerivationModule,
+    // Sprint 11
+    ProductLibraryModule,
   ],
 })
 export class AppModule {}

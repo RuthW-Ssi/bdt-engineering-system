@@ -102,4 +102,10 @@ export class CreateStandardProductDto {
   @ValidateNested()
   @Type(() => WeldingSpecPresetDto)
   default_welding_spec?: WeldingSpecPresetDto
+
+  // Sprint 11: required for standard products (enforced in service, not DTO — FK must be valid)
+  @ApiPropertyOptional({ example: 1, description: 'FK → product_library.id (required for standard products)' })
+  @IsOptional()
+  @IsInt()
+  library_id?: number
 }

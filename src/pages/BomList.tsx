@@ -7,21 +7,15 @@ import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
-import { PaintMaterialsTable } from '../components/bom/PaintMaterialsTable'
-import { WeldingMaterialsTable } from '../components/bom/WeldingMaterialsTable'
-import { useMbom } from '../hooks/usePaint'
-import { useWeldingMbom } from '../hooks/useWelding'
 import { MatchStatusBadge } from '../components/bom/MatchStatusBadge'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto, MatchStatus } from '../api/dispatches'
 
-type ContentTab = 'tree' | 'assemblies' | 'parts' | 'paint' | 'wire'
+type ContentTab = 'tree' | 'assemblies' | 'parts'
 
 const CONTENT_TABS: { id: ContentTab; label: string }[] = [
   { id: 'tree',       label: 'Tree' },
   { id: 'assemblies', label: 'Assemblies' },
   { id: 'parts',      label: 'Parts' },
-  { id: 'paint',      label: 'Paint' },
-  { id: 'wire',       label: 'Welding' },
 ]
 
 // ── Assemblies flat table ──────────────────────────────────────
@@ -457,8 +451,6 @@ export function BomList() {
   useEffect(() => { setContentTab('tree') }, [selectedId])
 
   const { data: detail, isLoading: detailLoading } = useDispatchDetail(selectedId ?? undefined)
-  const { data: mbom, isLoading: mbomLoading, isError: mbomError, refetch: refetchMbom } = useMbom(selectedId ?? undefined, contentTab === 'paint')
-  const { data: weldingMbom, isLoading: weldingLoading, isError: weldingError, refetch: refetchWelding } = useWeldingMbom(selectedId ?? undefined, contentTab === 'wire')
 
   const term = nameFilter.trim().toLowerCase()
 
@@ -693,29 +685,6 @@ export function BomList() {
                 : <PartsTable assemblies={detail?.assemblies ?? []} orphanParts={detail?.orphan_parts ?? []} />
             )}
 
-            {contentTab === 'paint' && selectedId && (
-              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-                <PaintMaterialsTable
-                  dispatchId={selectedId}
-                  data={mbom}
-                  isLoading={mbomLoading}
-                  isError={mbomError}
-                  onRetry={refetchMbom}
-                />
-              </div>
-            )}
-
-            {contentTab === 'wire' && selectedId && (
-              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
-                <WeldingMaterialsTable
-                  dispatchId={selectedId}
-                  data={weldingMbom}
-                  isLoading={weldingLoading}
-                  isError={weldingError}
-                  onRetry={refetchWelding}
-                />
-              </div>
-            )}
           </div>
 
           {/* Right sidebar — dispatch list */}

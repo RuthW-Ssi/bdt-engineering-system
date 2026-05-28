@@ -2,16 +2,12 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Package } from 'lucide-react'
 import { useDispatchDetail, useDispatchDiff } from '../hooks/useBomDispatches'
-import { useMbom } from '../hooks/usePaint'
-import { useWeldingMbom } from '../hooks/useWelding'
 import { DiffWarningBanner } from '../components/bom/DiffWarningBanner'
 import { DiffAggregateCard } from '../components/bom/DiffAggregateCard'
 import { DiffHierarchyView } from '../components/bom/DiffHierarchyView'
 import { DiffExportButtons } from '../components/bom/DiffExportButtons'
 import { DispatchTabs } from '../components/bom/DispatchTabs'
 import type { DispatchTab } from '../components/bom/DispatchTabs'
-import { PaintMaterialsTable } from '../components/bom/PaintMaterialsTable'
-import { WeldingMaterialsTable } from '../components/bom/WeldingMaterialsTable'
 import { DOC_TYPE_LABELS } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { DispatchDiffDto } from '../api/dispatches'
@@ -24,12 +20,8 @@ export function BomDispatchDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const dispatchId = id ? parseInt(id) : undefined
-  const [activeTab, setActiveTab] = useState<DispatchTab>('compare')
-
   const { data: detail, isLoading, isError } = useDispatchDetail(dispatchId)
   const { data: diff, isLoading: isDiffLoading, isError: isDiffError } = useDispatchDiff(dispatchId)
-  const { data: mbom, isLoading: isMbomLoading, isError: isMbomError, refetch: refetchMbom } = useMbom(dispatchId, activeTab === 'mbom')
-  const { data: weldingMbom, isLoading: isWeldingMbomLoading, isError: isWeldingMbomError, refetch: refetchWeldingMbom } = useWeldingMbom(dispatchId, activeTab === 'mbom')
 
   if (isLoading) {
     return (
@@ -93,60 +85,13 @@ export function BomDispatchDetail() {
         </div>
       )}
 
-      {/* Tabs */}
-      <DispatchTabs active={activeTab} onChange={setActiveTab} />
-
       {/* Content */}
-      <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: activeTab === 'mbom' ? 0 : '0 24px 24px' }}>
-        {activeTab === 'compare' && (
-          <CompareContent
-            isDiffLoading={isDiffLoading}
-            isDiffError={isDiffError}
-            diff={diff ?? null}
-          />
-        )}
-        {activeTab === 'mbom' && (() => {
-          const bothEmpty =
-            !isMbomLoading && !isWeldingMbomLoading &&
-            (!mbom || mbom.by_paint_type.length === 0) &&
-            (!weldingMbom || weldingMbom.items.length === 0)
-
-          if (bothEmpty) {
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, gap: 6 }}>
-                <Package size={32} style={{ color: '#D9D9D9' }} />
-                <div style={{ fontSize: 14, fontWeight: 600, color: '#555' }}>No mBOM for this dispatch yet</div>
-                <div style={{ fontSize: 12, color: '#8E8E8E', marginBottom: 4 }}>Configure paint and wire to compute</div>
-                <button
-                  onClick={() => navigate(`/bom/dispatch/${dispatchId}/paint`)}
-                  style={{ fontSize: 13, fontWeight: 600, padding: '7px 20px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', cursor: 'pointer' }}
-                >
-                  Configure mBOM
-                </button>
-              </div>
-            )
-          }
-
-          return (
-            <>
-              <PaintMaterialsTable
-                dispatchId={dispatchId!}
-                data={mbom}
-                isLoading={isMbomLoading}
-                isError={isMbomError}
-                onRetry={refetchMbom}
-              />
-              <div style={{ borderTop: '1px solid #E8E8E8', marginTop: 8 }} />
-              <WeldingMaterialsTable
-                dispatchId={dispatchId!}
-                data={weldingMbom}
-                isLoading={isWeldingMbomLoading}
-                isError={isWeldingMbomError}
-                onRetry={refetchWeldingMbom}
-              />
-            </>
-          )
-        })()}
+      <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '0 24px 24px' }}>
+        <CompareContent
+          isDiffLoading={isDiffLoading}
+          isDiffError={isDiffError}
+          diff={diff ?? null}
+        />
       </div>
     </div>
   )

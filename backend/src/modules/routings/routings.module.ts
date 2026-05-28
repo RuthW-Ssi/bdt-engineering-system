@@ -20,10 +20,12 @@ import { OperationTemplatesController } from './operation-templates.controller'
 import { OperationTemplateService } from './services/operation-template.service'
 import { EquipmentResourcesController } from './equipment-resources.controller'
 import { EquipmentResourceService } from './services/equipment-resource.service'
+import { ZoneSummaryController } from './zone-summary.controller'
+import { ZoneSummaryService } from './services/zone-summary.service'
 
 @Module({
   imports: [PrismaModule, MailModule],
-  controllers: [RoutingsController, WorkcentersController, OperationTemplatesController, EquipmentResourcesController],
+  controllers: [RoutingsController, WorkcentersController, OperationTemplatesController, EquipmentResourcesController, ZoneSummaryController],
   providers: [
     RoutingService,
     WorkcenterService,
@@ -40,6 +42,7 @@ import { EquipmentResourceService } from './services/equipment-resource.service'
     RoutingPromotionService,
     OperationTemplateService,
     EquipmentResourceService,
+    ZoneSummaryService,
   ],
   exports: [RoutingService, FormulaService, CycleTimeService, StdCostService, OverrideService],
 })

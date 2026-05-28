@@ -2,7 +2,9 @@ import { useState, useMemo, useEffect } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useCategories, useMaterialsByPrefix } from '../../hooks/useMasters'
 import { useCreateProduct, useProducts } from '../../hooks/useProducts'
-import type { CreateStandardProductPayload, PaintSpecPreset, WeldingSpecPreset } from '../../api/types'
+import { useCreateLibraryEntry } from '../../hooks/useLibrary'
+import { libraryApi } from '../../api/library'
+import type { CreateStandardProductPayload, PaintSpecPreset, WeldingSpecPreset, LibraryEntryDTO } from '../../api/types'
 
 const STEEL_GRADES = ['SS400', 'HY370', 'SM520B', 'S275', 'HSS500', 'S355', 'A36']
 
@@ -113,6 +115,16 @@ export function NewStandardProductModal({ onClose }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [success, setSuccess] = useState('')
 
+  // Sprint 11: library picker
+  const [libraryId, setLibraryId] = useState<number | null>(null)
+  const [libraryCode, setLibraryCode] = useState('')
+  const [libraryName, setLibraryName] = useState('')
+  const [libraryQuery, setLibraryQuery] = useState('')
+  const [libraryResults, setLibraryResults] = useState<LibraryEntryDTO[]>([])
+  const [showLibraryDropdown, setShowLibraryDropdown] = useState(false)
+  const [librarySearching, setLibrarySearching] = useState(false)
+  const { mutateAsync: createLibraryEntry } = useCreateLibraryEntry()
+
   // ── auto-fill spec when shape / assembly type changes ────────────────────
   useEffect(() => {
     const d = form.shape ? SHAPE_SPEC[form.shape] : form.assembly_type ? ASSEMBLY_SPEC[form.assembly_type] : null
@@ -197,6 +209,25 @@ export function NewStandardProductModal({ onClose }: Props) {
     if (!nameEdited && autoName) setForm(f => ({ ...f, name: autoName }))
   }, [autoName, nameEdited])
 
+  // Pre-fill library picker search query from auto-name
+  useEffect(() => {
+    if (!libraryId && autoName) setLibraryQuery(autoName)
+  }, [autoName, libraryId])
+
+  // Debounced library search
+  useEffect(() => {
+    if (!libraryQuery.trim() || libraryId) { setLibraryResults([]); return }
+    const timer = setTimeout(async () => {
+      setLibrarySearching(true)
+      try {
+        const res = await libraryApi.list({ q: libraryQuery.trim(), limit: 10 })
+        setLibraryResults(res.items)
+      } catch { setLibraryResults([]) }
+      finally { setLibrarySearching(false) }
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [libraryQuery, libraryId])
+
 
   // ── helpers ───────────────────────────────────────────────────────────────
   const setField = (k: string, v: string) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: '' })) }
@@ -222,7 +253,7 @@ export function NewStandardProductModal({ onClose }: Props) {
   const validate = () => {
     const errs: Record<string, string> = {}
     if (!form.categ_id) errs.categ_id = 'Please select a category'
-    if (!form.name.trim()) errs.name = 'Please enter a name'
+    if (!libraryId) errs.library = 'Please select a product name from the library'
     if (form.product_kind === 'part') {
       if (!form.shape) errs.shape = 'Please select a shape'
       if (form.shape && form.shape !== 'ACCESSORY' && !computedProfile) errs.shape = 'Please fill in all dimensions'
@@ -286,7 +317,7 @@ export function NewStandardProductModal({ onClose }: Props) {
     const payload: CreateStandardProductPayload = {
       product_type: 'standard',
       product_kind: form.product_kind,
-      name: form.name,
+      name: libraryName,  // sourced from library
       categ_id: parseInt(form.categ_id),
       sale_ok: false,
       purchase_ok: false,
@@ -295,7 +326,8 @@ export function NewStandardProductModal({ onClose }: Props) {
       attributes: {},
       default_paint_spec: paint,
       default_welding_spec: welding,
-    }
+      library_id: libraryId!,
+    } as CreateStandardProductPayload & { library_id: number }
 
     try {
       const result = await create(payload)
@@ -563,20 +595,77 @@ export function NewStandardProductModal({ onClose }: Props) {
               </div>
             )}
 
-            {/* Name */}
+            {/* Library picker (replaces plain name input) */}
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Product Name *</label>
-                {nameEdited && autoName && (
-                  <button type="button" onClick={() => { setNameEdited(false); setForm(f => ({ ...f, name: autoName })) }}
-                    style={{ fontSize: 11, color: '#0C447C', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>↺ Reset to auto</button>
-                )}
-              </div>
-              <input className="w-full border rounded-md"
-                style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.name ? '#C8202A' : '#E0E0E0' }}
-                value={form.name} onChange={e => { setNameEdited(true); setField('name', e.target.value) }}
-                placeholder="PL6x1500 SS400 (stock 6m)" />
-              {errors.name && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{errors.name}</div>}
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>
+                Product Name * <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E' }}>(from Product Library)</span>
+              </label>
+
+              {libraryId ? (
+                // Picked state
+                <div className="flex items-center gap-2 rounded-md border" style={{ height: 38, padding: '0 10px', borderColor: '#0C447C', background: '#E6F1FB' }}>
+                  <span className="font-mono" style={{ fontSize: 11, fontWeight: 700, color: '#0C447C' }}>{libraryCode}</span>
+                  <span style={{ fontSize: 13, color: '#1F1F1F', flex: 1 }}>{libraryName}</span>
+                  <button type="button" onClick={() => { setLibraryId(null); setLibraryCode(''); setLibraryName(''); setLibraryQuery(autoName || '') }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8E8E8E', padding: 2 }}>
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                // Search state
+                <div style={{ position: 'relative' }}>
+                  <input className="w-full border rounded-md"
+                    style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: errors.library ? '#C8202A' : '#E0E0E0', outline: 'none' }}
+                    value={libraryQuery}
+                    onChange={e => { setLibraryQuery(e.target.value); setErrors(er => ({ ...er, library: '' })) }}
+                    onFocus={() => setShowLibraryDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowLibraryDropdown(false), 150)}
+                    placeholder="Search library or type name..." />
+                  {librarySearching && <Loader2 size={13} className="animate-spin" style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#8E8E8E' }} />}
+                  {showLibraryDropdown && (
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 30, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', marginTop: 2, maxHeight: 220, overflowY: 'auto' }}>
+                      {libraryResults.map(entry => (
+                        <button key={entry.id} type="button"
+                          onMouseDown={() => { setLibraryId(entry.id); setLibraryCode(entry.code); setLibraryName(entry.name); setShowLibraryDropdown(false) }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 12px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                          onMouseEnter={e => (e.currentTarget.style.background = '#F5F8FF')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                          <span className="font-mono" style={{ fontSize: 11, fontWeight: 700, color: '#0C447C', minWidth: 72 }}>{entry.code}</span>
+                          <span style={{ fontSize: 13, color: '#1F1F1F', flex: 1 }}>{entry.name}</span>
+                          <span style={{ fontSize: 11, color: '#8E8E8E' }}>
+                            {entry.std_count > 0 && `${entry.std_count} STD`}
+                            {entry.std_count > 0 && entry.cus_count > 0 && ' · '}
+                            {entry.cus_count > 0 && `${entry.cus_count} CUS`}
+                          </span>
+                        </button>
+                      ))}
+                      {libraryQuery.trim() && (
+                        <button type="button"
+                          onMouseDown={async () => {
+                            try {
+                              const entry = await createLibraryEntry({ name: libraryQuery.trim() })
+                              setLibraryId(entry.id)
+                              setLibraryCode(entry.code)
+                              setLibraryName(entry.name)
+                              setLibraryResults(prev => [entry, ...prev])
+                              setShowLibraryDropdown(false)
+                            } catch (err: any) {
+                              const msg = err?.response?.data?.message ?? 'Failed to create'
+                              setErrors(er => ({ ...er, library: typeof msg === 'string' ? msg : JSON.stringify(msg) }))
+                            }
+                          }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderTop: '1px solid #E0E0E0', cursor: 'pointer', color: '#0C447C', fontSize: 13, fontWeight: 600 }}>
+                          + Create new library entry "{libraryQuery.trim()}"
+                        </button>
+                      )}
+                      {!librarySearching && libraryResults.length === 0 && !libraryQuery.trim() && (
+                        <div style={{ padding: 12, fontSize: 12, color: '#BDBDBD', textAlign: 'center' }}>Type to search library</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+              {errors.library && <div style={{ fontSize: 11, color: '#C8202A', marginTop: 2 }}>{errors.library}</div>}
             </div>
 
             {/* Engineering Code */}
@@ -692,7 +781,7 @@ export function NewStandardProductModal({ onClose }: Props) {
           <div className="flex items-center justify-end gap-3 px-6" style={{ height: 60, borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
             <button type="button" onClick={onClose} className="rounded-md border"
               style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, borderColor: '#E0E0E0' }}>Cancel</button>
-            <button type="submit" disabled={isPending} className="flex items-center gap-2 rounded-md text-white disabled:opacity-60"
+            <button type="submit" disabled={isPending || !libraryId} className="flex items-center gap-2 rounded-md text-white disabled:opacity-60"
               style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}>
               {isPending && <Loader2 size={14} className="animate-spin" />}
               Create Standard Product

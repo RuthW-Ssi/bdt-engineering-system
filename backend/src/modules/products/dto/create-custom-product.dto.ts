@@ -62,4 +62,10 @@ export class CreateCustomProductDto {
   @ValidateNested()
   @Type(() => WeldingSpecPresetDto)
   default_welding_spec?: WeldingSpecPresetDto
+
+  // Sprint 11: optional for custom products
+  @ApiPropertyOptional({ example: 1, description: 'FK → product_library.id (optional for custom products)' })
+  @IsOptional()
+  @IsInt()
+  library_id?: number
 }

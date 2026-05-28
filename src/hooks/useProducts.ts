@@ -2,10 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { productsApi } from '../api/products'
 import type { CreateProductPayload } from '../api/types'
 
-export function useProducts(params?: Parameters<typeof productsApi.list>[0]) {
+export function useProducts(params?: Parameters<typeof productsApi.list>[0], enabled = true) {
   return useQuery({
     queryKey: ['products', params],
     queryFn: () => productsApi.list(params),
+    enabled,
   })
 }
 

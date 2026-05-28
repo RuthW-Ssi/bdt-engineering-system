@@ -8,6 +8,7 @@ import { CustomerList } from './pages/CustomerList'
 import { ProjectList } from './pages/ProjectList'
 import { ZoneList } from './pages/ZoneList'
 import { RoutingList } from './pages/RoutingList'
+import { RoutingApply } from './pages/RoutingApply'
 import { RoutingEditor } from './pages/RoutingEditor'
 import { RoutingBuilder } from './pages/RoutingBuilder'
 import { WorkcenterMaster } from './pages/WorkcenterMaster'
@@ -19,6 +20,7 @@ import { BomList } from './pages/BomList'
 import { BomUpload } from './pages/BomUpload'
 import { BomDispatchDetail } from './pages/BomDispatchDetail'
 import { BomPaintConfig } from './pages/BomPaintConfig'
+import { BomRoutingConfig } from './pages/BomRoutingConfig'
 import { BomEditor } from './pages/BomEditor'
 import { BomDiffReview } from './pages/BomDiffReview'
 import { CustomRoutingEditor } from './pages/CustomRoutingEditor'
@@ -49,7 +51,7 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/engineer-products" replace />} />
+            <Route index element={<Navigate to="/materials" replace />} />
             <Route path="/dashboard" element={<Placeholder title="Dashboard" />} />
             <Route path="/customers" element={<CustomerList />} />
             <Route path="/projects" element={<ProjectList />} />
@@ -61,10 +63,12 @@ export default function App() {
             <Route path="/bom" element={<BomList />} />
             <Route path="/bom/upload" element={<BomUpload />} />
             <Route path="/bom/dispatch/:id/paint" element={<BomPaintConfig />} />
+            <Route path="/bom/dispatch/:id/routing" element={<BomRoutingConfig />} />
             <Route path="/bom/dispatch/:id" element={<BomDispatchDetail />} />
             <Route path="/bom/:code" element={<BomEditor />} />
             <Route path="/bom/:code/diff" element={<BomDiffReview />} />
             <Route path="/routings" element={<RoutingList />} />
+            <Route path="/routings/apply" element={<RoutingApply />} />
             <Route path="/routings/new" element={<RoutingBuilder />} />
             <Route path="/routings/:id/edit" element={<RoutingBuilder />} />
             <Route path="/routings/:code" element={<RoutingEditor />} />

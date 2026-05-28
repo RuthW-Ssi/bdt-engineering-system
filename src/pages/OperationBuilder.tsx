@@ -525,7 +525,7 @@ export default function OperationBuilder() {
                                 const eq = equipmentList.find(e => e.id === tid)
                                 return eq ? (
                                   <span key={tid} style={{ ...chipBase, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                    {eq.code}
+                                    {eq.name}
                                     <button onClick={() => patchActivity(act.localId, { tool_ids: act.tool_ids.filter(id => id !== tid) })}
                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                   </span>
@@ -561,11 +561,7 @@ export default function OperationBuilder() {
                                 const eq = equipmentList.find(e => e.id === c.resource_id)
                                 return eq ? (
                                   <span key={c.resource_id} style={{ ...chipBase, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                    {eq.code}
-                                    <input value={c.qty} onChange={e2 => {
-                                      const updated = act.consumables.map((x, xi) => xi === ci ? { ...x, qty: e2.target.value } : x)
-                                      patchActivity(act.localId, { consumables: updated })
-                                    }} placeholder="qty" style={{ width: 36, fontSize: 10, border: '1px solid #FFE082', borderRadius: 3, padding: '0 3px', outline: 'none', fontFamily: 'monospace', background: '#fff', color: '#E65100' }} />
+                                    {eq.name}
                                     <button onClick={() => patchActivity(act.localId, { consumables: act.consumables.filter((_, xi) => xi !== ci) })}
                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                   </span>

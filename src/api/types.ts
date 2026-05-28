@@ -96,7 +96,7 @@ export interface WeldingSpecPreset {
   weld_layers: number
 }
 
-export type ProductType = 'standard' | 'custom'
+export type ProductType = 'standard' | 'custom' | 'library'
 export type ProductState = 'draft' | 'in_design' | 'in_review' | 'approved' | 'released' | 'obsolete'
 
 export interface ProductDTO {
@@ -253,4 +253,40 @@ export const PRODUCT_STATE_COLORS: Record<ProductState, { bg: string; text: stri
   approved:   { bg: '#EAF3DE', text: '#27500A' },
   released:   { bg: '#D1F2E0', text: '#065F46' },
   obsolete:   { bg: '#FCEBEB', text: '#8A1520' },
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 11: Product Library
+// ═══════════════════════════════════════════════════════════════
+
+export interface LibraryEntryDTO {
+  id: number
+  code: string
+  name: string
+  active: boolean
+  std_count: number
+  cus_count: number
+  create_uid: number
+  write_uid: number
+  create_date: string
+  write_date: string
+  create_user?: { id: number; name: string }
+  write_user?: { id: number; name: string }
+}
+
+export interface LibraryEntryListResponse {
+  total: number
+  page: number
+  limit: number
+  pages: number
+  items: LibraryEntryDTO[]
+}
+
+export interface CreateLibraryEntryPayload {
+  name: string
+}
+
+export interface UpdateLibraryEntryPayload {
+  name?: string
+  active?: boolean
 }

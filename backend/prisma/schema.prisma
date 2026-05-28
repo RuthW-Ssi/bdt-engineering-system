@@ -32,6 +32,8 @@ model res_users {
   projects_written project[]  @relation("project_write")
   products_created products[] @relation("product_create")
   products_written products[] @relation("product_write")
+  product_library_created product_library[] @relation("pl_create")
+  product_library_written product_library[] @relation("pl_write")
 
   // Sprint 3: BOM + Drawing audit
   boms_created      product_bom[]      @relation("bom_create")
@@ -181,6 +183,31 @@ model part_code_seq {
 model product_code_seq {
   kind     String @id @db.VarChar(10)
   next_run Int    @default(1)
+}
+
+// ── 🟥 Custom: product_library_seq (LIB-NNN counter) ─────────
+model product_library_seq {
+  id    Int @id @default(1)
+  value Int @default(0)
+}
+
+// ── 🟥 Custom: product_library (canonical product-name catalog) ──
+// Sprint 11: governance layer — STD products must link here (CUS optional)
+model product_library {
+  id          Int       @id @default(autoincrement())
+  code        String    @unique @db.VarChar(20)   // LIB-NNN auto via product_library_seq
+  name        String    @unique @db.VarChar(200)  // canonical product name (case-insensitive UNIQUE enforced in service)
+  active      Boolean   @default(true)
+  create_uid  Int
+  create_user res_users @relation("pl_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_user  res_users @relation("pl_write", fields: [write_uid], references: [id])
+  write_date  DateTime  @default(now()) @db.Timestamptz
+
+  products products[] @relation("ProductLibraryRef")
+
+  @@index([active])
 }
 
 // ── 🟦 Standard Odoo: mail_message (audit log — polymorphic) ─
@@ -396,6 +423,10 @@ model products {
   // Sprint 8: eBOM ↔ mBOM kind — 'assembly' | 'part' | null (legacy products)
   product_kind String? @db.VarChar(20)
 
+  // Sprint 11: Product Library link
+  library_id  Int?
+  library     product_library? @relation("ProductLibraryRef", fields: [library_id], references: [id], onDelete: SetNull)
+
   // Odoo sync
   odoo_ref_id String? @db.VarChar(40)
 
@@ -418,6 +449,7 @@ model products {
   bom_parts              bom_part[]
 
   @@index([product_kind, product_type, name])
+  @@index([library_id])
 }
 
 // ── 🟨 Product Variant (lazy-create — PD-10) ────────────────────
@@ -805,8 +837,9 @@ model routing_op_act_consumable {
   activity    routing_op_activity  @relation(fields: [activity_id], references: [id], onDelete: Cascade)
   resource_id Int
   resource    equipment_resource   @relation("RoutingOpActConsumableResource", fields: [resource_id], references: [id], onDelete: Cascade)
-  qty         Decimal?             @db.Decimal(10, 4)
-  unit        String?              @db.VarChar(20)
+  qty                Decimal?             @db.Decimal(10, 4)
+  unit               String?              @db.VarChar(20)
+  consumption_basis  String?              @db.VarChar(20) // 'per_m2' | 'per_kg' | 'per_unit' | null
 
   @@unique([activity_id, resource_id])
   @@index([activity_id])

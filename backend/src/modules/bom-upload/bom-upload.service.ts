@@ -8,7 +8,6 @@ import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
-import { ProductDerivationService } from '../product-derivation/product-derivation.service'
 import { BomMatchingService } from './bom-matching.service'
 import type { BomDocType } from './filename-classifier'
 import type { QueryDispatchDto } from './dto/dispatch.dto'
@@ -38,7 +37,6 @@ export class BomUploadService {
     private readonly prisma: PrismaService,
     private readonly storage: FileStorageService,
     private readonly parser: XlsxParserService,
-    private readonly derivation: ProductDerivationService,
     private readonly matching: BomMatchingService,
   ) {}
 
@@ -207,14 +205,10 @@ export class BomUploadService {
 
       await this.matching.enforceStandardIntegrity(this.prisma, dispatchId, uid)
 
-      const dispatch = await this.prisma.bom_dispatch.findUniqueOrThrow({ where: { id: dispatchId } })
+      // Auto-create custom products for all still-unmatched assemblies
+      await this.matching.autoCreateCustomProducts(dispatchId, projectId, zoneId, uid)
 
-      // Trigger product derivation asynchronously — failure must not roll back the upload
-      this.derivation.deriveForDispatch(dispatch.id, uid).catch(err =>
-        this.logger.error(`Product derivation failed for dispatch ${dispatch.id}: ${err?.message}`, err?.stack),
-      )
-
-      return this.findOne(dispatch.id)
+      return this.findOne(dispatchId)
     } catch (err) {
       // Rollback: delete saved files
       for (const { key } of savedKeys) {

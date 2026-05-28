@@ -4,14 +4,14 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mi
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ReactFlow, Background, Controls, ControlButton, MiniMap,
-  addEdge, useNodesState, useEdgesState, useReactFlow,
+  addEdge, useNodesState, useEdgesState, useReactFlow, useEdges,
   Handle, Position, ReactFlowProvider, BackgroundVariant, NodeResizer,
   getBezierPath, BaseEdge, EdgeLabelRenderer, MarkerType,
   type NodeProps, type EdgeProps, type Connection, type Edge, type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GitMerge, GripVertical, ImageIcon, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GitMerge, GripVertical, ImageIcon, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Settings, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
 import { apiClient } from '../api/client'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
@@ -1018,7 +1018,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                                 const eq = equipmentList.find(e => e.id === tid)
                                 return eq ? (
                                   <span key={tid} style={{ ...chipBase, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                    {eq.code}
+                                    {eq.name}
                                     <button onClick={() => patchAct(act.localId, { tool_ids: act.tool_ids.filter(id => id !== tid) })}
                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                   </span>
@@ -1053,11 +1053,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                                 const eq = equipmentList.find(e => e.id === c.resource_id)
                                 return eq ? (
                                   <span key={c.resource_id} style={{ ...chipBase, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                    {eq.code}
-                                    <input value={c.qty} onChange={e2 => {
-                                      const updated = act.consumables.map((x, xi) => xi === ci ? { ...x, qty: e2.target.value } : x)
-                                      patchAct(act.localId, { consumables: updated })
-                                    }} placeholder="qty" style={{ width: 36, fontSize: 10, border: '1px solid #FFE082', borderRadius: 3, padding: '0 3px', outline: 'none', fontFamily: 'monospace', background: '#fff', color: '#E65100' }} />
+                                    {eq.name}
                                     <button onClick={() => patchAct(act.localId, { consumables: act.consumables.filter((_, xi) => xi !== ci) })}
                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                   </span>
@@ -1188,55 +1184,7 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
     return () => document.removeEventListener('mousedown', close)
   }, [openModalPicker])
 
-  // ── Activity library for the right panel ──
-  const { data: actItems = [] } = useQuery<ActivityTemplateItem[]>({
-    queryKey: ['activity-templates-all'],
-    queryFn: async () => { const { data } = await apiClient.get('/activity-templates', { params: { limit: 300 } }); return data.items ?? data ?? [] },
-    staleTime: 5 * 60 * 1000,
-  })
-  const [actSearch, setActSearch] = useState('')
-  const [actChip, setActChip] = useState('All')
-  const actChips = ['All', ...Array.from(new Set(actItems.map(i => i.op_code))).sort()]
-  const actFiltered = actItems.filter(item => {
-    const q = actSearch.trim().toLowerCase()
-    return (actChip === 'All' || item.op_code === actChip) &&
-      (!q || item.description.toLowerCase().includes(q) || item.op_code.toLowerCase().includes(q))
-  })
-  const actGroups: Record<string, ActivityTemplateItem[]> = {}
-  for (const a of actFiltered) { (actGroups[a.op_code] = actGroups[a.op_code] ?? []).push(a) }
-
   const addedIds = new Set(form.activities.map(a => a.source_activity_template_id).filter(Boolean))
-  const addFromLib = (tpl: ActivityTemplateItem) =>
-    patch({ activities: [...form.activities, {
-      localId: newLocalId(), name: tpl.description, measure: tpl.formula_param_code ?? '',
-      unit: tpl.unit ?? '', per_minute: tpl.per_minute ? String(tpl.per_minute) : '',
-      std_measure: tpl.std_measure != null ? String(tpl.std_measure) : '',
-      source_activity_template_id: tpl.id,
-      machine_id: null, tool_ids: [], consumables: [],
-    }]})
-
-  // ── Inline new-activity-template form ──
-  const [showNewAct, setShowNewAct] = useState(false)
-  const [newAct, setNewAct] = useState({ description: '', op_code: '', formula_param_code: '', per_minute: '', std_measure: '', unit: '', workcenter_id: '' })
-  const patchAct = (p: Partial<typeof newAct>) => setNewAct(a => ({ ...a, ...p }))
-  const newActReady = !!(newAct.description.trim() && newAct.op_code.trim() && newAct.formula_param_code.trim() && newAct.per_minute && newAct.unit.trim() && (newAct.workcenter_id || form.workcenter_id))
-  const newActMut = useMutation({
-    mutationFn: () => apiClient.post('/activity-templates', {
-      description: newAct.description.trim(),
-      op_code: newAct.op_code.trim().toLowerCase(),
-      formula_param_code: newAct.formula_param_code.trim(),
-      per_minute: Number(newAct.per_minute),
-      std_measure: newAct.std_measure ? Number(newAct.std_measure) : 0,
-      unit: newAct.unit.trim(),
-      workcenter_id: Number(newAct.workcenter_id || form.workcenter_id),
-    }).then(r => r.data),
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['activity-templates-all'] })
-      addFromLib({ id: created.id, op_code: created.op_code, description: created.description, formula_param_code: created.formula_param_code, std_measure: created.std_measure, per_minute: created.per_minute, unit: created.unit })
-      setNewAct({ description: '', op_code: '', formula_param_code: '', per_minute: '', std_measure: '', unit: '', workcenter_id: '' })
-      setShowNewAct(false)
-    },
-  })
 
   return (
     <>
@@ -1336,20 +1284,24 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
                   patch({ activities: form.activities.map(x => x.localId === localId ? { ...x, ...p } : x) })
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 116px 24px', gap: 5, padding: '0 4px', marginBottom: 2 }}>
-                      {['Name', 'Measure', 'Unit', '/min', 'Machine', ''].map(h => (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 5, padding: '0 4px', marginBottom: 2 }}>
+                      {['Name', 'Measure', 'Unit', '/min', '≈min', 'Machine', ''].map(h => (
                         <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                       ))}
                     </div>
                     {form.activities.map(a => {
+                      const estMin = Number(a.per_minute) > 0 && Number(a.std_measure) > 0 ? Number(a.std_measure) / Number(a.per_minute) : null
                       const isPickerOpen = (kind: 'tool' | 'consumable') => openModalPicker?.actId === a.localId && openModalPicker.kind === kind
                       return (
                         <div key={a.localId} style={{ border: '1px solid #E0E0E0', borderRadius: 6, overflow: 'visible' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 116px 24px', gap: 5, alignItems: 'center', background: '#F8F8F8', padding: '5px 6px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 5, alignItems: 'center', background: '#F8F8F8', padding: '5px 6px' }}>
                             <input value={a.name} onChange={e => patchActivity(a.localId, { name: e.target.value })} placeholder="Activity name" style={{ ...inp, fontSize: 12 }} />
                             <input value={a.measure} onChange={e => patchActivity(a.localId, { measure: e.target.value })} placeholder="measure" style={{ ...inp, fontSize: 11, fontFamily: 'monospace' }} />
                             <input value={a.unit} onChange={e => patchActivity(a.localId, { unit: e.target.value })} placeholder="unit" style={{ ...inp, fontSize: 11 }} />
                             <input value={a.per_minute} onChange={e => patchActivity(a.localId, { per_minute: e.target.value })} placeholder="/min" style={{ ...inp, fontSize: 11, fontFamily: 'monospace' }} />
+                            <div style={{ fontSize: 10, fontFamily: 'monospace', color: estMin != null ? '#185FA5' : '#C0C0C0', textAlign: 'right' }}>
+                              {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
+                            </div>
                             <select value={a.machine_id ?? ''} onChange={e => patchActivity(a.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
                               style={{ ...inp, fontSize: 11, cursor: 'pointer', padding: '3px 4px' }}>
                               <option value="">—</option>
@@ -1365,7 +1317,7 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
                                   const eq = equipmentList.find(e => e.id === tid)
                                   return eq ? (
                                     <span key={tid} style={{ ...chipBase, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                      {eq.code}
+                                      {eq.name}
                                       <button onClick={() => patchActivity(a.localId, { tool_ids: a.tool_ids.filter(id => id !== tid) })}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                     </span>
@@ -1400,11 +1352,7 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
                                   const eq = equipmentList.find(e => e.id === c.resource_id)
                                   return eq ? (
                                     <span key={c.resource_id} style={{ ...chipBase, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                      {eq.code}
-                                      <input value={c.qty} onChange={e2 => {
-                                        const updated = a.consumables.map((x, xi) => xi === ci ? { ...x, qty: e2.target.value } : x)
-                                        patchActivity(a.localId, { consumables: updated })
-                                      }} placeholder="qty" style={{ width: 36, fontSize: 10, border: '1px solid #FFE082', borderRadius: 3, padding: '0 3px', outline: 'none', fontFamily: 'monospace', background: '#fff', color: '#E65100' }} />
+                                      {eq.name}
                                       <button onClick={() => patchActivity(a.localId, { consumables: a.consumables.filter((_, xi) => xi !== ci) })}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                     </span>
@@ -1450,93 +1398,8 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
           </div>
 
           {/* Right: Activity Library */}
-          <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', display: 'flex', flexDirection: 'column', background: '#FAFAFA', flexShrink: 0 }}>
-            <div style={{ padding: '10px 10px 6px', borderBottom: '1px solid #E8E8E8', flexShrink: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#555', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                <BookOpen size={12} />Activity Library
-                <div style={{ flex: 1 }} />
-                <button onClick={() => setShowNewAct(v => !v)}
-                  style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
-                    background: showNewAct ? '#FFF0F0' : '#fff', color: showNewAct ? '#C8202A' : '#555', borderColor: showNewAct ? '#C8202A' : '#D0D0D0' }}>
-                  <Plus size={10} />New Activity
-                </button>
-              </div>
-
-              {showNewAct && (
-                <div style={{ background: '#FFF8F8', border: '1px solid #FCCACA', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: '#C8202A', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>New Activity Template</div>
-                  <input value={newAct.description} onChange={e => patchAct({ description: e.target.value })} placeholder="Description *"
-                    style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 5 }} />
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginBottom: 5 }}>
-                    <input value={newAct.op_code} onChange={e => patchAct({ op_code: e.target.value })} placeholder="Group (op_code) *"
-                      style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                    <input value={newAct.formula_param_code} onChange={e => patchAct({ formula_param_code: e.target.value })} placeholder="Measure *"
-                      style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginBottom: 5 }}>
-                    <input value={newAct.unit} onChange={e => patchAct({ unit: e.target.value })} placeholder="Unit *"
-                      style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                    <input type="number" value={newAct.per_minute} onChange={e => patchAct({ per_minute: e.target.value })} placeholder="/min *"
-                      style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                    <input type="number" value={newAct.std_measure} onChange={e => patchAct({ std_measure: e.target.value })} placeholder="Std meas"
-                      style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                  </div>
-                  {!form.workcenter_id && (
-                    <select value={newAct.workcenter_id} onChange={e => patchAct({ workcenter_id: e.target.value })}
-                      style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', background: '#fff', marginBottom: 5 }}>
-                      <option value="">— Workcenter * —</option>
-                      {workcenters.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
-                    </select>
-                  )}
-                  <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-                    <button onClick={() => setShowNewAct(false)} style={{ height: 26, padding: '0 10px', borderRadius: 4, border: '1px solid #E0E0E0', background: '#fff', fontSize: 11, cursor: 'pointer', color: '#555' }}>Cancel</button>
-                    <button onClick={() => newActMut.mutate()} disabled={!newActReady || newActMut.isPending}
-                      style={{ height: 26, padding: '0 10px', borderRadius: 4, border: 'none', background: newActReady ? '#C8202A' : '#E0E0E0', color: newActReady ? '#fff' : '#9E9E9E', fontSize: 11, fontWeight: 600, cursor: newActReady ? 'pointer' : 'not-allowed' }}>
-                      {newActMut.isPending ? 'Saving…' : 'Add to Library'}
-                    </button>
-                  </div>
-                  {newActMut.isError && <div style={{ fontSize: 10, color: '#C8202A', marginTop: 4 }}>{(newActMut.error as Error).message}</div>}
-                </div>
-              )}
-
-              <div style={{ position: 'relative', marginBottom: 6 }}>
-                <Search size={11} style={{ position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
-                <input value={actSearch} onChange={e => setActSearch(e.target.value)} placeholder="Search activities…"
-                  style={{ width: '100%', border: '1px solid #E8E8E8', borderRadius: 5, padding: '5px 8px 5px 24px', fontSize: 11, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff' }} />
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                {actChips.map(c => (
-                  <button key={c} onClick={() => setActChip(c)}
-                    style={{ padding: '2px 7px', borderRadius: 999, border: '1px solid', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                      background: actChip === c ? '#C8202A' : '#fff', color: actChip === c ? '#fff' : '#555',
-                      borderColor: actChip === c ? '#C8202A' : '#D0D0D0' }}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '8px 10px' }}>
-              {Object.entries(actGroups).map(([grp, items]) => (
-                <div key={grp} style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 9, fontWeight: 800, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{grp}</div>
-                  {items.map(item => {
-                    const added = addedIds.has(item.id)
-                    return (
-                      <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 6px', borderRadius: 5, marginBottom: 3, background: added ? '#F1F8F1' : '#fff', border: `1px solid ${added ? '#A5D6A7' : '#E8E8E8'}` }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, fontWeight: 500, color: '#1F1F1F', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.description}</div>
-                          <div style={{ fontSize: 9, color: '#9E9E9E', marginTop: 1 }}>{item.formula_param_code} · {item.per_minute ? `${item.per_minute}/min` : '—'}</div>
-                        </div>
-                        <button onClick={() => !added && addFromLib(item)}
-                          style={{ width: 22, height: 22, borderRadius: 4, border: `1px solid ${added ? '#A5D6A7' : '#E0E0E0'}`, background: added ? '#E8F5E9' : '#fff', cursor: added ? 'default' : 'pointer', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: added ? '#2E7D32' : '#555' }}>
-                          {added ? <Check size={11} /> : <Plus size={11} />}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              ))}
-            </div>
+          <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', display: 'flex', flexDirection: 'column', background: '#FAFAFA', flexShrink: 0, overflow: 'hidden' }}>
+            <ModalActivityLib addedIds={addedIds} workcenter_id={form.workcenter_id} onAdd={act => patch({ activities: [...form.activities, act] })} />
           </div>
         </div>
       </div>
@@ -1739,25 +1602,47 @@ function GatherControl() {
   )
 }
 
-// ── AutoEdgeControl — connect all op nodes by x-sequence ───────
+// ── AutoEdgeControl — clear edges / re-layout + connect ──────────
+
+const NODE_W = 190
+const LAYOUT_GAP_X = 60
+const LAYOUT_START = { x: 60, y: 200 }
 
 function AutoEdgeControl() {
-  const { getNodes, getEdges, setEdges } = useReactFlow()
+  const { getNodes, getEdges, setNodes, setEdges, fitView } = useReactFlow()
+
   const handleToggle = useCallback(() => {
+    // First click: clear edges only
     if (getEdges().length > 0) {
       setEdges([])
       return
     }
 
-    const ops = getNodes()
+    // Second click: re-layout nodes by sequence, then connect
+    const allNodes = getNodes()
+    const ops = allNodes
       .filter(n => n.type === 'operation')
-      .map(n => {
-        const parent = n.parentId ? getNodes().find(p => p.id === n.parentId) : undefined
-        return { ...n, absX: n.position.x + (parent?.position.x ?? 0) }
-      })
-      .sort((a, b) => a.absX - b.absX)
+      .sort((a, b) => ((a.data as OperationData).sequence ?? 0) - ((b.data as OperationData).sequence ?? 0))
 
     if (ops.length === 0) return
+
+    const colStep = NODE_W + LAYOUT_GAP_X
+
+    const opPos = (idx: number) => ({
+      x: LAYOUT_START.x + (idx + 1) * colStep,
+      y: LAYOUT_START.y,
+    })
+
+    const lastPos = opPos(ops.length - 1)
+
+    const positioned = allNodes.map(n => {
+      if (n.type === 'start') return { ...n, position: { x: LAYOUT_START.x, y: LAYOUT_START.y } }
+      if (n.type === 'end')   return { ...n, position: { x: lastPos.x + colStep, y: LAYOUT_START.y } }
+      const idx = ops.findIndex(o => o.id === n.id)
+      return idx === -1 ? n : { ...n, position: opPos(idx) }
+    })
+
+    setNodes(positioned)
 
     const mkEdge = (id: string, source: string, target: string, num: number): Edge => ({
       id, source, target, type: 'labeled', label: String(num),
@@ -1769,15 +1654,17 @@ function AutoEdgeControl() {
       ...ops.slice(0, -1).map((op, i) => mkEdge(`ae-${op.id}-${ops[i + 1].id}`, op.id, ops[i + 1].id, i + 2)),
       mkEdge(`ae-${ops[ops.length - 1].id}-end`, ops[ops.length - 1].id, 'end', ops.length + 1),
     ])
-  }, [getNodes, getEdges, setEdges])
 
-  const hasEdges = useReactFlow().getEdges().length > 0
+    setTimeout(() => fitView({ padding: 0.15, duration: 400 }), 50)
+  }, [getNodes, getEdges, setNodes, setEdges, fitView])
+
+  const hasEdges = useEdges().length > 0
 
   return (
     <ControlButton
       onClick={handleToggle}
-      title={hasEdges ? 'ลบเส้นเชื่อมทั้งหมด' : 'ต่อเส้น Auto (ตามลำดับ)'}
-      style={{ color: hasEdges ? '#C8202A' : '#555' }}
+      title={hasEdges ? 'ลบเส้นเชื่อมทั้งหมด' : 'จัด Layout + ต่อเส้น Auto'}
+      style={{ color: hasEdges ? '#C8202A' : '#2E7D32' }}
     >
       <GitMerge size={12} />
     </ControlButton>
@@ -1804,10 +1691,11 @@ function RoutingBuilderInner() {
   const [showNewOpModal, setShowNewOpModal] = useState(false)
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [bgImageUrl, setBgImageUrl] = useState('')
-  const [bgOpacity, setBgOpacity] = useState(0.15)
+  const [bgVisible, setBgVisible] = useState(true)
+  const [bgOpacity, setBgOpacity] = useState(0.35)
   const [showBgPanel, setShowBgPanel] = useState(false)
-  const [bgRotation, setBgRotation] = useState(0)
-  const [bgScale, setBgScale] = useState(1)
+  const [bgRotation, setBgRotation] = useState(270)
+  const [bgScale, setBgScale] = useState(1.6)
   const [bgIsFile, setBgIsFile] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const bgLocalKey = isEdit && templateId ? `bdt_template_bg_${templateId}` : null
@@ -2075,8 +1963,8 @@ function RoutingBuilderInner() {
     const localBg = bgLocalKey ? localStorage.getItem(bgLocalKey) : null
     setBgImageUrl(localBg ?? existing.bg_image_url ?? '')
     setBgIsFile(!!localBg)
-    setBgRotation(existing.bg_rotation ?? 0)
-    setBgScale(existing.bg_scale ?? 1)
+    setBgRotation(existing.bg_rotation ?? 270)
+    setBgScale(existing.bg_scale ?? 1.6)
     const opNds: Node[] = existing.operations.map((op, i) => ({
       id: `op-${op.id}`,
       type: 'operation',
@@ -2134,22 +2022,17 @@ function RoutingBuilderInner() {
         data: { midOffsetX: e.midOffsetX ?? 0, midOffsetY: e.midOffsetY ?? 0 },
       })))
     } else {
-      // First open (no saved edges) — auto-connect in sequence order
-      const sorted = [...opNds].sort((a, b) => a.position.x - b.position.x)
-      const mkAutoEdge = (id: string, source: string, target: string, num: number): Edge => ({
-        id, source, target, type: 'labeled', label: String(num),
-        animated: true, style: { stroke: '#C8202A', strokeWidth: 2 },
-        markerEnd: { type: MarkerType.ArrowClosed, color: '#C8202A' },
-      })
-      if (sorted.length > 0) {
-        setEdges([
-          mkAutoEdge(`ae-start-${sorted[0].id}`, 'start', sorted[0].id, 1),
-          ...sorted.slice(0, -1).map((op, i) => mkAutoEdge(`ae-${op.id}-${sorted[i + 1].id}`, op.id, sorted[i + 1].id, i + 2)),
-          mkAutoEdge(`ae-${sorted[sorted.length - 1].id}-end`, sorted[sorted.length - 1].id, 'end', sorted.length + 1),
-        ])
-      } else {
-        setEdges([])
-      }
+      // First open — arrange nodes in sequence order, no edges (user draws manually)
+      const sorted = [...opNds].sort((a, b) => ((a.data as OperationData).sequence ?? 0) - ((b.data as OperationData).sequence ?? 0))
+      const colStep = NODE_W + LAYOUT_GAP_X
+      const positioned = sorted.map((n, i) => ({ ...n, position: { x: LAYOUT_START.x + (i + 1) * colStep, y: LAYOUT_START.y } }))
+      const lastX = LAYOUT_START.x + (sorted.length + 1) * colStep
+      setNodes([
+        { ...INITIAL_NODES[0], position: { x: LAYOUT_START.x, y: LAYOUT_START.y } },
+        { ...INITIAL_NODES[1], position: { x: lastX, y: LAYOUT_START.y } },
+        ...positioned,
+      ])
+      setEdges([])
     }
   }, [existing, setNodes, setEdges, setBgRotation, setBgScale])
 
@@ -2317,16 +2200,30 @@ function RoutingBuilderInner() {
                 <option value="custom">Custom</option>
               </select>
               {/* Background image button + popover */}
-              <div style={{ position: 'relative' }}>
-                <button onClick={() => setShowBgPanel(v => !v)} style={{
-                  height: 34, padding: '0 12px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                  background: bgImageUrl ? '#EFF6FF' : '#F5F5F5',
-                  color: bgImageUrl ? '#1565C0' : '#555',
-                  border: `1px solid ${bgImageUrl ? '#BBDEFB' : '#E0E0E0'}`,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
-                }}>
-                  <ImageIcon size={13} />Background
+              <div style={{ position: 'relative', display: 'flex', gap: 2 }}>
+                {/* Toggle on/off when image exists, open panel when no image */}
+                <button
+                  onClick={() => bgImageUrl ? setBgVisible(v => !v) : setShowBgPanel(v => !v)}
+                  style={{
+                    height: 34, padding: '0 12px', borderRadius: bgImageUrl ? '6px 0 0 6px' : 6,
+                    fontSize: 12, fontWeight: 600,
+                    background: bgImageUrl && bgVisible ? '#EFF6FF' : bgImageUrl && !bgVisible ? '#FFF3E0' : '#F5F5F5',
+                    color: bgImageUrl && bgVisible ? '#1565C0' : bgImageUrl && !bgVisible ? '#E65100' : '#555',
+                    border: `1px solid ${bgImageUrl && bgVisible ? '#BBDEFB' : bgImageUrl && !bgVisible ? '#FFCC80' : '#E0E0E0'}`,
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+                  }}>
+                  <ImageIcon size={13} />{bgImageUrl ? (bgVisible ? 'BG On' : 'BG Off') : 'Background'}
                 </button>
+                {/* Gear icon — opens panel only when image is set */}
+                {bgImageUrl && (
+                  <button onClick={() => setShowBgPanel(v => !v)} style={{
+                    height: 34, width: 28, borderRadius: '0 6px 6px 0', border: '1px solid #BBDEFB',
+                    borderLeft: 'none', background: showBgPanel ? '#DBEAFE' : '#EFF6FF',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Settings size={11} style={{ color: '#1565C0' }} />
+                  </button>
+                )}
                 {showBgPanel && (
                   <div style={{
                     position: 'absolute', top: 40, right: 0, zIndex: 500,
@@ -2500,7 +2397,7 @@ function RoutingBuilderInner() {
 
               {/* Canvas */}
               <div style={{ flex: 1, position: 'relative' }}>
-                {bgImageUrl && (
+                {bgImageUrl && bgVisible && (
                   <div style={{
                     position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
                     backgroundImage: `url(${bgImageUrl})`,
@@ -2525,7 +2422,6 @@ function RoutingBuilderInner() {
                     <ExpandAllControl />
                     <MiniMapControl />
                     <GatherControl />
-                    <AutoEdgeControl />
                   </Controls>
                   {showMiniMap && <MiniMap nodeStrokeWidth={3} style={{ bottom: 16, right: 16, background: '#FAFAFA', border: '1px solid #E0E0E0' }} zoomable pannable />}
                 </ReactFlow>

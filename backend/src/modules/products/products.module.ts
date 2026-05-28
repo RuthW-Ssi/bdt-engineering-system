@@ -4,11 +4,12 @@ import { ProductsController } from './products.controller'
 import { ProductCodeGenerator } from './product-code.generator'
 import { MailModule } from '../mail/mail.module'
 import { MasterDataModule } from '../master-data/master-data.module'
+import { ProductLibraryModule } from '../product-library/product-library.module'
 
 @Module({
-  imports: [MailModule, MasterDataModule],
+  imports: [MailModule, MasterDataModule, ProductLibraryModule],
   controllers: [ProductsController],
   providers: [ProductsService, ProductCodeGenerator],
-  exports: [ProductsService],
+  exports: [ProductsService, ProductCodeGenerator],
 })
 export class ProductsModule {}

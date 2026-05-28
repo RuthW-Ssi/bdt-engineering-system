@@ -102,14 +102,12 @@ function defaultParsed(): ParsedBomFile {
   }
 }
 
-function makeDerivation() {
-  return { deriveForDispatch: jest.fn().mockResolvedValue({ high: 0, medium: 0, low: 0, total: 0 }) }
-}
-
 function makeMatching() {
   return {
     matchAssemblies: jest.fn().mockResolvedValue(undefined),
     matchParts: jest.fn().mockResolvedValue(undefined),
+    enforceStandardIntegrity: jest.fn().mockResolvedValue(undefined),
+    autoCreateCustomProducts: jest.fn().mockResolvedValue(0),
   }
 }
 
@@ -118,7 +116,6 @@ function makeSvc(prismaOverrides: any = {}, parserResult: any = {}) {
     makePrisma(prismaOverrides) as any,
     makeStorage() as any,
     makeParser(parserResult) as any,
-    makeDerivation() as any,
     makeMatching() as any,
   )
 }
@@ -141,7 +138,7 @@ describe('BomUploadService.upload()', () => {
     const prisma = makePrisma()
     const storage = makeStorage()
     const parser = makeParser()
-    const svc = new BomUploadService(prisma as any, storage as any, parser as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, storage as any, parser as any, makeMatching() as any)
 
     await svc.upload([makeFileInput()], 1, 2, null, 99)
 
@@ -172,7 +169,7 @@ describe('BomUploadService.upload()', () => {
       }),
     }
 
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any)
     await svc.upload(
       [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' })],
       1, 2, null, 1,
@@ -197,7 +194,7 @@ describe('BomUploadService.upload()', () => {
     }
 
     const parser = makeParser({ assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] })
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any)
     await svc.upload([makeFileInput()], 1, 2, null, 1)
 
     expect(capturedStatus).toBe('partial')
@@ -207,7 +204,7 @@ describe('BomUploadService.upload()', () => {
     const prisma = {
       $transaction: jest.fn().mockRejectedValue(new Error('DB down')),
     }
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
 
     await expect(svc.upload([makeFileInput()], 1, 2, null, 1)).rejects.toThrow('DB down')
     expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
@@ -236,7 +233,7 @@ describe('BomUploadService.upload()', () => {
 
   it('accepts file with matching .xlsx extension even if MIME is octet-stream', async () => {
     const prisma = makePrisma()
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
     const f = makeFileInput({ mimetype: 'application/octet-stream', originalname: 'assembly_list.xlsx' })
 
     // Should NOT throw — extension override
@@ -268,7 +265,7 @@ describe('BomUploadService.list()', () => {
         ]),
       },
     })
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
     const result = await svc.list({ page: 1, limit: 20 })
 
     expect(result.assembly_total).toBe(4)
@@ -277,7 +274,7 @@ describe('BomUploadService.list()', () => {
 
   it('defaults page=1, limit=20 when not provided', async () => {
     const prisma = makePrisma()
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
     await svc.list({})
 
     expect(prisma.bom_dispatch.findMany).toHaveBeenCalledWith(
@@ -302,7 +299,7 @@ describe('BomUploadService.findOne()', () => {
     const prisma = makePrisma({
       bom_dispatch: { ...makePrisma().bom_dispatch, findUnique: jest.fn().mockResolvedValue(null) },
     })
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
 
     await expect(svc.findOne(999)).rejects.toThrow(NotFoundException)
   })
@@ -328,7 +325,7 @@ describe('BomUploadService.getRevisions()', () => {
         findUnique: jest.fn().mockResolvedValue(null),
       },
     })
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeDerivation() as any, makeMatching() as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
 
     await expect(svc.getRevisions(999)).rejects.toThrow(NotFoundException)
   })
