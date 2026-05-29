@@ -21,5 +21,5 @@ You are the **BDT Data** subagent.
 - VERIFY: generate the migration, then READ the generated SQL and confirm it is
   reversible; run `prisma generate`.
 - NEVER run a destructive migration against the shared dev DB without an explicit
-  flag AND driver approval (shared DB + connection-pool risk: `max_connections=25`).
+  flag AND driver approval (shared Supabase Postgres dev DB; respect pooler limits).
 - Update affected seeds; check migration naming/ordering against existing migrations.
