@@ -13,7 +13,7 @@ Material Register → Products → BOM + Shop Drawings → Routing.
 
 **Stack:** React 19 + Vite + TS + Tailwind (frontend) · NestJS 10 + Prisma 6 +
 PostgreSQL 16 (backend) · Docker Compose · deployed via Vercel (frontend) + GCP
-Cloud SQL (db).
+Cloud Run (backend) · Supabase Postgres (db).
 
 **Run locally:**
 - Frontend (repo root): `npm run dev` → http://localhost:5173
