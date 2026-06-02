@@ -1,8 +1,14 @@
 # ADR-0011 — GCP Cloud SQL as Shared Dev Database
 
 **Date:** 2026-05-07
-**Status:** Accepted
+**Status:** Superseded (2026-05-20) — see banner below
 **Sprint:** 5 (Infra)
+
+> [!warning] Superseded 2026-05-20
+> The dev Cloud SQL instance (`dev-bdt-engineering-db`) was **deleted**. Local dev
+> returned to **Docker Compose Postgres**, and the staging DB moved to **Supabase
+> Free PG 16**. Backend still runs on GCP Cloud Run + Secret Manager. This ADR is
+> kept for history; for the current setup see the wiki `ops/infra.md`.
 
 ---
 

@@ -1,5 +1,12 @@
 # Connection Pool Runbook — Cloud SQL + Prisma
 
+> [!warning] Historical (Cloud SQL retired 2026-05-20)
+> The dev Cloud SQL instance was deleted. Local dev now uses Docker Compose Postgres;
+> staging uses **Supabase** with its **transaction pooler** (`DATABASE_URL`, port 6543)
+> + a **direct connection** (`DIRECT_URL`, port 5432) for migrations — you do NOT tune
+> instance `max_connections` the way you did on Cloud SQL. The numbers below applied to
+> the old Cloud SQL `db-f1-micro` dev DB only. Current model: wiki `ops/infra.md`.
+
 ## Current settings
 
 | Setting | Value | Where |

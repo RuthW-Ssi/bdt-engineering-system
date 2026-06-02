@@ -1,8 +1,9 @@
 # BDT App — Local Dev Setup (macOS, ไม่ใช้ Docker)
 
-> **⚠️ Sprint 5+ primary setup:** โปรเจกต์ย้ายมาใช้ GCP Cloud SQL ตั้งแต่ Sprint 5 แล้ว
-> primary guide คือ **[`docs/onboarding/dev-setup.md`](./onboarding/dev-setup.md)**
-> ไฟล์นี้ใช้สำหรับ **local Postgres fallback เท่านั้น** (offline dev หรือไม่มี GCP access)
+> **ℹ️ ไม่ใช้ Cloud SQL แล้ว (2026-05-20):** Cloud SQL ถูกเลิกใช้ — local dev กลับมาใช้
+> **Docker Compose Postgres** เป็นหลัก, staging = **Supabase**. ภาพรวม infra ปัจจุบัน: wiki `ops/infra.md`.
+> ไฟล์นี้คือคู่มือ local Postgres แบบ **ไม่ใช้ Docker** (ทางเลือกสำหรับ offline/ไม่มี Docker).
+> (`docs/onboarding/dev-setup.md` = Cloud SQL onboarding เดิม — historical)
 
 > **Audience:** Dev เครื่องใหม่ที่ยังไม่มีอะไรเลย — เริ่มจาก clean macOS ไปจนถึงรัน frontend + backend ได้พร้อม data ครบ
 > **Stack:** NestJS 10 + Prisma 6 + Postgres 16 + React 19 + Vite + pnpm
