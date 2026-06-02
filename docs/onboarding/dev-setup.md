@@ -1,9 +1,15 @@
 # Dev Setup Guide — BDT Engineering System
 
+> [!warning] Superseded 2026-05-20
+> This Cloud SQL Auth Proxy onboarding is **historical**. The dev Cloud SQL instance was
+> deleted — **local dev now uses Docker Compose Postgres**, staging uses **Supabase**.
+> For the current setup see the wiki `ops/infra.md` and `docs/DEV_SETUP_LOCAL_MACOS.md`.
+> Kept for history.
+
 Target: new dev fully connected and running CRUD in **< 30 min**.
 
-GCP project: `building-technology-493907`
-Cloud SQL instance: `building-technology-493907:asia-southeast1:dev-bdt-engineering-db`
+GCP project (historical): `building-technology-493907`
+Cloud SQL instance (deleted): `building-technology-493907:asia-southeast1:dev-bdt-engineering-db`
 
 ---
 
