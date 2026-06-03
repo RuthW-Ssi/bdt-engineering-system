@@ -92,6 +92,7 @@ cleaned → `wiki/` · plan & live status → Notion (mirrored to `pm/_snapshots
 | `/new-project` | Scaffold a new project in the knowledge-base |
 | `/test-bom-diff` | Run BOM Diff end-to-end test + generate report |
 | `/bdt-session-driver` | Drive a full work session P0–P5 (recap→gate→select→implement→backfill→close) |
+| `/release-gate` | Release-readiness gate + post-ship doc cascade — dispatches `qa` + `security` in parallel before `devops` commits/pushes. After commit, cascades doc updates via `wiki-integrator` (wiki pages) + `notion-mirror` (Task → Feature → Sprint rollup) + sign-off + log.md + `/sync-sprint` + `/wiki-doctor` verification. Critical/High = BLOCK · Medium = WARN · Low = INFO. Emergency: `--force-ship reason="..."` (logged) |
 
 **Subagents** (`.claude/agents/`):
 
@@ -100,12 +101,81 @@ cleaned → `wiki/` · plan & live status → Notion (mirrored to `pm/_snapshots
 | `wiki-integrator` | Heavy wiki integration (large transcripts) without bloating main context |
 | `notion-mirror` | Notion ↔ snapshot mirroring tasks |
 | `frontend` / `backend` / `data` / `tester` / `devops` | Role implementation subagents dispatched by `/bdt-session-driver` at implement time; each loads its role card in `wiki/tech/roles/` |
+| `security` | **Review-only** role subagent (OWASP API Top 10 2023 baseline) — audits auth, input validation, secrets, file upload, audit log. Does NOT implement fixes; writes findings to `docs/security/findings/` + routes back to fe/be/data/devops |
+| `orchestrator` | **Plan-mode router** — analyzes work request → outputs execution plan YAML. Activated automatically in Plan mode (Shift+Tab). Skipped in Accept-edits mode where `/bdt-session-driver` runs directly. Outputs plan to `outputs/plans/<date>-<slug>.yaml` for user review before exit-plan-mode |
+| `qa` | **Release-readiness reviewer** — dispatched at `/release-gate` (parallel with `security`). Reads `wiki/tech/testing/per-feature/<feature>.md` + Notion DoD + manual test evidence. Returns PASS/WARN/BLOCK with findings to `docs/qa/findings/` + sign-off to `docs/qa/sign-offs/`. Critical/High = BLOCK · Medium = WARN · Low = INFO |
 
 Closure uses the global `/wrap-up` skill (not a project command).
 
-> The session-driver system is **live**: `/bdt-session-driver` (command) + 5 role
-> subagents + role cards in `wiki/tech/roles/` + the Wiki Write Gate. Design spec:
+> The session-driver system is **live**: `/bdt-session-driver` (command) + 8 subagents
+> (5 implementation + 2 review-only [security + qa] + 1 plan-mode router) + role cards
+> in `wiki/tech/roles/` + the Wiki Write Gate. Design spec:
 > `docs/superpowers/specs/2026-05-29-bdt-session-driver-skill-design.md`.
+
+## 5.1 Mode-aware dispatch
+
+The agent system respects Claude Code's mode signal:
+
+- **Accept edits mode (⏵⏵)** → `/bdt-session-driver` invoked directly · fast path · no orchestrator hop
+- **Plan mode (⏸)** → `orchestrator` subagent activated first · returns execution plan YAML
+  → user reviews plan → exits Plan mode → executes via `/bdt-session-driver` with plan as
+  pre-loaded context
+
+Mode signal = user intent: "ลุยเลย" vs "วางแผนก่อน". Orchestrator never executes;
+session-driver never plans without execution. The two roles are non-overlapping.
+
+## 5.2 Release Gate workflow
+
+Commit/push to `main` is gated by `/release-gate` — never direct git commit/push.
+
+**Flow:**
+```
+P0-P5 done → user manual test → user: "commit + push"
+   ↓
+[/release-gate triggered]
+   ↓
+qa subagent + security subagent (parallel)
+  - qa reads:  wiki/tech/testing/per-feature/<feature>.md + Notion DoD + manual evidence
+  - security reads:  changed code + OWASP API Top 10 2023 checklist
+  ↓
+Aggregate findings:
+  - Critical/High from either → BLOCK · route fix back · ABORT
+  - Medium → WARN · ask user · proceed only if explicit OK
+  - Low/none → PASS
+  ↓
+devops subagent: git add <explicit paths> · git commit · git push
+   ↓
+Update Notion task: Done + completion notes · Append log.md
+```
+
+**Severity rules:**
+- 🔴 **Critical** (data leak · auth bypass · RCE · hardcoded creds) → BLOCK
+- 🟠 **High** (missing JWT guard · DTO validation absent · file upload missing checks) → BLOCK
+- 🟡 **Medium** (no rate limit · console.log of PII · weak error handling) → WARN
+- 🟢 **Low** (style · naming · doc gap) → INFO
+
+**Emergency override:** `/release-gate --force-ship reason="..."` — logged in `log.md` with reason · reviewed in retrospective.
+
+**Tester ↔ QA hand-off:**
+- Tester writes wiki summary at `wiki/tech/testing/per-feature/<feature>.md` (mandatory per tester DoD)
+- QA reads this single page (not `*.spec.ts` line-by-line)
+- If wiki summary missing → QA returns BLOCK + routes fix to tester (tester DoD violation)
+
+**Post-ship docs cascade (Step 6 of `/release-gate`):**
+
+After devops commits/pushes successfully, `/release-gate` automatically cascades doc updates:
+
+| sub-step | action | who does it |
+|---|---|---|
+| 6.1 | Wiki page updates (features · api · data-model · decisions · risk-register) | `wiki-integrator` via Wiki Write Gate |
+| 6.2 | Notion 3-level cascade (Task → Feature → Sprint rollup) | `notion-mirror` |
+| 6.3 | Sign-off file + log.md audit entry | release-gate command directly |
+| 6.4 | `/sync-sprint` to refresh Notion snapshot | command call |
+| 6.5 | `/wiki-doctor` verification (broken links · orphans) | command call |
+| 6.6 | Final summary panel to user | release-gate command directly |
+
+No doc layer is left behind — commit is necessary but not sufficient. The full
+ship is "code committed + Notion Done + wiki updated + audited".
 
 ---
 
