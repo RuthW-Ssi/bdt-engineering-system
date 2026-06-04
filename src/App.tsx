@@ -28,6 +28,7 @@ import { BindingRuleManager } from './pages/BindingRuleManager'
 import { BulkOverrideAdmin } from './pages/BulkOverrideAdmin'
 import OperationLibraryList from './pages/OperationLibraryList'
 import OperationBuilder from './pages/OperationBuilder'
+import { Dashboard } from './pages/Dashboard'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -51,8 +52,8 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route index element={<Navigate to="/materials" replace />} />
-            <Route path="/dashboard" element={<Placeholder title="Dashboard" />} />
+            <Route index element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/customers" element={<CustomerList />} />
             <Route path="/projects" element={<ProjectList />} />
             <Route path="/zones" element={<ZoneList />} />
