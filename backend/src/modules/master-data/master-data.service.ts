@@ -8,15 +8,14 @@ export class MasterDataService {
   getUoms() {
     return this.prisma.uom_uom.findMany({
       where: { active: true },
-      include: { category: true },
-      orderBy: [{ category_id: 'asc' }, { name: 'asc' }],
+      orderBy: { name: 'asc' },
     })
   }
 
   getCategories() {
     return this.prisma.product_category.findMany({
       where: { active: true },
-      include: { account: true, parent: { select: { id: true, name: true } } },
+      include: { parent: { select: { id: true, name: true } } },
       orderBy: { group_no: 'asc' },
     })
   }
