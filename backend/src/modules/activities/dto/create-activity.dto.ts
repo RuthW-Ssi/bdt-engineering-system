@@ -10,12 +10,14 @@ export class CreateActivityDto {
 
   @ApiProperty({ description: 'FK → equipment_resource.id', example: 5 })
   @IsInt()
+  @Min(1)
   machine_id: number
 
   @ApiPropertyOptional({ description: 'FK → materials.id list (consumed materials, no qty)', example: [12, 34] })
   @IsOptional()
   @IsArray()
   @IsInt({ each: true })
+  @Min(1, { each: true })
   consumes?: number[]
 
   @ApiProperty({ description: 'Duration in minutes (≥ 0)', example: 5.5 })
