@@ -28,6 +28,8 @@ import { BindingRuleManager } from './pages/BindingRuleManager'
 import { BulkOverrideAdmin } from './pages/BulkOverrideAdmin'
 import OperationLibraryList from './pages/OperationLibraryList'
 import OperationBuilder from './pages/OperationBuilder'
+import { ActivityLibraryList } from './pages/ActivityLibraryList'
+import { ActivityBuilder } from './pages/ActivityBuilder'
 import { Dashboard } from './pages/Dashboard'
 
 function Placeholder({ title }: { title: string }) {
@@ -81,6 +83,9 @@ export default function App() {
             <Route path="/admin/operation-library" element={<OperationLibraryList />} />
             <Route path="/admin/operation-library/new" element={<OperationBuilder />} />
             <Route path="/admin/operation-library/:id/edit" element={<OperationBuilder />} />
+            <Route path="/activity-library" element={<ActivityLibraryList />} />
+            <Route path="/activity-library/new" element={<ActivityBuilder />} />
+            <Route path="/activity-library/:id/edit" element={<ActivityBuilder />} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />
