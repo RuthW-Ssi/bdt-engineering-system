@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ActivityCodeGenerator } from './activity-code.generator'
-import { CreateActivityDto } from './dto/create-activity.dto'
+import { CreateActivityDto, LaborEntryDto } from './dto/create-activity.dto'
 import { UpdateActivityDto } from './dto/update-activity.dto'
 import { QueryActivityDto } from './dto/query-activity.dto'
 
@@ -10,6 +10,11 @@ const INCLUDE = {
   consumes: {
     include: {
       material: { select: { id: true, default_code: true, name: true } },
+    },
+  },
+  labors: {
+    include: {
+      labor_resource: { select: { id: true, code: true, name: true } },
     },
   },
 } as const
@@ -42,9 +47,9 @@ export class ActivitiesService {
   }
 
   async create(dto: CreateActivityDto, userId: number) {
-    // Validate outside transaction (read-only checks — no need to hold lock)
     await this.validateMachine(dto.machine_id)
     const consumeIds = await this.resolveConsumes(dto.consumes)
+    const laborEntries = await this.resolveLabors(dto.labors)
 
     return this.prisma.$transaction(async (tx) => {
       const activity_code = await this.codeGen.generate(tx)
@@ -59,6 +64,9 @@ export class ActivitiesService {
           consumes: {
             create: consumeIds.map((material_id) => ({ material_id })),
           },
+          labors: {
+            create: laborEntries.map(({ labor_resource_id, qty }) => ({ labor_resource_id, qty })),
+          },
         },
         include: INCLUDE,
       })
@@ -70,6 +78,8 @@ export class ActivitiesService {
     if (dto.machine_id !== undefined) await this.validateMachine(dto.machine_id)
     const consumeIds =
       dto.consumes !== undefined ? await this.resolveConsumes(dto.consumes) : undefined
+    const laborEntries =
+      dto.labors !== undefined ? await this.resolveLabors(dto.labors) : undefined
     return this.prisma.activity.update({
       where: { id },
       data: {
@@ -82,6 +92,14 @@ export class ActivitiesService {
               consumes: {
                 deleteMany: {},
                 create: consumeIds.map((material_id) => ({ material_id })),
+              },
+            }
+          : {}),
+        ...(laborEntries !== undefined
+          ? {
+              labors: {
+                deleteMany: {},
+                create: laborEntries.map(({ labor_resource_id, qty }) => ({ labor_resource_id, qty })),
               },
             }
           : {}),
@@ -112,5 +130,21 @@ export class ActivitiesService {
       throw new BadRequestException(`Material ids not found: ${missing.join(', ')}`)
     }
     return unique
+  }
+
+  private async resolveLabors(
+    entries: LaborEntryDto[] | undefined,
+  ): Promise<{ labor_resource_id: number; qty: number }[]> {
+    if (!entries || entries.length === 0) return []
+    const uniqueIds = [...new Set(entries.map((e) => e.id))]
+    const found = await this.prisma.equipment_resource.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    })
+    if (found.length !== uniqueIds.length) {
+      const missing = uniqueIds.filter((id) => !found.find((r) => r.id === id))
+      throw new BadRequestException(`Labor resource ids not found: ${missing.join(', ')}`)
+    }
+    return entries.map((e) => ({ labor_resource_id: e.id, qty: e.qty }))
   }
 }

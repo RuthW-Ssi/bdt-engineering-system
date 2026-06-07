@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength } from 'class-validator'
+import { IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
+
+export class LaborEntryDto {
+  @IsInt()
+  @Min(1)
+  id: number
+
+  @IsInt()
+  @Min(1)
+  qty: number
+}
 
 export class CreateActivityDto {
   @ApiProperty({ description: 'ชื่อกิจกรรม (max 120)', example: 'Cut H-beam web plate' })
@@ -20,6 +30,13 @@ export class CreateActivityDto {
   @IsInt({ each: true })
   @Min(1, { each: true })
   consumes?: number[]
+
+  @ApiPropertyOptional({ description: 'Labor resources with quantity', example: [{ id: 1, qty: 2 }] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LaborEntryDto)
+  labors?: LaborEntryDto[]
 
   @ApiProperty({ description: 'Duration in minutes (≥ 0)', example: 5.5 })
   @IsNumber()

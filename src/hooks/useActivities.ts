@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { activitiesApi, CreateActivityPayload } from '../api/activities'
+import { activitiesApi } from '../api/activities'
+import type { CreateActivityPayload } from '../api/activities'
 
 export function useActivities(params?: Parameters<typeof activitiesApi.list>[0]) {
   return useQuery({

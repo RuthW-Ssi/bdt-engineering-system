@@ -16,12 +16,18 @@ export interface ActivityConsumeDto {
   material: ActivityMaterialDto
 }
 
+export interface ActivityLaborDto {
+  labor_resource: ActivityMachineDto
+  qty: number
+}
+
 export interface ActivityDto {
   id: number
   activity_code: string
   name: string
   machine: ActivityMachineDto
   consumes: ActivityConsumeDto[]
+  labors: ActivityLaborDto[]
   duration_min: string
   create_uid: number
   create_date: string
@@ -34,6 +40,7 @@ export interface CreateActivityPayload {
   machine_id: number
   duration_min: number
   consumes?: number[]
+  labors?: { id: number; qty: number }[]
 }
 
 export const activitiesApi = {

@@ -1305,6 +1305,7 @@ model equipment_resource {
   routing_op_act_consumables    routing_op_act_consumable[]   @relation("RoutingOpActConsumableResource")
   // Sprint 12: Activity Library
   activities                    activity[]                    @relation("activity_machine")
+  activity_labors               activity_labor[]              @relation("activity_labor_resource")
 }
 
 model op_act_tool {
@@ -1349,6 +1350,7 @@ model activity {
   write_user    res_users          @relation("activity_write_user", fields: [write_uid], references: [id])
   write_date    DateTime           @updatedAt @db.Timestamptz
   consumes      activity_consume[]
+  labors        activity_labor[]
 
   @@index([machine_id])
   @@index([name])
@@ -1362,6 +1364,17 @@ model activity_consume {
 
   @@id([activity_id, material_id])
   @@index([material_id])
+}
+
+model activity_labor {
+  activity_id        Int
+  labor_resource_id  Int
+  qty                Int               @default(1)
+  activity           activity          @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  labor_resource     equipment_resource @relation("activity_labor_resource", fields: [labor_resource_id], references: [id])
+
+  @@id([activity_id, labor_resource_id])
+  @@index([labor_resource_id])
 }
 
 model activity_code_seq {

@@ -1,5 +1,5 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Clock } from 'lucide-react'
 import { useActivities, useDeleteActivity } from '../hooks/useActivities'
 
 export function ActivityLibraryList() {
@@ -63,8 +63,8 @@ export function ActivityLibraryList() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
 
         {/* Header row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 120px 1fr 110px 100px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
-          {['Code', 'Name', 'Machine', 'Consumes', 'Duration (min)', ''].map((h) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 110px 1fr 80px 90px 90px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
+          {['Code', 'Name', 'Machine', 'Consumes', 'Labor', 'Duration', ''].map((h) => (
             <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
           ))}
         </div>
@@ -82,7 +82,7 @@ export function ActivityLibraryList() {
             <div
               key={act.id}
               style={{
-                display: 'grid', gridTemplateColumns: '140px 1fr 120px 1fr 110px 100px', gap: 12,
+                display: 'grid', gridTemplateColumns: '130px 1fr 110px 1fr 80px 90px 90px', gap: 12,
                 padding: '0 16px', height: 52, alignItems: 'center',
                 background: '#fff', borderRadius: 8, marginBottom: 4,
                 border: '1px solid #E8E8E8',
@@ -97,7 +97,22 @@ export function ActivityLibraryList() {
               <div style={{ fontSize: 11, color: '#8E8E8E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {act.consumes.length > 0 ? act.consumes.map((c) => c.material.name).join(', ') : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
-              <div style={{ fontSize: 13, color: '#1F1F1F' }}>{act.duration_min}</div>
+              <div style={{ fontSize: 11, color: '#1B5E20', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {act.labors && act.labors.length > 0
+                  ? act.labors.map((l) => `${l.labor_resource.code} ×${l.qty}`).join(', ')
+                  : <span style={{ color: '#BDBDBD' }}>—</span>}
+              </div>
+              <div>
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 4,
+                  background: '#E8F5E9', color: '#1B5E20',
+                  borderRadius: 20, padding: '3px 9px',
+                  fontSize: 11, fontWeight: 600, border: '1px solid #A5D6A7',
+                }}>
+                  <Clock size={10} />
+                  {act.duration_min} min
+                </span>
+              </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
                 <button
                   onClick={() => navigate(`/activity-library/${act.id}/edit`)}
