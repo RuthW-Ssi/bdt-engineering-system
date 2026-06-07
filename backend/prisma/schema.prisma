@@ -74,6 +74,10 @@ model res_users {
   bom_parts_written       bom_part[]          @relation("part_write")
   bom_doc_revs_created    bom_doc_revision[]  @relation("docrev_create")
   bom_asm_parts_created   bom_assembly_part[] @relation("asmpart_create")
+
+  // Sprint 12: Activity Library
+  activities_created      activity[]          @relation("activity_create_user")
+  activities_written      activity[]          @relation("activity_write_user")
 }
 
 model uom_uom {
@@ -149,6 +153,8 @@ model materials {
   material_requirements dispatch_material_requirement[]  @relation("MaterialRequirements")
   assembly_welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfigMaterial")
   welding_requirements  dispatch_welding_requirement[]   @relation("WeldingRequirements")
+  // Sprint 12: Activity Library
+  activity_consumes     activity_consume[]
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -1297,6 +1303,8 @@ model equipment_resource {
   routing_op_act_machine_uses   routing_op_activity[]         @relation("RoutingOpActMachine")
   routing_op_act_tools          routing_op_act_tool[]         @relation("RoutingOpActToolResource")
   routing_op_act_consumables    routing_op_act_consumable[]   @relation("RoutingOpActConsumableResource")
+  // Sprint 12: Activity Library
+  activities                    activity[]                    @relation("activity_machine")
 }
 
 model op_act_tool {
@@ -1321,4 +1329,42 @@ model op_act_consumable {
 
   @@unique([activity_id, resource_id])
   @@index([activity_id])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 12: Activity Library
+// ═══════════════════════════════════════════════════════════════
+
+model activity {
+  id            Int                @id @default(autoincrement())
+  activity_code String             @unique @db.VarChar(20)
+  name          String             @db.VarChar(120)
+  machine_id    Int
+  machine       equipment_resource @relation("activity_machine", fields: [machine_id], references: [id])
+  duration_min  Decimal            @db.Decimal(10, 2)
+  create_uid    Int
+  create_user   res_users          @relation("activity_create_user", fields: [create_uid], references: [id])
+  create_date   DateTime           @default(now()) @db.Timestamptz
+  write_uid     Int
+  write_user    res_users          @relation("activity_write_user", fields: [write_uid], references: [id])
+  write_date    DateTime           @updatedAt @db.Timestamptz
+  consumes      activity_consume[]
+
+  @@index([machine_id])
+  @@index([name])
+}
+
+model activity_consume {
+  activity_id Int
+  material_id Int
+  activity    activity  @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  material    materials @relation(fields: [material_id], references: [id])
+
+  @@id([activity_id, material_id])
+  @@index([material_id])
+}
+
+model activity_code_seq {
+  id       Int @id
+  next_val Int @default(1)
 }
