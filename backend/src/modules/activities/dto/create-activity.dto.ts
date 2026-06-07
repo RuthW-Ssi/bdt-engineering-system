@@ -1,10 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsInt, IsString, IsOptional, IsArray, IsNumber, Min, MaxLength } from 'class-validator'
+import { IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength } from 'class-validator'
 import { Type } from 'class-transformer'
 
 export class CreateActivityDto {
   @ApiProperty({ description: 'ชื่อกิจกรรม (max 120)', example: 'Cut H-beam web plate' })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(120)
   name: string
 

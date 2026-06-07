@@ -30,6 +30,7 @@ export class ActivitiesService {
         ...(material_id ? { consumes: { some: { material_id } } } : {}),
       },
       orderBy: { activity_code: 'asc' },
+      take: 500,
       include: INCLUDE,
     })
   }
@@ -41,22 +42,26 @@ export class ActivitiesService {
   }
 
   async create(dto: CreateActivityDto, userId: number) {
+    // Validate outside transaction (read-only checks — no need to hold lock)
     await this.validateMachine(dto.machine_id)
     const consumeIds = await this.resolveConsumes(dto.consumes)
-    const activity_code = await this.codeGen.generate()
-    return this.prisma.activity.create({
-      data: {
-        activity_code,
-        name: dto.name,
-        machine_id: dto.machine_id,
-        duration_min: dto.duration_min,
-        create_uid: userId,
-        write_uid: userId,
-        consumes: {
-          create: consumeIds.map((material_id) => ({ material_id })),
+
+    return this.prisma.$transaction(async (tx) => {
+      const activity_code = await this.codeGen.generate(tx)
+      return tx.activity.create({
+        data: {
+          activity_code,
+          name: dto.name,
+          machine_id: dto.machine_id,
+          duration_min: dto.duration_min,
+          create_uid: userId,
+          write_uid: userId,
+          consumes: {
+            create: consumeIds.map((material_id) => ({ material_id })),
+          },
         },
-      },
-      include: INCLUDE,
+        include: INCLUDE,
+      })
     })
   }
 
@@ -92,7 +97,7 @@ export class ActivitiesService {
 
   private async validateMachine(machine_id: number) {
     const machine = await this.prisma.equipment_resource.findUnique({ where: { id: machine_id } })
-    if (!machine) throw new BadRequestException(`equipment_resource ${machine_id} not found`)
+    if (!machine) throw new BadRequestException(`Machine ${machine_id} not found`)
   }
 
   private async resolveConsumes(ids: number[] | undefined): Promise<number[]> {
