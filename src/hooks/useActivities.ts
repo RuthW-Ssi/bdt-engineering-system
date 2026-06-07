@@ -30,7 +30,6 @@ export function useUpdateActivity(id: number) {
     mutationFn: (payload: Partial<CreateActivityPayload>) => activitiesApi.update(id, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['activities'] })
-      qc.invalidateQueries({ queryKey: ['activities', id] })
     },
   })
 }

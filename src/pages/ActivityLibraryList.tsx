@@ -38,7 +38,7 @@ export function ActivityLibraryList() {
           onClick={() => navigate('/activity-library/new')}
           style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
         >
-          <Plus size={14} />New Activity
+          <Plus size={14} />Add Activity
         </button>
       </div>
 
@@ -47,7 +47,7 @@ export function ActivityLibraryList() {
         <div style={{ position: 'relative' }}>
           <Search size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
           <input
-            defaultValue={q}
+            value={q ?? ''}
             onChange={(e) => handleSearch(e.target.value)}
             placeholder="Search by name…"
             style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px 0 28px', height: 30, fontSize: 12, outline: 'none', fontFamily: 'inherit', width: 220 }}

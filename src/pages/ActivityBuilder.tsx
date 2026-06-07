@@ -38,7 +38,7 @@ export function ActivityBuilder() {
   const isEdit = activityId !== undefined
   const navigate = useNavigate()
 
-  const { data: existing } = useActivity(activityId)
+  const { data: existing, isLoading: isLoadingExisting } = useActivity(activityId)
   const createMutation = useCreateActivity()
   const updateMutation = useUpdateActivity(activityId ?? 0)
 
@@ -80,6 +80,10 @@ export function ActivityBuilder() {
   }
 
   const error = createMutation.error || updateMutation.error
+
+  if (isEdit && isLoadingExisting) {
+    return <div className="p-8 text-center">Loading…</div>
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'inherit', background: '#F8F8F8' }}>
