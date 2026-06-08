@@ -14,7 +14,6 @@ export interface CreateOpTemplateActivityDto {
   measure: string
   unit?: string
   per_minute?: number
-  source_activity_template_id?: number
   machine_id?: number | null
   tool_ids?: number[]
   consumables?: ConsumableInput[]
@@ -44,7 +43,7 @@ export interface UpdateOperationTemplateDto {
   activities?: CreateOpTemplateActivityDto[]
 }
 
-const RESOURCE_SELECT = { select: { id: true, code: true, name: true, type: true } }
+const RESOURCE_SELECT = { select: { id: true, code: true, name: true, type: true } } as const
 
 const FULL_INCLUDE = {
   workcenter: { select: { id: true, code: true, name: true } },
@@ -52,12 +51,34 @@ const FULL_INCLUDE = {
   activities: {
     orderBy: { sequence: 'asc' as const },
     include: {
-      source_activity_template: { select: { id: true, op_code: true, description: true } },
       tools:       { include: { resource: RESOURCE_SELECT } },
       consumables: { include: { resource: RESOURCE_SELECT } },
     },
   },
 }
+
+const OP_ACT_INCLUDE = {
+  machine:      { select: { id: true, code: true, name: true, type: true } },
+  tools:        { include: { resource: RESOURCE_SELECT } },
+  consumables:  { include: { resource: RESOURCE_SELECT } },
+  labors:       { include: { labor_resource: RESOURCE_SELECT } },
+  op_materials: { include: { material: { select: { id: true, default_code: true, name: true } } } },
+  source_activity: { select: { activity_code: true, write_date: true } },
+} as const
+
+const FULL_INCLUDE_WITH_STALE = {
+  ...FULL_INCLUDE,
+  activities: {
+    orderBy: { sequence: 'asc' as const },
+    include: {
+      tools:           { include: { resource: RESOURCE_SELECT } },
+      consumables:     { include: { resource: RESOURCE_SELECT } },
+      source_activity: { select: { activity_code: true, write_date: true } },
+      labors:          { include: { labor_resource: RESOURCE_SELECT } },
+      op_materials:    { include: { material: { select: { id: true, default_code: true, name: true } } } },
+    },
+  },
+} as const
 
 @Injectable()
 export class OperationTemplateService {
@@ -83,10 +104,25 @@ export class OperationTemplateService {
     })
   }
 
-  async findOne(id: number) {
-    const tpl = await this.prisma.operation_template.findUnique({ where: { id }, include: FULL_INCLUDE })
+  async findOne(id: number, staleCheck = false) {
+    if (!staleCheck) {
+      const tpl = await this.prisma.operation_template.findUnique({ where: { id }, include: FULL_INCLUDE })
+      if (!tpl) throw new NotFoundException(`Operation template ${id} not found`)
+      return tpl
+    }
+    const tpl = await this.prisma.operation_template.findUnique({ where: { id }, include: FULL_INCLUDE_WITH_STALE })
     if (!tpl) throw new NotFoundException(`Operation template ${id} not found`)
-    return tpl
+    return {
+      ...tpl,
+      activities: tpl.activities.map(act => ({
+        ...act,
+        source_activity_code: act.source_activity?.activity_code ?? null,
+        is_stale:
+          act.source_activity !== null && act.snapshot_at !== null
+            ? act.source_activity.write_date > act.snapshot_at
+            : false,
+      })),
+    }
   }
 
   async create(dto: CreateOperationTemplateDto, userId: number) {
@@ -121,7 +157,6 @@ export class OperationTemplateService {
               unit:       a.unit       ?? null,
               per_minute: a.per_minute ?? null,
               machine_id: a.machine_id ?? null,
-              source_activity_template_id: a.source_activity_template_id ?? null,
               sequence: a.sequence ?? (i + 1) * 10,
             })),
           } : undefined,
@@ -159,7 +194,6 @@ export class OperationTemplateService {
               unit:       a.unit       ?? null,
               per_minute: a.per_minute ?? null,
               machine_id: a.machine_id ?? null,
-              source_activity_template_id: a.source_activity_template_id ?? null,
               sequence: a.sequence ?? (i + 1) * 10,
             })),
           })
@@ -208,6 +242,114 @@ export class OperationTemplateService {
   async remove(id: number) {
     await this.findOne(id)
     return this.prisma.operation_template.delete({ where: { id } })
+  }
+
+  async addFromLibrary(templateId: number, activityId: number) {
+    await this.prisma.operation_template.findUniqueOrThrow({ where: { id: templateId }, select: { id: true } })
+      .catch(() => { throw new NotFoundException(`Operation template ${templateId} not found`) })
+
+    const src = await this.prisma.activity.findUnique({
+      where: { id: activityId },
+      include: { consumes: true, labors: true },
+    })
+    if (!src) throw new NotFoundException(`Activity ${activityId} not found`)
+
+    const agg = await this.prisma.operation_template_activity.aggregate({
+      where: { operation_template_id: templateId },
+      _max: { sequence: true },
+    })
+    const nextSeq = (agg._max.sequence ?? 0) + 10
+
+    const created = await this.prisma.$transaction(async tx => {
+      const opAct = await tx.operation_template_activity.create({
+        data: {
+          operation_template_id: templateId,
+          sequence:              nextSeq,
+          name:                  src.name,
+          measure:               src.activity_code,   // NOT NULL constraint — use activity_code
+          per_minute:            src.duration_min,
+          machine_id:            src.machine_id,
+          source_activity_id:    src.id,
+          snapshot_at:           new Date(),
+        },
+      })
+      if (src.labors.length) {
+        await tx.op_act_labor.createMany({
+          data: src.labors.map(l => ({
+            op_act_id:         opAct.id,
+            labor_resource_id: l.labor_resource_id,
+            qty:               l.qty,
+          })),
+          skipDuplicates: true,
+        })
+      }
+      if (src.consumes.length) {
+        await tx.op_act_material.createMany({
+          data: src.consumes.map(c => ({
+            op_act_id:   opAct.id,
+            material_id: c.material_id,
+          })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.operation_template_activity.findUniqueOrThrow({
+        where: { id: opAct.id },
+        include: OP_ACT_INCLUDE,
+      })
+    })
+
+    return { ...created, is_stale: false, source_activity_code: src.activity_code }
+  }
+
+  async updateFromLibrary(templateId: number, opActId: number) {
+    const opAct = await this.prisma.operation_template_activity.findUnique({
+      where: { id: opActId },
+      select: { id: true, source_activity_id: true, operation_template_id: true },
+    })
+    if (!opAct || opAct.operation_template_id !== templateId)
+      throw new NotFoundException(`Activity row ${opActId} not found on template ${templateId}`)
+    if (!opAct.source_activity_id)
+      throw new BadRequestException('Activity has no linked source — cannot update from library')
+
+    const src = await this.prisma.activity.findUniqueOrThrow({
+      where: { id: opAct.source_activity_id },
+      include: { consumes: true, labors: true },
+    })
+
+    const updated = await this.prisma.$transaction(async tx => {
+      await tx.operation_template_activity.update({
+        where: { id: opActId },
+        data: {
+          name:        src.name,
+          measure:     src.activity_code,
+          per_minute:  src.duration_min,
+          machine_id:  src.machine_id,
+          snapshot_at: new Date(),
+        },
+      })
+      await tx.op_act_labor.deleteMany({ where: { op_act_id: opActId } })
+      await tx.op_act_material.deleteMany({ where: { op_act_id: opActId } })
+      if (src.labors.length) {
+        await tx.op_act_labor.createMany({
+          data: src.labors.map(l => ({
+            op_act_id: opActId, labor_resource_id: l.labor_resource_id, qty: l.qty,
+          })),
+          skipDuplicates: true,
+        })
+      }
+      if (src.consumes.length) {
+        await tx.op_act_material.createMany({
+          data: src.consumes.map(c => ({ op_act_id: opActId, material_id: c.material_id })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.operation_template_activity.findUniqueOrThrow({
+        where: { id: opActId },
+        include: OP_ACT_INCLUDE,
+      })
+    })
+
+    return { ...updated, is_stale: false, source_activity_code: src.activity_code }
   }
 
   private async assertWorkcenters(ids: (number | null | undefined)[]) {
