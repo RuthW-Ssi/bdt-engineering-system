@@ -1,25 +1,27 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, Plus, Save, Search, X } from 'lucide-react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { AlertCircle, ArrowLeft, Check, Plus, Save, X } from 'lucide-react'
 import { apiClient } from '../api/client'
+import ActivityLibraryPanel from '../components/operations/ActivityLibraryPanel'
+import StaleBadge from '../components/operations/StaleBadge'
+import StaleDiffModal from '../components/operations/StaleDiffModal'
+import { useOperationTemplate } from '../hooks/useOperationTemplates'
 
 // ── Types ──────────────────────────────────────────────────────
 
 interface WorkcenterItem { id: number; code: string; name: string }
 interface OpTypeItem { id: number; key: string; label: string; color: string; default_wc_id: number | null; default_wc: { id: number; code: string; name: string } | null }
 
-interface ActivityTemplateItem {
-  id: number; op_code: string; description: string
-  formula_param_code: string; std_measure: number | null; unit: string | null; per_minute: number | null
-}
-
 interface ConsumableFormItem { resource_id: number; qty: string; unit: string }
 
 interface FormActivity {
+  id?: number
   localId: string
   name: string; measure: string; unit: string; per_minute: string; std_measure: string
-  source_activity_template_id: number | null
+  source_activity_id: number | null
+  source_activity_code: string | null
+  is_stale: boolean
   machine_id: number | null
   tool_ids: number[]
   consumables: ConsumableFormItem[]
@@ -60,186 +62,6 @@ const label: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#9E9
 const input: React.CSSProperties = { width: '100%', border: '1px solid #E0E0E0', borderRadius: 6, padding: '7px 10px', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }
 const selectStyle: React.CSSProperties = { ...input, cursor: 'pointer', background: '#fff' }
 
-// ── ActivityLibrary (right panel) ─────────────────────────────
-
-function ActivityLibraryPanel({
-  activities, onAdd, workcenters, workcenter_id,
-}: { activities: FormActivity[]; onAdd: (a: FormActivity) => void; workcenters: WorkcenterItem[]; workcenter_id: number | '' }) {
-  const queryClient = useQueryClient()
-  const [search, setSearch] = useState('')
-  const [filterChip, setFilterChip] = useState('All')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-
-  const { data: items = [], isLoading } = useQuery<ActivityTemplateItem[]>({
-    queryKey: ['activity-templates-all'],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/activity-templates', { params: { limit: 300 } })
-      return data.items ?? data ?? []
-    },
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const chips = ['All', ...Array.from(new Set(items.map(i => i.op_code))).sort()]
-
-  const q = search.trim().toLowerCase()
-  const filtered = items.filter(item => {
-    const matchChip = filterChip === 'All' || item.op_code === filterChip
-    const matchSearch = !q || item.description.toLowerCase().includes(q) || item.op_code.toLowerCase().includes(q)
-    return matchChip && matchSearch
-  })
-
-  const groups: Record<string, ActivityTemplateItem[]> = {}
-  for (const item of filtered) {
-    if (!groups[item.op_code]) groups[item.op_code] = []
-    groups[item.op_code].push(item)
-  }
-
-  const addedIds = new Set(activities.map(a => a.source_activity_template_id).filter(Boolean))
-
-  // ── Inline new-activity-template form ──
-  const [showNewAct, setShowNewAct] = useState(false)
-  const [newAct, setNewAct] = useState({ description: '', op_code: '', formula_param_code: '', per_minute: '', std_measure: '', unit: '', workcenter_id: '' })
-  const patchAct = (p: Partial<typeof newAct>) => setNewAct(a => ({ ...a, ...p }))
-  const newActReady = !!(newAct.description.trim() && newAct.op_code.trim() && newAct.formula_param_code.trim() && newAct.per_minute && newAct.unit.trim() && (newAct.workcenter_id || workcenter_id))
-  const newActMut = useMutation({
-    mutationFn: () => apiClient.post('/activity-templates', {
-      description: newAct.description.trim(),
-      op_code: newAct.op_code.trim().toLowerCase(),
-      formula_param_code: newAct.formula_param_code.trim(),
-      per_minute: Number(newAct.per_minute),
-      std_measure: newAct.std_measure ? Number(newAct.std_measure) : 0,
-      unit: newAct.unit.trim(),
-      workcenter_id: Number(newAct.workcenter_id || workcenter_id),
-    }).then(r => r.data),
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['activity-templates-all'] })
-      onAdd({ localId: String(Date.now()), name: created.description, measure: created.formula_param_code, unit: created.unit ?? '', per_minute: created.per_minute ? String(created.per_minute) : '', std_measure: created.std_measure != null ? String(created.std_measure) : '', source_activity_template_id: created.id, machine_id: null, tool_ids: [], consumables: [] })
-      setNewAct({ description: '', op_code: '', formula_param_code: '', per_minute: '', std_measure: '', unit: '', workcenter_id: '' })
-      setShowNewAct(false)
-    },
-  })
-
-  const sInp: React.CSSProperties = { border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '14px 14px 10px', flexShrink: 0, borderBottom: '1px solid #F0F0F0' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#1F1F1F', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <BookOpen size={13} style={{ color: '#9E9E9E' }} />Activity Library
-          <div style={{ flex: 1 }} />
-          <button onClick={() => setShowNewAct(v => !v)}
-            style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
-              background: showNewAct ? '#FFF0F0' : '#fff', color: showNewAct ? '#C8202A' : '#555', borderColor: showNewAct ? '#C8202A' : '#D0D0D0' }}>
-            <Plus size={10} />New Activity
-          </button>
-        </div>
-
-        {showNewAct && (
-          <div style={{ background: '#FFF8F8', border: '1px solid #FCCACA', borderRadius: 6, padding: 10, marginBottom: 10 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#C8202A', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>New Activity Template</div>
-            <input value={newAct.description} onChange={e => patchAct({ description: e.target.value })} placeholder="Description *"
-              style={{ ...sInp, marginBottom: 6, fontSize: 12 }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
-              <input value={newAct.op_code} onChange={e => patchAct({ op_code: e.target.value })} placeholder="Group (op_code) *" style={sInp} />
-              <input value={newAct.formula_param_code} onChange={e => patchAct({ formula_param_code: e.target.value })} placeholder="Measure *" style={sInp} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 6 }}>
-              <input value={newAct.unit} onChange={e => patchAct({ unit: e.target.value })} placeholder="Unit *" style={sInp} />
-              <input type="number" value={newAct.per_minute} onChange={e => patchAct({ per_minute: e.target.value })} placeholder="/min *" style={sInp} />
-              <input type="number" value={newAct.std_measure} onChange={e => patchAct({ std_measure: e.target.value })} placeholder="Std" style={sInp} />
-            </div>
-            {!workcenter_id && (
-              <select value={newAct.workcenter_id} onChange={e => patchAct({ workcenter_id: e.target.value })}
-                style={{ ...sInp, cursor: 'pointer', background: '#fff', marginBottom: 6 }}>
-                <option value="">— Workcenter * —</option>
-                {workcenters.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
-              </select>
-            )}
-            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowNewAct(false)} style={{ height: 26, padding: '0 10px', borderRadius: 4, border: '1px solid #E0E0E0', background: '#fff', fontSize: 11, cursor: 'pointer', color: '#555' }}>Cancel</button>
-              <button onClick={() => newActMut.mutate()} disabled={!newActReady || newActMut.isPending}
-                style={{ height: 26, padding: '0 10px', borderRadius: 4, border: 'none', background: newActReady ? '#C8202A' : '#E0E0E0', color: newActReady ? '#fff' : '#9E9E9E', fontSize: 11, fontWeight: 600, cursor: newActReady ? 'pointer' : 'not-allowed' }}>
-                {newActMut.isPending ? 'Saving…' : 'Add to Library'}
-              </button>
-            </div>
-            {newActMut.isError && <div style={{ fontSize: 10, color: '#C8202A', marginTop: 4 }}>{(newActMut.error as Error).message}</div>}
-          </div>
-        )}
-
-        <div style={{ position: 'relative', marginBottom: 8 }}>
-          <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activities…"
-            style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px 5px 26px', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-        </div>
-        {/* Filter chips */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {chips.slice(0, 8).map(chip => (
-            <button key={chip} onClick={() => setFilterChip(chip)} style={{
-              height: 22, padding: '0 8px', borderRadius: 11, border: '1px solid', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-              borderColor: filterChip === chip ? '#C8202A' : '#E0E0E0',
-              background: filterChip === chip ? '#C8202A' : '#fff',
-              color: filterChip === chip ? '#fff' : '#8E8E8E',
-            }}>{chip}</button>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ flex: 1, overflowY: 'auto', padding: '8px 14px' }}>
-        {isLoading ? (
-          <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>Loading…</div>
-        ) : filtered.length === 0 ? (
-          <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>No activities found</div>
-        ) : (
-          Object.entries(groups).map(([opCode, acts]) => {
-            const isOpen = !collapsed[opCode]
-            return (
-              <div key={opCode} style={{ marginBottom: 8 }}>
-                <button onClick={() => setCollapsed(c => ({ ...c, [opCode]: !c[opCode] }))}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 2px' }}>
-                  <span style={{ fontSize: 9, fontWeight: 800, color: '#555', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1, textAlign: 'left' }}>{opCode}</span>
-                  <span style={{ fontSize: 9, color: '#9E9E9E' }}>{acts.length}</span>
-                  <ChevronDown size={10} style={{ color: '#BDBDBD', transform: isOpen ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
-                </button>
-                {isOpen && acts.map(act => {
-                  const added = addedIds.has(act.id)
-                  return (
-                    <div key={act.id}
-                      style={{ background: added ? '#FAFAFA' : '#fff', border: `1px solid ${added ? '#F0F0F0' : '#E8E8E8'}`, borderRadius: 5, padding: '6px 8px', marginBottom: 3, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 500, color: added ? '#9E9E9E' : '#1F1F1F', lineHeight: 1.3 }}>{act.description}</div>
-                        <div style={{ display: 'flex', gap: 5, marginTop: 2, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#185FA5', background: '#F0F4FF', borderRadius: 3, padding: '0 4px' }}>{act.formula_param_code}</span>
-                          {act.per_minute && <span style={{ fontSize: 10, color: '#8E8E8E' }}>{act.per_minute}/{act.unit ?? 'unit'}</span>}
-                        </div>
-                      </div>
-                      {added ? (
-                        <Check size={13} style={{ color: '#4CAF50', flexShrink: 0, marginTop: 2 }} />
-                      ) : (
-                        <button onClick={() => onAdd({
-                          localId: uid(),
-                          name: act.description,
-                          measure: act.formula_param_code,
-                          unit: act.unit ?? '',
-                          per_minute: act.per_minute ? String(act.per_minute) : '',
-                          std_measure: act.std_measure != null ? String(act.std_measure) : '',
-                          source_activity_template_id: act.id,
-                          machine_id: null, tool_ids: [], consumables: [],
-                        })} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#4CAF50', display: 'flex', flexShrink: 0, marginTop: 2 }}>
-                          <Plus size={14} />
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )
-          })
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── Main component ─────────────────────────────────────────────
 
 export default function OperationBuilder() {
@@ -259,35 +81,39 @@ export default function OperationBuilder() {
     return () => document.removeEventListener('mousedown', close)
   }, [openPicker])
 
+  const [staleModalActId, setStaleModalActId] = useState<number | null>(null)
+  const staleModalAct = form.activities.find(a => a.id === staleModalActId) ?? null
+
   const patch = (p: Partial<FormState>) => setForm(f => ({ ...f, ...p }))
 
   // Load existing template in edit mode
-  const { data: existing, isLoading: loadingTpl } = useQuery({
-    queryKey: ['op-template-detail', templateId],
-    queryFn: async () => { const { data } = await apiClient.get(`/operation-templates/${templateId}`); return data },
-    enabled: isEdit && !!templateId,
-  })
+  const { data: templateDetail, isLoading: loadingTpl } = useOperationTemplate(templateId, true)
 
   useEffect(() => {
-    if (!existing) return
+    if (!templateDetail) return
     setForm({
-      op_code:      existing.op_code,
-      name:         existing.name,
-      op_type_id:   existing.op_type_id ?? '',
-      workcenter_id: existing.workcenter_id ?? '',
-      method:       existing.method ?? '',
-      activities:   existing.activities.map((a: any) => ({
+      op_code:      templateDetail.op_code,
+      name:         templateDetail.name,
+      op_type_id:   templateDetail.op_type_id ?? '',
+      workcenter_id: templateDetail.workcenter_id ?? '',
+      method:       (templateDetail as any).method ?? '',
+      activities:   templateDetail.activities.map((a) => ({
+        id: a.id,
         localId: uid(),
-        name: a.name, measure: a.measure, unit: a.unit ?? '',
+        name: a.name,
+        measure: a.measure,
+        unit: a.unit ?? '',
         per_minute: a.per_minute ? String(a.per_minute) : '',
-        std_measure: a.std_measure != null ? String(a.std_measure) : '',
-        source_activity_template_id: a.source_activity_template_id ?? null,
+        std_measure: (a as any).std_measure != null ? String((a as any).std_measure) : '',
+        source_activity_id: a.source_activity_id ?? null,
+        source_activity_code: a.source_activity_code ?? null,
+        is_stale: a.is_stale ?? false,
         machine_id: a.machine_id ?? null,
-        tool_ids: a.tools?.map((t: any) => t.resource_id) ?? [],
-        consumables: a.consumables?.map((c: any) => ({ resource_id: c.resource_id, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '' })) ?? [],
+        tool_ids: a.tools?.map((t) => t.resource.id) ?? [],
+        consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '' })) ?? [],
       })),
     })
-  }, [existing])
+  }, [templateDetail])
 
   const { data: workcenters = [] } = useQuery<WorkcenterItem[]>({
     queryKey: ['workcenters-palette'],
@@ -318,7 +144,6 @@ export default function OperationBuilder() {
     activities:   form.activities.map((a, i) => ({
       name: a.name, measure: a.measure, unit: a.unit || null,
       per_minute: a.per_minute ? Number(a.per_minute) : null,
-      source_activity_template_id: a.source_activity_template_id,
       machine_id: a.machine_id ?? null,
       tool_ids: a.tool_ids,
       consumables: a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
@@ -331,7 +156,7 @@ export default function OperationBuilder() {
     mutationFn: () => isEdit
       ? apiClient.patch(`/operation-templates/${templateId}`, buildPayload()).then(r => r.data)
       : apiClient.post('/operation-templates', buildPayload()).then(r => r.data),
-    onSuccess: () => navigate('/admin/operation-library'),
+    onSuccess: () => navigate('/operation-library'),
   })
 
   const publishMut = useMutation({
@@ -341,7 +166,7 @@ export default function OperationBuilder() {
         : await apiClient.post('/operation-templates', buildPayload()).then(r => r.data)
       return apiClient.patch(`/operation-templates/${tpl.id}/publish`).then(r => r.data)
     },
-    onSuccess: () => navigate('/admin/operation-library'),
+    onSuccess: () => navigate('/operation-library'),
   })
 
   const opCodeOk = OP_CODE_RE.test(form.op_code.trim().toUpperCase())
@@ -364,14 +189,14 @@ export default function OperationBuilder() {
 
       {/* Top bar */}
       <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 56, padding: '0 20px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-        <button onClick={() => navigate('/admin/operation-library')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 13 }}>
+        <button onClick={() => navigate('/operation-library')} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', color: '#555', fontSize: 13 }}>
           <ArrowLeft size={16} />Operation Library
         </button>
         <div style={{ width: 1, height: 20, background: '#E0E0E0' }} />
         <span style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>
           {isEdit ? `Edit: ${form.op_code || '…'}` : 'New Operation'}
         </span>
-        {existing?.status === 'active' && (
+        {templateDetail?.status === 'active' && (
           <span style={{ fontSize: 10, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>ACTIVE</span>
         )}
         <div style={{ flex: 1 }} />
@@ -459,7 +284,7 @@ export default function OperationBuilder() {
               <div style={{ ...sectionHead, marginBottom: 0, flex: 1 }}>Activities</div>
               <span style={{ fontSize: 10, color: '#9E9E9E', marginRight: 8 }}>Σ time = sum of activities</span>
               <button
-                onClick={() => patch({ activities: [...form.activities, { localId: uid(), name: '', measure: '', unit: '', per_minute: '', std_measure: '', source_activity_template_id: null, machine_id: null, tool_ids: [], consumables: [] }] })}
+                onClick={() => patch({ activities: [...form.activities, { localId: uid(), name: '', measure: '', unit: '', per_minute: '', std_measure: '', source_activity_id: null, source_activity_code: null, is_stale: false, machine_id: null, tool_ids: [], consumables: [] }] })}
                 style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #E0E0E0', background: '#fff', fontSize: 10, fontWeight: 600, color: '#555', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
                 <Plus size={10} />Add blank
               </button>
@@ -495,8 +320,19 @@ export default function OperationBuilder() {
                       <div key={act.localId} style={{ border: '1px solid #E8E8E8', borderRadius: 6, overflow: 'visible' }}>
                         {/* Main row */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 6, alignItems: 'center', background: '#F8F8F8', padding: '6px 8px' }}>
-                          <input value={act.name} onChange={e => patchActivity(act.localId, { name: e.target.value })}
-                            style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit' }} />
+                          <div>
+                            <input value={act.name} onChange={e => patchActivity(act.localId, { name: e.target.value })}
+                              style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
+                            <StaleBadge
+                              stale={act.is_stale}
+                              onClick={() => setStaleModalActId(act.id ?? null)}
+                            />
+                            {act.source_activity_code && (
+                              <div style={{ fontSize: 10, color: '#9E9E9E', fontStyle: 'italic' }}>
+                                ⇩ from {act.source_activity_code} (library)
+                              </div>
+                            )}
+                          </div>
                           <input value={act.measure} onChange={e => patchActivity(act.localId, { measure: e.target.value })}
                             style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 6px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="param" />
                           <input value={act.unit} onChange={e => patchActivity(act.localId, { unit: e.target.value })}
@@ -615,10 +451,12 @@ export default function OperationBuilder() {
         {/* ── RIGHT: Activity Library (40%) ── */}
         <div style={{ flex: '0 0 40%', borderLeft: '1px solid #E0E0E0', background: '#FAFAFA', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <ActivityLibraryPanel
-            activities={form.activities}
-            onAdd={act => patch({ activities: [...form.activities, act] })}
-            workcenters={workcenters}
-            workcenter_id={form.workcenter_id}
+            templateId={templateId}
+            existingSourceIds={new Set(
+              form.activities
+                .map(a => a.source_activity_id)
+                .filter((id): id is number => id !== null)
+            )}
           />
         </div>
       </div>
@@ -629,6 +467,14 @@ export default function OperationBuilder() {
           <AlertCircle size={14} />
           {error instanceof Error ? error.message : 'Save failed'}
         </div>
+      )}
+
+      {staleModalAct && templateId && (
+        <StaleDiffModal
+          templateId={templateId}
+          opAct={staleModalAct as any}
+          onClose={() => setStaleModalActId(null)}
+        />
       )}
     </div>
   )
