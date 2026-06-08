@@ -9,10 +9,8 @@ import { ProjectList } from './pages/ProjectList'
 import { ZoneList } from './pages/ZoneList'
 import { RoutingList } from './pages/RoutingList'
 import { RoutingApply } from './pages/RoutingApply'
-import { RoutingEditor } from './pages/RoutingEditor'
 import { RoutingBuilder } from './pages/RoutingBuilder'
 import { WorkcenterMaster } from './pages/WorkcenterMaster'
-import { ActivityTemplateMaster } from './pages/ActivityTemplateMaster'
 import { ProductList } from './pages/ProductList'
 import { ProductDetail } from './pages/ProductDetail'
 import { MaterialList } from './pages/MaterialList'
@@ -23,11 +21,11 @@ import { BomPaintConfig } from './pages/BomPaintConfig'
 import { BomRoutingConfig } from './pages/BomRoutingConfig'
 import { BomEditor } from './pages/BomEditor'
 import { BomDiffReview } from './pages/BomDiffReview'
-import { CustomRoutingEditor } from './pages/CustomRoutingEditor'
 import { BindingRuleManager } from './pages/BindingRuleManager'
-import { BulkOverrideAdmin } from './pages/BulkOverrideAdmin'
 import OperationLibraryList from './pages/OperationLibraryList'
 import OperationBuilder from './pages/OperationBuilder'
+import { ActivityLibraryList } from './pages/ActivityLibraryList'
+import { ActivityBuilder } from './pages/ActivityBuilder'
 import { Dashboard } from './pages/Dashboard'
 
 function Placeholder({ title }: { title: string }) {
@@ -72,15 +70,14 @@ export default function App() {
             <Route path="/routings/apply" element={<RoutingApply />} />
             <Route path="/routings/new" element={<RoutingBuilder />} />
             <Route path="/routings/:id/edit" element={<RoutingBuilder />} />
-            <Route path="/routings/:code" element={<RoutingEditor />} />
             <Route path="/admin/workcenters" element={<WorkcenterMaster />} />
-            <Route path="/admin/activity-templates" element={<ActivityTemplateMaster />} />
-            <Route path="/products/:code/custom-routing" element={<CustomRoutingEditor />} />
             <Route path="/admin/binding-rules" element={<BindingRuleManager />} />
-            <Route path="/admin/bulk-overrides" element={<BulkOverrideAdmin />} />
             <Route path="/admin/operation-library" element={<OperationLibraryList />} />
             <Route path="/admin/operation-library/new" element={<OperationBuilder />} />
             <Route path="/admin/operation-library/:id/edit" element={<OperationBuilder />} />
+            <Route path="/activity-library" element={<ActivityLibraryList />} />
+            <Route path="/activity-library/new" element={<ActivityBuilder />} />
+            <Route path="/activity-library/:id/edit" element={<ActivityBuilder />} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />

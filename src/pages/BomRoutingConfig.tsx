@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Loader2, Cpu, Wrench, FlaskConical, ChevronDown, ChevronRight, X, Clock, Save } from 'lucide-react'
+import { ChevronLeft, Loader2, Cpu, Wrench, FlaskConical, ChevronDown, ChevronRight, X, Save } from 'lucide-react'
 import { useDispatchDetail } from '../hooks/useBomDispatches'
 import {
-  getRoutingTemplates, getRoutingTemplate, createCustomRouting,
+  getRoutingTemplates, getRoutingTemplate, createRouting,
   type RoutingTemplateDTO, type RoutingTemplateDetailDTO,
 } from '../api/routings'
 import { paintApi, PAINT_TYPES } from '../api/paint'
@@ -21,25 +21,6 @@ const RESOURCE_PAINT_TYPE: Record<string, PaintType> = {
 const isWireResource = (code: string) =>
   code.startsWith('CON-WIRE') || code.startsWith('CON-ELEC') || code.startsWith('CON-FLUX')
 
-// ── Activity time calculation ─────────────────────────────────────────────────
-const AREA_PARAMS = new Set(['product_area', 'surface_area', 'area_m2', 'painting_area'])
-const WEIGHT_PARAMS = new Set(['weight_kg', 'part_weight', 'total_weight', 'net_weight'])
-
-function calcActivityTime(
-  template: { per_minute: string; std_measure: string; formula_param_code: string },
-  surfaceM2: number | null,
-  weightKg: number | null,
-  qty: number,
-): { minutes: number; isEstimated: boolean } {
-  const pm = parseFloat(template.per_minute)
-  if (!pm) return { minutes: 0, isEstimated: false }
-  let input = parseFloat(template.std_measure)
-  let isEstimated = true
-  if (template.formula_param_code === 'per_piece') { input = 1; isEstimated = false }
-  else if (AREA_PARAMS.has(template.formula_param_code) && surfaceM2 != null) { input = surfaceM2; isEstimated = false }
-  else if (WEIGHT_PARAMS.has(template.formula_param_code) && weightKg != null) { input = weightKg; isEstimated = false }
-  return { minutes: (input / pm) * qty, isEstimated }
-}
 
 const TH: React.CSSProperties = {
   position: 'sticky', top: 0, background: '#F5F5F5', zIndex: 2,
@@ -113,19 +94,10 @@ function ConsumableModal({
     finally { setSaving(false) }
   }
 
-  // Which paint types & wire appear in this template
+  // Sprint 11b: rebuild consumable detection from Activity Library
   const { templatePaintTypes, templateHasWire } = useMemo(() => {
-    const pts = new Set<PaintType>()
-    let wire = false
-    if (detail) {
-      for (const op of detail.operations) for (const act of op.op_activities) for (const c of act.consumables) {
-        const pt = RESOURCE_PAINT_TYPE[c.resource.code]
-        if (pt) pts.add(pt)
-        if (isWireResource(c.resource.code)) wire = true
-      }
-    }
-    return { templatePaintTypes: [...pts], templateHasWire: wire }
-  }, [detail])
+    return { templatePaintTypes: [] as PaintType[], templateHasWire: false }
+  }, [])
 
   // Helpers
   const fmt = (n: number) => n.toFixed(4).replace(/\.?0+$/, '')
@@ -157,26 +129,7 @@ function ConsumableModal({
   }
   const summaryMap = new Map<string, AggRow>()
 
-  if (detail) {
-    for (const op of detail.operations) {
-      for (const act of op.op_activities) {
-        for (const c of act.consumables) {
-          const rate = c.qty != null ? parseFloat(c.qty) : null
-          const existing = summaryMap.get(c.resource.code)
-          if (!existing) {
-            summaryMap.set(c.resource.code, {
-              code: c.resource.code, name: c.resource.name,
-              ops: new Set([op.name]),
-              rate, unit: c.unit, basis: c.consumption_basis,
-            })
-          } else {
-            existing.ops.add(op.name)
-            if (rate != null) existing.rate = (existing.rate ?? 0) + rate
-          }
-        }
-      }
-    }
-  }
+  // Sprint 11b: consumable aggregation rebuilt with Activity Library
   const summary = [...summaryMap.values()]
 
   const PAINT_TYPE_LABEL: Record<PaintType, string> = {
@@ -340,10 +293,6 @@ function ConsumableModal({
 
               {/* Per-operation breakdown */}
               {detail && detail.operations.map(op => {
-                const opTotalMin = op.op_activities.reduce((sum, act) => {
-                  if (!act.activity_template) return sum
-                  return sum + calcActivityTime(act.activity_template, surfaceM2, weightKg, assemblyQty).minutes
-                }, 0)
                 return (
                   <div key={op.id}>
                     {/* Operation header */}
@@ -352,81 +301,8 @@ function ConsumableModal({
                         <span style={{ fontSize: 12, fontWeight: 700, color: '#1F2D6E' }}>{op.name}</span>
                         <span style={{ fontSize: 10, color: '#6B7280', background: '#E5E7EB', padding: '1px 6px', borderRadius: 3 }}>{op.workcenter.code}</span>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#4B5EAA' }}>
-                        <Clock size={11} />
-                        <span style={{ fontSize: 11, fontWeight: 600 }}>{fmt(opTotalMin)} min total</span>
-                      </div>
                     </div>
-
-                    {/* Activities */}
-                    {op.op_activities.map((act, ai) => {
-                      const at = act.activity_template
-                      if (!at) return null
-                      const timeResult = calcActivityTime(at, surfaceM2, weightKg, assemblyQty)
-                      const fmtTime = timeResult.minutes < 60
-                        ? `${fmt(timeResult.minutes)} min`
-                        : `${fmt(timeResult.minutes / 60)} h`
-
-                      return (
-                        <div key={act.id} style={{ padding: '8px 16px 8px 28px', borderBottom: '1px solid #F5F5F5', background: ai % 2 === 0 ? '#fff' : '#FAFAFA' }}>
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                            {/* Left: description + time */}
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: '#1F1F1F' }}>{at.description}</span>
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px', borderRadius: 3, background: timeResult.isEstimated ? '#FEF3C7' : '#ECFDF5', color: timeResult.isEstimated ? '#92400E' : '#065F46', fontWeight: 600 }}>
-                                  <Clock size={9} />{fmtTime}{timeResult.isEstimated && ' *'}
-                                </span>
-                              </div>
-                              {/* Time formula */}
-                              <span className="font-mono" style={{ fontSize: 10, color: '#8E8E8E' }}>
-                                {at.formula_param_code} · {at.std_measure} {at.unit} / {at.per_minute} per min
-                              </span>
-                            </div>
-
-                            {/* Right: machine + tools + consumables */}
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'flex-end', alignItems: 'flex-start', maxWidth: 360 }}>
-                              {act.machine && (
-                                <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '2px 7px', borderRadius: 4, background: '#E6F1FB', color: '#0C447C', fontWeight: 500 }}>
-                                  <Cpu size={9} />{act.machine.name}
-                                </span>
-                              )}
-                              {act.tools.map(t => (
-                                <span key={t.resource.id} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '2px 7px', borderRadius: 4, background: '#ECFDF5', color: '#065F46', fontWeight: 500 }}>
-                                  <Wrench size={9} />{t.resource.name}
-                                </span>
-                              ))}
-                              {act.consumables.map(c => {
-                                const rate = c.qty != null ? parseFloat(c.qty) : null
-                                const calc = rate != null ? calcRow(rate, c.unit, c.consumption_basis) : null
-                                // Find selected brand for this resource
-                                const pt = RESOURCE_PAINT_TYPE[c.resource.code]
-                                const isWire = isWireResource(c.resource.code)
-                                const selMatId = pt ? matSel.get(pt) : isWire ? matSel.get('wire') : null
-                                const selMat = pt
-                                  ? paintMaterials.find(m => m.id === selMatId)
-                                  : isWire ? wireMaterials.find(m => m.id === selMatId) : null
-                                return (
-                                  <div key={c.resource.code} style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-end' }}>
-                                    <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '2px 7px', borderRadius: 4, background: '#FEF3C7', color: '#92400E', fontWeight: 500 }}>
-                                      <FlaskConical size={9} />
-                                      {c.resource.code}
-                                      {calc?.total != null && <span style={{ fontWeight: 700 }}> {fmt(calc.total)} {c.unit ?? ''}</span>}
-                                      {calc == null && <span style={{ color: '#C4832A' }}> —</span>}
-                                    </span>
-                                    {selMat && (
-                                      <span style={{ fontSize: 9, color: '#78350F', background: '#FFFBEB', padding: '1px 5px', borderRadius: 3, border: '1px solid #FCD34D' }}>
-                                        {selMat.name}
-                                      </span>
-                                    )}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
+                    {/* Sprint 11b: activity detail rebuilt with Activity Library */}
                   </div>
                 )
               })}
@@ -504,9 +380,9 @@ function TemplatePreviewPanel({ templateId }: { templateId: number }) {
       <div style={{ overflowY: 'auto', flex: 1 }}>
         {detail.operations.map(op => {
           const isOpen = !collapsed.has(op.id)
-          const allMachines = op.op_activities.map(a => a.machine).filter(Boolean)
-          const allTools = op.op_activities.flatMap(a => a.tools.map(t => t.resource))
-          const allConsumables = op.op_activities.flatMap(a => a.consumables.map(c => c.resource))
+          const allMachines: { name: string }[] = []
+          const allTools: { name: string }[] = []
+          const allConsumables: { name: string }[] = []
 
           return (
             <div key={op.id} style={{ borderBottom: '1px solid #F0F0F0' }}>
@@ -598,7 +474,9 @@ export function RoutingConfigContent({ dispatchId }: { dispatchId: number }) {
     const newSaved = new Set(saved)
     try {
       for (const [productCode, templateId] of selected) {
-        await createCustomRouting(productCode, { from_template_id: templateId })
+        const tpl = templates.find(t => t.id === templateId)
+        if (!tpl) continue
+        await createRouting(productCode, { from_template: tpl.code })
         newSaved.add(productCode)
       }
       setSaved(newSaved)

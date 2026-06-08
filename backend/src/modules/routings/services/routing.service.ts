@@ -12,26 +12,6 @@ import { ReorderOperationsDto } from '../dto/reorder-operations.dto'
 import { UpdateOperationDto } from '../dto/update-operation.dto'
 import { UpsertTemplateSnapshotDto } from '../dto/upsert-template-snapshot.dto'
 
-// ── Activity select shape reused across queries ──────────────────
-const ACT_TEMPLATE_SELECT = {
-  id: true, op_code: true, description: true,
-  per_minute: true, std_measure: true, unit: true,
-  formula_param_code: true, manpower: true,
-  machine_id: true,
-} as const
-
-const OP_INCLUDE = {
-  workcenter: { select: { id: true, code: true, name: true } },
-  op_activities: {
-    orderBy: { sequence: 'asc' as const },
-    include: {
-      activity_template: { select: ACT_TEMPLATE_SELECT },
-      machine: { select: { id: true, code: true, name: true } },
-      tools: { include: { resource: { select: { id: true, code: true, name: true } } } },
-      consumables: { select: { qty: true, unit: true, consumption_basis: true, resource: { select: { id: true, code: true, name: true, rate_unit: true } } } },
-    },
-  },
-} as const
 
 @Injectable()
 export class RoutingService {
@@ -40,17 +20,10 @@ export class RoutingService {
     private readonly mail: MailMessageService,
   ) {}
 
-  // ── findByProduct: returns merged view (template ops + product overrides) ──
   async findByProduct(productCode: string) {
     const product = await this.requireProduct(productCode)
 
-    if (!product.routing_template_id) {
-      if (product.has_custom_routing) {
-        // Custom routing path — return empty (caller should use CustomRoutingService)
-        return []
-      }
-      return []
-    }
+    if (!product.routing_template_id) return []
 
     const template = await this.prisma.routing_template.findUnique({
       where: { id: product.routing_template_id },
@@ -61,16 +34,9 @@ export class RoutingService {
     const ops = await this.prisma.mrp_routing_workcenter.findMany({
       where: { template_id: template.id },
       orderBy: { sequence: 'asc' },
-      include: OP_INCLUDE,
+      include: { workcenter: { select: { id: true, code: true, name: true } } },
     })
 
-    // Load all product overrides indexed by activity_template_id
-    const overrides = await this.prisma.product_routing_override.findMany({
-      where: { product_id: product.id },
-    })
-    const overrideMap = new Map(overrides.map(o => [o.activity_template_id, o]))
-
-    // Return RoutingOpDTO-compatible shape (merge overrides inline)
     return ops.map(op => ({
       id: op.id,
       product_id: null as number | null,
@@ -83,31 +49,14 @@ export class RoutingService {
       time_cycle: op.time_cycle,
       last_computed_at: op.last_computed_at?.toISOString() ?? null,
       workcenter: op.workcenter,
-      activities: op.op_activities.map(a => {
-        const ovr = overrideMap.get(a.activity_template_id)
-        return {
-          id: a.id,
-          routing_workcenter_id: a.routing_workcenter_id,
-          activity_template_id: a.activity_template_id,
-          sequence: a.sequence,
-          per_minute_override: ovr?.override_per_minute ?? null,
-          std_measure_override: ovr?.override_std_measure ?? null,
-          manpower_override: ovr?.override_manpower ?? null,
-          last_cycle_time_min: null as number | null,
-          last_input_snapshot: null as Record<string, unknown> | null,
-          activity_template: a.activity_template,
-        }
-      }),
+      activities: [] as unknown[],
     }))
   }
 
   async findOne(id: number) {
     const op = await this.prisma.mrp_routing_workcenter.findUnique({
       where: { id },
-      include: {
-        workcenter: true,
-        op_activities: { orderBy: { sequence: 'asc' }, include: { activity_template: true } },
-      },
+      include: { workcenter: true },
     })
     if (!op) throw new NotFoundException(`Routing operation ${id} not found`)
     return op
@@ -176,21 +125,6 @@ export class RoutingService {
           include: {
             workcenter: { select: { id: true, code: true, name: true } },
             op_type: { select: { id: true, key: true, label: true, color: true, method_options: true } },
-            op_activities: {
-              orderBy: { sequence: 'asc' },
-              include: {
-                activity_template: {
-                  select: {
-                    id: true, op_code: true, description: true,
-                    formula_param_code: true, per_minute: true, std_measure: true, unit: true,
-                    machine_id: true,
-                  },
-                },
-                machine: { select: { id: true, code: true, name: true } },
-                tools: { include: { resource: { select: { id: true, code: true, name: true } } } },
-                consumables: { select: { qty: true, unit: true, consumption_basis: true, resource: { select: { id: true, code: true, name: true, rate_unit: true } } } },
-              },
-            },
           },
         },
       },
@@ -210,14 +144,6 @@ export class RoutingService {
         workcenter: { select: { id: true, code: true, name: true } },
         op_type:    { select: { id: true, key: true, label: true, color: true } },
         template:   { select: { id: true, code: true, name: true } },
-        op_activities: {
-          orderBy: { sequence: 'asc' },
-          include: {
-            activity_template: {
-              select: { id: true, description: true, std_measure: true, per_minute: true, unit: true },
-            },
-          },
-        },
       },
       orderBy: [{ op_type_id: 'asc' }, { name: 'asc' }],
       take: 300,
@@ -273,14 +199,6 @@ export class RoutingService {
               write_uid: userId, write_date: new Date(),
             },
           })
-          await tx.routing_op_activity.deleteMany({ where: { routing_workcenter_id: op.id } })
-          if (op.activity_template_ids?.length) {
-            await tx.routing_op_activity.createMany({
-              data: op.activity_template_ids.map((actId, i) => ({
-                routing_workcenter_id: op.id!, activity_template_id: actId, sequence: (i + 1) * 10,
-              })),
-            })
-          }
           refMap.set(op.client_ref, `op-${op.id}`)
         } else {
           const created = await tx.mrp_routing_workcenter.create({
@@ -294,13 +212,6 @@ export class RoutingService {
               create_uid: userId, write_uid: userId,
             },
           })
-          if (op.activity_template_ids?.length) {
-            await tx.routing_op_activity.createMany({
-              data: op.activity_template_ids.map((actId, i) => ({
-                routing_workcenter_id: created.id, activity_template_id: actId, sequence: (i + 1) * 10,
-              })),
-            })
-          }
           refMap.set(op.client_ref, `op-${created.id}`)
         }
       }
@@ -382,18 +293,6 @@ export class RoutingService {
         data: { ...opFields, write_uid: userId, write_date: new Date() },
         include: { workcenter: { select: { id: true, code: true, name: true } } },
       })
-      if (activity_template_ids !== undefined) {
-        await tx.routing_op_activity.deleteMany({ where: { routing_workcenter_id: opId } })
-        if (activity_template_ids.length > 0) {
-          await tx.routing_op_activity.createMany({
-            data: activity_template_ids.map((actId, i) => ({
-              routing_workcenter_id: opId,
-              activity_template_id: actId,
-              sequence: (i + 1) * 10,
-            })),
-          })
-        }
-      }
       return updated
     })
   }
@@ -410,7 +309,7 @@ export class RoutingService {
     })
 
     return this.prisma.$transaction(async (tx) => {
-      const op = await tx.mrp_routing_workcenter.create({
+      return tx.mrp_routing_workcenter.create({
         data: {
           template_id: templateId,
           op_code: dto.op_code,
@@ -432,18 +331,6 @@ export class RoutingService {
           op_type: { select: { id: true, key: true, label: true, color: true, method_options: true } },
         },
       })
-
-      if (dto.activity_template_ids?.length) {
-        await tx.routing_op_activity.createMany({
-          data: dto.activity_template_ids.map((actId, i) => ({
-            routing_workcenter_id: op.id,
-            activity_template_id: actId,
-            sequence: (i + 1) * 10,
-          })),
-        })
-      }
-
-      return op
     })
   }
 
@@ -476,20 +363,8 @@ export class RoutingService {
         create_uid: userId,
         write_uid: userId,
       },
-      include: { workcenter: true, op_activities: true },
+      include: { workcenter: true },
     })
-
-    if (dto.activity_template_ids?.length) {
-      for (let i = 0; i < dto.activity_template_ids.length; i++) {
-        await this.prisma.routing_op_activity.create({
-          data: {
-            routing_workcenter_id: op.id,
-            activity_template_id: dto.activity_template_ids[i],
-            sequence: (i + 1) * 10,
-          },
-        })
-      }
-    }
 
     return this.findOne(op.id)
   }
@@ -592,50 +467,8 @@ export class RoutingService {
       },
       include: {
         workcenter: { select: { id: true, code: true, name: true } },
-        op_activities: {
-          orderBy: { sequence: 'asc' },
-          include: { activity_template: { select: ACT_TEMPLATE_SELECT } },
-        },
       },
     })
-  }
-
-  // addStepActivity: adds junction row to template op
-  async addStepActivity(productCode: string, opId: number, dto: { activity_template_id: number; sequence?: number }, userId: number) {
-    const product = await this.requireProduct(productCode)
-    if (!product.routing_template_id) throw new BadRequestException('Product has no routing template')
-
-    const op = await this.prisma.mrp_routing_workcenter.findFirst({
-      where: { id: opId, template_id: product.routing_template_id },
-    })
-    if (!op) throw new NotFoundException(`Operation ${opId} not found in template`)
-
-    const tpl = await this.prisma.routing_activity_template.findUnique({ where: { id: dto.activity_template_id } })
-    if (!tpl) throw new NotFoundException(`Activity template ${dto.activity_template_id} not found`)
-
-    const maxSeq = await this.prisma.routing_op_activity.aggregate({
-      where: { routing_workcenter_id: opId },
-      _max: { sequence: true },
-    })
-    const seq = dto.sequence ?? ((maxSeq._max.sequence ?? 0) + 10)
-
-    return this.prisma.routing_op_activity.create({
-      data: { routing_workcenter_id: opId, activity_template_id: dto.activity_template_id, sequence: seq },
-      include: { activity_template: { select: ACT_TEMPLATE_SELECT } },
-    })
-  }
-
-  async deleteStepActivity(productCode: string, opId: number, stepId: number, userId: number) {
-    const product = await this.requireProduct(productCode)
-    if (!product.routing_template_id) throw new BadRequestException('Product has no routing template')
-
-    const junction = await this.prisma.routing_op_activity.findFirst({
-      where: { id: stepId, routing_workcenter_id: opId },
-    })
-    if (!junction) throw new NotFoundException(`Activity junction ${stepId} not found`)
-
-    await this.prisma.routing_op_activity.delete({ where: { id: stepId } })
-    return { deleted: true }
   }
 
   async findProductId(productCode: string): Promise<number> {
@@ -646,7 +479,7 @@ export class RoutingService {
   private async requireProduct(productCode: string) {
     const p = await this.prisma.products.findUnique({
       where: { product_code: productCode },
-      select: { id: true, product_code: true, routing_template_id: true, has_custom_routing: true },
+      select: { id: true, product_code: true, routing_template_id: true },
     })
     if (!p) throw new NotFoundException(`Product "${productCode}" not found`)
     return p
