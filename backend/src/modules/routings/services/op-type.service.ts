@@ -1,23 +1,69 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { IsString, IsOptional, IsInt, IsArray, IsBoolean, MaxLength } from 'class-validator'
 import { PrismaService } from '../../../prisma/prisma.service'
 
-export interface CreateOpTypeDto {
+export class CreateOpTypeDto {
+  @IsString()
+  @MaxLength(50)
   key: string
+
+  @IsString()
+  @MaxLength(100)
   label: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
   color?: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   default_op_code?: string
+
+  @IsOptional()
+  @IsArray()
   method_options?: { value: string; label: string }[]
+
+  @IsOptional()
+  @IsInt()
   sequence?: number
+
+  @IsOptional()
+  @IsInt()
   default_wc_id?: number
 }
 
-export interface UpdateOpTypeDto {
+export class UpdateOpTypeDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
   label?: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
   color?: string
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
   default_op_code?: string
+
+  @IsOptional()
+  @IsArray()
   method_options?: { value: string; label: string }[]
+
+  @IsOptional()
+  @IsInt()
   sequence?: number
+
+  @IsOptional()
+  @IsInt()
   default_wc_id?: number | null
+
+  @IsOptional()
+  @IsBoolean()
   is_active?: boolean
 }
 
@@ -42,7 +88,7 @@ export class OpTypeService {
     return ot
   }
 
-  async create(dto: CreateOpTypeDto) {
+  async create(dto: CreateOpTypeDto, userId: number) {
     const existing = await this.prisma.mrp_op_type.findUnique({ where: { key: dto.key } })
     if (existing) throw new ConflictException(`Op type key "${dto.key}" already exists`)
 
@@ -63,13 +109,18 @@ export class OpTypeService {
     })
   }
 
-  async update(id: number, dto: UpdateOpTypeDto) {
+  async update(id: number, dto: UpdateOpTypeDto, userId: number) {
     await this.findOne(id)
     return this.prisma.mrp_op_type.update({
       where: { id },
       data: {
-        ...dto,
-        method_options: dto.method_options !== undefined ? (dto.method_options as any) : undefined,
+        ...(dto.label !== undefined ? { label: dto.label } : {}),
+        ...(dto.color !== undefined ? { color: dto.color } : {}),
+        ...(dto.default_op_code !== undefined ? { default_op_code: dto.default_op_code } : {}),
+        ...(dto.method_options !== undefined ? { method_options: dto.method_options as any } : {}),
+        ...(dto.sequence !== undefined ? { sequence: dto.sequence } : {}),
+        ...(dto.default_wc_id !== undefined ? { default_wc_id: dto.default_wc_id } : {}),
+        ...(dto.is_active !== undefined ? { is_active: dto.is_active } : {}),
         write_date: new Date(),
       },
       include: { default_wc: { select: { id: true, code: true, name: true } } },

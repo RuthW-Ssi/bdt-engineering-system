@@ -382,14 +382,14 @@ export class RoutingsController {
 
   @Post('op-types')
   @ApiOperation({ summary: 'Create a new operation type' })
-  createOpType(@Body() dto: CreateOpTypeDto) {
-    return this.opTypeService.create(dto)
+  createOpType(@Body() dto: CreateOpTypeDto, @CurrentUser() user: JwtPayload) {
+    return this.opTypeService.create(dto, user.sub)
   }
 
   @Patch('op-types/:id')
   @ApiOperation({ summary: 'Update an operation type' })
-  updateOpType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOpTypeDto) {
-    return this.opTypeService.update(id, dto)
+  updateOpType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOpTypeDto, @CurrentUser() user: JwtPayload) {
+    return this.opTypeService.update(id, dto, user.sub)
   }
 
   @Delete('op-types/:id')
