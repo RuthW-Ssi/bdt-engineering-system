@@ -96,7 +96,7 @@ export default function OperationBuilder() {
       name:         templateDetail.name,
       op_type_id:   templateDetail.op_type_id ?? '',
       workcenter_id: templateDetail.workcenter_id ?? '',
-      method:       (templateDetail as any).method ?? '',
+      method:       templateDetail.method ?? '',
       activities:   templateDetail.activities.map((a) => ({
         id: a.id,
         localId: uid(),
@@ -104,7 +104,7 @@ export default function OperationBuilder() {
         measure: a.measure,
         unit: a.unit ?? '',
         per_minute: a.per_minute ? String(a.per_minute) : '',
-        std_measure: (a as any).std_measure != null ? String((a as any).std_measure) : '',
+        std_measure: '',
         source_activity_id: a.source_activity_id ?? null,
         source_activity_code: a.source_activity_code ?? null,
         is_stale: a.is_stale ?? false,
@@ -472,7 +472,7 @@ export default function OperationBuilder() {
       {staleModalAct && templateId && (
         <StaleDiffModal
           templateId={templateId}
-          opAct={staleModalAct as any}
+          opAct={staleModalAct}
           onClose={() => setStaleModalActId(null)}
         />
       )}

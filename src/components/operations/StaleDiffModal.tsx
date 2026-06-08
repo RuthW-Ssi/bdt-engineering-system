@@ -1,9 +1,17 @@
 import { useUpdateFromLibrary } from '../../hooks/useOperationTemplates'
-import type { OpActDto } from '../../api/operationTemplates'
+
+interface StaleOpAct {
+  id?: number
+  name: string
+  per_minute: string | null
+  machine?: { name: string } | null
+  source_activity_code: string | null
+  snapshot_at?: string | null
+}
 
 interface StaleDiffModalProps {
   templateId: number
-  opAct: OpActDto
+  opAct: StaleOpAct
   onClose: () => void
 }
 
@@ -70,7 +78,7 @@ export default function StaleDiffModal({ templateId, opAct, onClose }: StaleDiff
             Dismiss · keep snapshot
           </button>
           <button
-            onClick={() => updateMut.mutate(opAct.id, { onSuccess: onClose })}
+            onClick={() => { if (opAct.id !== undefined) updateMut.mutate(opAct.id, { onSuccess: onClose }) }}
             disabled={updateMut.isPending}
             style={{ padding: '6px 16px', borderRadius: 4, border: 'none', background: '#1976D2', color: '#fff', cursor: updateMut.isPending ? 'default' : 'pointer' }}
           >

@@ -39,6 +39,7 @@ export interface OperationTemplateDetailDto {
   time_mode: string
   duration_min: string | null
   formula_expr: string | null
+  method?: string | null
   op_type_id: number | null
   workcenter_id: number | null
   activities: OpActDto[]
