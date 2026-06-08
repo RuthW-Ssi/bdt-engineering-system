@@ -49,7 +49,7 @@ export default function OperationLibraryList() {
           <div style={{ fontSize: 11, color: '#9E9E9E' }}>Standard operations — building blocks for routing templates</div>
         </div>
         <button
-          onClick={() => navigate('/admin/operation-library/new')}
+          onClick={() => navigate('/operation-library/new')}
           style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
         >
           <Plus size={14} />New Operation
@@ -89,7 +89,7 @@ export default function OperationLibraryList() {
           filtered.map(t => (
             <div
               key={t.id}
-              onClick={() => navigate(`/admin/operation-library/${t.id}/edit`)}
+              onClick={() => navigate(`/operation-library/${t.id}/edit`)}
               style={{
                 display: 'grid', gridTemplateColumns: '140px 1fr 140px 110px 90px 80px', gap: 12,
                 padding: '0 16px', height: 52, alignItems: 'center',

@@ -41,7 +41,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
         children: [
           { label: 'Install', labelTh: 'ติดตั้ง Routing', icon: <Wrench size={14} />, path: '/routings/apply' },
           { label: 'Routing Template', labelTh: 'เทมเพลต', icon: <Puzzle size={14} />, path: '/routings' },
-          { label: 'Operation Library', labelTh: 'คลังออเปอเรชัน', icon: <BookOpen size={14} />, path: '/admin/operation-library' },
+          { label: 'Operation Library', labelTh: 'คลังออเปอเรชัน', icon: <BookOpen size={14} />, path: '/operation-library' },
           { label: 'Activity Library', labelTh: 'คลังกิจกรรม', icon: <Activity size={14} />, path: '/activity-library' },
         ],
       },

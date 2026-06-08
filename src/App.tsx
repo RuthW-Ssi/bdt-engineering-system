@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { ProjectProvider } from './context/ProjectContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -34,6 +34,11 @@ function Placeholder({ title }: { title: string }) {
       {title} — coming soon
     </div>
   )
+}
+
+function RedirectOpEdit() {
+  const { id } = useParams<{ id: string }>()
+  return <Navigate to={`/operation-library/${id}/edit`} replace />
 }
 
 export default function App() {
@@ -72,9 +77,17 @@ export default function App() {
             <Route path="/routings/:id/edit" element={<RoutingBuilder />} />
             <Route path="/admin/workcenters" element={<WorkcenterMaster />} />
             <Route path="/admin/binding-rules" element={<BindingRuleManager />} />
-            <Route path="/admin/operation-library" element={<OperationLibraryList />} />
-            <Route path="/admin/operation-library/new" element={<OperationBuilder />} />
-            <Route path="/admin/operation-library/:id/edit" element={<OperationBuilder />} />
+
+            {/* New canonical routes */}
+            <Route path="/operation-library" element={<OperationLibraryList />} />
+            <Route path="/operation-library/new" element={<OperationBuilder />} />
+            <Route path="/operation-library/:id/edit" element={<OperationBuilder />} />
+
+            {/* Redirects from old paths */}
+            <Route path="/admin/operation-library" element={<Navigate to="/operation-library" replace />} />
+            <Route path="/admin/operation-library/new" element={<Navigate to="/operation-library/new" replace />} />
+            <Route path="/admin/operation-library/:id/edit" element={<RedirectOpEdit />} />
+
             <Route path="/activity-library" element={<ActivityLibraryList />} />
             <Route path="/activity-library/new" element={<ActivityBuilder />} />
             <Route path="/activity-library/:id/edit" element={<ActivityBuilder />} />
