@@ -48,22 +48,14 @@ model res_users {
   workcenters_written        mrp_workcenter[]            @relation("wc_write")
   routing_wc_created         mrp_routing_workcenter[]    @relation("rwc_create")
   routing_wc_written         mrp_routing_workcenter[]    @relation("rwc_write")
-  activity_templates_created routing_activity_template[] @relation("act_create")
-  activity_templates_written routing_activity_template[] @relation("act_write")
 
   // Sprint 4.2: Routing Option 3 audit
   routing_templates_created routing_template[]         @relation("rt_create")
   routing_templates_written routing_template[]         @relation("rt_write")
-  routing_overrides_created product_routing_override[] @relation("ovr_create")
-  routing_overrides_written product_routing_override[] @relation("ovr_write")
-  custom_routings_created   custom_routing[]           @relation("cr_create")
-  custom_routings_written   custom_routing[]           @relation("cr_write")
 
   // Sprint 4.3: History audit + simulator fixtures
-  routing_template_history          routing_template_history[]          @relation("rth_user")
-  routing_activity_template_history routing_activity_template_history[] @relation("ach_user")
-  product_routing_override_history  product_routing_override_history[]  @relation("ovrh_user")
-  test_fixtures_created             routing_template_test_fixture[]     @relation("rtf_create")
+  routing_template_history  routing_template_history[] @relation("rth_user")
+  test_fixtures_created     routing_template_test_fixture[] @relation("rtf_create")
 
   // Sprint 7: BOM Dispatch audit
   bom_dispatches_created  bom_dispatch[]      @relation("dispatch_create")
@@ -385,10 +377,7 @@ model products {
 
   // Sprint 4.2: Routing Option 3
   routing_template_id Int?
-  routing_template    routing_template?          @relation("ProductTemplateBind", fields: [routing_template_id], references: [id])
-  has_custom_routing  Boolean                    @default(false)
-  custom_routing      custom_routing?            @relation("ProductCustomRouting")
-  routing_overrides   product_routing_override[] @relation("ProductOverrides")
+  routing_template    routing_template?               @relation("ProductTemplateBind", fields: [routing_template_id], references: [id])
   simulator_fixtures  routing_template_test_fixture[] @relation("FixtureProduct")
 
   // Sprint 8: eBOM ↔ mBOM kind — 'assembly' | 'part' | null (legacy products)
@@ -605,13 +594,8 @@ model mrp_workcenter {
   write_date               DateTime         @default(now()) @db.Timestamptz
 
   routing_workcenters  mrp_routing_workcenter[]
-  activity_templates   routing_activity_template[]
   op_types             mrp_op_type[]
   operation_templates  operation_template[]
-  // Sprint 4.2
-  override_workcenters product_routing_override[]  @relation("OverrideWC")
-  custom_ops           custom_routing_op[]         @relation("CustomOpWC")
-  custom_activities    custom_routing_activity[]   @relation("CustomActWC")
 }
 
 // ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — Sprint 4.2: bound to template) ──
@@ -651,101 +635,10 @@ model mrp_routing_workcenter {
   write_user        res_users        @relation("rwc_write", fields: [write_uid], references: [id])
   write_date        DateTime         @default(now()) @db.Timestamptz
 
-  op_activities routing_op_activity[]
   bom_lines     product_bom_line[]    @relation("BomLineOp")
 
   @@unique([template_id, sequence], map: "ux_routing_op_seq_per_template")
   @@index([template_id])
-}
-
-// ── 🟥 Activity Template (BDT-custom — sub-operation granularity) ──
-model routing_activity_template {
-  id                  Int                    @id @default(autoincrement())
-  op_code             String                 @db.VarChar(30)
-  description         String                 @db.VarChar(200)
-  sequence            Int                    @default(10)
-  include_idle        Boolean                @default(false)
-  // Primary formula param
-  per_minute          Decimal                @db.Decimal(10, 4)
-  formula_param_code  String                 @db.VarChar(40)
-  formula_param       routing_formula_param  @relation("Param1", fields: [formula_param_code], references: [code])
-  std_measure         Decimal                @db.Decimal(12, 4)
-  unit                String                 @db.VarChar(20)
-  // Secondary param (welding multi-ratio)
-  formula_param_code2 String?                @db.VarChar(40)
-  formula_param2      routing_formula_param? @relation("Param2", fields: [formula_param_code2], references: [code])
-  std_measure2        Decimal?               @db.Decimal(12, 4)
-  unit2               String?                @db.VarChar(20)
-  // Resourcing
-  manpower              Decimal             @default(1) @db.Decimal(4, 2)
-  workcenter_id         Int
-  workcenter            mrp_workcenter      @relation(fields: [workcenter_id], references: [id])
-  equipment_ref         String?             @db.VarChar(120)
-  machine_id          Int?
-  machine             equipment_resource? @relation("ActTplMachine", fields: [machine_id], references: [id], onDelete: SetNull)
-  consumable_note     String?                @db.VarChar(200)
-  utilities_note      String?                @db.VarChar(40)
-  // Versioning
-  version             String                 @default("1.0") @db.VarChar(20)
-  active              Boolean                @default(true)
-  source              String                 @default("xlsx_seed") @db.VarChar(20)
-  // Audit
-  create_uid          Int
-  create_user         res_users              @relation("act_create", fields: [create_uid], references: [id])
-  create_date         DateTime               @default(now()) @db.Timestamptz
-  write_uid           Int
-  write_user          res_users              @relation("act_write", fields: [write_uid], references: [id])
-  write_date          DateTime               @default(now()) @db.Timestamptz
-
-  op_activities        routing_op_activity[]
-  overrides            product_routing_override[]
-  history              routing_activity_template_history[] @relation("ActHistory")
-  op_template_acts     operation_template_activity[]
-
-  @@index([op_code])
-}
-
-// ── Op-Activity Junction (template op → activity template, sequence-ordered) ──
-model routing_op_activity {
-  id                    Int                       @id @default(autoincrement())
-  routing_workcenter_id Int
-  routing_workcenter    mrp_routing_workcenter    @relation(fields: [routing_workcenter_id], references: [id], onDelete: Cascade)
-  activity_template_id  Int
-  activity_template     routing_activity_template @relation(fields: [activity_template_id], references: [id])
-  sequence              Int                       @default(10)
-  // Per-activity-step overrides for machine, tools, consumables
-  machine_id            Int?
-  machine               equipment_resource?       @relation("RoutingOpActMachine", fields: [machine_id], references: [id], onDelete: SetNull)
-  tools                 routing_op_act_tool[]
-  consumables           routing_op_act_consumable[]
-
-  @@unique([routing_workcenter_id, sequence])
-  @@index([activity_template_id])
-}
-
-model routing_op_act_tool {
-  id          Int                  @id @default(autoincrement())
-  activity_id Int
-  activity    routing_op_activity  @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  resource_id Int
-  resource    equipment_resource   @relation("RoutingOpActToolResource", fields: [resource_id], references: [id], onDelete: Cascade)
-
-  @@unique([activity_id, resource_id])
-  @@index([activity_id])
-}
-
-model routing_op_act_consumable {
-  id          Int                  @id @default(autoincrement())
-  activity_id Int
-  activity    routing_op_activity  @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  resource_id Int
-  resource    equipment_resource   @relation("RoutingOpActConsumableResource", fields: [resource_id], references: [id], onDelete: Cascade)
-  qty                Decimal?             @db.Decimal(10, 4)
-  unit               String?              @db.VarChar(20)
-  consumption_basis  String?              @db.VarChar(20) // 'per_m2' | 'per_kg' | 'per_unit' | null
-
-  @@unique([activity_id, resource_id])
-  @@index([activity_id])
 }
 
 // ── 🟥 Formula Parameter Registry (BDT-custom cycle-time formulas) ──
@@ -760,11 +653,6 @@ model routing_formula_param {
   create_date        DateTime @default(now()) @db.Timestamptz
   write_date         DateTime @default(now()) @db.Timestamptz
 
-  templates_primary           routing_activity_template[] @relation("Param1")
-  templates_secondary         routing_activity_template[] @relation("Param2")
-  // Sprint 4.2
-  custom_activities_primary   custom_routing_activity[]   @relation("CustomActParam1")
-  custom_activities_secondary custom_routing_activity[]   @relation("CustomActParam2")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -798,112 +686,12 @@ model routing_template {
   operations             mrp_routing_workcenter[]
   binding_rules          routing_template_binding_rule[]
   bound_products         products[]                      @relation("ProductTemplateBind")
-  custom_routings_cloned custom_routing[]                @relation("CustomFromTemplate")
   history                routing_template_history[]      @relation("TemplateHistory")
   test_fixtures          routing_template_test_fixture[]
 
   @@index([state])
 }
 
-// ── 🟨 Product Routing Override (sparse — only when product differs from template) ──
-model product_routing_override {
-  id                     Int                       @id @default(autoincrement())
-  product_id             Int
-  product                products                  @relation("ProductOverrides", fields: [product_id], references: [id], onDelete: Cascade)
-  activity_template_id   Int
-  activity_template      routing_activity_template @relation(fields: [activity_template_id], references: [id])
-  // Sparse override fields (null = inherit from template)
-  override_per_minute    Decimal?                  @db.Decimal(10, 4)
-  override_std_measure   Decimal?                  @db.Decimal(12, 4)
-  override_manpower      Decimal?                  @db.Decimal(4, 2)
-  override_workcenter_id Int?
-  override_workcenter    mrp_workcenter?           @relation("OverrideWC", fields: [override_workcenter_id], references: [id])
-  reason                 String?                   @db.Text
-  eco_id                 Int? // ⏳ Sprint 5 mrp_eco FK
-  // Audit
-  create_uid             Int
-  create_user            res_users                 @relation("ovr_create", fields: [create_uid], references: [id])
-  create_date            DateTime                  @default(now()) @db.Timestamptz
-  write_uid              Int
-  write_user             res_users                 @relation("ovr_write", fields: [write_uid], references: [id])
-  write_date             DateTime                  @default(now()) @db.Timestamptz
-
-  @@unique([product_id, activity_template_id], map: "ux_one_override_per_pair")
-  @@index([product_id])
-  @@index([activity_template_id])
-}
-
-// ── 🟥 Custom Routing (escape hatch — Class C products with unique ops) ──
-model custom_routing {
-  id                      Int               @id @default(autoincrement())
-  product_id              Int               @unique
-  product                 products          @relation("ProductCustomRouting", fields: [product_id], references: [id], onDelete: Cascade)
-  name                    String            @db.VarChar(60)
-  description             String?           @db.Text
-  version                 String            @default("1.0") @db.VarChar(10)
-  state                   String            @default("draft") @db.VarChar(20)
-  cloned_from_template_id Int?
-  cloned_from_template    routing_template? @relation("CustomFromTemplate", fields: [cloned_from_template_id], references: [id])
-  eco_id                  Int? // ⏳ Sprint 5
-  // Audit
-  create_uid              Int
-  create_user             res_users         @relation("cr_create", fields: [create_uid], references: [id])
-  create_date             DateTime          @default(now()) @db.Timestamptz
-  write_uid               Int
-  write_user              res_users         @relation("cr_write", fields: [write_uid], references: [id])
-  write_date              DateTime          @default(now()) @db.Timestamptz
-
-  ops custom_routing_op[]
-
-  @@index([cloned_from_template_id])
-  @@index([state])
-}
-
-model custom_routing_op {
-  id                Int            @id @default(autoincrement())
-  custom_routing_id Int
-  custom_routing    custom_routing @relation(fields: [custom_routing_id], references: [id], onDelete: Cascade)
-  sequence          Int
-  name              String         @db.VarChar(60)
-  op_code           String         @db.VarChar(30)
-  workcenter_id     Int
-  workcenter        mrp_workcenter @relation("CustomOpWC", fields: [workcenter_id], references: [id])
-  time_mode         String         @default("formula") @db.VarChar(10)
-  time_cycle_manual Decimal?       @db.Decimal(10, 4)
-  blocked_by_op_ids Int[]          @default([])
-
-  activities custom_routing_activity[]
-
-  @@unique([custom_routing_id, sequence])
-  @@index([workcenter_id])
-}
-
-model custom_routing_activity {
-  id                  Int                    @id @default(autoincrement())
-  op_id               Int
-  op                  custom_routing_op      @relation(fields: [op_id], references: [id], onDelete: Cascade)
-  sequence            Int                    @default(10)
-  description         String                 @db.VarChar(200)
-  include_idle        Boolean                @default(false)
-  per_minute          Decimal                @db.Decimal(10, 4)
-  formula_param_code  String                 @db.VarChar(40)
-  formula_param       routing_formula_param  @relation("CustomActParam1", fields: [formula_param_code], references: [code])
-  std_measure         Decimal                @db.Decimal(12, 4)
-  unit                String                 @db.VarChar(20)
-  formula_param_code2 String?                @db.VarChar(40)
-  formula_param2      routing_formula_param? @relation("CustomActParam2", fields: [formula_param_code2], references: [code])
-  std_measure2        Decimal?               @db.Decimal(12, 4)
-  unit2               String?                @db.VarChar(20)
-  manpower            Decimal                @default(1) @db.Decimal(4, 2)
-  workcenter_id       Int
-  workcenter          mrp_workcenter         @relation("CustomActWC", fields: [workcenter_id], references: [id])
-  equipment_ref       String?                @db.VarChar(120)
-  consumable_note     String?                @db.VarChar(200)
-  utilities_note      String?                @db.VarChar(40)
-
-  @@unique([op_id, sequence])
-  @@index([workcenter_id])
-}
 
 // ── 🟨 Template Binding Rule (engineer-editable, priority-ordered rule chain) ──
 model routing_template_binding_rule {
@@ -977,40 +765,6 @@ model routing_template_history {
   @@index([eco_id])
 }
 
-// ── 🟦 routing_activity_template history ─────────────────────
-model routing_activity_template_history {
-  id                   Int                       @id @default(autoincrement())
-  activity_template_id Int
-  activity_template    routing_activity_template @relation("ActHistory", fields: [activity_template_id], references: [id], onDelete: Cascade)
-  version              String                    @db.VarChar(20)
-  snapshot             Json                      // full snapshot incl. per_minute, std_measure, formula_param_code
-  changed_by_uid       Int
-  changed_by           res_users                 @relation("ach_user", fields: [changed_by_uid], references: [id])
-  changed_at           DateTime                  @default(now()) @db.Timestamptz
-  eco_id               Int?                      // ⏳ Sprint 5
-  reason               String?                   @db.Text
-
-  @@index([activity_template_id, changed_at])
-  @@index([eco_id])
-}
-
-// ── 🟨 product_routing_override history ──────────────────────
-model product_routing_override_history {
-  id                   Int       @id @default(autoincrement())
-  override_id          Int       // keeps reference even if override row is later deleted
-  product_id           Int
-  activity_template_id Int
-  snapshot             Json      // full snapshot incl. override_per_minute, override_std_measure, reason, eco_id
-  action               String    @db.VarChar(20) // 'create' | 'update' | 'delete'
-  changed_by_uid       Int
-  changed_by           res_users @relation("ovrh_user", fields: [changed_by_uid], references: [id])
-  changed_at           DateTime  @default(now()) @db.Timestamptz
-  eco_id               Int?      // ⏳ Sprint 5
-
-  @@index([product_id, changed_at])
-  @@index([activity_template_id, changed_at])
-  @@index([eco_id])
-}
 
 // ═══════════════════════════════════════════════════════════════
 // Sprint 7: BOM Upload (dispatch + doc_revision + assembly + part)
@@ -1273,8 +1027,6 @@ model operation_template_activity {
   measure                     String                     @db.VarChar(40)
   unit                        String?                    @db.VarChar(20)
   per_minute                  Decimal?                   @db.Decimal(10, 4)
-  source_activity_template_id Int?
-  source_activity_template    routing_activity_template? @relation(fields: [source_activity_template_id], references: [id], onDelete: SetNull)
   machine_id                  Int?
   machine                     equipment_resource?        @relation("OpActMachine", fields: [machine_id], references: [id], onDelete: SetNull)
   tools                       op_act_tool[]
@@ -1295,15 +1047,10 @@ model equipment_resource {
   create_date DateTime @default(now()) @db.Timestamptz
   write_date  DateTime @updatedAt @db.Timestamptz
 
-  activity_templates            routing_activity_template[]   @relation("ActTplMachine")
   operation_template_acts       operation_template_activity[] @relation("OpActMachine")
   op_act_tools                  op_act_tool[]
   op_act_consumables            op_act_consumable[]
-  // routing_op_activity level
-  routing_op_act_machine_uses   routing_op_activity[]         @relation("RoutingOpActMachine")
-  routing_op_act_tools          routing_op_act_tool[]         @relation("RoutingOpActToolResource")
-  routing_op_act_consumables    routing_op_act_consumable[]   @relation("RoutingOpActConsumableResource")
-  // Sprint 12: Activity Library
+  // Sprint 11: Activity Library
   activities                    activity[]                    @relation("activity_machine")
   activity_labors               activity_labor[]              @relation("activity_labor_resource")
 }

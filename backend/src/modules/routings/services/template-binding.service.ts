@@ -8,10 +8,8 @@ export class TemplateBindingService {
   async bindProduct(productId: number): Promise<number | null> {
     const product = await this.prisma.products.findUniqueOrThrow({
       where: { id: productId },
-      select: { id: true, product_type: true, categ_id: true, attributes: true, has_custom_routing: true, mark_prefix: true },
+      select: { id: true, product_type: true, categ_id: true, attributes: true, mark_prefix: true },
     })
-
-    if (product.has_custom_routing) return null
 
     const rules = await this.prisma.routing_template_binding_rule.findMany({
       where: { active: true },
@@ -41,7 +39,7 @@ export class TemplateBindingService {
 
   async rebindAll(): Promise<{ bound: number; unmatched: number }> {
     const products = await this.prisma.products.findMany({
-      where: { has_custom_routing: false },
+      where: {},
       select: { id: true },
     })
 

@@ -17,33 +17,18 @@ import { RoutingService } from './services/routing.service'
 import { CycleTimeService } from './services/cycle-time.service'
 import { StdCostService } from './services/std-cost.service'
 import { WorkcenterService } from './services/workcenter.service'
-import { ActivityTemplatesService } from './services/activity-templates.service'
-import { OverrideService } from './services/override.service'
-import { CustomRoutingService } from './services/custom-routing.service'
 import { TemplateBindingService } from './services/template-binding.service'
 import { TemplateSimulatorService } from './services/template-simulator.service'
-import { BulkOverrideService } from './services/bulk-override.service'
-import { RoutingPromotionService } from './services/routing-promotion.service'
 import { CreateRoutingDto } from './dto/create-routing.dto'
 import { AddOperationDto } from './dto/add-operation.dto'
 import { ReorderOperationsDto } from './dto/reorder-operations.dto'
 import { UpdateOperationDto } from './dto/update-operation.dto'
-import { AddStepActivityDto } from './dto/update-activity-override.dto'
 import { CreateRoutingTemplateDto, UpdateRoutingTemplateDto } from './dto/create-routing-template.dto'
-import { UpsertOverrideDto } from './dto/upsert-override.dto'
-import {
-  CreateCustomRoutingDto,
-  AddCustomRoutingOpDto,
-  UpdateCustomRoutingOpDto,
-  AddCustomRoutingActivityDto,
-  RestoreToTemplateDto,
-} from './dto/create-custom-routing.dto'
 import {
   CreateBindingRuleDto,
   UpdateBindingRuleDto,
   ReorderBindingRulesDto,
 } from './dto/create-binding-rule.dto'
-import { CreateActivityTemplateDto, UpdateActivityTemplateDto } from './dto/create-activity-template.dto'
 import { UpsertTemplateSnapshotDto } from './dto/upsert-template-snapshot.dto'
 import { OpTypeService, CreateOpTypeDto, UpdateOpTypeDto } from './services/op-type.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
@@ -61,20 +46,15 @@ export class RoutingsController {
     private readonly cycleTime: CycleTimeService,
     private readonly stdCost: StdCostService,
     private readonly wcService: WorkcenterService,
-    private readonly actService: ActivityTemplatesService,
-    private readonly overrideService: OverrideService,
-    private readonly customRoutingService: CustomRoutingService,
     private readonly templateBindingService: TemplateBindingService,
     private readonly simulatorService: TemplateSimulatorService,
-    private readonly bulkOverrideService: BulkOverrideService,
-    private readonly promotionService: RoutingPromotionService,
     private readonly opTypeService: OpTypeService,
   ) {}
 
   // ── Routing per product ─────────────────────────────────────────
 
   @Get('products/:code/routing')
-  @ApiOperation({ summary: 'Get routing operations for a product (template-merged + overrides)' })
+  @ApiOperation({ summary: 'Get routing operations for a product (template-merged)' })
   getRouting(@Param('code') code: string) {
     return this.routingService.findByProduct(code)
   }
@@ -120,28 +100,6 @@ export class RoutingsController {
     return this.routingService.deleteOperation(code, opId, user.sub)
   }
 
-  @Post('products/:code/routing/operations/:opId/activities')
-  @ApiOperation({ summary: 'Add an activity template to a routing operation' })
-  addStepActivity(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Body() dto: AddStepActivityDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.routingService.addStepActivity(code, opId, dto, user.sub)
-  }
-
-  @Delete('products/:code/routing/operations/:opId/activities/:stepId')
-  @ApiOperation({ summary: 'Remove an activity from a template operation' })
-  deleteStepActivity(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Param('stepId', ParseIntPipe) stepId: number,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.routingService.deleteStepActivity(code, opId, stepId, user.sub)
-  }
-
   @Post('products/:code/routing/reorder')
   @ApiOperation({ summary: 'Reorder template routing operations' })
   reorder(
@@ -154,165 +112,24 @@ export class RoutingsController {
 
   @Post('products/:code/routing/action_activate')
   @ApiOperation({ summary: 'Activate the bound routing template' })
-  activate(
-    @Param('code') code: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  activate(@Param('code') code: string, @CurrentUser() user: JwtPayload) {
     return this.routingService.activate(code, user.sub)
   }
 
   @Post('products/:code/routing/action_obsolete')
   @ApiOperation({ summary: 'Obsolete the bound routing template' })
-  obsolete(
-    @Param('code') code: string,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  obsolete(@Param('code') code: string, @CurrentUser() user: JwtPayload) {
     return this.routingService.obsolete(code, user.sub)
   }
 
   @Post('products/:code/routing/recompute')
-  @ApiOperation({ summary: 'Recompute cycle time (force=true bypasses cache)' })
-  async recompute(
-    @Param('code') code: string,
-    @Query('force') force?: string,
-  ) {
+  @ApiOperation({ summary: 'Recompute cycle time' })
+  async recompute(@Param('code') code: string, @Query('force') force?: string) {
     const productId = await this.routingService.findProductId(code)
     return this.cycleTime.compute(productId, force === 'true')
   }
 
-  // ── Routing overrides (RT32) ────────────────────────────────────
-
-  @Get('products/:code/routing-overrides')
-  @ApiTags('RoutingOverrides')
-  @ApiOperation({ summary: 'List product routing overrides' })
-  async listOverrides(@Param('code') code: string) {
-    const productId = await this.routingService.findProductId(code)
-    return this.overrideService.listOverrides(productId)
-  }
-
-  @Post('products/:code/routing-overrides/:actId')
-  @ApiTags('RoutingOverrides')
-  @ApiOperation({ summary: 'Upsert a routing override for a specific activity template' })
-  async upsertOverride(
-    @Param('code') code: string,
-    @Param('actId', ParseIntPipe) actId: number,
-    @Body() dto: UpsertOverrideDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    const productId = await this.routingService.findProductId(code)
-    return this.overrideService.upsertOverride(productId, actId, dto, user.sub)
-  }
-
-  @Delete('products/:code/routing-overrides/:actId')
-  @ApiTags('RoutingOverrides')
-  @ApiOperation({ summary: 'Remove a routing override' })
-  async removeOverride(
-    @Param('code') code: string,
-    @Param('actId', ParseIntPipe) actId: number,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    const productId = await this.routingService.findProductId(code)
-    return this.overrideService.removeOverride(productId, actId, user.sub)
-  }
-
-  // ── Custom routing (RT33) ───────────────────────────────────────
-
-  @Get('products/:code/custom-routing')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Get custom routing for a product' })
-  getCustomRouting(@Param('code') code: string) {
-    return this.customRoutingService.findByProduct(code)
-  }
-
-  @Post('products/:code/custom-routing')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Convert product to custom routing (optionally clone from template)' })
-  createCustomRouting(
-    @Param('code') code: string,
-    @Body() dto: CreateCustomRoutingDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.customRoutingService.create(code, dto.from_template_id, user.sub)
-  }
-
-  @Post('products/:code/custom-routing/restore-to-template')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Restore product to template routing (obsoletes custom routing)' })
-  restoreToTemplate(
-    @Param('code') code: string,
-    @Body() dto: RestoreToTemplateDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.customRoutingService.restoreToTemplate(code, dto.template_id, user.sub)
-  }
-
-  @Post('products/:code/custom-routing/ops')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Add an operation to custom routing' })
-  addCustomOp(
-    @Param('code') code: string,
-    @Body() dto: AddCustomRoutingOpDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.customRoutingService.addOp(code, dto, user.sub)
-  }
-
-  @Patch('products/:code/custom-routing/ops/:opId')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Update a custom routing operation' })
-  updateCustomOp(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Body() dto: UpdateCustomRoutingOpDto,
-  ) {
-    return this.customRoutingService.updateOp(code, opId, dto)
-  }
-
-  @Delete('products/:code/custom-routing/ops/:opId')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Delete a custom routing operation' })
-  deleteCustomOp(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-  ) {
-    return this.customRoutingService.deleteOp(code, opId)
-  }
-
-  @Post('products/:code/custom-routing/ops/:opId/activities')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Add an activity to a custom routing operation' })
-  addCustomActivity(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Body() dto: AddCustomRoutingActivityDto,
-  ) {
-    return this.customRoutingService.addActivity(code, opId, dto)
-  }
-
-  @Patch('products/:code/custom-routing/ops/:opId/activities/:actId')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Update a custom routing activity' })
-  updateCustomActivity(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Param('actId', ParseIntPipe) actId: number,
-    @Body() dto: Partial<AddCustomRoutingActivityDto>,
-  ) {
-    return this.customRoutingService.updateActivity(code, opId, actId, dto)
-  }
-
-  @Delete('products/:code/custom-routing/ops/:opId/activities/:actId')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Delete a custom routing activity' })
-  deleteCustomActivity(
-    @Param('code') code: string,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Param('actId', ParseIntPipe) actId: number,
-  ) {
-    return this.customRoutingService.deleteActivity(code, opId, actId)
-  }
-
-  // ── Rebind product to template (RT35) ───────────────────────────
+  // ── Rebind ──────────────────────────────────────────────────────
 
   @Post('products/:code/rebind')
   @ApiOperation({ summary: 'Re-run binding rules to assign template to product' })
@@ -337,7 +154,7 @@ export class RoutingsController {
     return this.stdCost.compute(productId)
   }
 
-  // ── Routing templates (RT32) ────────────────────────────────────
+  // ── Routing templates ───────────────────────────────────────────
 
   @Get('routing-templates')
   @ApiTags('RoutingTemplates')
@@ -349,10 +166,7 @@ export class RoutingsController {
   @Post('routing-templates')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Create a new routing template' })
-  createRoutingTemplate(
-    @Body() dto: CreateRoutingTemplateDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  createRoutingTemplate(@Body() dto: CreateRoutingTemplateDto, @CurrentUser() user: JwtPayload) {
     return this.prismaCreateTemplate(dto, user.sub)
   }
 
@@ -407,10 +221,7 @@ export class RoutingsController {
   @Post('routing-templates/:id/reorder-ops')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Atomically reorder all operations on a routing template' })
-  reorderTemplateOps(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ReorderOperationsDto,
-  ) {
+  reorderTemplateOps(@Param('id', ParseIntPipe) id: number, @Body() dto: ReorderOperationsDto) {
     return this.routingService.reorderTemplateOperations(id, dto.items)
   }
 
@@ -447,7 +258,27 @@ export class RoutingsController {
     return this.routingService.findOne(id)
   }
 
-  // ── Binding rules (RT34) ────────────────────────────────────────
+  // ── Template history ────────────────────────────────────────────
+
+  @Get('routing-templates/:id/history')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Get change history for a routing template' })
+  getTemplateHistory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('page') page = '1',
+    @Query('limit') limit = '50',
+  ) {
+    const skip = (Number(page) - 1) * Number(limit)
+    return this.prisma.routing_template_history.findMany({
+      where: { template_id: id },
+      orderBy: { changed_at: 'desc' },
+      skip,
+      take: Number(limit),
+      include: { changed_by: { select: { id: true, name: true } } },
+    })
+  }
+
+  // ── Binding rules ───────────────────────────────────────────────
 
   @Get('routing-template-binding-rules')
   @ApiTags('BindingRules')
@@ -459,10 +290,7 @@ export class RoutingsController {
   @Post('routing-template-binding-rules')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Create a binding rule' })
-  createBindingRule(
-    @Body() dto: CreateBindingRuleDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
+  createBindingRule(@Body() dto: CreateBindingRuleDto, @CurrentUser() user: JwtPayload) {
     return this.prismaCreateBindingRule(dto, user.sub)
   }
 
@@ -498,64 +326,7 @@ export class RoutingsController {
     return this.templateBindingService.rebindAll()
   }
 
-  // ── Activity templates ─────────────────────────────────────────
-
-  @Get('activity-templates')
-  @ApiOperation({ summary: 'List activity templates (paginated, filterable)' })
-  listActivityTemplates(
-    @Query('op_code') opCode?: string,
-    @Query('workcenter_id') workcenterId?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.actService.findAll(
-      opCode,
-      workcenterId ? +workcenterId : undefined,
-      page ? +page : 1,
-      limit ? +limit : 50,
-    )
-  }
-
-  @Post('activity-templates')
-  @ApiOperation({ summary: 'Create a new activity template' })
-  createActivityTemplate(@Body() dto: CreateActivityTemplateDto, @CurrentUser() user: JwtPayload) {
-    return this.actService.create(dto, user.sub)
-  }
-
-  @Get('activity-templates/:id')
-  @ApiOperation({ summary: 'Get activity template by id' })
-  getTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.actService.findOne(id)
-  }
-
-  @Patch('activity-templates/:id')
-  @ApiOperation({ summary: 'Update activity template fields' })
-  updateActivityTemplate(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateActivityTemplateDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.actService.update(id, dto, user.sub)
-  }
-
-  @Post('activity-templates/:id/preview')
-  @ApiOperation({ summary: 'Preview cycle time for a template given product attributes' })
-  previewTemplate(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { attributes: Record<string, number> },
-  ) {
-    return this.actService.preview(id, body.attributes ?? {})
-  }
-
-  // ── Formula params ─────────────────────────────────────────────
-
-  @Get('formula-params')
-  @ApiOperation({ summary: 'List all formula parameters' })
-  listParams() {
-    return this.actService.findAllParams()
-  }
-
-  // ── Template Simulator (RT44/RT45/RT47) ────────────────────────
+  // ── Template Simulator ──────────────────────────────────────────
 
   @Get('routing-templates/:id/required-attrs')
   @ApiTags('RoutingTemplates')
@@ -566,7 +337,7 @@ export class RoutingsController {
 
   @Post('routing-templates/:id/simulate')
   @ApiTags('RoutingTemplates')
-  @ApiOperation({ summary: 'Simulate cycle time for a template given arbitrary attributes (no DB write)' })
+  @ApiOperation({ summary: 'Simulate cycle time for a template given arbitrary attributes' })
   simulateTemplate(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { attributes: Record<string, number>; fixture_id?: number },
@@ -601,115 +372,33 @@ export class RoutingsController {
     return this.simulatorService.createFixture(id, body, user.sub)
   }
 
-  // ── Bulk Override (RT50) ────────────────────────────────────────
+  // ── Op Types ────────────────────────────────────────────────────
 
-  @Post('routing-overrides/bulk')
-  @ApiTags('RoutingOverrides')
-  @ApiOperation({ summary: 'Bulk upsert overrides for all products matching criteria; preview_only=true for dry-run' })
-  bulkOverride(
-    @Body()
-    body: {
-      criteria: {
-        routing_template_id?: number
-        product_type?: string
-        mark_prefix?: string
-        categ_id?: number
-        attribute_filter?: { path: string; value: string }
-      }
-      override: {
-        activity_template_id: number
-        override_per_minute?: number
-        override_std_measure?: number
-        override_manpower?: number
-        reason: string
-      }
-      eco_id?: number
-      preview_only?: boolean
-    },
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.bulkOverrideService.bulkUpsert(body.criteria, body.override, { eco_id: body.eco_id, preview_only: body.preview_only }, user.sub)
+  @Get('op-types')
+  @ApiOperation({ summary: 'List operation types (palette source)' })
+  listOpTypes(@Query('include_inactive') includeInactive?: string) {
+    return this.opTypeService.findAll(includeInactive === 'true')
   }
 
-  // ── Custom Routing Promotion (RT54) ────────────────────────────
-
-  @Get('custom-routings/promotion-candidates')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Find custom routings with identical op_code structure (candidates for template promotion)' })
-  findPromotionCandidates() {
-    return this.promotionService.findCandidates()
+  @Post('op-types')
+  @ApiOperation({ summary: 'Create a new operation type' })
+  createOpType(@Body() dto: CreateOpTypeDto) {
+    return this.opTypeService.create(dto)
   }
 
-  @Post('custom-routings/:id/promote-to-template')
-  @ApiTags('CustomRoutings')
-  @ApiOperation({ summary: 'Promote a custom routing to a new shared template and rebind the product' })
-  promoteToTemplate(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() body: { template_name: string },
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.promotionService.promote(id, body.template_name, user.sub)
+  @Patch('op-types/:id')
+  @ApiOperation({ summary: 'Update an operation type' })
+  updateOpType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOpTypeDto) {
+    return this.opTypeService.update(id, dto)
   }
 
-  // ── History endpoints (RT49) ────────────────────────────────────
-
-  @Get('routing-templates/:id/history')
-  @ApiTags('RoutingTemplates')
-  @ApiOperation({ summary: 'Get change history for a routing template' })
-  getTemplateHistory(
-    @Param('id', ParseIntPipe) id: number,
-    @Query('page') page = '1',
-    @Query('limit') limit = '50',
-  ) {
-    const skip = (Number(page) - 1) * Number(limit)
-    return this.prisma.routing_template_history.findMany({
-      where: { template_id: id },
-      orderBy: { changed_at: 'desc' },
-      skip,
-      take: Number(limit),
-      include: { changed_by: { select: { id: true, name: true } } },
-    })
+  @Delete('op-types/:id')
+  @ApiOperation({ summary: 'Deactivate an operation type' })
+  removeOpType(@Param('id', ParseIntPipe) id: number) {
+    return this.opTypeService.remove(id)
   }
 
-  @Get('activity-templates/:id/history')
-  @ApiTags('ActivityTemplates')
-  @ApiOperation({ summary: 'Get change history for an activity template' })
-  getActivityTemplateHistory(
-    @Param('id', ParseIntPipe) id: number,
-    @Query('page') page = '1',
-    @Query('limit') limit = '50',
-  ) {
-    const skip = (Number(page) - 1) * Number(limit)
-    return this.prisma.routing_activity_template_history.findMany({
-      where: { activity_template_id: id },
-      orderBy: { changed_at: 'desc' },
-      skip,
-      take: Number(limit),
-      include: { changed_by: { select: { id: true, name: true } } },
-    })
-  }
-
-  @Get('products/:code/routing-overrides/:actId/history')
-  @ApiTags('RoutingOverrides')
-  @ApiOperation({ summary: 'Get change history for a product override on a specific activity' })
-  async getOverrideHistory(
-    @Param('code') code: string,
-    @Param('actId', ParseIntPipe) actId: number,
-    @Query('page') page = '1',
-    @Query('limit') limit = '50',
-  ) {
-    const product = await this.prisma.products.findUniqueOrThrow({ where: { product_code: code } })
-    const skip = (Number(page) - 1) * Number(limit)
-    return this.prisma.product_routing_override_history.findMany({
-      where: { product_id: product.id, activity_template_id: actId },
-      orderBy: { changed_at: 'desc' },
-      skip,
-      take: Number(limit),
-      include: { changed_by: { select: { id: true, name: true } } },
-    })
-  }
-
-  // ── Inline Prisma helpers for template + binding-rule CRUD ─────
+  // ── Private helpers ─────────────────────────────────────────────
 
   private prismaCreateTemplate(dto: CreateRoutingTemplateDto, uid: number) {
     const { canvas_edges, ...rest } = dto
@@ -744,34 +433,6 @@ export class RoutingsController {
       include: { routing_template: { select: { id: true, code: true, name: true } } },
     })
   }
-
-  // ── Op Types ────────────────────────────────────────────────────
-
-  @Get('op-types')
-  @ApiOperation({ summary: 'List operation types (palette source)' })
-  listOpTypes(@Query('include_inactive') includeInactive?: string) {
-    return this.opTypeService.findAll(includeInactive === 'true')
-  }
-
-  @Post('op-types')
-  @ApiOperation({ summary: 'Create a new operation type' })
-  createOpType(@Body() dto: CreateOpTypeDto) {
-    return this.opTypeService.create(dto)
-  }
-
-  @Patch('op-types/:id')
-  @ApiOperation({ summary: 'Update an operation type' })
-  updateOpType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOpTypeDto) {
-    return this.opTypeService.update(id, dto)
-  }
-
-  @Delete('op-types/:id')
-  @ApiOperation({ summary: 'Deactivate an operation type' })
-  removeOpType(@Param('id', ParseIntPipe) id: number) {
-    return this.opTypeService.remove(id)
-  }
-
-  // ── Private helpers ─────────────────────────────────────────────
 
   private prismaCreateBindingRule(dto: CreateBindingRuleDto, uid: number) {
     return this.prisma.routing_template_binding_rule.create({
