@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -1088,6 +1089,8 @@ model op_act_consumable {
 }
 
 // ── Sprint 11b: Op-act snapshot tables ───────────────────────────────────────
+// Note: these models use `op_act_id` (not `activity_id`) to avoid ambiguity
+// with op_act_tool/op_act_consumable which pre-date this naming.
 
 model op_act_labor {
   id                Int                         @id @default(autoincrement())
