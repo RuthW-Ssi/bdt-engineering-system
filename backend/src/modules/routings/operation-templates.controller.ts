@@ -23,9 +23,32 @@ export class OperationTemplatesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get single operation template with activities' })
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.findOne(id)
+  @ApiOperation({ summary: 'Get single operation template; add ?include=stale_check for stale flags' })
+  findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('include') include?: string,
+  ) {
+    return this.svc.findOne(id, include === 'stale_check')
+  }
+
+  @Post(':id/activities/from-library/:activityId')
+  @ApiOperation({ summary: 'Snapshot an Activity Library entry into this operation template' })
+  addFromLibrary(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('activityId', ParseIntPipe) activityId: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.addFromLibrary(id, activityId, user.sub)
+  }
+
+  @Post(':id/activities/:actId/update-from-library')
+  @ApiOperation({ summary: 'Re-snapshot activity from its source library entry (full overwrite)' })
+  updateFromLibrary(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('actId', ParseIntPipe) actId: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateFromLibrary(id, actId, user.sub)
   }
 
   @Post()

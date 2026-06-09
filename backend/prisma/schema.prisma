@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -147,6 +148,8 @@ model materials {
   welding_requirements  dispatch_welding_requirement[]   @relation("WeldingRequirements")
   // Sprint 12: Activity Library
   activity_consumes     activity_consume[]
+  // Sprint 11b: Op-act material snapshot
+  op_act_materials      op_act_material[]
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -1029,8 +1032,13 @@ model operation_template_activity {
   per_minute                  Decimal?                   @db.Decimal(10, 4)
   machine_id                  Int?
   machine                     equipment_resource?        @relation("OpActMachine", fields: [machine_id], references: [id], onDelete: SetNull)
+  source_activity_id          Int?
+  source_activity             activity?                  @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
+  snapshot_at                 DateTime?                  @db.Timestamptz
   tools                       op_act_tool[]
   consumables                 op_act_consumable[]
+  labors                      op_act_labor[]
+  op_materials                op_act_material[]
 
   @@index([operation_template_id])
 }
@@ -1053,6 +1061,7 @@ model equipment_resource {
   // Sprint 11: Activity Library
   activities                    activity[]                    @relation("activity_machine")
   activity_labors               activity_labor[]              @relation("activity_labor_resource")
+  op_act_labors                 op_act_labor[]                @relation("OpActLaborResource")
 }
 
 model op_act_tool {
@@ -1079,6 +1088,33 @@ model op_act_consumable {
   @@index([activity_id])
 }
 
+// ── Sprint 11b: Op-act snapshot tables ───────────────────────────────────────
+// Note: these models use `op_act_id` (not `activity_id`) to avoid ambiguity
+// with op_act_tool/op_act_consumable which pre-date this naming.
+
+model op_act_labor {
+  id                Int                         @id @default(autoincrement())
+  op_act_id         Int
+  op_act            operation_template_activity @relation(fields: [op_act_id], references: [id], onDelete: Cascade)
+  labor_resource_id Int
+  labor_resource    equipment_resource          @relation("OpActLaborResource", fields: [labor_resource_id], references: [id], onDelete: Cascade)
+  qty               Int                         @default(1)
+
+  @@unique([op_act_id, labor_resource_id])
+  @@index([op_act_id])
+}
+
+model op_act_material {
+  id          Int                         @id @default(autoincrement())
+  op_act_id   Int
+  op_act      operation_template_activity @relation(fields: [op_act_id], references: [id], onDelete: Cascade)
+  material_id Int
+  material    materials                   @relation(fields: [material_id], references: [id], onDelete: Cascade)
+
+  @@unique([op_act_id, material_id])
+  @@index([op_act_id])
+}
+
 // ═══════════════════════════════════════════════════════════════
 // Sprint 12: Activity Library
 // ═══════════════════════════════════════════════════════════════
@@ -1098,6 +1134,7 @@ model activity {
   write_date    DateTime           @updatedAt @db.Timestamptz
   consumes      activity_consume[]
   labors        activity_labor[]
+  operation_template_activities  operation_template_activity[]  @relation("OpActSourceActivity")
 
   @@index([machine_id])
   @@index([name])

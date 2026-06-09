@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Layers, AlertCircle, Plus } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { Search, Layers, AlertCircle, Plus, Trash2 } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
+import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ async function fetchRoutingTemplates(): Promise<RoutingTemplateSummary[]> {
 
 export function RoutingList() {
   const navigate = useNavigate()
+  const qc = useQueryClient()
   const [search, setSearch] = useState('')
   const [filterState, setFilterState] = useState<string>('all')
 
@@ -53,6 +55,23 @@ export function RoutingList() {
     queryFn: fetchRoutingTemplates,
     staleTime: 2 * 60 * 1000,
   })
+
+  const { data: markPrefixes = [] } = useMarkPrefixes()
+  const prefixMap = useMemo(
+    () => new Map(markPrefixes.map(p => [p.code, p.label])),
+    [markPrefixes],
+  )
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiClient.delete(`/routing-templates/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['routing-templates'] }),
+  })
+
+  function handleDelete(e: React.MouseEvent, r: RoutingTemplateSummary) {
+    e.stopPropagation()
+    if (!confirm(`ลบ "${r.code} — ${r.name}" ใช่ไหม?`)) return
+    deleteMut.mutate(r.id)
+  }
 
   const filtered = data.filter(r => {
     const matchState = filterState === 'all' || r.state === filterState
@@ -133,8 +152,8 @@ export function RoutingList() {
 
       {/* Table */}
       <div className="bg-white flex-1">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 70px 80px 110px 120px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-          {['Template', 'Type', 'Ops', 'Bound', 'State', 'Updated'].map((h, i) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 70px 80px 110px 120px 36px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
+          {['Template', 'Mark Prefix', 'Ops', 'Bound', 'State', 'Updated', ''].map((h, i) => (
             <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
           ))}
         </div>
@@ -155,7 +174,7 @@ export function RoutingList() {
               key={r.id}
               className="hover:bg-chrome-50 transition-colors cursor-pointer"
               onClick={() => navigate(`/routings/${r.id}/edit`)}
-              style={{ display: 'grid', gridTemplateColumns: '1fr 110px 70px 80px 110px 120px', alignItems: 'center', padding: '0 20px', height: 52, borderBottom: '1px solid #E0E0E0' }}
+              style={{ display: 'grid', gridTemplateColumns: '1fr 160px 70px 80px 110px 120px 36px', alignItems: 'center', padding: '0 20px', height: 52, borderBottom: '1px solid #E0E0E0' }}
             >
               <div>
                 <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.code}</div>
@@ -163,7 +182,14 @@ export function RoutingList() {
               </div>
 
               <div style={{ fontSize: 12, color: '#555' }}>
-                {r.applies_to_product_type ?? <span style={{ color: '#BDBDBD' }}>All types</span>}
+                {r.applies_to_product_type
+                  ? <>
+                      <span className="font-mono" style={{ fontWeight: 600, color: '#1F1F1F' }}>{r.applies_to_product_type}</span>
+                      {prefixMap.has(r.applies_to_product_type) && (
+                        <span style={{ color: '#8E8E8E' }}> · {prefixMap.get(r.applies_to_product_type)}</span>
+                      )}
+                    </>
+                  : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
 
               <div className="flex items-center gap-1" style={{ fontSize: 13, color: '#555' }}>
@@ -182,6 +208,19 @@ export function RoutingList() {
               <div style={{ fontSize: 12, color: '#8E8E8E' }}>
                 {new Date(r.write_date).toLocaleDateString('en-GB')}
               </div>
+
+              <div style={{ display: 'flex', justifyContent: 'center' }}>
+                <button
+                  onClick={e => handleDelete(e, r)}
+                  disabled={deleteMut.isPending}
+                  title="ลบ routing template นี้"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -190,6 +229,7 @@ export function RoutingList() {
       <div className="sticky flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ bottom: 0, height: 32, fontSize: 12, color: '#8E8E8E', zIndex: 30 }}>
         Showing {filtered.length} templates
       </div>
+
     </div>
   )
 }

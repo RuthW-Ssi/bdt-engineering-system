@@ -1,50 +1,60 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import {
+  IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString,
+  MaxLength, Min, ValidateNested, ArrayMaxSize,
+} from 'class-validator'
+import { Type } from 'class-transformer'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { FormulaService } from './formula.service'
 
-export interface ConsumableInput {
-  resource_id: number
-  qty?: number | null
-  unit?: string | null
+export class LaborEntryDto {
+  @IsInt() @Min(1) labor_resource_id: number
+  @IsInt() @Min(1) qty: number
 }
 
-export interface CreateOpTemplateActivityDto {
-  name: string
-  measure: string
-  unit?: string
-  per_minute?: number
-  source_activity_template_id?: number
-  machine_id?: number | null
-  tool_ids?: number[]
-  consumables?: ConsumableInput[]
-  sequence?: number
+export class CreateOpTemplateActivityDto {
+  @IsString() @IsNotEmpty() @MaxLength(120) name: string
+  @IsString() @IsNotEmpty() @MaxLength(40)  measure: string
+  @IsOptional() @IsString() @MaxLength(20)  unit?: string
+  @IsOptional() @IsNumber() @Min(0)         per_minute?: number
+  @IsOptional() @IsInt()                    machine_id?: number | null
+  @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true }) tool_ids?: number[]
+  @IsOptional() @IsInt() @Min(0)            sequence?: number
+  @IsOptional() @IsInt() @Min(1)            source_activity_id?: number | null
+  @IsOptional() @IsString()                 snapshot_at?: string | null
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => LaborEntryDto)
+  labor_entries?: LaborEntryDto[]
+  @IsOptional() @IsArray() @IsInt({ each: true }) @Min(1, { each: true })
+  material_resource_ids?: number[]
 }
 
-export interface CreateOperationTemplateDto {
-  op_code: string
-  name: string
-  op_type_id?: number
-  workcenter_id?: number
-  method?: string
-  time_mode?: string
-  duration_min?: number
-  formula_expr?: string
+export class CreateOperationTemplateDto {
+  @IsString() @IsNotEmpty() @MaxLength(40)  op_code: string
+  @IsString() @IsNotEmpty() @MaxLength(120) name: string
+  @IsOptional() @IsInt() @Min(1)            op_type_id?: number
+  @IsOptional() @IsInt() @Min(1)            workcenter_id?: number
+  @IsOptional() @IsString() @MaxLength(60)  method?: string
+  @IsOptional() @IsIn(['fixed', 'formula', 'by_activities']) time_mode?: string
+  @IsOptional() @IsNumber() @Min(0)         duration_min?: number
+  @IsOptional() @IsString() @MaxLength(500) formula_expr?: string
+  @IsOptional() @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => CreateOpTemplateActivityDto)
   activities?: CreateOpTemplateActivityDto[]
 }
 
-export interface UpdateOperationTemplateDto {
-  name?: string
-  op_type_id?: number | null
-  workcenter_id?: number | null
-  method?: string | null
-  time_mode?: string
-  duration_min?: number | null
-  formula_expr?: string | null
+export class UpdateOperationTemplateDto {
+  @IsOptional() @IsString() @MaxLength(120) name?: string
+  @IsOptional() @IsInt()                    op_type_id?: number | null
+  @IsOptional() @IsInt()                    workcenter_id?: number | null
+  @IsOptional() @IsString() @MaxLength(60)  method?: string | null
+  @IsOptional() @IsIn(['fixed', 'formula', 'by_activities']) time_mode?: string
+  @IsOptional() @IsNumber() @Min(0)         duration_min?: number | null
+  @IsOptional() @IsString() @MaxLength(500) formula_expr?: string | null
+  @IsOptional() @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => CreateOpTemplateActivityDto)
   activities?: CreateOpTemplateActivityDto[]
 }
 
-const RESOURCE_SELECT = { select: { id: true, code: true, name: true, type: true } }
+const RESOURCE_SELECT = { select: { id: true, code: true, name: true, type: true } } as const
 
 const FULL_INCLUDE = {
   workcenter: { select: { id: true, code: true, name: true } },
@@ -52,12 +62,42 @@ const FULL_INCLUDE = {
   activities: {
     orderBy: { sequence: 'asc' as const },
     include: {
-      source_activity_template: { select: { id: true, op_code: true, description: true } },
-      tools:       { include: { resource: RESOURCE_SELECT } },
-      consumables: { include: { resource: RESOURCE_SELECT } },
+      machine:      RESOURCE_SELECT,
+      tools:        { include: { resource: RESOURCE_SELECT } },
+      labors:       { include: { labor_resource: RESOURCE_SELECT } },
+      op_materials: { include: { resource: { select: { id: true, code: true, name: true } } } },
     },
   },
 }
+
+const SOURCE_ACTIVITY_SELECT = {
+  select: {
+    activity_code: true,
+    write_date:    true,
+  },
+} as const
+
+const OP_ACT_INCLUDE = {
+  machine:         { select: { id: true, code: true, name: true, type: true } },
+  tools:           { include: { resource: RESOURCE_SELECT } },
+  labors:          { include: { labor_resource: RESOURCE_SELECT } },
+  op_materials:    { include: { resource: { select: { id: true, code: true, name: true } } } },
+  source_activity: SOURCE_ACTIVITY_SELECT,
+} as const
+
+const FULL_INCLUDE_WITH_STALE = {
+  ...FULL_INCLUDE,
+  activities: {
+    orderBy: { sequence: 'asc' as const },
+    include: {
+      machine:         RESOURCE_SELECT,
+      tools:           { include: { resource: RESOURCE_SELECT } },
+      labors:          { include: { labor_resource: RESOURCE_SELECT } },
+      op_materials:    { include: { resource: { select: { id: true, code: true, name: true } } } },
+      source_activity: SOURCE_ACTIVITY_SELECT,
+    },
+  },
+} as const
 
 @Injectable()
 export class OperationTemplateService {
@@ -83,10 +123,25 @@ export class OperationTemplateService {
     })
   }
 
-  async findOne(id: number) {
-    const tpl = await this.prisma.operation_template.findUnique({ where: { id }, include: FULL_INCLUDE })
+  async findOne(id: number, withStale = false) {
+    if (!withStale) {
+      const tpl = await this.prisma.operation_template.findUnique({ where: { id }, include: FULL_INCLUDE })
+      if (!tpl) throw new NotFoundException(`Operation template ${id} not found`)
+      return tpl
+    }
+    const tpl = await this.prisma.operation_template.findUnique({ where: { id }, include: FULL_INCLUDE_WITH_STALE })
     if (!tpl) throw new NotFoundException(`Operation template ${id} not found`)
-    return tpl
+    return {
+      ...tpl,
+      activities: tpl.activities.map(act => {
+        const src = act.source_activity as any
+        if (!src) return { ...act, source_activity_code: null, is_stale: false }
+        const isStale = act.snapshot_at != null && src.write_date != null
+          ? new Date(src.write_date) > new Date(act.snapshot_at)
+          : false
+        return { ...act, source_activity_code: src.activity_code, is_stale: isStale }
+      }),
+    }
   }
 
   async create(dto: CreateOperationTemplateDto, userId: number) {
@@ -121,7 +176,6 @@ export class OperationTemplateService {
               unit:       a.unit       ?? null,
               per_minute: a.per_minute ?? null,
               machine_id: a.machine_id ?? null,
-              source_activity_template_id: a.source_activity_template_id ?? null,
               sequence: a.sequence ?? (i + 1) * 10,
             })),
           } : undefined,
@@ -147,19 +201,19 @@ export class OperationTemplateService {
 
     return this.prisma.$transaction(async tx => {
       if (dto.activities !== undefined) {
-        // Cascade on op_act_tool/op_act_consumable handles junction cleanup
         await tx.operation_template_activity.deleteMany({ where: { operation_template_id: id } })
 
         if (dto.activities.length > 0) {
           const newActs = await tx.operation_template_activity.createManyAndReturn({
             data: dto.activities.map((a, i) => ({
               operation_template_id: id,
-              name:       a.name,
-              measure:    a.measure,
-              unit:       a.unit       ?? null,
-              per_minute: a.per_minute ?? null,
-              machine_id: a.machine_id ?? null,
-              source_activity_template_id: a.source_activity_template_id ?? null,
+              name:               a.name,
+              measure:            a.measure,
+              unit:               a.unit               ?? null,
+              per_minute:         a.per_minute         ?? null,
+              machine_id:         a.machine_id         ?? null,
+              source_activity_id: a.source_activity_id ?? null,
+              snapshot_at:        a.snapshot_at ? new Date(a.snapshot_at) : null,
               sequence: a.sequence ?? (i + 1) * 10,
             })),
           })
@@ -210,6 +264,129 @@ export class OperationTemplateService {
     return this.prisma.operation_template.delete({ where: { id } })
   }
 
+  async addFromLibrary(templateId: number, activityId: number, userId?: number) {
+    await this.prisma.operation_template.findUniqueOrThrow({ where: { id: templateId }, select: { id: true } })
+      .catch(() => { throw new NotFoundException(`Operation template ${templateId} not found`) })
+
+    const src = await this.prisma.activity.findUnique({
+      where: { id: activityId },
+      include: { consumes: true, labors: true, tools: true },
+    })
+    if (!src) throw new NotFoundException(`Activity ${activityId} not found`)
+
+    const agg = await this.prisma.operation_template_activity.aggregate({
+      where: { operation_template_id: templateId },
+      _max: { sequence: true },
+    })
+    const nextSeq = (agg._max.sequence ?? 0) + 10
+
+    const created = await this.prisma.$transaction(async tx => {
+      const opAct = await tx.operation_template_activity.create({
+        data: {
+          operation_template_id: templateId,
+          sequence:              nextSeq,
+          name:                  src.name,
+          measure:               src.activity_code,
+          per_minute:            src.duration_min,
+          machine_id:            src.machine_id,
+          source_activity_id:    src.id,
+          snapshot_at:           new Date(),
+          ...(userId != null && { write_uid: userId }),
+        },
+      })
+      if (src.tools.length) {
+        await tx.op_act_tool.createMany({
+          data: src.tools.map(t => ({ activity_id: opAct.id, resource_id: t.resource_id })),
+          skipDuplicates: true,
+        })
+      }
+      if (src.labors.length) {
+        await tx.op_act_labor.createMany({
+          data: src.labors.map(l => ({
+            op_act_id:         opAct.id,
+            labor_resource_id: l.labor_resource_id,
+            qty:               l.qty,
+          })),
+          skipDuplicates: true,
+        })
+      }
+      if (src.consumes.length) {
+        await tx.op_act_material.createMany({
+          data: src.consumes.map(c => ({
+            op_act_id:   opAct.id,
+            resource_id: c.resource_id,
+          })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.operation_template_activity.findUniqueOrThrow({
+        where: { id: opAct.id },
+        include: OP_ACT_INCLUDE,
+      })
+    })
+
+    return { ...created, is_stale: false, source_activity_code: src.activity_code }
+  }
+
+  async updateFromLibrary(templateId: number, opActId: number, userId?: number) {
+    const opAct = await this.prisma.operation_template_activity.findUnique({
+      where: { id: opActId },
+      select: { id: true, source_activity_id: true, operation_template_id: true },
+    })
+    if (!opAct || opAct.operation_template_id !== templateId)
+      throw new NotFoundException(`Activity row ${opActId} not found on template ${templateId}`)
+    if (!opAct.source_activity_id)
+      throw new BadRequestException('Activity has no linked source — cannot update from library')
+
+    const src = await this.prisma.activity.findUniqueOrThrow({
+      where: { id: opAct.source_activity_id },
+      include: { consumes: true, labors: true, tools: true },
+    })
+
+    const updated = await this.prisma.$transaction(async tx => {
+      await tx.operation_template_activity.update({
+        where: { id: opActId },
+        data: {
+          name:        src.name,
+          measure:     src.activity_code,
+          per_minute:  src.duration_min,
+          machine_id:  src.machine_id,
+          snapshot_at: new Date(),
+          ...(userId != null && { write_uid: userId }),
+        },
+      })
+      await tx.op_act_tool.deleteMany({ where: { activity_id: opActId } })
+      await tx.op_act_labor.deleteMany({ where: { op_act_id: opActId } })
+      await tx.op_act_material.deleteMany({ where: { op_act_id: opActId } })
+      if (src.tools.length) {
+        await tx.op_act_tool.createMany({
+          data: src.tools.map(t => ({ activity_id: opActId, resource_id: t.resource_id })),
+          skipDuplicates: true,
+        })
+      }
+      if (src.labors.length) {
+        await tx.op_act_labor.createMany({
+          data: src.labors.map(l => ({
+            op_act_id: opActId, labor_resource_id: l.labor_resource_id, qty: l.qty,
+          })),
+          skipDuplicates: true,
+        })
+      }
+      if (src.consumes.length) {
+        await tx.op_act_material.createMany({
+          data: src.consumes.map(c => ({ op_act_id: opActId, resource_id: c.resource_id })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.operation_template_activity.findUniqueOrThrow({
+        where: { id: opActId },
+        include: OP_ACT_INCLUDE,
+      })
+    })
+
+    return { ...updated, is_stale: false, source_activity_code: src.activity_code }
+  }
+
   private async assertWorkcenters(ids: (number | null | undefined)[]) {
     const validIds = ids.filter((id): id is number => id != null)
     for (const id of validIds) {
@@ -232,9 +409,15 @@ export class OperationTemplateService {
           skipDuplicates: true,
         })
       }
-      if (a.consumables?.length) {
-        await tx.op_act_consumable.createMany({
-          data: a.consumables.map(c => ({ activity_id: actId, resource_id: c.resource_id, qty: c.qty ?? null, unit: c.unit ?? null })),
+      if (a.labor_entries?.length) {
+        await tx.op_act_labor.createMany({
+          data: a.labor_entries.map(l => ({ op_act_id: actId, labor_resource_id: l.labor_resource_id, qty: l.qty })),
+          skipDuplicates: true,
+        })
+      }
+      if (a.material_resource_ids?.length) {
+        await tx.op_act_material.createMany({
+          data: a.material_resource_ids.map(rid => ({ op_act_id: actId, resource_id: rid })),
           skipDuplicates: true,
         })
       }

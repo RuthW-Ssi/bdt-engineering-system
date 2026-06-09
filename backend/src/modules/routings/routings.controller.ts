@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  ConflictException,
   Delete,
   Get,
+  NotFoundException,
   Param,
   ParseIntPipe,
   Patch,
@@ -246,6 +248,23 @@ export class RoutingsController {
     return this.prismaUpdateTemplate(id, dto, user.sub)
   }
 
+  @Delete('routing-templates/:id')
+  @ApiTags('RoutingTemplates')
+  @ApiOperation({ summary: 'Delete a routing template' })
+  async deleteRoutingTemplate(@Param('id', ParseIntPipe) id: number) {
+    const tpl = await this.prisma.routing_template.findUnique({
+      where: { id },
+      select: { id: true, _count: { select: { bound_products: true } } },
+    })
+    if (!tpl) throw new NotFoundException(`Routing template ${id} not found`)
+    if (tpl._count.bound_products > 0)
+      throw new ConflictException(
+        `Cannot delete: ${tpl._count.bound_products} product(s) are bound to this template. Rebind or unlink them first.`
+      )
+    await this.prisma.routing_template.delete({ where: { id } })
+    return { deleted: true }
+  }
+
   @Get('routings/templates')
   @ApiOperation({ summary: 'List routing templates (legacy alias)' })
   listTemplates() {
@@ -400,17 +419,20 @@ export class RoutingsController {
 
   // ── Private helpers ─────────────────────────────────────────────
 
-  private prismaCreateTemplate(dto: CreateRoutingTemplateDto, uid: number) {
-    const { canvas_edges, ...rest } = dto
-    return this.prisma.routing_template.create({
+  private async prismaCreateTemplate(dto: CreateRoutingTemplateDto, uid: number) {
+    const { canvas_edges, code: dtoCode, ...rest } = dto
+    const record = await this.prisma.routing_template.create({
       data: {
         ...rest,
+        code: `RT-T-${Math.random().toString(36).slice(2, 8)}`,
         active: rest.active ?? true,
         create_uid: uid,
         write_uid: uid,
         ...(canvas_edges !== undefined && { canvas_edges: canvas_edges as object[] }),
       },
     })
+    const code = dtoCode?.trim() || `RT-${String(record.id).padStart(4, '0')}`
+    return this.prisma.routing_template.update({ where: { id: record.id }, data: { code } })
   }
 
   private prismaUpdateTemplate(id: number, dto: UpdateRoutingTemplateDto, uid: number) {
