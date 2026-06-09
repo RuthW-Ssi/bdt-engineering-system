@@ -87,7 +87,7 @@ export default function App() {
 
             <Route path="/activity-library" element={<ActivityLibraryList />} />
             <Route path="/activity-library/new" element={<Navigate to="/activity-library" replace />} />
-            <Route path="/activity-library/:id/edit" element={<Navigate to="/activity-library" replace />} />
+            <Route path="/activity-library/:id/edit" element={<ActivityLibraryList />} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />

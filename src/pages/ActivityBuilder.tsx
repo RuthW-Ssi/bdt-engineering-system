@@ -409,9 +409,10 @@ function LaborPicker({ value, onChange }: { value: LaborEntry[]; onChange: (item
 interface Props {
   activityId?: number
   onClose: () => void
+  onSaved?: () => void
 }
 
-export function ActivityBuilderModal({ activityId, onClose }: Props) {
+export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   const isEdit = activityId !== undefined
 
   const [selectedMachine, setSelectedMachine] = useState<MachineOption | null>(null)
@@ -454,6 +455,7 @@ export function ActivityBuilderModal({ activityId, onClose }: Props) {
     } else {
       await createMutation.mutateAsync(payload)
     }
+    onSaved?.()
     onClose()
   }
 

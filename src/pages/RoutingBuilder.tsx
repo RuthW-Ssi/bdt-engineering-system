@@ -11,8 +11,13 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, ImageIcon, Map as MapIcon, Pause, Play, Plus, RotateCcw, RotateCw, Save, Search, Settings, Target, Trash2, Upload, X, ZoomIn, ZoomOut } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, X } from 'lucide-react'
 import { apiClient } from '../api/client'
+import { useActivities } from '../hooks/useActivities'
+import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
+import { markPrefixApi } from '../api/mark-prefix-master'
+import type { ActivityDto } from '../api/activities'
+import { ActivityBuilderModal } from './ActivityBuilder'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
 
@@ -74,6 +79,8 @@ type TimeMode = 'formula' | 'manual' | 'activities'
 
 interface WorkcenterItem { id: number; code: string; name: string }
 
+interface ConsumedMaterial { resource_id: number; code: string; name: string }
+
 interface ActivityRef {
   localId: string
   templateId?: number
@@ -84,7 +91,8 @@ interface ActivityRef {
   stdMeasure?: number
   machineId?: number | null
   toolIds?: number[]
-  consumables?: { resource_id: number; qty: string; unit: string }[]
+  consumables?: ConsumedMaterial[]
+  labors?: { labor_resource_id: number; labor_name: string; qty: number }[]
 }
 
 interface OperationData extends Record<string, unknown> {
@@ -115,17 +123,15 @@ interface LibraryOpItem {
   workcenter: { id: number; code: string; name: string } | null
   op_type: { id: number; key: string; label: string; color: string } | null
   status: string
-  activities: Array<{ id: number; name: string; measure: string; unit: string | null; per_minute: string | null; source_activity_template_id: number | null }>
-}
-
-interface ActivityTemplateItem {
-  id: number
-  op_code: string
-  description: string
-  formula_param_code: string | null
-  per_minute: number | null
-  std_measure: string | null
-  unit: string | null
+  activities: Array<{
+    id: number; name: string; measure: string; unit: string | null; per_minute: string | null
+    source_activity_id: number | null
+    machine_id: number | null
+    machine: { id: number; code: string; name: string } | null
+    tools: Array<{ resource_id: number; resource: { id: number; code: string; name: string; type: string } }>
+    op_materials: Array<{ resource: { id: number; code: string; name: string } }>
+    labors: Array<{ labor_resource_id: number; qty: number; labor_resource: { id: number; code: string; name: string; type: string } }>
+  }>
 }
 
 interface ExistingTemplate {
@@ -146,13 +152,13 @@ interface ExistingTemplate {
     time_cycle_manual: string | null; formula_expr: string | null
     workcenter: { id: number; code: string; name: string }
     op_type: { id: number; key: string; label: string; color: string; method_options: { value: string; label: string }[] | null } | null
-    op_activities: Array<{
-      id: number; sequence: number
-      machine_id: number | null
-      tools: Array<{ resource_id: number }>
-      consumables: Array<{ resource_id: number; qty: number | null; unit: string | null }>
-      activity_template: ActivityTemplateItem
-    }>
+    activities_snapshot: Array<{
+      name: string; measure: string | null; per_minute: number | null
+      machine_id: number | null; source_activity_id: number | null
+      tool_ids: number[] | null
+      labors: Array<{ labor_resource_id: number; labor_name: string; qty: number }> | null
+      consumables: ConsumedMaterial[] | null
+    }> | null
   }>
 }
 
@@ -169,6 +175,20 @@ function isOpReady(d: OperationData): boolean {
   return true
 }
 
+// Realistic qty defaults for a typical structural steel job (H-Beam ~6 m)
+const SAMPLE_JOB_QTY: Record<string, number> = {
+  'แนวตัด':    6,   // 6 plasma cuts per plate batch
+  'ท่อน':      4,   // 4 pipe/bar pieces
+  'จุดพับ':    4,   // 4 press-brake bend lines
+  'ชิ้น':      2,   // 2 fabricated parts
+  'รู':        16,  // 16 bolt holes per member
+  'ตัว':       1,   // 1 H-beam at a time
+  'จุด':       12,  // 12 tack/grind points
+  'แนวเชื่อม': 8,   // 8 weld passes
+  'ตร.ม.':    12,   // 12 m² surface per member
+  'ครั้ง':     3,   // 3 crane lifts
+}
+
 function estimateOpMin(d: OperationData, inputs: Record<string, number>): number | null {
   if (d.time_mode === 'manual') return d.duration_min ?? null
   if (d.time_mode === 'formula') {
@@ -179,7 +199,8 @@ function estimateOpMin(d: OperationData, inputs: Record<string, number>): number
   let total = 0
   for (const a of d.activities) {
     if (!a.perMinute || a.perMinute <= 0) return null
-    total += (inputs[a.measure] ?? 0) / a.perMinute
+    const qty = a.measure ? (inputs[a.measure] ?? 1) : 1
+    total += a.perMinute * qty
   }
   return +total.toFixed(2)
 }
@@ -209,11 +230,15 @@ function makeDragPayload(op: LibraryOpItem): Omit<OperationData, 'existing_op_id
     duration_min: op.duration_min ? Number(op.duration_min) : undefined,
     activities: op.activities.map(a => ({
       localId: newLocalId(),
-      templateId: a.source_activity_template_id ?? undefined,
+      templateId: a.source_activity_id ?? undefined,
       name: a.name,
       measure: a.measure,
       perMinute: a.per_minute ? Number(a.per_minute) : undefined,
       unit: a.unit ?? undefined,
+      machineId: a.machine_id ?? undefined,
+      toolIds: (a.tools ?? []).map(t => t.resource_id),
+      consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name })),
+      labors: (a.labors ?? []).map(l => ({ labor_resource_id: l.labor_resource_id, labor_name: l.labor_resource.name, qty: l.qty })),
     })),
   }
 }
@@ -230,8 +255,8 @@ interface PreviewCtxType { previewMode: boolean; inputs: Record<string, number>;
 const PreviewCtx = createContext<PreviewCtxType>({ previewMode: false, inputs: {}, setInputs: () => {} })
 
 type SimPhase = 'idle' | 'playing' | 'paused'
-interface SimCtxType { simPhase: SimPhase; activeOpId: string | null; simPastIds: Set<string> }
-const SimCtx = createContext<SimCtxType>({ simPhase: 'idle', activeOpId: null, simPastIds: new Set() })
+interface SimCtxType { simPhase: SimPhase; activeOpIds: Set<string>; simPastIds: Set<string> }
+const SimCtx = createContext<SimCtxType>({ simPhase: 'idle', activeOpIds: new Set(), simPastIds: new Set() })
 
 interface ExpandCtxType {
   expandedIds: Set<string>
@@ -263,7 +288,7 @@ const inspSectionHead: React.CSSProperties = { fontSize: 9, fontWeight: 800, col
 function OperationNode({ id, selected }: NodeProps) {
   const { getNode } = useReactFlow()
   const { previewMode, inputs } = useContext(PreviewCtx)
-  const { simPhase, activeOpId, simPastIds } = useContext(SimCtx)
+  const { simPhase, activeOpIds, simPastIds } = useContext(SimCtx)
   const opTypes = useContext(OpTypeCtx)
   const { expandedIds, toggleExpand } = useContext(ExpandCtx)
   const node = getNode(id)
@@ -274,7 +299,7 @@ function OperationNode({ id, selected }: NodeProps) {
   const estimate = previewMode ? estimateOpMin(d, inputs) : null
   const headerColor = opDef?.color ?? '#555'
 
-  const isSimActive = simPhase !== 'idle' && id === activeOpId
+  const isSimActive = simPhase !== 'idle' && activeOpIds.has(id)
   const isSimPast  = simPhase !== 'idle' && simPastIds.has(id)
   const isSimFuture = simPhase !== 'idle' && !isSimActive && !isSimPast
   const expanded = expandedIds.has(id)
@@ -295,12 +320,8 @@ function OperationNode({ id, selected }: NodeProps) {
         opacity: isSimFuture ? 0.4 : 1,
         transition: 'opacity 0.25s',
       }}>
-      <Handle id="left-t"  type="target" position={Position.Left}   style={{ width: 10, height: 10, background: '#9E9E9E', border: '2px solid #fff' }} />
-      <Handle id="left-s"  type="source" position={Position.Left}   style={{ width: 10, height: 10, background: '#9E9E9E', border: '2px solid #fff' }} />
-      <Handle id="top-t"   type="target" position={Position.Top}    style={{ width: 8, height: 8, background: '#9E9E9E', border: '2px solid #fff' }} />
-      <Handle id="top-s"   type="source" position={Position.Top}    style={{ width: 8, height: 8, background: '#9E9E9E', border: '2px solid #fff' }} />
-      <Handle id="bot-t"   type="target" position={Position.Bottom} style={{ width: 8, height: 8, background: '#9E9E9E', border: '2px solid #fff' }} />
-      <Handle id="bot-s"   type="source" position={Position.Bottom} style={{ width: 8, height: 8, background: '#9E9E9E', border: '2px solid #fff' }} />
+      <Handle id="left-t"  type="target" position={Position.Left}  style={{ width: 10, height: 10, background: '#9E9E9E', border: '2px solid #fff' }} />
+      <Handle id="left-s"  type="source" position={Position.Left}  style={{ width: 10, height: 10, background: '#9E9E9E', border: '2px solid #fff' }} />
       <div style={{ background: isSimFuture ? '#BDBDBD' : headerColor, padding: '5px 8px', display: 'flex', alignItems: 'center', gap: 6, transition: 'background 0.25s' }}>
         <span style={{ flex: 1, color: '#fff', fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {d.name || opDef?.label || 'Operation'}
@@ -346,7 +367,11 @@ function OperationNode({ id, selected }: NodeProps) {
             }}>
               <span style={{ fontSize: 9, color: '#D0D0D0', flexShrink: 0, width: 12, textAlign: 'right', fontFamily: 'monospace' }}>{i + 1}</span>
               <span style={{ fontSize: 10, color: '#444', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{act.name}</span>
-              {act.unit && <span style={{ fontSize: 9, color: '#BDBDBD', flexShrink: 0 }}>{act.unit}</span>}
+              {act.perMinute != null && act.perMinute > 0 && (
+                <span style={{ fontSize: 9, color: '#2E7D32', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 8, padding: '0 5px', flexShrink: 0, fontWeight: 600 }}>
+                  {act.perMinute.toFixed(1)}m
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -547,65 +572,90 @@ const INITIAL_NODES: Node[] = [
   { id: 'end',   type: 'end',   position: { x: 560, y: 180 }, data: {}, deletable: false },
 ]
 
-// ── ModalActivityLib ────────────────────────────────────────────
+// ── InlineConsumeSearch — compact consumable picker (from equipment_resource) ─
 
-interface ModalActLibItem {
-  id: number; op_code: string; description: string
-  formula_param_code: string; per_minute: number | null; unit: string | null
-  std_measure: number | null
+function InlineMatSearch({ onSelect, excludeIds }: {
+  onSelect: (m: ConsumedMaterial) => void
+  excludeIds: number[]
+}) {
+  const [q, setQ] = useState('')
+  const [all, setAll] = useState<ConsumedMaterial[]>([])
+  const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    apiClient.get('/equipment-resources').then((r: any) => {
+      setAll(
+        (r.data as any[])
+          .filter((m) => m.type === 'consumable')
+          .map((m) => ({ resource_id: m.id, code: m.code, name: m.name }))
+      )
+    })
+  }, [])
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = useMemo(() => {
+    const lq = q.toLowerCase()
+    const base = lq ? all.filter(m => m.code.toLowerCase().includes(lq) || m.name.toLowerCase().includes(lq)) : all
+    return base.filter(m => !excludeIds.includes(m.resource_id))
+  }, [q, all, excludeIds.join(',')])
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <input
+        value={q}
+        onChange={e => setQ(e.target.value)}
+        onFocus={() => setOpen(true)}
+        placeholder="+ consumable…"
+        style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', outline: 'none', fontFamily: 'inherit', width: 100 }}
+      />
+      {open && filtered.length > 0 && (
+        <div onMouseDown={e => e.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 200, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 200, maxHeight: 200, overflowY: 'auto' }}>
+          {filtered.map(m => (
+            <button key={m.resource_id} onMouseDown={() => { onSelect(m); setQ(''); setOpen(false) }}
+              style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 10px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+              onMouseEnter={e2 => (e2.currentTarget.style.background = '#FFFDE7')}
+              onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#E65100' }}>{m.code}</span> {m.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
-function ModalActivityLib({ addedIds, workcenter_id, onAdd }: {
+// ── ModalActivityLib ────────────────────────────────────────────
+
+function ModalActivityLib({ addedIds, onAdd }: {
   addedIds: Set<number>
-  workcenter_id: number | ''
-  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number; machine_id: null; tool_ids: number[]; consumables: { resource_id: number; qty: string; unit: string }[] }) => void
+  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { labor_resource_id: number; labor_name: string; qty: number }[] }) => void
 }) {
-  const workcenters = useContext(WorkcenterCtx)
-  const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [chip, setChip] = useState('All')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-  const [showNewAct, setShowNewAct] = useState(false)
-  const [newAct, setNewAct] = useState({ description: '', op_code: '', formula_param_code: '', per_minute: '', std_measure: '', unit: '', workcenter_id: '' })
-  const patchNewAct = (p: Partial<typeof newAct>) => setNewAct(a => ({ ...a, ...p }))
-  const newActReady = !!(newAct.description.trim() && newAct.op_code.trim() && newAct.formula_param_code.trim() && newAct.per_minute && newAct.unit.trim() && (newAct.workcenter_id || workcenter_id))
-  const newActMut = useMutation({
-    mutationFn: () => apiClient.post('/activity-templates', {
-      description: newAct.description.trim(),
-      op_code: newAct.op_code.trim().toLowerCase(),
-      formula_param_code: newAct.formula_param_code.trim(),
-      per_minute: Number(newAct.per_minute),
-      std_measure: newAct.std_measure ? Number(newAct.std_measure) : 0,
-      unit: newAct.unit.trim(),
-      workcenter_id: Number(newAct.workcenter_id || workcenter_id),
-    }).then(r => r.data),
-    onSuccess: (created) => {
-      queryClient.invalidateQueries({ queryKey: ['activity-templates-all'] })
-      onAdd({ localId: newLocalId(), name: created.description, measure: created.formula_param_code, unit: created.unit ?? '', per_minute: created.per_minute ? String(created.per_minute) : '', std_measure: created.std_measure != null ? String(created.std_measure) : '', source_activity_template_id: created.id, machine_id: null, tool_ids: [], consumables: [] })
-      setNewAct({ description: '', op_code: '', formula_param_code: '', per_minute: '', std_measure: '', unit: '', workcenter_id: '' })
-      setShowNewAct(false)
-    },
-  })
 
-  const { data: items = [], isLoading } = useQuery<ModalActLibItem[]>({
-    queryKey: ['activity-templates-all'],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/activity-templates', { params: { limit: 300 } })
-      return data.items ?? data ?? []
-    },
-    staleTime: 5 * 60 * 1000,
-  })
+  const { data: activities = [], isLoading } = useActivities({ q: search || undefined })
 
-  const chips = ['All', ...Array.from(new Set(items.map(i => i.op_code))).sort()]
+  const chips = ['All', ...Array.from(new Set(activities.map(a => a.machine?.code ?? 'Other'))).sort()]
   const q = search.trim().toLowerCase()
-  const filtered = items.filter(item => {
-    if (chip !== 'All' && item.op_code !== chip) return false
-    return !q || item.description.toLowerCase().includes(q) || item.op_code.toLowerCase().includes(q)
+  const filtered = activities.filter(act => {
+    if (chip !== 'All' && (act.machine?.code ?? 'Other') !== chip) return false
+    return !q || act.name.toLowerCase().includes(q) || act.activity_code.toLowerCase().includes(q)
   })
-  const groups: Record<string, ModalActLibItem[]> = {}
-  for (const item of filtered) {
-    if (!groups[item.op_code]) groups[item.op_code] = []
-    groups[item.op_code].push(item)
+  const groups: Record<string, ActivityDto[]> = {}
+  for (const act of filtered) {
+    const key = act.machine?.code ?? 'Other'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(act)
   }
 
   return (
@@ -614,50 +664,11 @@ function ModalActivityLib({ addedIds, workcenter_id, onAdd }: {
         <div style={{ fontSize: 12, fontWeight: 700, color: '#1F1F1F', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
           <BookOpen size={13} style={{ color: '#9E9E9E' }} />Activity Library
           <div style={{ flex: 1 }} />
-          <button onClick={() => setShowNewAct(v => !v)}
-            style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3,
-              background: showNewAct ? '#FFF0F0' : '#fff', color: showNewAct ? '#C8202A' : '#555', borderColor: showNewAct ? '#C8202A' : '#D0D0D0' }}>
-            <Plus size={10} />New Activity
+          <button onClick={() => navigate('/activity-library/new')}
+            style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #FFCDD2', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3, background: '#FFEBEE', color: '#C62828' }}>
+            <Plus size={10} />สร้าง Activity
           </button>
         </div>
-
-        {showNewAct && (
-          <div style={{ background: '#FFF8F8', border: '1px solid #FCCACA', borderRadius: 6, padding: 10, marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#C8202A', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>New Activity Template</div>
-            <input value={newAct.description} onChange={e => patchNewAct({ description: e.target.value })} placeholder="Description *"
-              style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: 5 }} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 5, marginBottom: 5 }}>
-              <input value={newAct.op_code} onChange={e => patchNewAct({ op_code: e.target.value })} placeholder="Group (op_code) *"
-                style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-              <input value={newAct.formula_param_code} onChange={e => patchNewAct({ formula_param_code: e.target.value })} placeholder="Measure *"
-                style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5, marginBottom: 5 }}>
-              <input value={newAct.unit} onChange={e => patchNewAct({ unit: e.target.value })} placeholder="Unit *"
-                style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-              <input type="number" value={newAct.per_minute} onChange={e => patchNewAct({ per_minute: e.target.value })} placeholder="/min *"
-                style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-              <input type="number" value={newAct.std_measure} onChange={e => patchNewAct({ std_measure: e.target.value })} placeholder="Std meas"
-                style={{ border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-            </div>
-            {!workcenter_id && (
-              <select value={newAct.workcenter_id} onChange={e => patchNewAct({ workcenter_id: e.target.value })}
-                style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit', background: '#fff', marginBottom: 5 }}>
-                <option value="">— Workcenter * —</option>
-                {workcenters.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
-              </select>
-            )}
-            <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowNewAct(false)} style={{ height: 26, padding: '0 10px', borderRadius: 4, border: '1px solid #E0E0E0', background: '#fff', fontSize: 11, cursor: 'pointer', color: '#555' }}>Cancel</button>
-              <button onClick={() => newActMut.mutate()} disabled={!newActReady || newActMut.isPending}
-                style={{ height: 26, padding: '0 10px', borderRadius: 4, border: 'none', background: newActReady ? '#C8202A' : '#E0E0E0', color: newActReady ? '#fff' : '#9E9E9E', fontSize: 11, fontWeight: 600, cursor: newActReady ? 'pointer' : 'not-allowed' }}>
-                {newActMut.isPending ? 'Saving…' : 'Add to Library'}
-              </button>
-            </div>
-            {newActMut.isError && <div style={{ fontSize: 10, color: '#C8202A', marginTop: 4 }}>{(newActMut.error as Error).message}</div>}
-          </div>
-        )}
-
         <div style={{ position: 'relative', marginBottom: 8 }}>
           <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activities…"
@@ -679,13 +690,13 @@ function ModalActivityLib({ addedIds, workcenter_id, onAdd }: {
           <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>Loading…</div>
         ) : Object.entries(groups).length === 0 ? (
           <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>No activities found</div>
-        ) : Object.entries(groups).map(([opCode, acts]) => {
-          const isOpen = !collapsed[opCode]
+        ) : Object.entries(groups).map(([machineCode, acts]) => {
+          const isOpen = !collapsed[machineCode]
           return (
-            <div key={opCode} style={{ marginBottom: 8 }}>
-              <button onClick={() => setCollapsed(c => ({ ...c, [opCode]: !c[opCode] }))}
+            <div key={machineCode} style={{ marginBottom: 8 }}>
+              <button onClick={() => setCollapsed(c => ({ ...c, [machineCode]: !c[machineCode] }))}
                 style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 2px' }}>
-                <span style={{ fontSize: 9, fontWeight: 800, color: '#555', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1, textAlign: 'left' }}>{opCode}</span>
+                <span style={{ fontSize: 9, fontWeight: 800, color: '#555', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1, textAlign: 'left' }}>{machineCode}</span>
                 <span style={{ fontSize: 9, color: '#9E9E9E' }}>{acts.length}</span>
                 <ChevronDown size={10} style={{ color: '#BDBDBD', transform: isOpen ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
               </button>
@@ -694,16 +705,28 @@ function ModalActivityLib({ addedIds, workcenter_id, onAdd }: {
                 return (
                   <div key={act.id} style={{ background: added ? '#FAFAFA' : '#fff', border: `1px solid ${added ? '#F0F0F0' : '#E8E8E8'}`, borderRadius: 5, padding: '6px 8px', marginBottom: 3, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: added ? '#9E9E9E' : '#1F1F1F', lineHeight: 1.3 }}>{act.description}</div>
-                      <div style={{ display: 'flex', gap: 5, marginTop: 2 }}>
-                        <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#185FA5', background: '#F0F4FF', borderRadius: 3, padding: '0 4px' }}>{act.formula_param_code}</span>
-                        {act.per_minute != null && <span style={{ fontSize: 10, color: '#8E8E8E' }}>{act.per_minute}/{act.unit ?? 'unit'}</span>}
-                      </div>
+                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#9E9E9E', marginBottom: 1 }}>{act.activity_code}</div>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: added ? '#9E9E9E' : '#1F1F1F' }}>{act.name}</div>
+                      <span style={{ display: 'inline-block', marginTop: 3, fontSize: 11, fontWeight: 600, color: '#1B5E20', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 8px' }}>
+                        🕐 {Number(act.duration_min).toFixed(2)} min
+                      </span>
                     </div>
                     {added ? (
                       <Check size={13} style={{ color: '#4CAF50', flexShrink: 0, marginTop: 2 }} />
                     ) : (
-                      <button onClick={() => onAdd({ localId: newLocalId(), name: act.description, measure: act.formula_param_code, unit: act.unit ?? '', per_minute: act.per_minute ? String(act.per_minute) : '', std_measure: act.std_measure != null ? String(act.std_measure) : '', source_activity_template_id: act.id, machine_id: null, tool_ids: [], consumables: [] })}
+                      <button onClick={() => onAdd({
+                        localId: newLocalId(),
+                        name: act.name,
+                        measure: act.activity_code,
+                        unit: '',
+                        per_minute: String(act.duration_min),
+                        std_measure: '',
+                        source_activity_template_id: act.id,
+                        machine_id: act.machine?.id ?? null,
+                        tool_ids: act.tools.map(t => t.resource.id),
+                        consumables: act.consumes.map(c => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name })),
+                        labors: act.labors.map(l => ({ labor_resource_id: l.labor_resource.id, labor_name: l.labor_resource.name, qty: l.qty })),
+                      })}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#4CAF50', display: 'flex', flexShrink: 0, marginTop: 2 }}>
                         <Plus size={14} />
                       </button>
@@ -724,28 +747,18 @@ function ModalActivityLib({ addedIds, workcenter_id, onAdd }: {
 interface InspModalForm {
   op_code: string; name: string
   op_type_id: number | ''; workcenter_id: number | ''; method: string
-  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: { resource_id: number; qty: string; unit: string }[] }>
+  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { labor_resource_id: number; labor_name: string; qty: number }[] }>
 }
 
 interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void }
 
 const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
+  const navigate = useNavigate()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
   const equipmentList = useContext(EquipmentCtx)
   const { previewMode, inputs } = useContext(PreviewCtx)
-
-  const { data: libActs = [] } = useQuery<ModalActLibItem[]>({
-    queryKey: ['activity-templates-all'],
-    queryFn: async () => {
-      const { data } = await apiClient.get('/activity-templates', { params: { limit: 300 } })
-      return data.items ?? data ?? []
-    },
-    staleTime: 5 * 60 * 1000,
-  })
-
-  const [prefillDismissedFor, setPrefillDismissedFor] = useState<number | ''>('')
 
   const [form, setForm] = useState<InspModalForm>(() => {
     const nd = initialData ?? (getNode(nodeId)?.data as OperationData | undefined)
@@ -766,6 +779,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
         machine_id: a.machineId ?? null,
         tool_ids: a.toolIds ?? [],
         consumables: a.consumables ?? [],
+        labors: a.labors ?? [],
       })) ?? [],
     }
   })
@@ -799,6 +813,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
         machineId: a.machine_id ?? undefined,
         toolIds: a.tool_ids,
         consumables: a.consumables,
+        labors: a.labors,
       })),
     }
     setNodes(nds => nds.map(n => n.id === nodeId ? { ...n, data: opData } : n))
@@ -830,25 +845,16 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
   const addedIds = new Set(form.activities.map(a => a.source_activity_template_id).filter((id): id is number => id !== null))
   const canDone = !!(form.name.trim() && form.op_code.trim())
 
-  const prefillSuggestions = useMemo(() => {
-    if (!form.op_type_id || form.activities.length > 0 || prefillDismissedFor === form.op_type_id) return []
-    const ot = opTypes.find(t => t.id === Number(form.op_type_id))
-    if (!ot) return []
-    return libActs.filter(a => a.op_code === ot.key)
-  }, [form.op_type_id, form.activities.length, prefillDismissedFor, libActs, opTypes])
-
   const opTotalMin = useMemo(() => {
     if (form.activities.length === 0) return null
     let total = 0
     for (const act of form.activities) {
       const pm = Number(act.per_minute)
       if (!pm || pm <= 0) return null
-      const val = previewMode ? (inputs[act.measure] ?? 0) : Number(act.std_measure || 0)
-      if (!previewMode && !Number(act.std_measure)) return null
-      total += val / pm
+      total += pm
     }
     return +total.toFixed(2)
-  }, [form.activities, previewMode, inputs])
+  }, [form.activities])
 
   const sInp: React.CSSProperties = { border: '1px solid #E0E0E0', borderRadius: 6, padding: '7px 10px', fontSize: 13, outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box', background: '#fff' }
 
@@ -940,149 +946,179 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
             <div style={{ background: '#fff', border: '1px solid #E8E8E8', borderRadius: 10, padding: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
                 <div style={{ ...inspSectionHead, marginBottom: 0, flex: 1 }}>Activities</div>
-                <span style={{ fontSize: 10, color: '#9E9E9E', marginRight: 8 }}>Σ time = sum of activities</span>
-                <button onClick={() => patch({ activities: [...form.activities, { localId: newLocalId(), name: '', measure: '', unit: '', per_minute: '', std_measure: '', source_activity_template_id: null, machine_id: null, tool_ids: [], consumables: [] }] })}
-                  style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #E0E0E0', background: '#fff', fontSize: 10, fontWeight: 600, color: '#555', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Plus size={10} />Add blank
-                </button>
+                <span style={{ fontSize: 10, color: '#9E9E9E' }}>Σ time = sum of activities</span>
               </div>
-
-              {prefillSuggestions.length > 0 && (
-                <div style={{ background: '#F0F4FF', border: '1px solid #BBDEFB', borderRadius: 6, padding: '10px 12px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <div style={{ flex: 1, fontSize: 11, color: '#1565C0' }}>
-                    เพิ่ม {prefillSuggestions.length} default activities สำหรับ {selectedOt?.label}?
-                  </div>
-                  <button onClick={() => {
-                    patch({ activities: prefillSuggestions.map(a => ({ localId: newLocalId(), name: a.description, measure: a.formula_param_code, unit: a.unit ?? '', per_minute: a.per_minute ? String(a.per_minute) : '', std_measure: a.std_measure != null ? String(a.std_measure) : '', source_activity_template_id: a.id, machine_id: null, tool_ids: [], consumables: [] })) })
-                    setPrefillDismissedFor(form.op_type_id)
-                  }} style={{ height: 24, padding: '0 10px', borderRadius: 4, border: 'none', background: '#1565C0', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>
-                    Add {prefillSuggestions.length}
-                  </button>
-                  <button onClick={() => setPrefillDismissedFor(form.op_type_id)}
-                    style={{ height: 24, padding: '0 8px', borderRadius: 4, border: '1px solid #BBDEFB', background: '#fff', color: '#1565C0', fontSize: 11, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>
-                    Skip
-                  </button>
-                </div>
-              )}
 
               {form.activities.length === 0 ? (
                 <div style={{ padding: '16px 12px', textAlign: 'center', fontSize: 12, color: '#BDBDBD', border: '1px dashed #E0E0E0', borderRadius: 6 }}>
-                  Add from the library → or click Add blank above
+                  Add from the library →
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 6, padding: '0 8px', marginBottom: 2 }}>
-                    {['Name', 'Measure', 'Unit', '/min', '≈min', 'Machine', ''].map(h => (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr 24px', gap: 6, padding: '0 8px', marginBottom: 2 }}>
+                    {['NAME', 'MIN', 'MACHINE', ''].map(h => (
                       <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                     ))}
                   </div>
                   {form.activities.map((act) => {
-                    const pm = Number(act.per_minute)
-                    const estMin = pm > 0
-                      ? (previewMode ? (inputs[act.measure] ?? 0) / pm : (Number(act.std_measure) > 0 ? Number(act.std_measure) / pm : null))
-                      : null
                     const machines = equipmentList.filter(e => ['machine', 'handling', 'labor'].includes(e.type))
                     const toolOpts = equipmentList.filter(e => e.type === 'tool')
-                    const consumableOpts = equipmentList.filter(e => e.type === 'consumable')
-                    const chipBase: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
+                    const chip: React.CSSProperties = { fontSize: 10, padding: '2px 8px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
+                    const chipEdit: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
                     const isPickerOpen = (kind: 'tool' | 'consumable') => openInspPicker?.actId === act.localId && openInspPicker.kind === kind
+                    const isFromLib = act.source_activity_template_id !== null
+                    const pm = Number(act.per_minute)
+                    const estMin = pm > 0 ? pm : null
+                    const machineName = machines.find(m => m.id === act.machine_id)?.name ?? '—'
+                    const COL = '1fr 64px 1fr 24px'
+                    const COL_LIB = '1fr 64px 1fr 20px 20px'
                     return (
-                      <div key={act.localId} style={{ border: '1px solid #E8E8E8', borderRadius: 6, overflow: 'visible' }}>
+                      <div key={act.localId} style={{ border: `1px solid ${isFromLib ? '#BBDEFB' : '#E8E8E8'}`, borderRadius: 6, overflow: 'visible' }}>
                         {/* Main row */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 6, alignItems: 'center', background: '#F8F8F8', padding: '6px 8px' }}>
-                          <input value={act.name} onChange={e => patchAct(act.localId, { name: e.target.value })}
-                            style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                          <input value={act.measure} onChange={e => patchAct(act.localId, { measure: e.target.value })}
-                            style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 6px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="param" />
-                          <input value={act.unit} onChange={e => patchAct(act.localId, { unit: e.target.value })}
-                            style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 5px', background: '#fff', outline: 'none', width: '100%', boxSizing: 'border-box' }} placeholder="mm" />
-                          <input type="number" min={0} value={act.per_minute} onChange={e => patchAct(act.localId, { per_minute: e.target.value })}
-                            style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 5px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="0" />
-                          <div style={{ fontSize: 10, fontFamily: 'monospace', color: estMin != null ? '#185FA5' : '#C0C0C0', textAlign: 'right' }}>
-                            {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
+                        {isFromLib ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 6, alignItems: 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
+                            <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
+                            <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
+                              {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
+                            <button type="button" onClick={() => setEditingActivityId(act.source_activity_template_id)}
+                              title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#1976D2' }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}>
+                              <Pencil size={12} />
+                            </button>
+                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                              <X size={12} />
+                            </button>
                           </div>
-                          <select value={act.machine_id ?? ''} onChange={e => patchAct(act.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
-                            style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '3px 4px', background: '#fff', outline: 'none', fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
-                            <option value="">—</option>
-                            {machines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
-                          </select>
-                          <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
-                            <X size={12} />
-                          </button>
-                        </div>
-                        {/* Tools / Consumables row */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0, borderTop: '1px solid #F0F0F0', background: '#FAFAFA' }}>
-                          <div style={{ padding: '5px 10px 6px', borderRight: '1px solid #F0F0F0', position: 'relative' }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                              {act.tool_ids.map(tid => {
-                                const eq = equipmentList.find(e => e.id === tid)
-                                return eq ? (
-                                  <span key={tid} style={{ ...chipBase, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                    {eq.name}
-                                    <button onClick={() => patchAct(act.localId, { tool_ids: act.tool_ids.filter(id => id !== tid) })}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
-                                  </span>
-                                ) : null
-                              })}
-                              <div style={{ position: 'relative' }}>
-                                <button onClick={() => setOpenInspPicker(isPickerOpen('tool') ? null : { actId: act.localId, kind: 'tool' })}
-                                  style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <Plus size={8} />Add
-                                </button>
-                                {isPickerOpen('tool') && (
-                                  <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
-                                    {toolOpts.length === 0 ? (
-                                      <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No tool resources seeded yet</div>
-                                    ) : toolOpts.filter(e => !act.tool_ids.includes(e.id)).map(e => (
-                                      <button key={e.id} onClick={() => { patchAct(act.localId, { tool_ids: [...act.tool_ids, e.id] }); setOpenInspPicker(null) }}
-                                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                                        onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
-                                        onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
-                                        <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
-                                      </button>
-                                    ))}
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 6, alignItems: 'center', background: '#F8F8F8', padding: '6px 8px' }}>
+                            <input value={act.name} onChange={e => patchAct(act.localId, { name: e.target.value })}
+                              style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
+                            <input type="number" min={0} step="0.01" value={act.per_minute} onChange={e => patchAct(act.localId, { per_minute: e.target.value })}
+                              style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 5px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="0" />
+                            <select value={act.machine_id ?? ''} onChange={e => patchAct(act.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
+                              style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '3px 4px', background: '#fff', outline: 'none', fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
+                              <option value="">—</option>
+                              {machines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
+                            </select>
+                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                              <X size={12} />
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Sub-row: library → read-only chips + Edit link; manual → pickers */}
+                        {isFromLib ? (
+                          <>
+                            {(act.tool_ids.length > 0 || (act.labors ?? []).length > 0 || act.consumables.length > 0) && (
+                              <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #DDEEFF', background: '#fff' }}>
+                                {act.tool_ids.length > 0 && (
+                                  <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
+                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                      {act.tool_ids.map(tid => {
+                                        const eq = equipmentList.find(e => e.id === tid)
+                                        return eq ? <span key={tid} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name}</span> : null
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                                {(act.labors ?? []).length > 0 && (
+                                  <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
+                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                      {(act.labors ?? []).map(l => (
+                                        <span key={l.labor_resource_id} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                          {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {act.consumables.length > 0 && (
+                                  <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
+                                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                      {act.consumables.map(c => (
+                                        <span key={c.resource_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
+                                          <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.code}</span> {c.name}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
                                 )}
                               </div>
+                            )}
+                          </>
+                        ) : (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 0, borderTop: '1px solid #F0F0F0', background: '#FAFAFA' }}>
+                            <div style={{ padding: '5px 10px 6px', borderRight: '1px solid #F0F0F0', position: 'relative' }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {act.tool_ids.map(tid => {
+                                  const eq = equipmentList.find(e => e.id === tid)
+                                  return eq ? (
+                                    <span key={tid} style={{ ...chipEdit, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
+                                      {eq.name}
+                                      <button onClick={() => patchAct(act.localId, { tool_ids: act.tool_ids.filter(id => id !== tid) })}
+                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
+                                    </span>
+                                  ) : null
+                                })}
+                                <div style={{ position: 'relative' }}>
+                                  <button onClick={() => setOpenInspPicker(isPickerOpen('tool') ? null : { actId: act.localId, kind: 'tool' })}
+                                    style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
+                                    <Plus size={8} />Add
+                                  </button>
+                                  {isPickerOpen('tool') && (
+                                    <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
+                                      {toolOpts.length === 0 ? (
+                                        <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No tool resources seeded yet</div>
+                                      ) : toolOpts.filter(e => !act.tool_ids.includes(e.id)).map(e => (
+                                        <button key={e.id} onClick={() => { patchAct(act.localId, { tool_ids: [...act.tool_ids, e.id] }); setOpenInspPicker(null) }}
+                                          style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                                          onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
+                                          onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
+                                          <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                          <div style={{ padding: '5px 10px 6px', position: 'relative' }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                              {act.consumables.map((c, ci) => {
-                                const eq = equipmentList.find(e => e.id === c.resource_id)
-                                return eq ? (
-                                  <span key={c.resource_id} style={{ ...chipBase, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                    {eq.name}
+                            <div style={{ padding: '5px 10px 6px', borderRight: '1px solid #F0F0F0' }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#9C27B0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                {(act.labors ?? []).length === 0 ? (
+                                  <span style={{ fontSize: 10, color: '#BDBDBD' }}>—</span>
+                                ) : (act.labors ?? []).map(l => (
+                                  <span key={l.labor_resource_id} style={{ ...chipEdit, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                    {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <div style={{ padding: '5px 10px 6px', position: 'relative' }}>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {act.consumables.map((c, ci) => (
+                                  <span key={c.resource_id} style={{ ...chipEdit, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
+                                    <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.code}</span> {c.name}
                                     <button onClick={() => patchAct(act.localId, { consumables: act.consumables.filter((_, xi) => xi !== ci) })}
                                       style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                   </span>
-                                ) : null
-                              })}
-                              <div style={{ position: 'relative' }}>
-                                <button onClick={() => setOpenInspPicker(isPickerOpen('consumable') ? null : { actId: act.localId, kind: 'consumable' })}
-                                  style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                  <Plus size={8} />Add
-                                </button>
-                                {isPickerOpen('consumable') && (
-                                  <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
-                                    {consumableOpts.length === 0 ? (
-                                      <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No consumable resources seeded yet</div>
-                                    ) : consumableOpts.filter(e => !act.consumables.find(c => c.resource_id === e.id)).map(e => (
-                                      <button key={e.id} onClick={() => { patchAct(act.localId, { consumables: [...act.consumables, { resource_id: e.id, qty: '', unit: e.rate_unit ?? '' }] }); setOpenInspPicker(null) }}
-                                        style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                                        onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
-                                        onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
-                                        <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
+                                ))}
+                                <InlineMatSearch
+                                  onSelect={m => patchAct(act.localId, { consumables: [...act.consumables, m] })}
+                                  excludeIds={act.consumables.map(c => c.resource_id)}
+                                />
                               </div>
                             </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     )
                   })}
@@ -1104,7 +1140,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
 
           {/* RIGHT: Activity Library 40% */}
           <div style={{ flex: '0 0 40%', borderLeft: '1px solid #E0E0E0', background: '#FAFAFA', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <ModalActivityLib addedIds={addedIds} workcenter_id={form.workcenter_id} onAdd={act => patch({ activities: [...form.activities, act] })} />
+            <ModalActivityLib addedIds={addedIds} onAdd={act => patch({ activities: [...form.activities, act] })} />
           </div>
         </div>
 
@@ -1118,10 +1154,11 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
 interface NewOpFormState {
   op_code: string; name: string
   op_type_id: number | ''; workcenter_id: number | ''; method: string
-  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: { resource_id: number; qty: string; unit: string }[] }>
+  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { labor_resource_id: number; labor_name: string; qty: number }[] }>
 }
 
 function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const navigate = useNavigate()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
   const equipmentList = useContext(EquipmentCtx)
@@ -1151,7 +1188,6 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
       source_activity_template_id: a.source_activity_template_id,
       machine_id: a.machine_id ?? null,
       tool_ids: a.tool_ids,
-      consumables: a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
       sequence: (i + 1) * 10,
     })),
   })
@@ -1265,123 +1301,176 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
             <div style={sec}>
               <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
                 <span style={{ ...secHd, marginBottom: 0, flex: 1 }}>Activities</span>
-                <span style={{ fontSize: 10, color: '#9E9E9E', marginRight: 8 }}>Σ time = sum of activities</span>
-                <button
-                  onClick={() => patch({ activities: [...form.activities, { localId: newLocalId(), name: '', measure: '', unit: '', per_minute: '', std_measure: '', source_activity_template_id: null, machine_id: null, tool_ids: [], consumables: [] }] })}
-                  style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #E0E0E0', background: '#fff', fontSize: 10, fontWeight: 600, color: '#555', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <Plus size={10} />Add blank
-                </button>
+                <span style={{ fontSize: 10, color: '#9E9E9E' }}>Σ time = sum of activities</span>
               </div>
               {form.activities.length === 0 ? (
                 <div style={{ padding: '16px 12px', textAlign: 'center', fontSize: 12, color: '#BDBDBD', border: '1px dashed #E0E0E0', borderRadius: 6 }}>
-                  Add from the library → or click Add blank above
+                  Add from the library →
                 </div>
               ) : (() => {
                 const modalMachines = equipmentList.filter(e => ['machine', 'handling', 'labor'].includes(e.type))
                 const modalToolOpts = equipmentList.filter(e => e.type === 'tool')
-                const modalConsumableOpts = equipmentList.filter(e => e.type === 'consumable')
                 const chipBase: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
                 const patchActivity = (localId: string, p: Partial<NewOpFormState['activities'][0]>) =>
                   patch({ activities: form.activities.map(x => x.localId === localId ? { ...x, ...p } : x) })
                 return (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 5, padding: '0 4px', marginBottom: 2 }}>
-                      {['Name', 'Measure', 'Unit', '/min', '≈min', 'Machine', ''].map(h => (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr 24px', gap: 5, padding: '0 4px', marginBottom: 2 }}>
+                      {['NAME', 'MIN', 'MACHINE', ''].map(h => (
                         <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                       ))}
                     </div>
                     {form.activities.map(a => {
-                      const estMin = Number(a.per_minute) > 0 && Number(a.std_measure) > 0 ? Number(a.std_measure) / Number(a.per_minute) : null
                       const isPickerOpen = (kind: 'tool' | 'consumable') => openModalPicker?.actId === a.localId && openModalPicker.kind === kind
+                      const isFromLib = a.source_activity_template_id !== null
+                      const pm = Number(a.per_minute)
+                      const estMin = pm > 0 ? pm : null
+                      const machineName = modalMachines.find(m => m.id === a.machine_id)?.name ?? '—'
+                      const chip: React.CSSProperties = { fontSize: 10, padding: '2px 8px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
+                      const chipEdit: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
+                      const COL = '1fr 64px 1fr 24px'
+                      const COL_LIB = '1fr 64px 1fr 20px 20px'
                       return (
-                        <div key={a.localId} style={{ border: '1px solid #E0E0E0', borderRadius: 6, overflow: 'visible' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 86px 50px 50px 44px 116px 24px', gap: 5, alignItems: 'center', background: '#F8F8F8', padding: '5px 6px' }}>
-                            <input value={a.name} onChange={e => patchActivity(a.localId, { name: e.target.value })} placeholder="Activity name" style={{ ...inp, fontSize: 12 }} />
-                            <input value={a.measure} onChange={e => patchActivity(a.localId, { measure: e.target.value })} placeholder="measure" style={{ ...inp, fontSize: 11, fontFamily: 'monospace' }} />
-                            <input value={a.unit} onChange={e => patchActivity(a.localId, { unit: e.target.value })} placeholder="unit" style={{ ...inp, fontSize: 11 }} />
-                            <input value={a.per_minute} onChange={e => patchActivity(a.localId, { per_minute: e.target.value })} placeholder="/min" style={{ ...inp, fontSize: 11, fontFamily: 'monospace' }} />
-                            <div style={{ fontSize: 10, fontFamily: 'monospace', color: estMin != null ? '#185FA5' : '#C0C0C0', textAlign: 'right' }}>
-                              {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
+                        <div key={a.localId} style={{ border: `1px solid ${isFromLib ? '#BBDEFB' : '#E0E0E0'}`, borderRadius: 6, overflow: 'visible' }}>
+                          {/* Main row */}
+                          {isFromLib ? (
+                            <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 5, alignItems: 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{a.name}</div>
+                              <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
+                                {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
+                              </div>
+                              <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
+                              <button type="button" onClick={() => setEditingActivityId(a.source_activity_template_id)}
+                                title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+                                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#1976D2' }}
+                                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}>
+                                <Pencil size={12} />
+                              </button>
+                              <button onClick={() => patch({ activities: form.activities.filter(x => x.localId !== a.localId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex' }}><X size={13} /></button>
                             </div>
-                            <select value={a.machine_id ?? ''} onChange={e => patchActivity(a.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
-                              style={{ ...inp, fontSize: 11, cursor: 'pointer', padding: '3px 4px' }}>
-                              <option value="">—</option>
-                              {modalMachines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
-                            </select>
-                            <button onClick={() => patch({ activities: form.activities.filter(x => x.localId !== a.localId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex' }}><X size={13} /></button>
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderTop: '1px solid #F0F0F0', background: '#FAFAFA' }}>
-                            <div style={{ padding: '4px 8px 5px', borderRight: '1px solid #F0F0F0', position: 'relative' }}>
-                              <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Tools</div>
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                {a.tool_ids.map(tid => {
-                                  const eq = equipmentList.find(e => e.id === tid)
-                                  return eq ? (
-                                    <span key={tid} style={{ ...chipBase, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                      {eq.name}
-                                      <button onClick={() => patchActivity(a.localId, { tool_ids: a.tool_ids.filter(id => id !== tid) })}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
-                                    </span>
-                                  ) : null
-                                })}
-                                <div style={{ position: 'relative' }}>
-                                  <button onClick={() => setOpenModalPicker(isPickerOpen('tool') ? null : { actId: a.localId, kind: 'tool' })}
-                                    style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                    <Plus size={8} />Add
-                                  </button>
-                                  {isPickerOpen('tool') && (
-                                    <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
-                                      {modalToolOpts.length === 0 ? (
-                                        <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No tool resources seeded yet</div>
-                                      ) : modalToolOpts.filter(e => !a.tool_ids.includes(e.id)).map(e => (
-                                        <button key={e.id} onClick={() => { patchActivity(a.localId, { tool_ids: [...a.tool_ids, e.id] }); setOpenModalPicker(null) }}
-                                          style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                                          onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
-                                          onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
-                                          <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
-                                        </button>
-                                      ))}
+                          ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 5, alignItems: 'center', background: '#F8F8F8', padding: '5px 6px' }}>
+                              <input value={a.name} onChange={e => patchActivity(a.localId, { name: e.target.value })} placeholder="Activity name" style={{ ...inp, fontSize: 12 }} />
+                              <input type="number" min={0} step="0.01" value={a.per_minute} onChange={e => patchActivity(a.localId, { per_minute: e.target.value })} placeholder="0" style={{ ...inp, fontSize: 11, fontFamily: 'monospace' }} />
+                              <select value={a.machine_id ?? ''} onChange={e => patchActivity(a.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
+                                style={{ ...inp, fontSize: 11, cursor: 'pointer', padding: '3px 4px' }}>
+                                <option value="">—</option>
+                                {modalMachines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
+                              </select>
+                              <button onClick={() => patch({ activities: form.activities.filter(x => x.localId !== a.localId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex' }}><X size={13} /></button>
+                            </div>
+                          )}
+
+                          {/* Sub-row: library → read-only chips + Edit link; manual → pickers */}
+                          {isFromLib ? (
+                            <>
+                              {(a.tool_ids.length > 0 || (a.labors ?? []).length > 0 || a.consumables.length > 0) && (
+                                <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #DDEEFF', background: '#fff' }}>
+                                  {a.tool_ids.length > 0 && (
+                                    <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
+                                      <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
+                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                        {a.tool_ids.map(tid => {
+                                          const eq = equipmentList.find(e => e.id === tid)
+                                          return eq ? <span key={tid} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name}</span> : null
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {(a.labors ?? []).length > 0 && (
+                                    <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
+                                      <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
+                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                        {(a.labors ?? []).map(l => (
+                                          <span key={l.labor_resource_id} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                            {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {a.consumables.length > 0 && (
+                                    <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
+                                      <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
+                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                        {a.consumables.map(c => (
+                                          <span key={c.material_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
+                                            <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.material_code}</span> {c.material_name}
+                                          </span>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
+                              )}
+                            </>
+                          ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderTop: '1px solid #F0F0F0', background: '#FAFAFA' }}>
+                              <div style={{ padding: '4px 8px 5px', borderRight: '1px solid #F0F0F0', position: 'relative' }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Tools</div>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {a.tool_ids.map(tid => {
+                                    const eq = equipmentList.find(e => e.id === tid)
+                                    return eq ? (
+                                      <span key={tid} style={{ ...chipEdit, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
+                                        {eq.name}
+                                        <button onClick={() => patchActivity(a.localId, { tool_ids: a.tool_ids.filter(id => id !== tid) })}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
+                                      </span>
+                                    ) : null
+                                  })}
+                                  <div style={{ position: 'relative' }}>
+                                    <button onClick={() => setOpenModalPicker(isPickerOpen('tool') ? null : { actId: a.localId, kind: 'tool' })}
+                                      style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
+                                      <Plus size={8} />Add
+                                    </button>
+                                    {isPickerOpen('tool') && (
+                                      <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
+                                        {modalToolOpts.length === 0 ? (
+                                          <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No tool resources seeded yet</div>
+                                        ) : modalToolOpts.filter(e => !a.tool_ids.includes(e.id)).map(e => (
+                                          <button key={e.id} onClick={() => { patchActivity(a.localId, { tool_ids: [...a.tool_ids, e.id] }); setOpenModalPicker(null) }}
+                                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+                                            onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
+                                            onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
+                                            <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                            <div style={{ padding: '4px 8px 5px', position: 'relative' }}>
-                              <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Consumables</div>
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                {a.consumables.map((c, ci) => {
-                                  const eq = equipmentList.find(e => e.id === c.resource_id)
-                                  return eq ? (
-                                    <span key={c.resource_id} style={{ ...chipBase, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                      {eq.name}
+                              <div style={{ padding: '4px 8px 5px', borderRight: '1px solid #F0F0F0' }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: '#9C27B0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Labour</div>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                  {(a.labors ?? []).length === 0 ? (
+                                    <span style={{ fontSize: 10, color: '#BDBDBD' }}>—</span>
+                                  ) : (a.labors ?? []).map(l => (
+                                    <span key={l.labor_resource_id} style={{ ...chipEdit, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                      {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div style={{ padding: '4px 8px 5px', position: 'relative' }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Consumables</div>
+                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                                  {a.consumables.map((c, ci) => (
+                                    <span key={c.material_id} style={{ ...chipEdit, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
+                                      <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.material_code}</span> {c.material_name}
                                       <button onClick={() => patchActivity(a.localId, { consumables: a.consumables.filter((_, xi) => xi !== ci) })}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                     </span>
-                                  ) : null
-                                })}
-                                <div style={{ position: 'relative' }}>
-                                  <button onClick={() => setOpenModalPicker(isPickerOpen('consumable') ? null : { actId: a.localId, kind: 'consumable' })}
-                                    style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                    <Plus size={8} />Add
-                                  </button>
-                                  {isPickerOpen('consumable') && (
-                                    <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
-                                      {modalConsumableOpts.length === 0 ? (
-                                        <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No consumable resources seeded yet</div>
-                                      ) : modalConsumableOpts.filter(e => !a.consumables.find(c => c.resource_id === e.id)).map(e => (
-                                        <button key={e.id} onClick={() => { patchActivity(a.localId, { consumables: [...a.consumables, { resource_id: e.id, qty: '', unit: e.rate_unit ?? '' }] }); setOpenModalPicker(null) }}
-                                          style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                                          onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
-                                          onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
-                                          <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
+                                  ))}
+                                  <InlineMatSearch
+                                    onSelect={m => patchActivity(a.localId, { consumables: [...a.consumables, m] })}
+                                    excludeIds={a.consumables.map(c => c.resource_id)}
+                                  />
                                 </div>
                               </div>
                             </div>
-                          </div>
+                          )}
                         </div>
                       )
                     })}
@@ -1400,7 +1489,7 @@ function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: ()
 
           {/* Right: Activity Library */}
           <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', display: 'flex', flexDirection: 'column', background: '#FAFAFA', flexShrink: 0, overflow: 'hidden' }}>
-            <ModalActivityLib addedIds={addedIds} workcenter_id={form.workcenter_id} onAdd={act => patch({ activities: [...form.activities, act] })} />
+            <ModalActivityLib addedIds={addedIds} onAdd={act => patch({ activities: [...form.activities, act] })} />
           </div>
         </div>
       </div>
@@ -1607,6 +1696,184 @@ const NODE_W = 190
 const LAYOUT_GAP_X = 60
 const LAYOUT_START = { x: 60, y: 200 }
 
+// ── MarkPrefixPicker ───────────────────────────────────────────
+
+function MarkPrefixPicker({
+  value, prefixes, onChange, onAddNew,
+}: {
+  value: string
+  prefixes: { code: string; label: string; active: boolean }[]
+  onChange: (code: string) => void
+  onAddNew: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const selected = prefixes.find(p => p.code === value)
+
+  const filtered = prefixes.filter(p => {
+    if (!p.active) return false
+    if (!query) return true
+    const q = query.toLowerCase()
+    return p.code.toLowerCase().includes(q) || p.label.toLowerCase().includes(q)
+  })
+
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [])
+
+  function select(code: string) {
+    onChange(code)
+    setOpen(false)
+    setQuery('')
+  }
+
+  const displayValue = open ? query : (selected ? `${selected.code} · ${selected.label}` : '')
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative', width: 200, flexShrink: 0 }}>
+      <input
+        value={displayValue}
+        placeholder="— Mark Prefix —"
+        onFocus={() => { setOpen(true); setQuery('') }}
+        onChange={e => setQuery(e.target.value)}
+        style={{
+          width: '100%', boxSizing: 'border-box',
+          border: '1px solid #E0E0E0', borderRadius: 6,
+          padding: '0 10px', height: 34, fontSize: 13,
+          color: selected && !open ? '#1F1F1F' : '#9E9E9E',
+          outline: 'none',
+        }}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+          background: '#fff', border: '1px solid #E0E0E0', borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200,
+          maxHeight: 220, display: 'flex', flexDirection: 'column',
+        }}>
+          <div style={{ overflowY: 'auto', flex: 1 }}>
+            {value && (
+              <div
+                onClick={() => select('')}
+                style={{ padding: '7px 12px', fontSize: 12, color: '#9E9E9E', cursor: 'pointer', borderBottom: '1px solid #F5F5F5' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#F5F5F5')}
+                onMouseLeave={e => (e.currentTarget.style.background = '')}
+              >
+                ✕ ล้างค่า
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <div style={{ padding: '10px 12px', fontSize: 13, color: '#9E9E9E' }}>
+                ไม่พบ "{query}"
+              </div>
+            ) : filtered.map(p => (
+              <div
+                key={p.code}
+                onClick={() => select(p.code)}
+                style={{
+                  padding: '7px 12px', cursor: 'pointer', fontSize: 13,
+                  background: p.code === value ? '#F0F7FF' : '',
+                  display: 'flex', gap: 6, alignItems: 'baseline',
+                }}
+                onMouseEnter={e => { if (p.code !== value) e.currentTarget.style.background = '#F5F5F5' }}
+                onMouseLeave={e => { if (p.code !== value) e.currentTarget.style.background = '' }}
+              >
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#1F1F1F', fontSize: 12 }}>{p.code}</span>
+                <span style={{ color: '#666', fontSize: 12 }}>{p.label}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ borderTop: '1px solid #E0E0E0', padding: '6px 12px' }}>
+            <button
+              onMouseDown={e => { e.preventDefault(); onAddNew(); setOpen(false) }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1976D2', fontSize: 12, fontWeight: 600, padding: 0 }}
+            >
+              ＋ สร้าง prefix ใหม่…
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── AddPrefixModal ─────────────────────────────────────────────
+
+const PREFIX_CATEGORIES = [
+  { value: 'assembly',      label: 'Assembly' },
+  { value: 'member',        label: 'Member' },
+  { value: 'plate_part',    label: 'Plate Part' },
+  { value: 'sub_component', label: 'Sub Component' },
+  { value: 'other',         label: 'Other' },
+]
+
+function AddPrefixModal({ onClose, onCreated }: { onClose: () => void; onCreated: (code: string) => void }) {
+  const [code, setCode] = useState('')
+  const [label, setLabel] = useState('')
+  const [category, setCategory] = useState('assembly')
+  const [errMsg, setErrMsg] = useState('')
+
+  const mut = useMutation({
+    mutationFn: markPrefixApi.create,
+    onSuccess: r => { onCreated(r.code); onClose() },
+    onError: (e: any) => setErrMsg(e?.response?.data?.message ?? 'เกิดข้อผิดพลาด'),
+  })
+
+  function handleSubmit(ev: React.FormEvent) {
+    ev.preventDefault()
+    setErrMsg('')
+    if (!code.trim() || !label.trim()) return setErrMsg('กรอก Code และ Label ให้ครบ')
+    mut.mutate({ code: code.trim().toUpperCase(), label: label.trim(), category })
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div style={{ background: '#fff', borderRadius: 10, width: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #E0E0E0' }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>เพิ่ม Mark Prefix</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8E8E8E' }}><X size={16} /></button>
+        </div>
+        <form onSubmit={handleSubmit} style={{ padding: '18px 20px 16px' }}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Code *</label>
+            <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} maxLength={10} placeholder="เช่น BM" autoFocus
+              style={{ width: '100%', border: '1px solid #DDD', borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: 'monospace', fontWeight: 600, boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Label *</label>
+            <input value={label} onChange={e => setLabel(e.target.value)} maxLength={40} placeholder="เช่น Beam"
+              style={{ width: '100%', border: '1px solid #DDD', borderRadius: 6, padding: '7px 10px', fontSize: 13, boxSizing: 'border-box' }} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category *</label>
+            <select value={category} onChange={e => setCategory(e.target.value)}
+              style={{ width: '100%', border: '1px solid #DDD', borderRadius: 6, padding: '7px 10px', fontSize: 13, boxSizing: 'border-box', background: '#fff' }}>
+              {PREFIX_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          {errMsg && <div style={{ marginBottom: 10, fontSize: 12, color: '#C8202A', background: '#FEF2F2', borderRadius: 6, padding: '6px 10px' }}>{errMsg}</div>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" onClick={onClose} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #DDD', background: '#fff', fontSize: 13, cursor: 'pointer' }}>ยกเลิก</button>
+            <button type="submit" disabled={mut.isPending} style={{ padding: '7px 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              {mut.isPending ? 'กำลังบันทึก…' : 'เพิ่ม Prefix'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── RoutingBuilderInner ────────────────────────────────────────
 
 function RoutingBuilderInner() {
@@ -1615,26 +1882,27 @@ function RoutingBuilderInner() {
   const { id: paramId } = useParams<{ id?: string }>()
   const isEdit = Boolean(paramId)
   const templateId = paramId ? Number(paramId) : null
-  const { screenToFlowPosition, setNodes, getNodes } = useReactFlow()
+  const { screenToFlowPosition, setNodes, getNodes, setCenter, getNode, fitView, fitBounds } = useReactFlow()
 
   const [code, setCode] = useState('')
   const [templateName, setTemplateName] = useState('')
   const [productType, setProductType] = useState('')
+  const [showAddPrefixModal, setShowAddPrefixModal] = useState(false)
+  const { data: markPrefixes = [] } = useMarkPrefixes()
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const dropDataRef = useRef<Record<string, OperationData>>({})
   const [previewMode, setPreviewMode] = useState(false)
   const [previewInputs, setPreviewInputs] = useState<Record<string, number>>({})
   const [showNewOpModal, setShowNewOpModal] = useState(false)
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
-  const [bgImageUrl, setBgImageUrl] = useState('')
+  const [editingActivityId, setEditingActivityId] = useState<number | null>(null)
+  // Floor plan background — locked to factory layout
+  const BG_URL      = '/assets/bg/Layout-F1.png'
+  const BG_ROTATION = 270
+  const BG_SCALE    = 1.6
   const [bgVisible, setBgVisible] = useState(true)
   const [bgOpacity, setBgOpacity] = useState(0.35)
   const [showBgPanel, setShowBgPanel] = useState(false)
-  const [bgRotation, setBgRotation] = useState(270)
-  const [bgScale, setBgScale] = useState(1.6)
-  const [bgIsFile, setBgIsFile] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const bgLocalKey = isEdit && templateId ? `bdt_template_bg_${templateId}` : null
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
   const toggleExpand = useCallback((id: string) => {
     setExpandedIds(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
@@ -1677,30 +1945,7 @@ function RoutingBuilderInner() {
     }))
   }, [getNodes, setNodes])
 
-  const handleFileUpload = useCallback(async (file: File) => {
-    const applyBg = (dataUrl: string) => {
-      setBgImageUrl(dataUrl)
-      setBgIsFile(true)
-      if (bgLocalKey) localStorage.setItem(bgLocalKey, dataUrl)
-    }
-    if (file.type === 'application/pdf') {
-      const buf = await file.arrayBuffer()
-      const pdf = await pdfjsLib.getDocument({ data: buf }).promise
-      const page = await pdf.getPage(1)
-      const vp = page.getViewport({ scale: 1.5 })
-      const canvas = document.createElement('canvas')
-      canvas.width = vp.width
-      canvas.height = vp.height
-      await page.render({ canvas, viewport: vp }).promise
-      applyBg(canvas.toDataURL('image/jpeg', 0.85))
-    } else {
-      const reader = new FileReader()
-      reader.onload = e => applyBg(e.target?.result as string)
-      reader.readAsDataURL(file)
-    }
-  }, [bgLocalKey])
-
-  const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, collapseAll, leftPanelOpen, toggleLeftPanel, showMiniMap, toggleMiniMap }), [expandedIds, toggleExpand, expandAll, collapseAll, leftPanelOpen, toggleLeftPanel, showMiniMap, toggleMiniMap])
+const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, collapseAll, leftPanelOpen, toggleLeftPanel, showMiniMap, toggleMiniMap }), [expandedIds, toggleExpand, expandAll, collapseAll, leftPanelOpen, toggleLeftPanel, showMiniMap, toggleMiniMap])
 
   const [nodes, , onNodesChange] = useNodesState(INITIAL_NODES)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -1740,6 +1985,7 @@ function RoutingBuilderInner() {
   const rafRef = useRef<number | null>(null)
   const lastTsRef = useRef<number | null>(null)
   const totalSimMinRef = useRef(0)
+  const simEndedRef = useRef(false)
 
   const simOps = useMemo(() => {
     if (!previewMode) return []
@@ -1797,31 +2043,48 @@ function RoutingBuilderInner() {
       }
     }
 
+    // Build reverse adjacency for critical-path start times
+    const revAdj = new Map<string, string[]>()
+    for (const e of edges) {
+      if (!opIds.has(e.source) || !opIds.has(e.target)) continue
+      revAdj.set(e.target, [...(revAdj.get(e.target) ?? []), e.source])
+    }
+
+    // Compute startTime / endTime per node (critical path)
+    const endTimes = new Map<string, number>()
+    const startTimes = new Map<string, number>()
+    for (const id of sortedIds) {
+      const preds = (revAdj.get(id) ?? []).filter(p => reachable.has(p))
+      const start = preds.length === 0 ? 0 : Math.max(...preds.map(p => endTimes.get(p) ?? 0))
+      const n = opNodes.find(n => n.id === id)!
+      const est = estimateOpMin(n.data as OperationData, previewInputs) ?? 0
+      startTimes.set(id, start)
+      endTimes.set(id, start + est)
+    }
+
     return sortedIds.flatMap(id => {
       const n = opNodes.find(n => n.id === id)!
       const d = n.data as OperationData
       const est = estimateOpMin(d, previewInputs)
       if (est === null || est <= 0) return []
       const opDef = opTypes.find(t => t.id === d.op_type_id)
-      return [{ id: n.id, name: d.name, opCode: d.op_code, color: opDef?.color ?? '#757575', estMin: est }]
+      return [{ id: n.id, name: d.name, opCode: d.op_code, color: opDef?.color ?? '#757575', estMin: est,
+                startTime: startTimes.get(id) ?? 0, endTime: endTimes.get(id) ?? est }]
     })
   }, [opNodes, edges, previewInputs, previewMode, opTypes])
 
-  const totalSimMin = simOps.reduce((s, o) => s + o.estMin, 0)
+  const totalSimMin = simOps.length === 0 ? 0 : Math.max(...simOps.map(o => o.endTime))
   totalSimMinRef.current = totalSimMin
 
-  const activeOpId = useMemo(() => {
-    if (simPhase === 'idle' || simOps.length === 0) return null
-    let cum = 0
-    for (const op of simOps) { cum += op.estMin; if (simElapsed < cum) return op.id }
-    return null
+  const activeOpIds = useMemo(() => {
+    if (simPhase === 'idle' || simOps.length === 0) return new Set<string>()
+    return new Set(simOps.filter(o => simElapsed >= o.startTime && simElapsed < o.endTime).map(o => o.id))
   }, [simElapsed, simOps, simPhase])
 
   const simPastIds = useMemo(() => {
     if (simPhase === 'idle') return new Set<string>()
-    const activeIdx = activeOpId ? simOps.findIndex(o => o.id === activeOpId) : simOps.length
-    return new Set(simOps.slice(0, activeIdx < 0 ? simOps.length : activeIdx).map(o => o.id))
-  }, [simPhase, activeOpId, simOps])
+    return new Set(simOps.filter(o => simElapsed >= o.endTime).map(o => o.id))
+  }, [simPhase, simElapsed, simOps])
 
   useEffect(() => {
     if (simPhase !== 'playing') {
@@ -1835,7 +2098,7 @@ function RoutingBuilderInner() {
       lastTsRef.current = ts
       setSimElapsed(prev => {
         const next = prev + deltaReal * simSpeed
-        if (next >= totalSimMinRef.current) { setSimPhase('paused'); return totalSimMinRef.current }
+        if (next >= totalSimMinRef.current) { simEndedRef.current = true; setSimPhase('paused'); return totalSimMinRef.current }
         return next
       })
       rafRef.current = requestAnimationFrame(tick)
@@ -1849,14 +2112,47 @@ function RoutingBuilderInner() {
   useEffect(() => { if (!previewMode) resetSim() }, [previewMode, resetSim])
 
   const simCtxValue = useMemo<SimCtxType>(
-    () => ({ simPhase, activeOpId, simPastIds }),
-    [simPhase, activeOpId, simPastIds],
+    () => ({ simPhase, activeOpIds, simPastIds }),
+    [simPhase, activeOpIds, simPastIds],
   )
+
+  const prevActiveOpIdsRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const hasNew = [...activeOpIds].some(id => !prevActiveOpIdsRef.current.has(id))
+    prevActiveOpIdsRef.current = activeOpIds
+    if (!hasNew) return
+    const nodes = [...activeOpIds].map(id => getNode(id)).filter(Boolean) as import('@xyflow/react').Node[]
+    if (nodes.length === 0) return
+    if (nodes.length === 1) {
+      const n = nodes[0]
+      setCenter(
+        n.position.x + (n.measured?.width  ?? 160) / 2,
+        n.position.y + (n.measured?.height ?? 100) / 2,
+        { zoom: 1.2, duration: 500 },
+      )
+    } else {
+      const minX = Math.min(...nodes.map(n => n.position.x))
+      const minY = Math.min(...nodes.map(n => n.position.y))
+      const maxX = Math.max(...nodes.map(n => n.position.x + (n.measured?.width  ?? 160)))
+      const maxY = Math.max(...nodes.map(n => n.position.y + (n.measured?.height ?? 100)))
+      fitBounds({ x: minX, y: minY, width: maxX - minX, height: maxY - minY }, { padding: 0.4, duration: 500 })
+    }
+  }, [activeOpIds, getNode, setCenter, fitBounds])
+
+  const prevSimPhaseRef = useRef<SimPhase>('idle')
+  useEffect(() => {
+    const prev = prevSimPhaseRef.current
+    prevSimPhaseRef.current = simPhase
+    const naturalEnd = simPhase === 'paused' && simEndedRef.current
+    if (naturalEnd) simEndedRef.current = false
+    if ((prev !== 'idle' && simPhase === 'idle') || naturalEnd)
+      setTimeout(() => fitView({ padding: 0.35, duration: 600 }), 50)
+  }, [simPhase, fitView])
 
   const previewVars = [...new Set(opNodes.flatMap(n => {
     const d = n.data as OperationData
     if (d.time_mode === 'formula' && d.formula) return extractVars(d.formula)
-    if (d.time_mode === 'activities') return d.activities.filter(a => a.measure).map(a => a.measure)
+    if (d.time_mode === 'activities') return d.activities.filter(a => a.measure).map(a => a.measure as string)
     return []
   }))]
 
@@ -1891,16 +2187,63 @@ function RoutingBuilderInner() {
     refetchOnWindowFocus: false, // switching tabs must not reset the canvas
   })
 
+  // Hoist op library query so we can populate activities for existing routing ops
+  const { data: opLibrary = [] } = useQuery<LibraryOpItem[]>({
+    queryKey: ['op-library'],
+    queryFn: async () => {
+      const { data: list } = await apiClient.get('/operation-templates')
+      const visible = (Array.isArray(list) ? list : []).filter((op: LibraryOpItem) => op.status !== 'draft')
+      const details = await Promise.all(
+        visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}`).then(r => r.data))
+      )
+      return details as LibraryOpItem[]
+    },
+    staleTime: 2 * 60 * 1000,
+  })
+
+  // After both routing template and library are loaded, populate activities for ops
+  // that have no saved activities by matching on op_code in the library.
+  const activitiesPatched = useRef(false)
+  useEffect(() => {
+    if (!existing || opLibrary.length === 0) return
+    if (activitiesPatched.current) return
+    activitiesPatched.current = true
+    setNodes(nds => nds.map(n => {
+      if (n.type !== 'operation') return n
+      const d = n.data as OperationData
+      if (d.activities.length > 0) return n
+      const libOp = opLibrary.find(l => l.op_code === d.op_code)
+      if (!libOp || libOp.activities.length === 0) return n
+      return {
+        ...n,
+        data: {
+          ...d,
+          activities: libOp.activities.map(a => ({
+            localId: newLocalId(),
+            templateId: a.source_activity_id ?? undefined,
+            name: a.name,
+            measure: a.measure,
+            perMinute: a.per_minute ? Number(a.per_minute) : undefined,
+            unit: a.unit ?? undefined,
+            machineId: a.machine_id ?? undefined,
+            toolIds: (a.tools ?? []).map(t => t.resource_id),
+            consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name })),
+            labors: (a.labors ?? []).map(l => ({ labor_resource_id: l.labor_resource_id, labor_name: l.labor_resource.name, qty: l.qty })),
+          })),
+        } satisfies OperationData,
+      }
+    }))
+  }, [existing, opLibrary, setNodes])
+
   useEffect(() => {
     if (!existing) return
     setCode(existing.code)
     setTemplateName(existing.name)
     setProductType(existing.applies_to_product_type ?? '')
-    const localBg = bgLocalKey ? localStorage.getItem(bgLocalKey) : null
-    setBgImageUrl(localBg ?? existing.bg_image_url ?? '')
-    setBgIsFile(!!localBg)
-    setBgRotation(existing.bg_rotation ?? 270)
-    setBgScale(existing.bg_scale ?? 1.6)
+    // Restore saved opacity if present
+    if (existing.bg_image_url != null) {
+      // legacy templates that stored an explicit URL — ignore, always use locked bg
+    }
     const opNds: Node[] = existing.operations.map((op, i) => ({
       id: `op-${op.id}`,
       type: 'operation',
@@ -1920,21 +2263,17 @@ function RoutingBuilderInner() {
         time_mode: (['formula', 'manual', 'activities'].includes(op.time_mode) ? op.time_mode : 'formula') as TimeMode,
         duration_min: op.time_cycle_manual ? Number(op.time_cycle_manual) : undefined,
         formula: op.formula_expr ?? undefined,
-        activities: (op.op_activities ?? []).map(oa => ({
-          localId: `act-${oa.id}`,
-          templateId: oa.activity_template.id,
-          name: oa.activity_template.description,
-          measure: oa.activity_template.formula_param_code ?? '',
-          perMinute: oa.activity_template.per_minute ? Number(oa.activity_template.per_minute) : undefined,
-          unit: oa.activity_template.unit ?? undefined,
-          stdMeasure: oa.activity_template.std_measure ? Number(oa.activity_template.std_measure) : undefined,
-          machineId: oa.machine_id ?? (oa.activity_template as any).machine_id ?? undefined,
-          toolIds: (oa.tools ?? []).map((t: { resource_id: number }) => t.resource_id),
-          consumables: (oa.consumables ?? []).map((c: { resource_id: number; qty: number | null; unit: string | null }) => ({
-            resource_id: c.resource_id,
-            qty: c.qty != null ? String(c.qty) : '',
-            unit: c.unit ?? '',
-          })),
+        activities: (op.activities_snapshot ?? []).map(a => ({
+          localId:    newLocalId(),
+          templateId: a.source_activity_id ?? undefined,
+          name:       a.name,
+          measure:    a.measure ?? '',
+          perMinute:  a.per_minute ?? undefined,
+          unit:       undefined,
+          machineId:  a.machine_id ?? undefined,
+          toolIds:    a.tool_ids ?? [],
+          labors:     a.labors ?? [],
+          consumables: a.consumables ?? [],
         })),
       } satisfies OperationData,
     }))
@@ -1970,7 +2309,7 @@ function RoutingBuilderInner() {
       ])
       setEdges([])
     }
-  }, [existing, setNodes, setEdges, setBgRotation, setBgScale])
+  }, [existing, setNodes, setEdges])
 
   const onConnect = useCallback(
     (params: Connection) => setEdges(eds => {
@@ -2043,7 +2382,16 @@ function RoutingBuilderInner() {
           formula_expr: d.time_mode === 'formula' ? d.formula || null : null,
           canvas_x: node.position.x,
           canvas_y: node.position.y,
-          activity_template_ids: d.activities.filter(a => a.templateId).map(a => a.templateId!),
+          activities: d.activities.map(a => ({
+            name: a.name,
+            measure: a.measure || null,
+            per_minute: a.perMinute ?? null,
+            machine_id: a.machineId ?? null,
+            source_activity_id: a.templateId ?? null,
+            tool_ids: a.toolIds ?? [],
+            labors: a.labors ?? [],
+            consumables: a.consumables ?? [],
+          })),
         }
       })
 
@@ -2060,9 +2408,9 @@ function RoutingBuilderInner() {
       const snapshot = {
         name: templateName.trim(),
         applies_to_product_type: productType || null,
-        bg_image_url: bgIsFile ? null : (bgImageUrl.trim() || null),
-        bg_rotation: bgRotation,
-        bg_scale: bgScale,
+        bg_image_url: null,
+        bg_rotation: BG_ROTATION,
+        bg_scale: BG_SCALE,
         canvas_edges,
         operations,
       }
@@ -2072,10 +2420,10 @@ function RoutingBuilderInner() {
       } else {
         // Create the template header first, then push the full snapshot
         const { data: tpl } = await apiClient.post('/routing-templates', {
-          code: code.trim(), name: templateName.trim(),
+          code: code.trim(),
+          name: templateName.trim(),
           ...(productType ? { applies_to_product_type: productType } : {}),
         })
-        if (bgIsFile && bgImageUrl) localStorage.setItem(`bdt_template_bg_${tpl.id}`, bgImageUrl)
         await apiClient.put(`/routing-templates/${tpl.id}/snapshot`, snapshot)
       }
     },
@@ -2086,7 +2434,7 @@ function RoutingBuilderInner() {
   })
 
   const allReady = opNodes.length > 0 && opNodes.every(n => isOpReady(n.data as OperationData))
-  const canSave = templateName.trim().length > 0 && (isEdit || code.trim().length > 0) && allReady
+  const canSave = templateName.trim().length > 0 && allReady
 
   const previewCtxValue = useMemo(
     () => ({ previewMode, inputs: previewInputs, setInputs: setPreviewInputs }),
@@ -2123,152 +2471,61 @@ function RoutingBuilderInner() {
                 {isEdit ? `Edit: ${code}` : 'New Routing Template'}
               </span>
               <div style={{ flex: 1 }} />
-              <input value={code} onChange={e => setCode(e.target.value)} disabled={isEdit}
-                style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px', height: 34, fontSize: 13, width: 110, background: isEdit ? '#F5F5F5' : '#fff', color: isEdit ? '#9E9E9E' : '#1F1F1F' }}
-                placeholder="Code" />
               <input value={templateName} onChange={e => setTemplateName(e.target.value)}
-                style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px', height: 34, fontSize: 13, width: 220 }}
+                style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px', height: 34, fontSize: 13, width: 260 }}
                 placeholder="Template name" />
-              <select value={productType} onChange={e => setProductType(e.target.value)}
-                style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px', height: 34, fontSize: 13 }}>
-                <option value="">All types</option>
-                <option value="standard">Standard</option>
-                <option value="custom">Custom</option>
-              </select>
-              {/* Background image button + popover */}
+              <MarkPrefixPicker
+                value={productType}
+                prefixes={markPrefixes}
+                onChange={setProductType}
+                onAddNew={() => setShowAddPrefixModal(true)}
+              />
+              {/* Floor Plan Background — locked to factory layout (Layout-F1) */}
               <div style={{ position: 'relative', display: 'flex', gap: 2 }}>
-                {/* Toggle on/off when image exists, open panel when no image */}
                 <button
-                  onClick={() => bgImageUrl ? setBgVisible(v => !v) : setShowBgPanel(v => !v)}
+                  onClick={() => setBgVisible(v => !v)}
                   style={{
-                    height: 34, padding: '0 12px', borderRadius: bgImageUrl ? '6px 0 0 6px' : 6,
+                    height: 34, padding: '0 12px', borderRadius: '6px 0 0 6px',
                     fontSize: 12, fontWeight: 600,
-                    background: bgImageUrl && bgVisible ? '#EFF6FF' : bgImageUrl && !bgVisible ? '#FFF3E0' : '#F5F5F5',
-                    color: bgImageUrl && bgVisible ? '#1565C0' : bgImageUrl && !bgVisible ? '#E65100' : '#555',
-                    border: `1px solid ${bgImageUrl && bgVisible ? '#BBDEFB' : bgImageUrl && !bgVisible ? '#FFCC80' : '#E0E0E0'}`,
+                    background: bgVisible ? '#EFF6FF' : '#FFF3E0',
+                    color: bgVisible ? '#1565C0' : '#E65100',
+                    border: `1px solid ${bgVisible ? '#BBDEFB' : '#FFCC80'}`,
                     cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
                   }}>
-                  <ImageIcon size={13} />{bgImageUrl ? (bgVisible ? 'BG On' : 'BG Off') : 'Background'}
+                  <MapIcon size={13} />{bgVisible ? 'BG On' : 'BG Off'}
                 </button>
-                {/* Gear icon — opens panel only when image is set */}
-                {bgImageUrl && (
-                  <button onClick={() => setShowBgPanel(v => !v)} style={{
-                    height: 34, width: 28, borderRadius: '0 6px 6px 0', border: '1px solid #BBDEFB',
-                    borderLeft: 'none', background: showBgPanel ? '#DBEAFE' : '#EFF6FF',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Settings size={11} style={{ color: '#1565C0' }} />
-                  </button>
-                )}
+                <button onClick={() => setShowBgPanel(v => !v)} style={{
+                  height: 34, width: 28, borderRadius: '0 6px 6px 0',
+                  border: `1px solid ${bgVisible ? '#BBDEFB' : '#FFCC80'}`,
+                  borderLeft: 'none',
+                  background: showBgPanel ? '#DBEAFE' : (bgVisible ? '#EFF6FF' : '#FFF3E0'),
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Settings size={11} style={{ color: bgVisible ? '#1565C0' : '#E65100' }} />
+                </button>
                 {showBgPanel && (
                   <div style={{
                     position: 'absolute', top: 40, right: 0, zIndex: 500,
                     background: '#fff', border: '1px solid #E0E0E0', borderRadius: 8,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 14, width: 320,
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: 14, width: 260,
                   }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1F1F1F', marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#1F1F1F', marginBottom: 4 }}>
                       Floor Plan Background
                     </div>
-                    <div style={{ fontSize: 10, color: '#9E9E9E', marginBottom: 5 }}>IMAGE URL</div>
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                      <input
-                        value={bgIsFile ? '' : bgImageUrl}
-                        onChange={e => { setBgImageUrl(e.target.value); setBgIsFile(false) }}
-                        placeholder="https://example.com/floor-plan.png"
-                        style={{ flex: 1, border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px', fontSize: 11, outline: 'none', fontFamily: 'inherit' }}
-                      />
-                      {bgImageUrl && (
-                        <button onClick={() => { setBgImageUrl(''); setBgIsFile(false); if (bgLocalKey) localStorage.removeItem(bgLocalKey) }}
-                          style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid #E0E0E0', background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                          <X size={11} style={{ color: '#9E9E9E' }} />
-                        </button>
-                      )}
+                    <div style={{ fontSize: 10, color: '#9E9E9E', marginBottom: 10 }}>
+                      Layout-F1 · {BG_ROTATION}° · {BG_SCALE}×
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <div style={{ flex: 1, height: 1, background: '#EFEFEF' }} />
-                      <span style={{ fontSize: 9, color: '#C0C0C0', fontWeight: 600 }}>OR UPLOAD FILE</span>
-                      <div style={{ flex: 1, height: 1, background: '#EFEFEF' }} />
-                    </div>
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{
-                        width: '100%', height: 30, borderRadius: 5, border: '1px dashed #D0D0D0',
-                        background: bgIsFile ? '#EFF6FF' : '#FAFAFA', cursor: 'pointer',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                        fontSize: 11, color: bgIsFile ? '#1565C0' : '#777', fontWeight: 500, marginBottom: 10,
-                      }}>
-                      <Upload size={11} />{bgIsFile ? 'Replace file…' : 'Upload image or PDF'}
-                    </button>
-                    <input
-                      ref={fileInputRef} type="file" accept="image/*,.pdf" style={{ display: 'none' }}
-                      onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); e.target.value = '' }}
-                    />
-                    {bgIsFile && (
-                      <div style={{ fontSize: 10, color: '#1565C0', background: '#EFF6FF', borderRadius: 5, padding: '4px 8px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <Upload size={9} /> Local file — saved in browser only
-                      </div>
-                    )}
                     <div style={{ fontSize: 10, color: '#9E9E9E', marginBottom: 5, display: 'flex', justifyContent: 'space-between' }}>
                       <span>OPACITY</span>
                       <span style={{ color: '#555', fontWeight: 600 }}>{Math.round(bgOpacity * 100)}%</span>
                     </div>
                     <input type="range" min={5} max={60} value={Math.round(bgOpacity * 100)}
                       onChange={e => setBgOpacity(Number(e.target.value) / 100)}
-                      style={{ width: '100%', accentColor: '#C8202A', marginBottom: 10 }}
+                      style={{ width: '100%', accentColor: '#C8202A', marginBottom: 12 }}
                     />
-                    <div style={{ fontSize: 10, color: '#9E9E9E', marginBottom: 5, display: 'flex', justifyContent: 'space-between' }}>
-                      <span>ROTATION</span>
-                      <button onClick={() => setBgRotation(0)} style={{ fontSize: 9, color: '#9E9E9E', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
-                        Reset
-                      </button>
+                    <div style={{ width: '100%', height: 80, borderRadius: 6, border: '1px solid #E0E0E0', overflow: 'hidden', marginBottom: 10 }}>
+                      <img src={BG_URL} alt="Layout-F1" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      <button
-                        onClick={() => setBgRotation(r => ((r - 270) % 360 + 360) % 360)}
-                        style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid #E0E0E0', background: '#FAFAFA', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <RotateCcw size={12} style={{ color: '#555' }} />
-                      </button>
-                      <input
-                        type="number" min={0} max={359} value={bgRotation}
-                        onChange={e => setBgRotation(((Number(e.target.value) % 360) + 360) % 360)}
-                        style={{ flex: 1, border: '1px solid #E0E0E0', borderRadius: 5, padding: '4px 6px', fontSize: 11, outline: 'none', fontFamily: 'inherit', textAlign: 'center' }}
-                      />
-                      <span style={{ fontSize: 10, color: '#9E9E9E', flexShrink: 0 }}>°</span>
-                      <button
-                        onClick={() => setBgRotation(r => (r + 270) % 360)}
-                        style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid #E0E0E0', background: '#FAFAFA', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <RotateCw size={12} style={{ color: '#555' }} />
-                      </button>
-                    </div>
-                    <div style={{ fontSize: 10, color: '#9E9E9E', marginBottom: 5, display: 'flex', justifyContent: 'space-between' }}>
-                      <span>SCALE</span>
-                      <button onClick={() => setBgScale(1)} style={{ fontSize: 9, color: '#9E9E9E', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
-                        Reset
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
-                      <button
-                        onClick={() => setBgScale(s => Math.max(0.1, +(s - 0.1).toFixed(1)))}
-                        style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid #E0E0E0', background: '#FAFAFA', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <ZoomOut size={12} style={{ color: '#555' }} />
-                      </button>
-                      <input
-                        type="number" min={0.1} max={5} step={0.1} value={bgScale}
-                        onChange={e => setBgScale(Math.min(5, Math.max(0.1, +parseFloat(e.target.value).toFixed(1) || 1)))}
-                        style={{ flex: 1, border: '1px solid #E0E0E0', borderRadius: 5, padding: '4px 6px', fontSize: 11, outline: 'none', fontFamily: 'inherit', textAlign: 'center' }}
-                      />
-                      <span style={{ fontSize: 10, color: '#9E9E9E', flexShrink: 0 }}>×</span>
-                      <button
-                        onClick={() => setBgScale(s => Math.min(5, +(s + 0.1).toFixed(1)))}
-                        style={{ width: 28, height: 28, borderRadius: 5, border: '1px solid #E0E0E0', background: '#FAFAFA', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <ZoomIn size={12} style={{ color: '#555' }} />
-                      </button>
-                    </div>
-                    {bgImageUrl && (
-                      <div style={{ width: '100%', height: 80, borderRadius: 6, border: '1px solid #E0E0E0', overflow: 'hidden', marginBottom: 8 }}>
-                        <img src={bgImageUrl} alt="preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
-                      </div>
-                    )}
                     <button onClick={() => setShowBgPanel(false)}
                       style={{ width: '100%', height: 28, borderRadius: 5, border: 'none', background: '#1F1F1F', color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
                       Done
@@ -2333,13 +2590,13 @@ function RoutingBuilderInner() {
 
               {/* Canvas */}
               <div style={{ flex: 1, position: 'relative' }}>
-                {bgImageUrl && bgVisible && (
+                {bgVisible && (
                   <div style={{
                     position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
-                    backgroundImage: `url(${bgImageUrl})`,
+                    backgroundImage: `url(${BG_URL})`,
                     backgroundSize: 'contain', backgroundRepeat: 'no-repeat', backgroundPosition: 'center',
                     opacity: bgOpacity,
-                    transform: (bgRotation || bgScale !== 1) ? `scale(${bgScale}) rotate(${bgRotation}deg)` : undefined,
+                    transform: `scale(${BG_SCALE}) rotate(${BG_ROTATION}deg)`,
                   }} />
                 )}
                 <ReactFlow style={{ background: 'transparent' }}
@@ -2407,32 +2664,36 @@ function RoutingBuilderInner() {
                     <span style={{ fontSize: 10, background: '#E8F5E9', color: '#2E7D32', borderRadius: 4, padding: '2px 8px', fontWeight: 700, border: '1px solid #A5D6A7' }}>Done ✓</span>
                   )}
                 </div>
-                {/* Gantt */}
+                {/* Gantt — absolute positioning supports parallel ops */}
                 <div style={{ padding: '8px 16px 10px' }}>
-                  <div style={{ display: 'flex', height: 28, borderRadius: 4, overflow: 'hidden', background: '#F5F5F5', border: '1px solid #E0E0E0' }}>
-                    {simOps.map((op, i) => {
-                      const opStart = simOps.slice(0, i).reduce((s, o) => s + o.estMin, 0)
-                      const fillMin = Math.min(op.estMin, Math.max(0, simElapsed - opStart))
-                      const fillPct = op.estMin > 0 ? (fillMin / op.estMin) * 100 : 0
-                      const isActive = op.id === activeOpId
+                  <div style={{ position: 'relative', height: 28, borderRadius: 4, background: '#F5F5F5', border: '1px solid #E0E0E0', overflow: 'hidden' }}>
+                    {totalSimMin > 0 && simOps.map(op => {
+                      const leftPct  = (op.startTime / totalSimMin) * 100
+                      const widthPct = (op.estMin    / totalSimMin) * 100
+                      const elapsed  = Math.min(op.estMin, Math.max(0, simElapsed - op.startTime))
+                      const fillPct  = op.estMin > 0 ? (elapsed / op.estMin) * 100 : 0
+                      const isActive = activeOpIds.has(op.id)
                       return (
-                        <div key={op.id} style={{ flex: op.estMin, position: 'relative', background: `${op.color}33`, borderRight: '1px solid #E0E0E0', minWidth: 0 }}>
+                        <div key={op.id} title={op.name} style={{ position: 'absolute', top: 2, bottom: 2, left: `${leftPct}%`, width: `${widthPct}%`, borderRadius: 3, background: `${op.color}33`, overflow: 'hidden' }}>
                           <div style={{ position: 'absolute', top: 0, left: 0, bottom: 0, width: `${fillPct}%`, background: isActive ? op.color : `${op.color}CC`, transition: 'width 0.1s linear' }} />
                         </div>
                       )
                     })}
+                    {/* playhead */}
+                    {totalSimMin > 0 && (
+                      <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${(simElapsed / totalSimMin) * 100}%`, width: 2, background: '#C8202A', opacity: 0.7 }} />
+                    )}
                   </div>
-                  <div style={{ display: 'flex', marginTop: 3, position: 'relative' }}>
-                    <span style={{ position: 'absolute', left: 0, top: 0, fontSize: 9, color: '#9E9E9E' }}>0</span>
-                    {simOps.map((op, i) => {
-                      const cumTime = simOps.slice(0, i + 1).reduce((s, o) => s + o.estMin, 0)
-                      const isActive = op.id === activeOpId
-                      const isDone = simPastIds.has(op.id)
-                      const color = isDone ? '#4CAF50' : isActive ? op.color : '#555'
+                  <div style={{ position: 'relative', height: 14, marginTop: 2 }}>
+                    <span style={{ position: 'absolute', left: 0, fontSize: 9, color: '#9E9E9E' }}>0</span>
+                    {totalSimMin > 0 && simOps.map(op => {
+                      const isActive = activeOpIds.has(op.id)
+                      const isDone   = simPastIds.has(op.id)
+                      const rightPct = (op.endTime / totalSimMin) * 100
                       return (
-                        <div key={op.id} style={{ flex: op.estMin, fontSize: 9, color, fontWeight: isDone || isActive ? 700 : 400, textAlign: 'right', paddingRight: 2, overflow: 'hidden', whiteSpace: 'nowrap', minWidth: 0 }}>
-                          {fmtMin(cumTime)}
-                        </div>
+                        <span key={op.id} style={{ position: 'absolute', right: `${100 - rightPct}%`, fontSize: 9, color: isDone ? '#4CAF50' : isActive ? op.color : '#9E9E9E', fontWeight: isActive || isDone ? 700 : 400, whiteSpace: 'nowrap' }}>
+                          {fmtMin(op.endTime)}
+                        </span>
                       )
                     })}
                   </div>
@@ -2444,6 +2705,11 @@ function RoutingBuilderInner() {
             {previewMode && previewVars.length > 0 && (
               <div style={{ background: '#F8F8F8', borderTop: '1px solid #E0E0E0', padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, overflowX: 'auto' }}>
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Variables</span>
+                <button
+                  onClick={() => setPreviewInputs(Object.fromEntries(previewVars.map(v => [v, SAMPLE_JOB_QTY[v] ?? 1])))}
+                  title="ตัวอย่าง: H-Beam 6m (แนวตัด×6, รู×16, แนวเชื่อม×8, ตร.ม.×12 …)"
+                  style={{ fontSize: 10, fontWeight: 600, color: '#185FA5', background: '#E3F0FB', border: '1px solid #BAD4EF', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', flexShrink: 0 }}
+                >Sample job</button>
                 {previewVars.map(v => (
                   <div key={v} style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
                     <label style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>{v}</label>
@@ -2475,6 +2741,19 @@ function RoutingBuilderInner() {
         <NewOpModal
           onClose={() => setShowNewOpModal(false)}
           onCreated={() => setShowNewOpModal(false)}
+        />
+      )}
+      {showAddPrefixModal && (
+        <AddPrefixModal
+          onClose={() => setShowAddPrefixModal(false)}
+          onCreated={code => { queryClient.invalidateQueries({ queryKey: ['mark-prefixes'] }); setProductType(code) }}
+        />
+      )}
+      {editingActivityId !== null && (
+        <ActivityBuilderModal
+          activityId={editingActivityId}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ['routing-template-detail', templateId] })}
+          onClose={() => setEditingActivityId(null)}
         />
       )}
     </ExpandCtx.Provider>

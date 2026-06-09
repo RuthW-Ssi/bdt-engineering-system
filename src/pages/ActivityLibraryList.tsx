@@ -1,11 +1,16 @@
 import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Plus, Search, Clock } from 'lucide-react'
 import { useActivities, useDeleteActivity } from '../hooks/useActivities'
 import { ActivityBuilderModal } from './ActivityBuilder'
 
 export function ActivityLibraryList() {
+  const { id: paramId } = useParams<{ id?: string }>()
+  const navigate = useNavigate()
   const [searchQ, setSearchQ] = useState('')
-  const [modal, setModal] = useState<{ id?: number } | null>(null)
+  const [modal, setModal] = useState<{ id?: number } | null>(
+    paramId ? { id: Number(paramId) } : null,
+  )
 
   const { data: activities = [], isLoading, isError } = useActivities({ q: searchQ || undefined })
   const deleteMutation = useDeleteActivity()
@@ -124,7 +129,10 @@ export function ActivityLibraryList() {
       {modal !== null && (
         <ActivityBuilderModal
           activityId={modal.id}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            setModal(null)
+            if (paramId) navigate('/activity-library', { replace: true })
+          }}
         />
       )}
     </div>
