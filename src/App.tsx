@@ -8,7 +8,6 @@ import { CustomerList } from './pages/CustomerList'
 import { ProjectList } from './pages/ProjectList'
 import { ZoneList } from './pages/ZoneList'
 import { RoutingList } from './pages/RoutingList'
-import { RoutingApply } from './pages/RoutingApply'
 import { RoutingBuilder } from './pages/RoutingBuilder'
 import { WorkcenterMaster } from './pages/WorkcenterMaster'
 import { ProductList } from './pages/ProductList'
@@ -25,7 +24,6 @@ import { BindingRuleManager } from './pages/BindingRuleManager'
 import OperationLibraryList from './pages/OperationLibraryList'
 import OperationBuilder from './pages/OperationBuilder'
 import { ActivityLibraryList } from './pages/ActivityLibraryList'
-import { ActivityBuilder } from './pages/ActivityBuilder'
 import { Dashboard } from './pages/Dashboard'
 
 function Placeholder({ title }: { title: string }) {
@@ -72,7 +70,6 @@ export default function App() {
             <Route path="/bom/:code" element={<BomEditor />} />
             <Route path="/bom/:code/diff" element={<BomDiffReview />} />
             <Route path="/routings" element={<RoutingList />} />
-            <Route path="/routings/apply" element={<RoutingApply />} />
             <Route path="/routings/new" element={<RoutingBuilder />} />
             <Route path="/routings/:id/edit" element={<RoutingBuilder />} />
             <Route path="/admin/workcenters" element={<WorkcenterMaster />} />
@@ -89,8 +86,8 @@ export default function App() {
             <Route path="/admin/operation-library/:id/edit" element={<RedirectOpEdit />} />
 
             <Route path="/activity-library" element={<ActivityLibraryList />} />
-            <Route path="/activity-library/new" element={<ActivityBuilder />} />
-            <Route path="/activity-library/:id/edit" element={<ActivityBuilder />} />
+            <Route path="/activity-library/new" element={<Navigate to="/activity-library" replace />} />
+            <Route path="/activity-library/:id/edit" element={<Navigate to="/activity-library" replace />} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />

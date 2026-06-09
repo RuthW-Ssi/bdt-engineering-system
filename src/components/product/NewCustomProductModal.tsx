@@ -1,16 +1,90 @@
 import { useState, useEffect } from 'react'
 import { X, Loader2, AlertTriangle } from 'lucide-react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCategories } from '../../hooks/useMasters'
 import { useProjects } from '../../hooks/useProjects'
 import { useProjectZones } from '../../hooks/useProjectZones'
 import { useCreateProduct } from '../../hooks/useProducts'
 import { useCreateLibraryEntry } from '../../hooks/useLibrary'
 import { MarkPrefixDropdown } from './MarkPrefixDropdown'
+import { markPrefixApi } from '../../api/mark-prefix-master'
 import { productsApi } from '../../api/products'
 import { libraryApi } from '../../api/library'
 import type { CreateCustomProductPayload, LibraryEntryDTO } from '../../api/types'
 
 const DEFAULT_CATEG_ID = 24 // MS000 — Main Structures
+
+const PREFIX_CATEGORIES = [
+  { value: 'assembly',      label: 'Assembly' },
+  { value: 'member',        label: 'Member' },
+  { value: 'plate_part',    label: 'Plate Part' },
+  { value: 'sub_component', label: 'Sub-component' },
+  { value: 'other',         label: 'Other' },
+]
+
+function AddMarkPrefixModal({ onClose, onCreated }: { onClose: () => void; onCreated: (code: string) => void }) {
+  const [form, setForm] = useState({ code: '', label: '', category: 'member' })
+  const [err, setErr] = useState('')
+  const { mutateAsync, isPending } = useMutation({ mutationFn: markPrefixApi.create })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.code.trim() || !form.label.trim()) { setErr('กรอก Code และ Label ให้ครบ'); return }
+    try {
+      const result = await mutateAsync({ code: form.code.trim().toUpperCase(), label: form.label.trim(), category: form.category, active: true })
+      onCreated(result.code)
+      onClose()
+    } catch (e: any) {
+      const msg = e?.response?.data?.message
+      setErr(typeof msg === 'string' ? msg : 'เกิดข้อผิดพลาด')
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ zIndex: 70, background: 'rgba(0,0,0,0.5)' }}>
+      <div className="bg-white rounded-xl shadow-xl" style={{ width: 400, padding: 24 }}>
+        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 16 }}>สร้าง Mark Prefix ใหม่</div>
+        {err && (
+          <div style={{ padding: '8px 12px', background: '#FCEBEB', color: '#5C0D15', fontSize: 12, borderRadius: 6, marginBottom: 12 }}>{err}</div>
+        )}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Code *</label>
+            <input className="w-full border rounded-md font-mono"
+              style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }}
+              value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
+              placeholder="e.g. HB" maxLength={10} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Label *</label>
+            <input className="w-full border rounded-md"
+              style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }}
+              value={form.label} onChange={e => setForm(f => ({ ...f, label: e.target.value }))}
+              placeholder="e.g. H-Beam Column" maxLength={60} />
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Category *</label>
+            <select className="w-full border rounded-md"
+              style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }}
+              value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+              {PREFIX_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+            <button type="button" onClick={onClose} className="border rounded-md"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, borderColor: '#E0E0E0' }}>
+              ยกเลิก
+            </button>
+            <button type="submit" disabled={isPending} className="rounded-md text-white disabled:opacity-60"
+              style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}>
+              {isPending ? 'กำลังบันทึก…' : 'สร้าง Prefix'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
 
 const EMPTY_FORM = {
   name: '', categ_id: '', project_id: '', erection_zone_id: '',
@@ -22,10 +96,12 @@ const EMPTY_FORM = {
 interface Props { onClose: () => void }
 
 export function NewCustomProductModal({ onClose }: Props) {
+  const qc = useQueryClient()
   const { data: categories = [], isLoading: loadingCats } = useCategories()
   const { data: projectsData } = useProjects({ limit: 100 })
   const projects = projectsData?.items ?? []
   const { mutateAsync: create, isPending } = useCreateProduct()
+  const [showAddPrefixModal, setShowAddPrefixModal] = useState(false)
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -200,7 +276,12 @@ export function NewCustomProductModal({ onClose }: Props) {
             {/* Mark */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, background: '#F8F9FA', borderRadius: 8, border: `1px solid ${errors.mark_prefix || errors.mark_number ? '#C8202A' : '#E0E0E0'}` }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: '#333' }}>Mark</div>
-              <MarkPrefixDropdown value={form.mark_prefix} onChange={v => setField('mark_prefix', v)} error={errors.mark_prefix} />
+              <MarkPrefixDropdown
+                value={form.mark_prefix}
+                onChange={v => setField('mark_prefix', v)}
+                onAddNew={() => setShowAddPrefixModal(true)}
+                error={errors.mark_prefix}
+              />
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Mark Number *</label>
                 <input className="w-full border rounded-md font-mono"
@@ -350,6 +431,15 @@ export function NewCustomProductModal({ onClose }: Props) {
           </div>
         </form>
       </div>
+      {showAddPrefixModal && (
+        <AddMarkPrefixModal
+          onClose={() => setShowAddPrefixModal(false)}
+          onCreated={code => {
+            qc.invalidateQueries({ queryKey: ['mark-prefixes'] })
+            setField('mark_prefix', code)
+          }}
+        />
+      )}
     </div>
   )
 }
