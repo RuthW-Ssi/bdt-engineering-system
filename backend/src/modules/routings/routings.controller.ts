@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ConflictException,
   Delete,
   Get,
   NotFoundException,
@@ -251,8 +252,15 @@ export class RoutingsController {
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Delete a routing template' })
   async deleteRoutingTemplate(@Param('id', ParseIntPipe) id: number) {
-    const exists = await this.prisma.routing_template.findUnique({ where: { id }, select: { id: true } })
-    if (!exists) throw new NotFoundException(`Routing template ${id} not found`)
+    const tpl = await this.prisma.routing_template.findUnique({
+      where: { id },
+      select: { id: true, _count: { select: { bound_products: true } } },
+    })
+    if (!tpl) throw new NotFoundException(`Routing template ${id} not found`)
+    if (tpl._count.bound_products > 0)
+      throw new ConflictException(
+        `Cannot delete: ${tpl._count.bound_products} product(s) are bound to this template. Rebind or unlink them first.`
+      )
     await this.prisma.routing_template.delete({ where: { id } })
     return { deleted: true }
   }
