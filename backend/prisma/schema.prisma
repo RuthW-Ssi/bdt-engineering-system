@@ -1033,7 +1033,6 @@ model operation_template_activity {
   source_activity             activity?                  @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
   snapshot_at                 DateTime?                  @db.Timestamptz
   tools                       op_act_tool[]
-  consumables                 op_act_consumable[]
   labors                      op_act_labor[]
   op_materials                op_act_material[]
 
@@ -1054,7 +1053,6 @@ model equipment_resource {
 
   operation_template_acts       operation_template_activity[] @relation("OpActMachine")
   op_act_tools                  op_act_tool[]
-  op_act_consumables            op_act_consumable[]
   // Sprint 11: Activity Library
   activities                    activity[]                    @relation("activity_machine")
   activity_labors               activity_labor[]              @relation("activity_labor_resource")
@@ -1070,19 +1068,6 @@ model op_act_tool {
   activity    operation_template_activity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
   resource_id Int
   resource    equipment_resource          @relation(fields: [resource_id], references: [id], onDelete: Cascade)
-
-  @@unique([activity_id, resource_id])
-  @@index([activity_id])
-}
-
-model op_act_consumable {
-  id          Int                         @id @default(autoincrement())
-  activity_id Int
-  activity    operation_template_activity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  resource_id Int
-  resource    equipment_resource          @relation(fields: [resource_id], references: [id], onDelete: Cascade)
-  qty         Decimal?                    @db.Decimal(10, 4)
-  unit        String?                     @db.VarChar(20)
 
   @@unique([activity_id, resource_id])
   @@index([activity_id])
