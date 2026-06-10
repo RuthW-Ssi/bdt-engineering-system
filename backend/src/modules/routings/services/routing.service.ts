@@ -186,6 +186,7 @@ export class RoutingService {
       // 3. Upsert each op in sequence order; build client_ref → 'op-{realId}' map for edge translation
       const refMap = new Map<string, string>([['start', 'start'], ['end', 'end']])
       for (const op of dto.operations) {
+        const activitiesSnap = op.activities != null ? (op.activities as object[]) : []
         if (op.id != null) {
           await tx.mrp_routing_workcenter.update({
             where: { id: op.id },
@@ -196,6 +197,7 @@ export class RoutingService {
               time_cycle_manual: op.time_cycle_manual ?? null,
               formula_expr: op.formula_expr ?? null,
               canvas_x: op.canvas_x ?? null, canvas_y: op.canvas_y ?? null,
+              activities_snapshot: activitiesSnap,
               write_uid: userId, write_date: new Date(),
             },
           })
@@ -209,6 +211,7 @@ export class RoutingService {
               time_cycle_manual: op.time_cycle_manual ?? null,
               formula_expr: op.formula_expr ?? null,
               canvas_x: op.canvas_x ?? null, canvas_y: op.canvas_y ?? null,
+              activities_snapshot: activitiesSnap,
               create_uid: userId, write_uid: userId,
             },
           })

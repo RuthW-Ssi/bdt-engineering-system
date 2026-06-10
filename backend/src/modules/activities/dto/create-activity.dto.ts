@@ -38,6 +38,13 @@ export class CreateActivityDto {
   @Type(() => LaborEntryDto)
   labors?: LaborEntryDto[]
 
+  @ApiPropertyOptional({ description: 'FK → equipment_resource.id list (tools/jigs)', example: [7, 8] })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  tools?: number[]
+
   @ApiProperty({ description: 'Duration in minutes (≥ 0)', example: 5.5 })
   @IsNumber()
   @Min(0)

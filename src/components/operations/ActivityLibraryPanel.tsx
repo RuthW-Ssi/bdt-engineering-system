@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useActivities } from '../../hooks/useActivities'
 import { useAddFromLibrary } from '../../hooks/useOperationTemplates'
 
@@ -52,29 +52,35 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
               const alreadyAdded = existingSourceIds.has(act.id)
               return (
                 <div key={act.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '6px 8px', borderRadius: 4, marginBottom: 2,
+                  borderRadius: 4, marginBottom: 2,
                   background: alreadyAdded ? '#F5F5F5' : '#fff',
                   border: '1px solid #EEE',
                 }}>
-                  <div>
-                    <div style={{ fontSize: 11, color: '#999', fontFamily: 'monospace' }}>{act.activity_code}</div>
-                    <div style={{ fontSize: 12, fontWeight: 500 }}>{act.name}</div>
-                    <div style={{ fontSize: 11, color: '#666' }}>🕐 {Number(act.duration_min).toFixed(2)} min</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
+                    <div>
+                      <div style={{ fontSize: 11, color: '#999', fontFamily: 'monospace' }}>{act.activity_code}</div>
+                      <div style={{ fontSize: 12, fontWeight: 500 }}>{act.name}</div>
+                      <div style={{ marginTop: 3 }}>
+                        <span style={{ fontSize: 11, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
+                          {Number(act.duration_min).toFixed(2)} min
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      disabled={templateId === null || alreadyAdded || addMut.isPending}
+                      onClick={() => addMut.mutate(act.id)}
+                      title={alreadyAdded ? 'Already added' : 'Add to operation'}
+                      style={{
+                        padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none',
+                        background: alreadyAdded ? '#E0E0E0' : '#1976D2',
+                        color: alreadyAdded ? '#999' : '#fff',
+                        cursor: templateId === null || alreadyAdded || addMut.isPending ? 'default' : 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {alreadyAdded ? 'Added' : '+ Add'}
+                    </button>
                   </div>
-                  <button
-                    disabled={templateId === null || alreadyAdded || addMut.isPending}
-                    onClick={() => addMut.mutate(act.id)}
-                    title={alreadyAdded ? 'Already added' : 'Add to operation'}
-                    style={{
-                      padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none',
-                      background: alreadyAdded ? '#E0E0E0' : '#1976D2',
-                      color: alreadyAdded ? '#999' : '#fff',
-                      cursor: templateId === null || alreadyAdded || addMut.isPending ? 'default' : 'pointer',
-                    }}
-                  >
-                    {alreadyAdded ? 'Added' : '+ Add'}
-                  </button>
                 </div>
               )
             })}

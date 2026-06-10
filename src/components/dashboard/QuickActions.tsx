@@ -1,4 +1,4 @@
-import { Upload, FileStack, Plus, Boxes, Workflow, Wrench, MapPin, FolderOpen } from 'lucide-react'
+import { Upload, FileStack, Plus, Boxes, Workflow, MapPin, FolderOpen } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 const ACTIONS = [
@@ -7,7 +7,6 @@ const ACTIONS = [
   { label: 'New Product',       icon: <Plus size={20} />,      path: '/engineer-products' },
   { label: 'Materials',         icon: <Boxes size={20} />,     path: '/materials' },
   { label: 'Routings',          icon: <Workflow size={20} />,  path: '/routings' },
-  { label: 'Apply Routing',     icon: <Wrench size={20} />,    path: '/routings/apply' },
   { label: 'Zones',             icon: <MapPin size={20} />,    path: '/zones' },
   { label: 'Projects',          icon: <FolderOpen size={20} />,path: '/projects' },
 ]

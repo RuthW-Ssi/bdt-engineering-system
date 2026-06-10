@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, Check, Pencil, Save, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, Check, Pencil, Save, Trash2, X } from 'lucide-react'
 import { apiClient } from '../api/client'
 import ActivityLibraryPanel from '../components/operations/ActivityLibraryPanel'
 import { useOperationTemplate } from '../hooks/useOperationTemplates'
@@ -80,35 +80,47 @@ export default function OperationBuilder() {
   })
   const queryClient = useQueryClient()
   const patch = (p: Partial<FormState>) => setForm(f => ({ ...f, ...p }))
+  const initializedRef = useRef(false)
 
   // Load existing template in edit mode
   const { data: templateDetail, isLoading: loadingTpl } = useOperationTemplate(templateId, true)
 
+  const mapActivities = (acts: typeof templateDetail extends undefined ? never : NonNullable<typeof templateDetail>['activities']) =>
+    acts.map((a) => ({
+      id: a.id,
+      localId: uid(),
+      name: a.name,
+      measure: a.measure,
+      unit: a.unit ?? '',
+      per_minute: a.per_minute ? String(a.per_minute) : '',
+      source_activity_id: a.source_activity_id ?? null,
+      source_activity_code: a.source_activity_code ?? null,
+      snapshot_at: a.snapshot_at ?? null,
+      machine_id: a.machine_id ?? null,
+      tool_ids: a.tools?.map((t) => t.resource.id) ?? [],
+      consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '' })) ?? [],
+      labors: a.labors?.map(l => ({ labor_resource_id: l.labor_resource.id, name: l.labor_resource.name, code: l.labor_resource.code, qty: l.qty })) ?? [],
+      op_materials: a.op_materials?.map(m => ({ material_id: m.resource.id, name: m.resource.name, code: m.resource.code })) ?? [],
+    }))
+
   useEffect(() => {
     if (!templateDetail) return
-    setForm({
-      op_code:      templateDetail.op_code,
-      name:         templateDetail.name,
-      op_type_id:   templateDetail.op_type_id ?? '',
-      workcenter_id: templateDetail.workcenter_id ?? '',
-      method:       templateDetail.method ?? '',
-      activities:   templateDetail.activities.map((a) => ({
-        id: a.id,
-        localId: uid(),
-        name: a.name,
-        measure: a.measure,
-        unit: a.unit ?? '',
-        per_minute: a.per_minute ? String(a.per_minute) : '',
-        source_activity_id: a.source_activity_id ?? null,
-        source_activity_code: a.source_activity_code ?? null,
-        snapshot_at: a.snapshot_at ?? null,
-        machine_id: a.machine_id ?? null,
-        tool_ids: a.tools?.map((t) => t.resource.id) ?? [],
-        consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '' })) ?? [],
-        labors: a.labors?.map(l => ({ labor_resource_id: l.labor_resource.id, name: l.labor_resource.name, code: l.labor_resource.code, qty: l.qty })) ?? [],
-        op_materials: a.op_materials?.map(m => ({ material_id: m.resource.id, name: m.resource.name, code: m.resource.code })) ?? [],
-      })),
-    })
+    if (!initializedRef.current) {
+      // Full form reset on initial load only
+      initializedRef.current = true
+      setForm({
+        op_code:      templateDetail.op_code,
+        name:         templateDetail.name,
+        op_type_id:   templateDetail.op_type_id ?? '',
+        workcenter_id: templateDetail.workcenter_id ?? '',
+        method:       templateDetail.method ?? '',
+        activities:   mapActivities(templateDetail.activities),
+      })
+    } else {
+      // Subsequent refetches (e.g. after addFromLibrary) — only sync activities, preserve form edits
+      setForm(prev => ({ ...prev, activities: mapActivities(templateDetail.activities) }))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [templateDetail])
 
   const { data: workcenters = [] } = useQuery<WorkcenterItem[]>({
@@ -142,7 +154,11 @@ export default function OperationBuilder() {
       per_minute: a.per_minute ? Number(a.per_minute) : null,
       machine_id: a.machine_id ?? null,
       tool_ids: a.tool_ids,
-      consumables: a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
+      consumables: [
+        ...a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
+        ...a.op_materials.map(m => ({ resource_id: m.material_id })),
+      ],
+      labors: a.labors.map(l => ({ labor_resource_id: l.labor_resource_id, qty: l.qty })),
       sequence: (i + 1) * 10,
       source_activity_id: a.source_activity_id ?? null,
       snapshot_at: a.snapshot_at ?? null,
@@ -174,6 +190,19 @@ export default function OperationBuilder() {
     },
   })
 
+  const deleteMut = useMutation({
+    mutationFn: () => apiClient.delete(`/operation-templates/${templateId}`).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
+      navigate('/operation-library')
+    },
+  })
+
+  const handleDelete = () => {
+    if (!window.confirm(`Delete operation "${form.op_code}"? This cannot be undone.`)) return
+    deleteMut.mutate()
+  }
+
   const opCodeOk = OP_CODE_RE.test(form.op_code.trim().toUpperCase())
 
   const removeActivity = (localId: string) =>
@@ -186,8 +215,8 @@ export default function OperationBuilder() {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', color: '#8E8E8E', fontSize: 13 }}>Loading…</div>
   }
 
-  const isPending = saveMut.isPending || publishMut.isPending
-  const error = saveMut.error || publishMut.error
+  const isPending = saveMut.isPending || publishMut.isPending || deleteMut.isPending
+  const error = saveMut.error || publishMut.error || deleteMut.error
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'inherit', background: '#F8F8F8' }}>
@@ -205,6 +234,13 @@ export default function OperationBuilder() {
           <span style={{ fontSize: 10, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 4, padding: '2px 7px', fontWeight: 700 }}>ACTIVE</span>
         )}
         <div style={{ flex: 1 }} />
+
+        {isEdit && (
+          <button onClick={handleDelete} disabled={isPending || deleteMut.isPending}
+            style={{ height: 34, padding: '0 14px', borderRadius: 6, border: '1px solid #FFCDD2', background: '#FFF5F5', color: '#C8202A', fontSize: 13, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Trash2 size={13} />Delete
+          </button>
+        )}
 
         <button onClick={() => saveMut.mutate()} disabled={!form.name.trim() || isPending}
           title={!form.name.trim() ? 'กรอก name ก่อน' : undefined}

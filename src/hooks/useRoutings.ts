@@ -178,33 +178,3 @@ export function useFormulaParams() {
     staleTime: 30 * 60 * 1000,
   })
 }
-
-// ── Sprint 4.2: Routing Overrides hook ────────────────────────
-
-import { getRoutingOverrides, upsertRoutingOverride, deleteRoutingOverride } from '../api/routings'
-
-export function useRoutingOverrides(productCode: string | undefined) {
-  const qc = useQueryClient()
-  const key = ['routing-overrides', productCode]
-
-  const query = useQuery({
-    queryKey: key,
-    queryFn: () => getRoutingOverrides(productCode!),
-    enabled: !!productCode,
-  })
-
-  const upsert = useMutation({
-    mutationFn: ({ activityTemplateId, body }: {
-      activityTemplateId: number
-      body: Parameters<typeof upsertRoutingOverride>[2]
-    }) => upsertRoutingOverride(productCode!, activityTemplateId, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
-  })
-
-  const remove = useMutation({
-    mutationFn: (activityTemplateId: number) => deleteRoutingOverride(productCode!, activityTemplateId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: key }),
-  })
-
-  return { overrides: query.data ?? [], loading: query.isLoading, upsert, remove }
-}

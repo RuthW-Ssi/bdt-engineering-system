@@ -9,12 +9,17 @@ const INCLUDE = {
   machine: { select: { id: true, code: true, name: true } },
   consumes: {
     include: {
-      material: { select: { id: true, default_code: true, name: true } },
+      resource: { select: { id: true, code: true, name: true } },
     },
   },
   labors: {
     include: {
       labor_resource: { select: { id: true, code: true, name: true } },
+    },
+  },
+  tools: {
+    include: {
+      resource: { select: { id: true, code: true, name: true } },
     },
   },
 } as const
@@ -32,7 +37,7 @@ export class ActivitiesService {
       where: {
         ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
         ...(machine_id ? { machine_id } : {}),
-        ...(material_id ? { consumes: { some: { material_id } } } : {}),
+        ...(material_id ? { consumes: { some: { resource_id: material_id } } } : {}),
       },
       orderBy: { activity_code: 'asc' },
       take: 500,
@@ -50,10 +55,11 @@ export class ActivitiesService {
     await this.validateMachine(dto.machine_id)
     const consumeIds = await this.resolveConsumes(dto.consumes)
     const laborEntries = await this.resolveLabors(dto.labors)
+    const toolIds = await this.resolveTools(dto.tools)
 
     return this.prisma.$transaction(async (tx) => {
       const activity_code = await this.codeGen.generate(tx)
-      return tx.activity.create({
+      const created = await tx.activity.create({
         data: {
           activity_code,
           name: dto.name,
@@ -62,7 +68,7 @@ export class ActivitiesService {
           create_uid: userId,
           write_uid: userId,
           consumes: {
-            create: consumeIds.map((material_id) => ({ material_id })),
+            create: consumeIds.map((resource_id) => ({ resource_id })),
           },
           labors: {
             create: laborEntries.map(({ labor_resource_id, qty }) => ({ labor_resource_id, qty })),
@@ -70,6 +76,13 @@ export class ActivitiesService {
         },
         include: INCLUDE,
       })
+      if (toolIds.length) {
+        await tx.activity_tool.createMany({
+          data: toolIds.map((resource_id) => ({ activity_id: created.id, resource_id })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.activity.findUniqueOrThrow({ where: { id: created.id }, include: INCLUDE })
     })
   }
 
@@ -80,7 +93,9 @@ export class ActivitiesService {
       dto.consumes !== undefined ? await this.resolveConsumes(dto.consumes) : undefined
     const laborEntries =
       dto.labors !== undefined ? await this.resolveLabors(dto.labors) : undefined
-    return this.prisma.activity.update({
+    const toolIds =
+      dto.tools !== undefined ? await this.resolveTools(dto.tools) : undefined
+    await this.prisma.activity.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
@@ -91,7 +106,7 @@ export class ActivitiesService {
           ? {
               consumes: {
                 deleteMany: {},
-                create: consumeIds.map((material_id) => ({ material_id })),
+                create: consumeIds.map((resource_id) => ({ resource_id })),
               },
             }
           : {}),
@@ -104,8 +119,17 @@ export class ActivitiesService {
             }
           : {}),
       },
-      include: INCLUDE,
     })
+    if (toolIds !== undefined) {
+      await this.prisma.activity_tool.deleteMany({ where: { activity_id: id } })
+      if (toolIds.length) {
+        await this.prisma.activity_tool.createMany({
+          data: toolIds.map((resource_id) => ({ activity_id: id, resource_id })),
+          skipDuplicates: true,
+        })
+      }
+    }
+    return this.prisma.activity.findUniqueOrThrow({ where: { id }, include: INCLUDE })
   }
 
   async remove(id: number) {
@@ -118,16 +142,30 @@ export class ActivitiesService {
     if (!machine) throw new BadRequestException(`Machine ${machine_id} not found`)
   }
 
-  private async resolveConsumes(ids: number[] | undefined): Promise<number[]> {
+  private async resolveTools(ids: number[] | undefined): Promise<number[]> {
     if (!ids || ids.length === 0) return []
     const unique = [...new Set(ids)]
-    const found = await this.prisma.materials.findMany({
+    const found = await this.prisma.equipment_resource.findMany({
       where: { id: { in: unique } },
       select: { id: true },
     })
     if (found.length !== unique.length) {
-      const missing = unique.filter((id) => !found.find((m) => m.id === id))
-      throw new BadRequestException(`Material ids not found: ${missing.join(', ')}`)
+      const missing = unique.filter((id) => !found.find((r) => r.id === id))
+      throw new BadRequestException(`Tool resource ids not found: ${missing.join(', ')}`)
+    }
+    return unique
+  }
+
+  private async resolveConsumes(ids: number[] | undefined): Promise<number[]> {
+    if (!ids || ids.length === 0) return []
+    const unique = [...new Set(ids)]
+    const found = await this.prisma.equipment_resource.findMany({
+      where: { id: { in: unique } },
+      select: { id: true },
+    })
+    if (found.length !== unique.length) {
+      const missing = unique.filter((id) => !found.find((r) => r.id === id))
+      throw new BadRequestException(`Resource ids not found: ${missing.join(', ')}`)
     }
     return unique
   }

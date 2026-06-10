@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Plus, Search } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plus, Search, Trash2 } from 'lucide-react'
 import { apiClient } from '../api/client'
 
 interface OpTemplateListItem {
@@ -19,6 +19,7 @@ const STATUS_STYLE: Record<string, React.CSSProperties> = {
 
 export default function OperationLibraryList() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
 
   const { data = [], isLoading } = useQuery<OpTemplateListItem[]>({
@@ -29,6 +30,17 @@ export default function OperationLibraryList() {
     },
     staleTime: 2 * 60 * 1000,
   })
+
+  const deleteMut = useMutation({
+    mutationFn: (id: number) => apiClient.delete(`/operation-templates/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['operation-templates'] }),
+  })
+
+  const handleDelete = (e: React.MouseEvent, t: OpTemplateListItem) => {
+    e.stopPropagation()
+    if (!window.confirm(`Delete "${t.op_code} — ${t.name}"? This cannot be undone.`)) return
+    deleteMut.mutate(t.id)
+  }
 
   const q = search.trim().toLowerCase()
   const filtered = q
@@ -73,8 +85,8 @@ export default function OperationLibraryList() {
       {/* Table */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
         {/* Header row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px 110px 90px 80px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
-          {['Op Code', 'Name', 'Work Station', 'Op Type', 'Time Mode', 'Activities'].map(h => (
+        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 140px 110px 90px 80px 36px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
+          {['Op Code', 'Name', 'Work Station', 'Op Type', 'Time Mode', 'Activities', ''].map(h => (
             <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
           ))}
         </div>
@@ -91,7 +103,7 @@ export default function OperationLibraryList() {
               key={t.id}
               onClick={() => navigate(`/operation-library/${t.id}/edit`)}
               style={{
-                display: 'grid', gridTemplateColumns: '140px 1fr 140px 110px 90px 80px', gap: 12,
+                display: 'grid', gridTemplateColumns: '140px 1fr 140px 110px 90px 80px 36px', gap: 12,
                 padding: '0 16px', height: 52, alignItems: 'center',
                 background: '#fff', borderRadius: 8, marginBottom: 4,
                 border: '1px solid #E8E8E8', cursor: 'pointer',
@@ -121,6 +133,16 @@ export default function OperationLibraryList() {
                   {t.status.toUpperCase()}
                 </span>
               </div>
+              <button
+                onClick={e => handleDelete(e, t)}
+                disabled={deleteMut.isPending}
+                title={`Delete ${t.op_code}`}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A'; (e.currentTarget as HTMLElement).style.background = '#FFF5F5' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD'; (e.currentTarget as HTMLElement).style.background = 'none' }}
+              >
+                <Trash2 size={13} />
+              </button>
             </div>
           ))
         )}

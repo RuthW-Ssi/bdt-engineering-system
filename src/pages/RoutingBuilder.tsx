@@ -703,34 +703,38 @@ function ModalActivityLib({ addedIds, onAdd }: {
               {isOpen && acts.map(act => {
                 const added = addedIds.has(act.id)
                 return (
-                  <div key={act.id} style={{ background: added ? '#FAFAFA' : '#fff', border: `1px solid ${added ? '#F0F0F0' : '#E8E8E8'}`, borderRadius: 5, padding: '6px 8px', marginBottom: 3, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#9E9E9E', marginBottom: 1 }}>{act.activity_code}</div>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: added ? '#9E9E9E' : '#1F1F1F' }}>{act.name}</div>
-                      <span style={{ display: 'inline-block', marginTop: 3, fontSize: 11, fontWeight: 600, color: '#1B5E20', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 8px' }}>
-                        🕐 {Number(act.duration_min).toFixed(2)} min
-                      </span>
+                  <div key={act.id} style={{ borderRadius: 4, marginBottom: 2, background: added ? '#F5F5F5' : '#fff', border: '1px solid #EEE' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
+                      <div>
+                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: '#9E9E9E' }}>{act.activity_code}</div>
+                        <div style={{ fontSize: 12, fontWeight: 500, color: added ? '#9E9E9E' : '#1F1F1F' }}>{act.name}</div>
+                        <div style={{ marginTop: 3 }}>
+                          <span style={{ fontSize: 11, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
+                            {Number(act.duration_min).toFixed(2)} min
+                          </span>
+                        </div>
+                      </div>
+                      {added ? (
+                        <span style={{ padding: '4px 10px', fontSize: 11, borderRadius: 4, background: '#E0E0E0', color: '#999', flexShrink: 0 }}>Added</span>
+                      ) : (
+                        <button onClick={() => onAdd({
+                          localId: newLocalId(),
+                          name: act.name,
+                          measure: act.activity_code,
+                          unit: '',
+                          per_minute: String(act.duration_min),
+                          std_measure: '',
+                          source_activity_template_id: act.id,
+                          machine_id: act.machine?.id ?? null,
+                          tool_ids: (act.tools ?? []).map((t: { resource: { id: number } }) => t.resource.id),
+                          consumables: (act.consumes ?? []).map((c: { resource: { id: number; code: string; name: string } }) => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name })),
+                          labors: (act.labors ?? []).map((l: { labor_resource: { id: number; name: string }; qty: number }) => ({ labor_resource_id: l.labor_resource.id, labor_name: l.labor_resource.name, qty: l.qty })),
+                        })}
+                          style={{ padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none', background: '#1976D2', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
+                          + Add
+                        </button>
+                      )}
                     </div>
-                    {added ? (
-                      <Check size={13} style={{ color: '#4CAF50', flexShrink: 0, marginTop: 2 }} />
-                    ) : (
-                      <button onClick={() => onAdd({
-                        localId: newLocalId(),
-                        name: act.name,
-                        measure: act.activity_code,
-                        unit: '',
-                        per_minute: String(act.duration_min),
-                        std_measure: '',
-                        source_activity_template_id: act.id,
-                        machine_id: act.machine?.id ?? null,
-                        tool_ids: act.tools.map(t => t.resource.id),
-                        consumables: act.consumes.map(c => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name })),
-                        labors: act.labors.map(l => ({ labor_resource_id: l.labor_resource.id, labor_name: l.labor_resource.name, qty: l.qty })),
-                      })}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#4CAF50', display: 'flex', flexShrink: 0, marginTop: 2 }}>
-                        <Plus size={14} />
-                      </button>
-                    )}
                   </div>
                 )
               })}
@@ -1149,367 +1153,20 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
   )
 })
 
-// ── NewOpModal — create-operation drawer ──────────────────────
+// ── LeftPanel — tab wrapper for Ops ───────────────────────────
 
-interface NewOpFormState {
-  op_code: string; name: string
-  op_type_id: number | ''; workcenter_id: number | ''; method: string
-  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { labor_resource_id: number; labor_name: string; qty: number }[] }>
-}
-
-function NewOpModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const navigate = useNavigate()
-  const workcenters = useContext(WorkcenterCtx)
-  const opTypes = useContext(OpTypeCtx)
-  const equipmentList = useContext(EquipmentCtx)
-  const queryClient = useQueryClient()
-
-  const [form, setForm] = useState<NewOpFormState>({
-    op_code: '', name: '', op_type_id: '', workcenter_id: '', method: '', activities: [],
-  })
-  const patch = (p: Partial<NewOpFormState>) => setForm(f => ({ ...f, ...p }))
-
-  const opCodeOk = OP_CODE_RE.test(form.op_code.trim().toUpperCase())
-  const publishOk =
-    opCodeOk && !!form.name.trim() && !!form.workcenter_id && form.activities.length > 0
-
-  const buildPayload = () => ({
-    op_code: form.op_code.trim().toUpperCase(),
-    name: form.name.trim(),
-    op_type_id: form.op_type_id ? Number(form.op_type_id) : null,
-    workcenter_id: form.workcenter_id ? Number(form.workcenter_id) : null,
-    method: form.method || null,
-    time_mode: 'by_activities',
-    duration_min: null,
-    formula_expr: null,
-    activities: form.activities.map((a, i) => ({
-      name: a.name, measure: a.measure, unit: a.unit || null,
-      per_minute: a.per_minute ? Number(a.per_minute) : null,
-      source_activity_template_id: a.source_activity_template_id,
-      machine_id: a.machine_id ?? null,
-      tool_ids: a.tool_ids,
-      sequence: (i + 1) * 10,
-    })),
-  })
-
-  const done = () => { queryClient.invalidateQueries({ queryKey: ['op-library'] }); onCreated() }
-
-  const saveMut = useMutation({
-    mutationFn: () => apiClient.post('/operation-templates', buildPayload()).then(r => r.data),
-    onSuccess: done,
-  })
-  const publishMut = useMutation({
-    mutationFn: async () => {
-      const tpl = await apiClient.post('/operation-templates', buildPayload()).then(r => r.data)
-      return apiClient.patch(`/operation-templates/${tpl.id}/publish`).then(r => r.data)
-    },
-    onSuccess: done,
-  })
-
-  const busy = saveMut.isPending || publishMut.isPending
-
-  const inp: React.CSSProperties = { width: '100%', border: '1px solid #E0E0E0', borderRadius: 6, padding: '7px 10px', fontSize: 13, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', background: '#fff' }
-  const lbl: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, display: 'block' }
-  const sec: React.CSSProperties = { background: '#FAFAFA', borderRadius: 8, border: '1px solid #E8E8E8', padding: 16, marginBottom: 14 }
-  const secHd: React.CSSProperties = { fontSize: 10, fontWeight: 800, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid #F0F0F0' }
-
-  const [openModalPicker, setOpenModalPicker] = useState<{ actId: string; kind: 'tool' | 'consumable' } | null>(null)
-  useEffect(() => {
-    if (!openModalPicker) return
-    const close = () => setOpenModalPicker(null)
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [openModalPicker])
-
-  const addedIds = new Set(form.activities.map(a => a.source_activity_template_id).filter((id): id is number => id !== null))
-
-  return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200 }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 980, background: '#fff', zIndex: 201, display: 'flex', flexDirection: 'column', boxShadow: '-6px 0 32px rgba(0,0,0,0.18)' }}>
-
-        {/* Header */}
-        <div style={{ height: 52, borderBottom: '1px solid #E0E0E0', padding: '0 20px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#757575', padding: 4, display: 'flex' }}><X size={18} /></button>
-          <BookOpen size={15} style={{ color: '#C8202A' }} />
-          <span style={{ fontWeight: 700, fontSize: 15, color: '#1F1F1F' }}>New Operation</span>
-          <span style={{ fontSize: 12, color: '#BDBDBD' }}>→ Operation Library</span>
-          <div style={{ flex: 1 }} />
-          <button onClick={() => saveMut.mutate()} disabled={busy}
-            style={{ height: 32, padding: '0 14px', borderRadius: 6, border: '1px solid #D0D0D0', background: '#fff', fontSize: 12, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer', color: '#555', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Save size={12} />Save Draft
-          </button>
-          <button onClick={() => publishMut.mutate()} disabled={!publishOk || busy}
-            title={!publishOk ? 'Fill op code · name · workcenter first' : undefined}
-            style={{ height: 32, padding: '0 14px', borderRadius: 6, border: 'none', background: publishOk ? '#C8202A' : '#E0E0E0', color: publishOk ? '#fff' : '#9E9E9E', fontSize: 12, fontWeight: 600, cursor: publishOk && !busy ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Check size={12} />Publish to Library
-          </button>
-        </div>
-
-        {/* Body */}
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-
-          {/* Left: form */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-
-            <div style={sec}>
-              <div style={secHd}>Identity</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-                <div>
-                  <label style={lbl}>OP CODE *</label>
-                  <input value={form.op_code} onChange={e => patch({ op_code: e.target.value.toUpperCase() })}
-                    placeholder="OP-WELD-MAIN"
-                    style={{ ...inp, fontFamily: 'monospace', borderColor: form.op_code && !opCodeOk ? '#C8202A' : '#E0E0E0' }} />
-                  {form.op_code && !opCodeOk && <div style={{ fontSize: 10, color: '#C8202A', marginTop: 3 }}>Format: OP-XXX-YYY</div>}
-                </div>
-                <div>
-                  <label style={lbl}>OPERATION NAME *</label>
-                  <input value={form.name} onChange={e => patch({ name: e.target.value })} placeholder="e.g. Main Welding Seam" style={inp} />
-                </div>
-              </div>
-              <div>
-                <label style={lbl}>OPERATION TYPE</label>
-                <select value={form.op_type_id}
-                  onChange={e => {
-                    const ot = opTypes.find(t => t.id === Number(e.target.value))
-                    patch({ op_type_id: e.target.value ? Number(e.target.value) : '', workcenter_id: ot?.default_wc?.id ?? form.workcenter_id })
-                  }}
-                  style={{ ...inp, cursor: 'pointer' }}>
-                  <option value="">— Select type —</option>
-                  {opTypes.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div style={sec}>
-              <div style={secHd}>Resource</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={lbl}>WORK STATION *</label>
-                  <select value={form.workcenter_id} onChange={e => patch({ workcenter_id: e.target.value ? Number(e.target.value) : '' })} style={{ ...inp, cursor: 'pointer' }}>
-                    <option value="">— Select —</option>
-                    {workcenters.map(w => <option key={w.id} value={w.id}>{w.code} · {w.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label style={lbl}>METHOD</label>
-                  <input value={form.method} onChange={e => patch({ method: e.target.value })} placeholder="e.g. SMAW, FCAW…" style={inp} />
-                </div>
-              </div>
-            </div>
-
-            <div style={sec}>
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-                <span style={{ ...secHd, marginBottom: 0, flex: 1 }}>Activities</span>
-                <span style={{ fontSize: 10, color: '#9E9E9E' }}>Σ time = sum of activities</span>
-              </div>
-              {form.activities.length === 0 ? (
-                <div style={{ padding: '16px 12px', textAlign: 'center', fontSize: 12, color: '#BDBDBD', border: '1px dashed #E0E0E0', borderRadius: 6 }}>
-                  Add from the library →
-                </div>
-              ) : (() => {
-                const modalMachines = equipmentList.filter(e => ['machine', 'handling', 'labor'].includes(e.type))
-                const modalToolOpts = equipmentList.filter(e => e.type === 'tool')
-                const chipBase: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
-                const patchActivity = (localId: string, p: Partial<NewOpFormState['activities'][0]>) =>
-                  patch({ activities: form.activities.map(x => x.localId === localId ? { ...x, ...p } : x) })
-                return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr 24px', gap: 5, padding: '0 4px', marginBottom: 2 }}>
-                      {['NAME', 'MIN', 'MACHINE', ''].map(h => (
-                        <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
-                      ))}
-                    </div>
-                    {form.activities.map(a => {
-                      const isPickerOpen = (kind: 'tool' | 'consumable') => openModalPicker?.actId === a.localId && openModalPicker.kind === kind
-                      const isFromLib = a.source_activity_template_id !== null
-                      const pm = Number(a.per_minute)
-                      const estMin = pm > 0 ? pm : null
-                      const machineName = modalMachines.find(m => m.id === a.machine_id)?.name ?? '—'
-                      const chip: React.CSSProperties = { fontSize: 10, padding: '2px 8px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
-                      const chipEdit: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
-                      const COL = '1fr 64px 1fr 24px'
-                      const COL_LIB = '1fr 64px 1fr 20px 20px'
-                      return (
-                        <div key={a.localId} style={{ border: `1px solid ${isFromLib ? '#BBDEFB' : '#E0E0E0'}`, borderRadius: 6, overflow: 'visible' }}>
-                          {/* Main row */}
-                          {isFromLib ? (
-                            <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 5, alignItems: 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
-                              <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{a.name}</div>
-                              <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
-                                {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
-                              </div>
-                              <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
-                              <button type="button" onClick={() => setEditingActivityId(a.source_activity_template_id)}
-                                title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#1976D2' }}
-                                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}>
-                                <Pencil size={12} />
-                              </button>
-                              <button onClick={() => patch({ activities: form.activities.filter(x => x.localId !== a.localId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex' }}><X size={13} /></button>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 5, alignItems: 'center', background: '#F8F8F8', padding: '5px 6px' }}>
-                              <input value={a.name} onChange={e => patchActivity(a.localId, { name: e.target.value })} placeholder="Activity name" style={{ ...inp, fontSize: 12 }} />
-                              <input type="number" min={0} step="0.01" value={a.per_minute} onChange={e => patchActivity(a.localId, { per_minute: e.target.value })} placeholder="0" style={{ ...inp, fontSize: 11, fontFamily: 'monospace' }} />
-                              <select value={a.machine_id ?? ''} onChange={e => patchActivity(a.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
-                                style={{ ...inp, fontSize: 11, cursor: 'pointer', padding: '3px 4px' }}>
-                                <option value="">—</option>
-                                {modalMachines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
-                              </select>
-                              <button onClick={() => patch({ activities: form.activities.filter(x => x.localId !== a.localId) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex' }}><X size={13} /></button>
-                            </div>
-                          )}
-
-                          {/* Sub-row: library → read-only chips + Edit link; manual → pickers */}
-                          {isFromLib ? (
-                            <>
-                              {(a.tool_ids.length > 0 || (a.labors ?? []).length > 0 || a.consumables.length > 0) && (
-                                <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #DDEEFF', background: '#fff' }}>
-                                  {a.tool_ids.length > 0 && (
-                                    <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
-                                      <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        {a.tool_ids.map(tid => {
-                                          const eq = equipmentList.find(e => e.id === tid)
-                                          return eq ? <span key={tid} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name}</span> : null
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {(a.labors ?? []).length > 0 && (
-                                    <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
-                                      <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        {(a.labors ?? []).map(l => (
-                                          <span key={l.labor_resource_id} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
-                                            {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                  {a.consumables.length > 0 && (
-                                    <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
-                                      <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
-                                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                        {a.consumables.map(c => (
-                                          <span key={c.material_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
-                                            <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.material_code}</span> {c.material_name}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', borderTop: '1px solid #F0F0F0', background: '#FAFAFA' }}>
-                              <div style={{ padding: '4px 8px 5px', borderRight: '1px solid #F0F0F0', position: 'relative' }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Tools</div>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                  {a.tool_ids.map(tid => {
-                                    const eq = equipmentList.find(e => e.id === tid)
-                                    return eq ? (
-                                      <span key={tid} style={{ ...chipEdit, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                        {eq.name}
-                                        <button onClick={() => patchActivity(a.localId, { tool_ids: a.tool_ids.filter(id => id !== tid) })}
-                                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
-                                      </span>
-                                    ) : null
-                                  })}
-                                  <div style={{ position: 'relative' }}>
-                                    <button onClick={() => setOpenModalPicker(isPickerOpen('tool') ? null : { actId: a.localId, kind: 'tool' })}
-                                      style={{ height: 18, padding: '0 6px', borderRadius: 9, border: '1px dashed #BDBDBD', background: 'none', fontSize: 10, color: '#9E9E9E', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
-                                      <Plus size={8} />Add
-                                    </button>
-                                    {isPickerOpen('tool') && (
-                                      <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
-                                        {modalToolOpts.length === 0 ? (
-                                          <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No tool resources seeded yet</div>
-                                        ) : modalToolOpts.filter(e => !a.tool_ids.includes(e.id)).map(e => (
-                                          <button key={e.id} onClick={() => { patchActivity(a.localId, { tool_ids: [...a.tool_ids, e.id] }); setOpenModalPicker(null) }}
-                                            style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-                                            onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
-                                            onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
-                                            <span style={{ fontFamily: 'monospace', color: '#185FA5' }}>{e.code}</span> {e.name}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-                              <div style={{ padding: '4px 8px 5px', borderRight: '1px solid #F0F0F0' }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: '#9C27B0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Labour</div>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                  {(a.labors ?? []).length === 0 ? (
-                                    <span style={{ fontSize: 10, color: '#BDBDBD' }}>—</span>
-                                  ) : (a.labors ?? []).map(l => (
-                                    <span key={l.labor_resource_id} style={{ ...chipEdit, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
-                                      {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
-                                    </span>
-                                  ))}
-                                </div>
-                              </div>
-                              <div style={{ padding: '4px 8px 5px', position: 'relative' }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Consumables</div>
-                                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                  {a.consumables.map((c, ci) => (
-                                    <span key={c.material_id} style={{ ...chipEdit, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                      <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.material_code}</span> {c.material_name}
-                                      <button onClick={() => patchActivity(a.localId, { consumables: a.consumables.filter((_, xi) => xi !== ci) })}
-                                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
-                                    </span>
-                                  ))}
-                                  <InlineMatSearch
-                                    onSelect={m => patchActivity(a.localId, { consumables: [...a.consumables, m] })}
-                                    excludeIds={a.consumables.map(c => c.resource_id)}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )
-              })()}
-            </div>
-
-            {!publishOk && (
-              <div style={{ fontSize: 11, color: '#9E9E9E', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <AlertCircle size={11} />
-                Publish requires: op code · name · workcenter · ≥1 activity
-              </div>
-            )}
-          </div>
-
-          {/* Right: Activity Library */}
-          <div style={{ width: 280, borderLeft: '1px solid #E0E0E0', display: 'flex', flexDirection: 'column', background: '#FAFAFA', flexShrink: 0, overflow: 'hidden' }}>
-            <ModalActivityLib addedIds={addedIds} onAdd={act => patch({ activities: [...form.activities, act] })} />
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}
-
-// ── LeftPanel — tab wrapper for Ops + Activities ──────────────
-
-function LeftPanel({ onAddBlank, onNewOp }: { onAddBlank: () => void; onNewOp: () => void }) {
+function LeftPanel() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      <OpLibraryPanel onAddBlank={onAddBlank} onNewOp={onNewOp} />
+      <OpLibraryPanel />
     </div>
   )
 }
 
 // ── OpLibraryPanel ────────────────────────────────────────────
 
-function OpLibraryPanel({ onAddBlank, onNewOp }: { onAddBlank: () => void; onNewOp: () => void }) {
+function OpLibraryPanel() {
+  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
@@ -1611,13 +1268,10 @@ function OpLibraryPanel({ onAddBlank, onNewOp }: { onAddBlank: () => void; onNew
         )}
       </div>
 
-      <div style={{ padding: '6px 8px 8px', borderTop: '1px solid #E0E0E0', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <button onClick={onNewOp}
+      <div style={{ padding: '6px 8px 8px', borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
+        <button onClick={() => navigate('/operation-library/new')}
           style={{ width: '100%', height: 30, borderRadius: 6, border: 'none', background: '#C8202A', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
           <BookOpen size={12} />New to Library
-        </button>
-        <button onClick={onAddBlank} style={{ width: '100%', height: 28, borderRadius: 6, border: '1.5px dashed #D0D0D0', background: 'none', cursor: 'pointer', fontSize: 11, color: '#8E8E8E', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          <Plus size={12} />Add blank operation
         </button>
       </div>
     </div>
@@ -1893,7 +1547,7 @@ function RoutingBuilderInner() {
   const dropDataRef = useRef<Record<string, OperationData>>({})
   const [previewMode, setPreviewMode] = useState(false)
   const [previewInputs, setPreviewInputs] = useState<Record<string, number>>({})
-  const [showNewOpModal, setShowNewOpModal] = useState(false)
+
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [editingActivityId, setEditingActivityId] = useState<number | null>(null)
   // Floor plan background — locked to factory layout
@@ -2344,15 +1998,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
     setSelectedNodeId(nid)
   }, [screenToFlowPosition, setNodes])
 
-  const addBlankOp = useCallback(() => {
-    const count = nodes.filter(n => n.type === 'operation').length
-    const nid = `op-${Date.now()}`
-    setNodes(nds => [...nds, {
-      id: nid, type: 'operation', position: { x: 320 + count * 240, y: 160 },
-      data: { name: '', op_code: '', operation_type: '', op_type_id: undefined, workcenter_id: null, workcenter_name: '', time_mode: 'formula' as TimeMode, formula: '', activities: [] } satisfies OperationData,
-    }])
-    setSelectedNodeId(nid)
-  }, [nodes, setNodes])
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type === 'operation') setSelectedNodeId(node.id)
@@ -2573,7 +2218,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                 {/* Full panel — invisible when collapsed */}
                 <div style={{ width: 220, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden',
                   opacity: leftPanelOpen ? 1 : 0, transition: 'opacity 0.15s ease', pointerEvents: leftPanelOpen ? 'auto' : 'none' }}>
-                  <LeftPanel onAddBlank={addBlankOp} onNewOp={() => setShowNewOpModal(true)} />
+                  <LeftPanel />
                 </div>
                 {/* Collapsed tab */}
                 {!leftPanelOpen && (
@@ -2737,12 +2382,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
         </SimCtx.Provider>
       </ParallelCtx.Provider>
       </SequenceCtx.Provider>
-      {showNewOpModal && (
-        <NewOpModal
-          onClose={() => setShowNewOpModal(false)}
-          onCreated={() => setShowNewOpModal(false)}
-        />
-      )}
+
       {showAddPrefixModal && (
         <AddPrefixModal
           onClose={() => setShowAddPrefixModal(false)}

@@ -434,7 +434,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
       reset({ name: existing.name, duration_min: Number(existing.duration_min) })
       setSelectedMachine({ id: existing.machine.id, code: existing.machine.code, name: existing.machine.name, type: '' })
       setSelectedConsumables(existing.consumes.map((c) => ({ id: c.resource.id, code: c.resource.code, name: c.resource.name })))
-      setSelectedTools(existing.tools.map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name })))
+      setSelectedTools((existing.tools ?? []).map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name })))
       setSelectedLabors(existing.labors.map((l) => ({ option: { id: l.labor_resource.id, code: l.labor_resource.code, name: l.labor_resource.name }, qty: l.qty })))
     }
   }, [existing, reset])

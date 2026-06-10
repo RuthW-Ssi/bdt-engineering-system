@@ -146,10 +146,6 @@ model materials {
   material_requirements dispatch_material_requirement[]  @relation("MaterialRequirements")
   assembly_welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfigMaterial")
   welding_requirements  dispatch_welding_requirement[]   @relation("WeldingRequirements")
-  // Sprint 12: Activity Library
-  activity_consumes     activity_consume[]
-  // Sprint 11b: Op-act material snapshot
-  op_act_materials      op_act_material[]
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -628,6 +624,8 @@ model mrp_routing_workcenter {
   // Canvas position (RoutingBuilder)
   canvas_x          Float?
   canvas_y          Float?
+  // Activities snapshot (JSON array saved by RoutingBuilder canvas)
+  activities_snapshot Json?
   // Dependencies (Sprint 5+)
   blocked_by_op_ids Int[]            @default([])
   // Audit
@@ -1061,7 +1059,10 @@ model equipment_resource {
   // Sprint 11: Activity Library
   activities                    activity[]                    @relation("activity_machine")
   activity_labors               activity_labor[]              @relation("activity_labor_resource")
+  activity_consumes             activity_consume[]            @relation("activity_consume_resource")
+  activity_tools                activity_tool[]               @relation("activity_tool_resource")
   op_act_labors                 op_act_labor[]                @relation("OpActLaborResource")
+  op_act_materials              op_act_material[]             @relation("op_act_material_resource")
 }
 
 model op_act_tool {
@@ -1108,10 +1109,10 @@ model op_act_material {
   id          Int                         @id @default(autoincrement())
   op_act_id   Int
   op_act      operation_template_activity @relation(fields: [op_act_id], references: [id], onDelete: Cascade)
-  material_id Int
-  material    materials                   @relation(fields: [material_id], references: [id], onDelete: Cascade)
+  resource_id Int
+  resource    equipment_resource          @relation("op_act_material_resource", fields: [resource_id], references: [id], onDelete: Cascade)
 
-  @@unique([op_act_id, material_id])
+  @@unique([op_act_id, resource_id])
   @@index([op_act_id])
 }
 
@@ -1134,6 +1135,7 @@ model activity {
   write_date    DateTime           @updatedAt @db.Timestamptz
   consumes      activity_consume[]
   labors        activity_labor[]
+  tools         activity_tool[]
   operation_template_activities  operation_template_activity[]  @relation("OpActSourceActivity")
 
   @@index([machine_id])
@@ -1142,12 +1144,12 @@ model activity {
 
 model activity_consume {
   activity_id Int
-  material_id Int
-  activity    activity  @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  material    materials @relation(fields: [material_id], references: [id])
+  resource_id Int
+  activity    activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  resource    equipment_resource @relation("activity_consume_resource", fields: [resource_id], references: [id], onDelete: Cascade)
 
-  @@id([activity_id, material_id])
-  @@index([material_id])
+  @@id([activity_id, resource_id])
+  @@index([resource_id])
 }
 
 model activity_labor {
@@ -1159,6 +1161,16 @@ model activity_labor {
 
   @@id([activity_id, labor_resource_id])
   @@index([labor_resource_id])
+}
+
+model activity_tool {
+  activity_id Int
+  resource_id Int
+  activity    activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  resource    equipment_resource @relation("activity_tool_resource", fields: [resource_id], references: [id], onDelete: Cascade)
+
+  @@id([activity_id, resource_id])
+  @@index([resource_id])
 }
 
 model activity_code_seq {

@@ -25,7 +25,7 @@ export class SnapshotOperationDto {
   @IsOptional() @IsString() @MaxLength(400) formula_expr?: string | null
   @IsOptional() @IsNumber() canvas_x?: number
   @IsOptional() @IsNumber() canvas_y?: number
-  @IsOptional() @IsArray() @IsInt({ each: true }) activity_template_ids?: number[]
+  @IsOptional() @IsArray() activities?: unknown[]
 }
 
 export class UpsertTemplateSnapshotDto {
