@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, X } from 'lucide-react'
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
@@ -166,7 +166,6 @@ interface ExistingTemplate {
 
 let _seq = 0
 const newLocalId = () => `act-${Date.now()}-${++_seq}`
-const OP_CODE_RE = /^[A-Z][A-Z0-9-]{1,38}$/
 
 function isOpReady(d: OperationData): boolean {
   if (!d.name?.trim() || !d.op_code?.trim() || !d.workcenter_id) return false
@@ -595,7 +594,7 @@ function InlineMatSearch({ onSelect, excludeIds }: {
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+      if (wrapRef.current && !wrapRef.current.contains(e.target as HTMLElement | null)) setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -758,11 +757,10 @@ interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; on
 
 const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
-  const navigate = useNavigate()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
   const equipmentList = useContext(EquipmentCtx)
-  const { previewMode, inputs } = useContext(PreviewCtx)
+  const { previewMode } = useContext(PreviewCtx)
 
   const [form, setForm] = useState<InspModalForm>(() => {
     const nd = initialData ?? (getNode(nodeId)?.data as OperationData | undefined)
@@ -986,12 +984,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
                             <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
-                            <button type="button" onClick={() => setEditingActivityId(act.source_activity_template_id)}
-                              title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#1976D2' }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}>
-                              <Pencil size={12} />
-                            </button>
                             <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
                               <X size={12} />
                             </button>
@@ -1375,7 +1367,7 @@ function MarkPrefixPicker({
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(e.target as HTMLElement | null)) {
         setOpen(false)
         setQuery('')
       }

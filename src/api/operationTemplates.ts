@@ -9,7 +9,7 @@ export interface OpActLaborDto {
 }
 
 export interface OpActMaterialDto {
-  material: { id: number; default_code: string; name: string }
+  resource: { id: number; code: string; name: string }
 }
 
 export interface OpActDto {

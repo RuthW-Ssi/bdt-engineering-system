@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActivities } from '../../hooks/useActivities'
 import { useAddFromLibrary } from '../../hooks/useOperationTemplates'
 

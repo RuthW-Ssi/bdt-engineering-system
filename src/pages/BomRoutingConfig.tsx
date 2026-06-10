@@ -11,16 +11,6 @@ import type { PaintType, PaintMaterialDto } from '../api/paint'
 import { weldingApi } from '../api/welding'
 import type { WireMaterialDto } from '../api/welding'
 
-// ── Resource → material category mapping ─────────────────────────────────────
-const RESOURCE_PAINT_TYPE: Record<string, PaintType> = {
-  'CON-PRIMER': 'primer',
-  'CON-TOPCOAT': 'topcoat',
-  'CON-INTERMEDIATE': 'intermediate',
-  'CON-FIREPROOF': 'fireproof',
-}
-const isWireResource = (code: string) =>
-  code.startsWith('CON-WIRE') || code.startsWith('CON-ELEC') || code.startsWith('CON-FLUX')
-
 
 const TH: React.CSSProperties = {
   position: 'sticky', top: 0, background: '#F5F5F5', zIndex: 2,
