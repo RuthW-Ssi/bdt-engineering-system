@@ -1039,6 +1039,27 @@ model operation_template_activity {
   @@index([operation_template_id])
 }
 
+// ── T-MACH.01: Machine Tracker enums ─────────────────────────────────────────
+enum EquipmentStatus {
+  OPERATIONAL
+  MAINTENANCE
+  REPAIR
+  UNAVAILABLE
+  RETIRED
+}
+
+enum RepairStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+enum RepairSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 // ── Equipment Resource Master (Phase 3) ──────────────────────────────────────
 model equipment_resource {
   id          Int      @id @default(autoincrement())
@@ -1051,6 +1072,17 @@ model equipment_resource {
   create_date DateTime @default(now()) @db.Timestamptz
   write_date  DateTime @updatedAt @db.Timestamptz
 
+  // T-MACH.01: Machine Tracker fields
+  current_status      EquipmentStatus @default(OPERATIONAL)
+  last_maintenance_at DateTime?
+  location            String?         @db.VarChar(120)
+  manufacturer        String?         @db.VarChar(120)
+  model               String?         @db.VarChar(120)
+  serial_number       String?         @db.VarChar(120)
+  install_date        DateTime?
+  specs               String?         @db.Text
+  photo_url           String?
+
   operation_template_acts       operation_template_activity[] @relation("OpActMachine")
   op_act_tools                  op_act_tool[]
   // Sprint 11: Activity Library
@@ -1060,6 +1092,10 @@ model equipment_resource {
   activity_tools                activity_tool[]               @relation("activity_tool_resource")
   op_act_labors                 op_act_labor[]                @relation("OpActLaborResource")
   op_act_materials              op_act_material[]             @relation("op_act_material_resource")
+  // T-MACH.01: Machine Tracker relations
+  maintenance_logs              maintenance_log[]
+  repair_tickets                repair_ticket[]
+  status_history                machine_status_history[]
 }
 
 model op_act_tool {
@@ -1158,6 +1194,62 @@ model activity_tool {
 }
 
 model activity_code_seq {
+  id       Int @id
+  next_val Int @default(1)
+}
+
+// ── T-MACH.01: Machine Tracker tables ────────────────────────────────────────
+model maintenance_log {
+  id             Int                @id @default(autoincrement())
+  machine_id     Int
+  machine        equipment_resource @relation(fields: [machine_id], references: [id])
+  performed_at   DateTime
+  performed_by   String             @db.VarChar(120)
+  description    String             @db.Text
+  parts_replaced String?            @db.Text
+  duration_min   Int?
+  notes          String?            @db.Text
+  photo_urls     String[]
+  created_at     DateTime           @default(now())
+  updated_at     DateTime           @updatedAt
+}
+
+model repair_ticket {
+  id                  Int                @id @default(autoincrement())
+  machine_id          Int
+  machine             equipment_resource @relation(fields: [machine_id], references: [id])
+  ticket_code         String             @unique @db.VarChar(20)
+  status              RepairStatus       @default(OPEN)
+  severity            RepairSeverity
+  reported_by         String             @db.VarChar(120)
+  reported_at         DateTime
+  problem_description String             @db.Text
+  photos_before       String[]
+  repaired_by         String?            @db.VarChar(120)
+  closed_at           DateTime?
+  repair_description  String?            @db.Text
+  parts_replaced      String?            @db.Text
+  duration_min        Int?
+  photos_after        String[]
+  created_at          DateTime           @default(now())
+  updated_at          DateTime           @updatedAt
+}
+
+model machine_status_history {
+  id                     Int                @id @default(autoincrement())
+  machine_id             Int
+  machine                equipment_resource @relation(fields: [machine_id], references: [id])
+  from_status            EquipmentStatus
+  to_status              EquipmentStatus
+  reason                 String             @db.Text
+  changed_by             String             @db.VarChar(120)
+  changed_at             DateTime           @default(now())
+  related_repair_id      Int?
+  related_maintenance_id Int?
+}
+
+// ── 🟥 Custom: repair_ticket_seq (RPR-NNNNN counter) ─────────
+model repair_ticket_seq {
   id       Int @id
   next_val Int @default(1)
 }

@@ -25,6 +25,8 @@ import OperationLibraryList from './pages/OperationLibraryList'
 import OperationBuilder from './pages/OperationBuilder'
 import { ActivityLibraryList } from './pages/ActivityLibraryList'
 import { Dashboard } from './pages/Dashboard'
+import { MachineList } from './pages/MachineList'
+import { MachineDetail } from './pages/MachineDetail'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -88,6 +90,8 @@ export default function App() {
             <Route path="/activity-library" element={<ActivityLibraryList />} />
             <Route path="/activity-library/new" element={<Navigate to="/activity-library" replace />} />
             <Route path="/activity-library/:id/edit" element={<ActivityLibraryList />} />
+            <Route path="/machines" element={<MachineList />} />
+            <Route path="/machines/:id" element={<MachineDetail />} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />

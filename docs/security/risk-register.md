@@ -77,6 +77,28 @@
 - **Status:** Open — deferred (no trigger flow yet)
 - **Created:** 2026-05-29
 
+### R-007 · API8:2023 Security Misconfiguration — file upload missing extension check
+
+- **OWASP:** API8:2023 (Security Misconfiguration)
+- **Impact:** High — upload endpoint validates MIME type only; extension from `file.originalname` used verbatim in stored filename; attacker can fake Content-Type to store files with arbitrary extensions (e.g., `.php`). Deviates from reference pattern in `bom-upload.service.ts`.
+- **Likelihood:** Medium — requires authenticated user; not exploitable on Node.js server today, but violates defense-in-depth standard and risks escalation if a static CDN/Nginx is ever placed in front of storage
+- **Owner:** backend
+- **Fix path:** add `ALLOWED_EXT = ['.jpg', '.jpeg', '.png']` check in `fileFilter` (machines.controller.ts:120–123), matching the `bom-upload` reference pattern
+- **Status:** Open
+- **Created:** 2026-06-11 (F-Machine-Tracker review)
+- **Finding ref:** `docs/security/findings/2026-06-11-machine-tracker.md` F-001
+
+### R-008 · A09:2021 Insufficient Logging — audit trail identity not tied to JWT
+
+- **OWASP:** A09:2021 (Security Logging and Monitoring Failures)
+- **Impact:** Medium — audit records for maintenance logs, repair tickets, and status changes store free-text `performed_by`/`changed_by` from DTO body; authenticated user_id (JWT `sub`) is never persisted; no cryptographic link between DB record and authenticated system account
+- **Likelihood:** Low — all users are internal SSI Steel employees (single-tenant); risk is audit integrity and forensics, not active exploitation
+- **Owner:** data (schema FK) + backend (service use of `user.sub`)
+- **Fix path:** add `created_by_user_id Int?` FK → `identity_user.id` on `maintenance_log`, `repair_ticket`, `machine_status_history`; populate from `@CurrentUser()` in service methods (remove `_` prefix from `_user` parameter)
+- **Status:** Open
+- **Created:** 2026-06-11 (F-Machine-Tracker review)
+- **Finding ref:** `docs/security/findings/2026-06-11-machine-tracker.md` F-002
+
 ### R-006 · API8:2023 Security Misconfiguration — `.env` plaintext deferred
 
 - **OWASP:** API8:2023 (Security Misconfiguration)

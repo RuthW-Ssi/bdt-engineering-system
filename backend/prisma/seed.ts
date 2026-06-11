@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import * as bcryptjs from 'bcryptjs'
+import { seedMachineTracker } from './seed-machine-tracker'
 
 const prisma = new PrismaClient()
 
@@ -880,6 +881,18 @@ async function main() {
     })
   }
 
+  // ══════════════════════════════════════════════════════════════
+  // T-MACH.01: repair_ticket_seq seed
+  // ══════════════════════════════════════════════════════════════
+  await prisma.repair_ticket_seq.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, next_val: 1 },
+  })
+
+  // T-MACH.08: Machine Tracker sample data
+  await seedMachineTracker(prisma)
+
   console.log('Seed completed ✓')
   console.log('  - admin user with bcrypt password (Sprint 6)')
   console.log('  - 28 mark prefixes')
@@ -894,6 +907,7 @@ async function main() {
   console.log(`  - ${STEEL_STD.length} standard steel products STD-00013..STD-00063 (Sprint 8)`)
   console.log(`  - 1 Paint category + ${PAINT_MATERIALS.length} paint materials (Sprint 9)`)
   console.log(`  - 1 Welding Wire category + ${WELDING_WIRE_MATERIALS.length} wire materials (Sprint 9)`)
+  console.log('  - repair_ticket_seq seeded (T-MACH.01)')
 }
 
 main()

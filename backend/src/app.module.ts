@@ -33,6 +33,7 @@ import { ProductDerivationModule } from './modules/product-derivation/product-de
 import { ProductLibraryModule } from './modules/product-library/product-library.module'
 // Sprint 12
 import { ActivitiesModule } from './modules/activities/activities.module'
+import { MachinesModule } from './modules/machines/machines.module'
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { ActivitiesModule } from './modules/activities/activities.module'
     ProductLibraryModule,
     // Sprint 12
     ActivitiesModule,
+    MachinesModule,
   ],
 })
 export class AppModule {}
