@@ -18,6 +18,7 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
     photos_before: [] as string[],
   })
   const [suggest, setSuggest] = useState<SuggestedStatusChange | null>(null)
+  const [createdTicketId, setCreatedTicketId] = useState<number | null>(null)
   const [statusChangedBy, setStatusChangedBy] = useState('')
 
   const openMutation = useOpenRepairTicket(machineId)
@@ -35,6 +36,7 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
       photos_before: form.photos_before,
     })
     if (result.suggested_status_change) {
+      setCreatedTicketId(result.ticket.id)
       setSuggest(result.suggested_status_change)
     } else {
       onClose()
@@ -47,6 +49,7 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
       new_status: suggest.to,
       reason: 'เปลี่ยนสถานะอัตโนมัติหลังแจ้งซ่อม',
       changed_by: statusChangedBy || form.reported_by,
+      ...(createdTicketId != null ? { related_repair_id: createdTicketId } : {}),
     })
     onClose()
   }

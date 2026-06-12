@@ -1,5 +1,5 @@
-import { IsString, IsEnum } from 'class-validator'
-import { ApiProperty } from '@nestjs/swagger'
+import { IsString, IsEnum, IsOptional, IsInt } from 'class-validator'
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { EquipmentStatus } from '@prisma/client'
 
 export class ChangeStatusDto {
@@ -14,4 +14,14 @@ export class ChangeStatusDto {
   @ApiProperty()
   @IsString()
   changed_by: string
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  related_repair_id?: number
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  related_maintenance_id?: number
 }

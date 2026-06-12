@@ -25,7 +25,10 @@ export interface MachineDetail extends Machine {
   quick_stats: {
     last_maintenance_at: string | null
     repairs_this_month: number
-    downtime_hours: number | null
+    repair_downtime_hours: number
+    pm_downtime_hours: number
+    total_downtime_hours: number
+    pm_count_this_month: number
   }
   mock_jobs: MockJob[]
   _count: { repair_tickets: number; maintenance_logs: number }
@@ -157,6 +160,8 @@ export async function changeStatus(machineId: number, payload: {
   new_status: EquipmentStatus
   reason: string
   changed_by: string
+  related_repair_id?: number
+  related_maintenance_id?: number
 }): Promise<MachineDetail> {
   const res = await apiClient.patch(`/machines/${machineId}/status`, payload)
   return res.data

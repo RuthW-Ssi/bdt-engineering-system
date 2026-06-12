@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import * as bcryptjs from 'bcryptjs'
 import { seedMachineTracker } from './seed-machine-tracker'
+import { seedMachineDemo } from './seed-machine-demo'
 
 const prisma = new PrismaClient()
 
@@ -892,6 +893,8 @@ async function main() {
 
   // T-MACH.08: Machine Tracker sample data
   await seedMachineTracker(prisma)
+  // Demo: rich realistic data for presentation
+  await seedMachineDemo(prisma)
 
   console.log('Seed completed ✓')
   console.log('  - admin user with bcrypt password (Sprint 6)')

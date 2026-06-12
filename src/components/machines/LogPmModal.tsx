@@ -57,7 +57,7 @@ export function LogPmModal({ machineId, onClose }: Props) {
           <Field label="อะไหล่ที่เปลี่ยน">
             <input value={form.parts_replaced} onChange={e => set('parts_replaced', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="ระยะเวลา (นาที)">
+          <Field label="Downtime (นาที)">
             <input type="number" min={0} value={form.duration_min} onChange={e => set('duration_min', e.target.value)} style={inputStyle} />
           </Field>
           <Field label="หมายเหตุ">

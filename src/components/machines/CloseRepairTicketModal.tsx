@@ -53,6 +53,7 @@ export function CloseRepairTicketModal({ machineId, ticket, onClose }: Props) {
       new_status: suggest.to,
       reason: 'เปลี่ยนสถานะอัตโนมัติหลังปิด ticket ซ่อม',
       changed_by: statusChangedBy || form.repaired_by,
+      related_repair_id: ticket.id,
     })
     onClose()
   }
@@ -110,7 +111,7 @@ export function CloseRepairTicketModal({ machineId, ticket, onClose }: Props) {
           <Field label="อะไหล่ที่เปลี่ยน">
             <input value={form.parts_replaced} onChange={e => set('parts_replaced', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="ระยะเวลาซ่อม (นาที)">
+          <Field label="Downtime (นาที)">
             <input type="number" min={0} value={form.duration_min} onChange={e => set('duration_min', e.target.value)} style={inputStyle} />
           </Field>
           <PhotoUploadField label="รูปหลังซ่อม" value={form.photos_after} onChange={v => set('photos_after', v)} />

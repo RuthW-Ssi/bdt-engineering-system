@@ -7,6 +7,7 @@ import {
 import { MachineStatusPill } from '../components/machines/MachineStatusPill'
 import { DaysSincePmBadge } from '../components/machines/DaysSincePmBadge'
 import { ActionButtons } from '../components/machines/ActionButtons'
+import { CloseRepairTicketModal } from '../components/machines/CloseRepairTicketModal'
 import type { RepairTicket } from '../api/machines'
 
 const TABS = ['รายละเอียด', 'งาน (Mock)', 'บันทึก PM', 'Ticket ซ่อม', 'ประวัติสถานะ']
@@ -59,10 +60,10 @@ export function MachineDetail() {
           </div>
 
           {/* Quick stats */}
-          <div style={{ display: 'flex', gap: 20 }}>
+          <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
             <StatBox label="อายุ PM" value={<DaysSincePmBadge days={machine.days_since_pm} />} />
             <StatBox label="ซ่อมเดือนนี้" value={`${machine.quick_stats.repairs_this_month} ครั้ง`} />
-            <StatBox label="Downtime" value={machine.quick_stats.downtime_hours !== null ? `${machine.quick_stats.downtime_hours}h` : '—'} />
+            <DowntimeBox stats={machine.quick_stats} />
           </div>
         </div>
 
@@ -107,6 +108,17 @@ function StatBox({ label, value }: { label: string; value: React.ReactNode }) {
     <div style={{ textAlign: 'center' }}>
       <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       <div style={{ marginTop: 2 }}>{typeof value === 'string' ? <span style={{ fontSize: 14, fontWeight: 600 }}>{value}</span> : value}</div>
+    </div>
+  )
+}
+
+function DowntimeBox({ stats }: { stats: { total_downtime_hours: number; repair_downtime_hours: number; pm_downtime_hours: number; repairs_this_month: number; pm_count_this_month: number } }) {
+  return (
+    <div style={{ textAlign: 'left' }}>
+      <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Downtime</div>
+      <div style={{ marginTop: 2, fontSize: 14, fontWeight: 600 }}>{stats.total_downtime_hours} hrs</div>
+      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>↳ ซ่อม: {stats.repair_downtime_hours} hrs ({stats.repairs_this_month} tickets)</div>
+      <div style={{ fontSize: 11, color: '#6b7280' }}>↳ PM: {stats.pm_downtime_hours} hrs ({stats.pm_count_this_month} PMs)</div>
     </div>
   )
 }
@@ -216,60 +228,85 @@ function PmLogsTab({ logs }: { logs: import('../api/machines').MaintenanceLog[] 
   )
 }
 
-function RepairTicketsTab({ tickets }: { tickets: RepairTicket[]; machineId: number }) {
+function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; machineId: number }) {
+  const [closeTicket, setCloseTicket] = useState<RepairTicket | null>(null)
+
   if (tickets.length === 0) {
     return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>ยังไม่มี ticket ซ่อม</div>
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {tickets.map(t => {
-        const isOpen = t.status === 'OPEN' || t.status === 'IN_PROGRESS'
-        const mttr = t.duration_min ? `${Math.round(t.duration_min / 60 * 10) / 10}h` : null
-        return (
-          <div
-            key={t.id}
-            style={{
-              background: isOpen ? '#fff7ed' : 'white',
-              borderRadius: 10,
-              border: `1px solid ${isOpen ? '#fed7aa' : '#e5e7eb'}`,
-              padding: 16,
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <Settings size={16} style={{ color: isOpen ? '#ea580c' : '#6b7280', flexShrink: 0, marginTop: 2 }} />
-                <div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#6b7280' }}>{t.ticket_code}</span>
-                    <span style={{
-                      borderRadius: 999, padding: '1px 8px', fontSize: 11, fontWeight: 600,
-                      background: isOpen ? '#ffedd5' : '#f0fdf4',
-                      color: isOpen ? '#ea580c' : '#16a34a',
-                    }}>{t.status}</span>
-                    <span style={{
-                      borderRadius: 999, padding: '1px 8px', fontSize: 11, fontWeight: 600,
-                      background: t.severity === 'HIGH' ? '#fee2e2' : t.severity === 'MEDIUM' ? '#fef3c7' : '#f0fdf4',
-                      color: t.severity === 'HIGH' ? '#dc2626' : t.severity === 'MEDIUM' ? '#d97706' : '#16a34a',
-                    }}>{t.severity}</span>
+    <>
+      {closeTicket && (
+        <CloseRepairTicketModal
+          machineId={machineId}
+          ticket={closeTicket}
+          onClose={() => setCloseTicket(null)}
+        />
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {tickets.map(t => {
+          const isOpen = t.status === 'OPEN' || t.status === 'IN_PROGRESS'
+          const mttr = t.duration_min ? `${Math.round(t.duration_min / 60 * 10) / 10}h` : null
+          return (
+            <div
+              key={t.id}
+              style={{
+                background: isOpen ? '#fff7ed' : 'white',
+                borderRadius: 10,
+                border: `1px solid ${isOpen ? '#fed7aa' : '#e5e7eb'}`,
+                padding: 16,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                  <Settings size={16} style={{ color: isOpen ? '#ea580c' : '#6b7280', flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 4 }}>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#6b7280' }}>{t.ticket_code}</span>
+                      <span style={{
+                        borderRadius: 999, padding: '1px 8px', fontSize: 11, fontWeight: 600,
+                        background: isOpen ? '#ffedd5' : '#f0fdf4',
+                        color: isOpen ? '#ea580c' : '#16a34a',
+                      }}>{t.status}</span>
+                      <span style={{
+                        borderRadius: 999, padding: '1px 8px', fontSize: 11, fontWeight: 600,
+                        background: t.severity === 'HIGH' ? '#fee2e2' : t.severity === 'MEDIUM' ? '#fef3c7' : '#f0fdf4',
+                        color: t.severity === 'HIGH' ? '#dc2626' : t.severity === 'MEDIUM' ? '#d97706' : '#16a34a',
+                      }}>{t.severity}</span>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{t.problem_description}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>แจ้งโดย: {t.reported_by}</div>
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{t.problem_description}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>แจ้งโดย: {t.reported_by}</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                  <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'right', flexShrink: 0 }}>
+                    {new Date(t.reported_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </div>
+                  {isOpen && (
+                    <button
+                      onClick={() => setCloseTicket(t)}
+                      style={{
+                        padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                        background: '#16a34a', color: 'white', fontSize: 12, fontWeight: 600,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      ✓ ปิด ticket · ซ่อมเสร็จ
+                    </button>
+                  )}
                 </div>
               </div>
-              <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'right', flexShrink: 0 }}>
-                {new Date(t.reported_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
-              </div>
+              {t.status === 'CLOSED' && t.repair_description && (
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f3f4f6', fontSize: 13, color: '#374151' }}>
+                  <b>การซ่อม:</b> {t.repair_description}
+                  {mttr && <span style={{ marginLeft: 12, color: '#6b7280' }}>MTTR: {mttr}</span>}
+                </div>
+              )}
             </div>
-            {t.status === 'CLOSED' && t.repair_description && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f3f4f6', fontSize: 13, color: '#374151' }}>
-                <b>การซ่อม:</b> {t.repair_description}
-                {mttr && <span style={{ marginLeft: 12, color: '#6b7280' }}>MTTR: {mttr}</span>}
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
+          )
+        })}
+      </div>
+    </>
   )
 }
 

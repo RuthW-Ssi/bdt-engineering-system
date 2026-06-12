@@ -80,9 +80,25 @@ export class MachinesService {
 
     const now = new Date()
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const repairsThisMonth = await this.prisma.repair_ticket.count({
-      where: { machine_id: id, created_at: { gte: startOfMonth } },
-    })
+
+    const [repairTicketsThisMonth, pmLogsThisMonth] = await Promise.all([
+      this.prisma.repair_ticket.findMany({
+        where: { machine_id: id, created_at: { gte: startOfMonth } },
+        select: { duration_min: true },
+      }),
+      this.prisma.maintenance_log.findMany({
+        where: { machine_id: id, performed_at: { gte: startOfMonth } },
+        select: { duration_min: true },
+      }),
+    ])
+
+    const round1 = (n: number) => Math.round(n * 10) / 10
+    const repairDowntimeHours = round1(
+      repairTicketsThisMonth.reduce((s, t) => s + (t.duration_min ?? 0), 0) / 60,
+    )
+    const pmDowntimeHours = round1(
+      pmLogsThisMonth.reduce((s, l) => s + (l.duration_min ?? 0), 0) / 60,
+    )
 
     const days_since_pm = machine.last_maintenance_at
       ? Math.floor((now.getTime() - machine.last_maintenance_at.getTime()) / 86400000)
@@ -93,8 +109,11 @@ export class MachinesService {
       days_since_pm,
       quick_stats: {
         last_maintenance_at: machine.last_maintenance_at,
-        repairs_this_month: repairsThisMonth,
-        downtime_hours: null,
+        repairs_this_month: repairTicketsThisMonth.length,
+        repair_downtime_hours: repairDowntimeHours,
+        pm_downtime_hours: pmDowntimeHours,
+        total_downtime_hours: round1(repairDowntimeHours + pmDowntimeHours),
+        pm_count_this_month: pmLogsThisMonth.length,
       },
       mock_jobs: MOCK_JOBS,
     }
@@ -210,6 +229,8 @@ export class MachinesService {
           to_status: dto.new_status,
           reason: dto.reason,
           changed_by: dto.changed_by,
+          ...(dto.related_repair_id != null ? { related_repair_id: dto.related_repair_id } : {}),
+          ...(dto.related_maintenance_id != null ? { related_maintenance_id: dto.related_maintenance_id } : {}),
         },
       }),
     ])
