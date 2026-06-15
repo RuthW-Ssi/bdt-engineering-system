@@ -4,11 +4,10 @@ import { useMarkPrefixes } from '../../hooks/useMarkPrefixes'
 interface Props {
   value: string
   onChange: (code: string) => void
-  onAddNew?: () => void
   error?: string
 }
 
-export function MarkPrefixDropdown({ value, onChange, onAddNew, error }: Props) {
+export function MarkPrefixDropdown({ value, onChange, error }: Props) {
   const { data: prefixes = [], isLoading } = useMarkPrefixes()
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -74,19 +73,6 @@ export function MarkPrefixDropdown({ value, onChange, onAddNew, error }: Props) 
             ))}
             {filtered.length === 0 && q && (
               <div style={{ padding: '7px 10px', fontSize: 12, color: '#9CA3AF' }}>ไม่พบ prefix ที่ตรงกัน</div>
-            )}
-            {onAddNew && (
-              <div
-                onMouseDown={e => { e.preventDefault(); setOpen(false); onAddNew() }}
-                style={{
-                  padding: '7px 10px', fontSize: 13, cursor: 'pointer',
-                  color: '#0C447C', borderTop: '1px solid #F0F0F0',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-                className="hover:bg-chrome-50"
-              >
-                <span style={{ fontSize: 15, lineHeight: 1 }}>＋</span> สร้าง prefix ใหม่…
-              </div>
             )}
           </div>
         )}

@@ -168,16 +168,19 @@ model product_library_seq {
 // ── 🟥 Custom: product_library (canonical product-name catalog) ──
 // Sprint 11: governance layer — STD products must link here (CUS optional)
 model product_library {
-  id          Int       @id @default(autoincrement())
-  code        String    @unique @db.VarChar(20)   // LIB-NNN auto via product_library_seq
-  name        String    @unique @db.VarChar(200)  // canonical product name (case-insensitive UNIQUE enforced in service)
-  active      Boolean   @default(true)
-  create_uid  Int
-  create_user res_users @relation("pl_create", fields: [create_uid], references: [id])
-  create_date DateTime  @default(now()) @db.Timestamptz
-  write_uid   Int
-  write_user  res_users @relation("pl_write", fields: [write_uid], references: [id])
-  write_date  DateTime  @default(now()) @db.Timestamptz
+  id                   Int       @id @default(autoincrement())
+  code                 String    @unique @db.VarChar(20)   // LIB-NNN auto via product_library_seq
+  name                 String    @unique @db.VarChar(200)  // canonical product name (uppercase, case-insensitive UNIQUE enforced in service)
+  mark_prefix          String?   @db.VarChar(10)
+  mark_prefix_label    String?   @db.VarChar(40)
+  mark_prefix_category String?   @db.VarChar(20)
+  active               Boolean   @default(true)
+  create_uid           Int
+  create_user          res_users @relation("pl_create", fields: [create_uid], references: [id])
+  create_date          DateTime  @default(now()) @db.Timestamptz
+  write_uid            Int
+  write_user           res_users @relation("pl_write", fields: [write_uid], references: [id])
+  write_date           DateTime  @default(now()) @db.Timestamptz
 
   products products[] @relation("ProductLibraryRef")
 

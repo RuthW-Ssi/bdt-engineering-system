@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Plus, MoreHorizontal, ChevronLeft, ChevronRight, Loader2, Archive, Pencil, ExternalLink } from 'lucide-react'
+import { Search, Plus, MoreHorizontal, ChevronLeft, ChevronRight, Loader2, Archive, Pencil, ExternalLink, RotateCcw, Trash2 } from 'lucide-react'
 import { useProducts } from '../hooks/useProducts'
-import { useLibraryEntries, useUpdateLibraryEntry, useDeleteLibraryEntry } from '../hooks/useLibrary'
+import { useLibraryEntries, useUpdateLibraryEntry, useDeleteLibraryEntry, useHardDeleteLibraryEntry } from '../hooks/useLibrary'
 import { useProjects } from '../hooks/useProjects'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import { NewStandardProductModal } from '../components/product/NewStandardProductModal'
@@ -14,6 +14,14 @@ import { PRODUCT_STATE_LABELS, PRODUCT_STATE_COLORS } from '../api/types'
 
 const STATES: ProductState[] = ['draft', 'in_design', 'in_review', 'approved', 'released', 'obsolete']
 const PAGE_SIZE = 20
+
+const PREFIX_CATEGORY_LABELS: Record<string, string> = {
+  assembly: 'Assembly',
+  member: 'Member',
+  plate_part: 'Plate Part',
+  sub_component: 'Sub Component',
+  other: 'Other',
+}
 
 export function ProductList() {
   const navigate = useNavigate()
@@ -28,6 +36,7 @@ export function ProductList() {
   const [showModal, setShowModal] = useState<'standard' | 'custom' | 'library' | null>(null)
   const [renameEntry, setRenameEntry] = useState<LibraryEntryDTO | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
+  const [showArchived, setShowArchived] = useState(false)
 
   const { data: projectsData } = useProjects({ limit: 100 })
   const projects = projectsData?.items ?? []
@@ -43,6 +52,7 @@ export function ProductList() {
 
   const { data: libData, isLoading: libLoading, isError: libError } = useLibraryEntries({
     q: searchQ || undefined,
+    active: showArchived ? false : true,
     page: pageParam,
     limit: PAGE_SIZE,
   })
@@ -134,6 +144,20 @@ export function ProductList() {
             <button onClick={() => { setParam('state', ''); setParam('q', ''); setParam('project_id', '') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>Clear filters</button>
           )}
           <span className="flex-1" />
+          {tab === 'library' && (
+            <button
+              onClick={() => { setShowArchived(v => !v); setParam('page', '1') }}
+              className="flex items-center gap-1.5 rounded-md border transition-colors"
+              style={{
+                height: 32, padding: '0 12px', fontSize: 12, fontWeight: 500,
+                background: showArchived ? '#F5F5F5' : 'white',
+                color: showArchived ? '#555' : '#8E8E8E',
+                borderColor: showArchived ? '#8E8E8E' : '#E0E0E0',
+              }}>
+              <Archive size={12} />
+              {showArchived ? 'Archived' : 'Show Archived'}
+            </button>
+          )}
           {!isLibLoading && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Page {pageParam} / {totalPages} · {total} items</span>}
         </div>
 
@@ -168,13 +192,14 @@ export function ProductList() {
             <div style={{
               position: 'sticky', top: 0, zIndex: 10,
               display: 'grid',
-              gridTemplateColumns: '140px 1fr 160px 140px 100px 80px 48px',
+              gridTemplateColumns: '110px 1fr 140px 110px 120px 80px 80px 48px',
               alignItems: 'center', padding: '0 12px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0',
             }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>LIB Code</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Name</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Mark Prefix</div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Category</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Used By</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Created By</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Created</div>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>Status</div>
               <div />
@@ -201,12 +226,12 @@ export function ProductList() {
               <LibraryRow
                 key={entry.id}
                 entry={entry}
+                showArchived={showArchived}
                 openMenuId={openMenuId}
                 setOpenMenuId={setOpenMenuId}
                 onRename={() => setRenameEntry(entry)}
                 onViewLinked={(type) => {
                   setParam('tab', type)
-                  // future: filter by library_id
                 }}
               />
             ))}
@@ -348,15 +373,17 @@ export function ProductList() {
 
 interface LibraryRowProps {
   entry: LibraryEntryDTO
+  showArchived: boolean
   openMenuId: number | null
   setOpenMenuId: (id: number | null) => void
   onRename: () => void
   onViewLinked: (type: 'standard' | 'custom') => void
 }
 
-function LibraryRow({ entry, openMenuId, setOpenMenuId, onRename, onViewLinked }: LibraryRowProps) {
-  const { mutateAsync: archiveEntry } = useDeleteLibraryEntry(entry.id)
-  const { mutateAsync: forceArchive } = useUpdateLibraryEntry(entry.id)
+function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, onViewLinked }: LibraryRowProps) {
+  const { mutateAsync: archiveEntry, isPending: archiving } = useDeleteLibraryEntry(entry.id)
+  const { mutateAsync: updateEntry, isPending: restoring } = useUpdateLibraryEntry(entry.id)
+  const { mutateAsync: hardDeleteEntry, isPending: deleting } = useHardDeleteLibraryEntry(entry.id)
   const menuOpen = openMenuId === entry.id
 
   const handleArchive = async (e: React.MouseEvent) => {
@@ -373,7 +400,7 @@ function LibraryRow({ entry, openMenuId, setOpenMenuId, onRename, onViewLinked }
         )
         if (ok) {
           try {
-            await forceArchive({ active: false })
+            await updateEntry({ active: false })
           } catch {
             window.alert('Archive failed — please try again.')
           }
@@ -382,18 +409,61 @@ function LibraryRow({ entry, openMenuId, setOpenMenuId, onRename, onViewLinked }
     }
   }
 
+  const handleRestore = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpenMenuId(null)
+    await updateEntry({ active: true })
+  }
+
+  const handleHardDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpenMenuId(null)
+    const ok = window.confirm(`ลบ ${entry.code} — ${entry.name} ถาวรเลยใช่ไหม? ไม่สามารถกู้คืนได้`)
+    if (!ok) return
+    try {
+      await hardDeleteEntry()
+    } catch (err: any) {
+      window.alert(err?.response?.data?.message ?? 'Delete failed')
+    }
+  }
+
+  const dimmed = showArchived
+  const busy = archiving || restoring || deleting
+
   return (
     <div className="hover:bg-chrome-50 transition-colors" style={{
       display: 'grid',
-      gridTemplateColumns: '140px 1fr 160px 140px 100px 80px 48px',
-      alignItems: 'center', padding: '0 12px', height: 52, borderBottom: '1px solid #E0E0E0',
+      gridTemplateColumns: '110px 1fr 140px 110px 120px 80px 80px 48px',
+      alignItems: 'center', padding: '0 12px', height: 48, borderBottom: '1px solid #E0E0E0',
+      opacity: dimmed ? 0.65 : 1,
     }}>
       {/* LIB Code */}
-      <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#065F46' }}>{entry.code}</div>
+      <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: dimmed ? '#8E8E8E' : '#065F46' }}>{entry.code}</div>
 
       {/* Name */}
       <div className="min-w-0 pr-4">
-        <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{entry.name}</div>
+        <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: dimmed ? '#8E8E8E' : '#1F1F1F' }}>{entry.name}</div>
+      </div>
+
+      {/* Mark Prefix */}
+      <div className="min-w-0 pr-2">
+        {entry.mark_prefix ? (
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono" style={{ fontSize: 12, fontWeight: 700, color: dimmed ? '#8E8E8E' : '#0C447C', background: dimmed ? '#F0F0F0' : '#E6F1FB', borderRadius: 3, padding: '1px 6px', flexShrink: 0 }}>
+              {entry.mark_prefix}
+            </span>
+            <span className="truncate" style={{ fontSize: 12, color: dimmed ? '#8E8E8E' : '#333' }}>{entry.mark_prefix_label}</span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 12, color: '#C2C2C2' }}>—</span>
+        )}
+      </div>
+
+      {/* Category */}
+      <div style={{ fontSize: 12, color: dimmed ? '#8E8E8E' : '#555' }}>
+        {entry.mark_prefix_category
+          ? PREFIX_CATEGORY_LABELS[entry.mark_prefix_category] ?? entry.mark_prefix_category
+          : <span style={{ color: '#C2C2C2' }}>—</span>}
       </div>
 
       {/* Used By pills */}
@@ -413,10 +483,7 @@ function LibraryRow({ entry, openMenuId, setOpenMenuId, onRename, onViewLinked }
         )}
       </div>
 
-      {/* Created by */}
-      <div style={{ fontSize: 12, color: '#555' }}>{entry.create_user?.name ?? '-'}</div>
-
-      {/* Created date */}
+      {/* Created */}
       <div style={{ fontSize: 12, color: '#8E8E8E' }}>{new Date(entry.create_date).toLocaleDateString('en-GB')}</div>
 
       {/* Status pill */}
@@ -432,33 +499,51 @@ function LibraryRow({ entry, openMenuId, setOpenMenuId, onRename, onViewLinked }
 
       {/* ⋯ menu */}
       <div className="flex items-center justify-center" style={{ position: 'relative' }} onClick={e => e.stopPropagation()}>
-        <button onClick={() => setOpenMenuId(menuOpen ? null : entry.id)}
-          className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
-          <MoreHorizontal size={16} />
+        <button onClick={() => setOpenMenuId(menuOpen ? null : entry.id)} disabled={busy}
+          className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-40" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <MoreHorizontal size={16} />}
         </button>
         {menuOpen && (
-          <div className="bg-white rounded-lg shadow-lg border border-chrome-100" style={{ position: 'absolute', right: 0, top: 32, width: 160, zIndex: 20 }}>
-            <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onRename() }}
-              className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
-              <Pencil size={13} /> Edit
-            </button>
-            {entry.std_count > 0 && (
-              <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onViewLinked('standard') }}
-                className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
-                <ExternalLink size={13} /> View Standard ({entry.std_count})
-              </button>
+          <div className="bg-white rounded-lg shadow-lg border border-chrome-100" style={{ position: 'absolute', right: 0, top: 32, width: 180, zIndex: 20 }}>
+            {!showArchived ? (
+              <>
+                <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onRename() }}
+                  className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
+                  <Pencil size={13} /> Edit
+                </button>
+                {entry.std_count > 0 && (
+                  <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onViewLinked('standard') }}
+                    className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
+                    <ExternalLink size={13} /> View Standard ({entry.std_count})
+                  </button>
+                )}
+                {entry.cus_count > 0 && (
+                  <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onViewLinked('custom') }}
+                    className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
+                    <ExternalLink size={13} /> View Custom ({entry.cus_count})
+                  </button>
+                )}
+                <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
+                <button onClick={handleArchive}
+                  className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}>
+                  <Archive size={13} /> Archive
+                </button>
+              </>
+            ) : (
+              <>
+                <button onClick={handleRestore}
+                  className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#065F46' }}>
+                  <RotateCcw size={13} /> Restore
+                </button>
+                <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
+                <button onClick={handleHardDelete}
+                  className="flex items-center gap-2 w-full hover:bg-chrome-50"
+                  style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}
+                  title={entry.std_count + entry.cus_count > 0 ? 'มี products อ้างอิง — ลบไม่ได้' : ''}>
+                  <Trash2 size={13} /> Delete permanently
+                </button>
+              </>
             )}
-            {entry.cus_count > 0 && (
-              <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onViewLinked('custom') }}
-                className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
-                <ExternalLink size={13} /> View Custom ({entry.cus_count})
-              </button>
-            )}
-            <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
-            <button onClick={handleArchive}
-              className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}>
-              <Archive size={13} /> Archive
-            </button>
           </div>
         )}
       </div>

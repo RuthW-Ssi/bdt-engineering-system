@@ -15,7 +15,6 @@ import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, Che
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
-import { markPrefixApi } from '../api/mark-prefix-master'
 import type { ActivityDto } from '../api/activities'
 import { ActivityBuilderModal } from './ActivityBuilder'
 
@@ -1345,12 +1344,11 @@ const LAYOUT_START = { x: 60, y: 200 }
 // ── MarkPrefixPicker ───────────────────────────────────────────
 
 function MarkPrefixPicker({
-  value, prefixes, onChange, onAddNew,
+  value, prefixes, onChange,
 }: {
   value: string
   prefixes: { code: string; label: string; active: boolean }[]
   onChange: (code: string) => void
-  onAddNew: () => void
 }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -1438,84 +1436,8 @@ function MarkPrefixPicker({
               </div>
             ))}
           </div>
-          <div style={{ borderTop: '1px solid #E0E0E0', padding: '6px 12px' }}>
-            <button
-              onMouseDown={e => { e.preventDefault(); onAddNew(); setOpen(false) }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1976D2', fontSize: 12, fontWeight: 600, padding: 0 }}
-            >
-              ＋ สร้าง prefix ใหม่…
-            </button>
-          </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ── AddPrefixModal ─────────────────────────────────────────────
-
-const PREFIX_CATEGORIES = [
-  { value: 'assembly',      label: 'Assembly' },
-  { value: 'member',        label: 'Member' },
-  { value: 'plate_part',    label: 'Plate Part' },
-  { value: 'sub_component', label: 'Sub Component' },
-  { value: 'other',         label: 'Other' },
-]
-
-function AddPrefixModal({ onClose, onCreated }: { onClose: () => void; onCreated: (code: string) => void }) {
-  const [code, setCode] = useState('')
-  const [label, setLabel] = useState('')
-  const [category, setCategory] = useState('assembly')
-  const [errMsg, setErrMsg] = useState('')
-
-  const mut = useMutation({
-    mutationFn: markPrefixApi.create,
-    onSuccess: r => { onCreated(r.code); onClose() },
-    onError: (e: any) => setErrMsg(e?.response?.data?.message ?? 'เกิดข้อผิดพลาด'),
-  })
-
-  function handleSubmit(ev: React.FormEvent) {
-    ev.preventDefault()
-    setErrMsg('')
-    if (!code.trim() || !label.trim()) return setErrMsg('กรอก Code และ Label ให้ครบ')
-    mut.mutate({ code: code.trim().toUpperCase(), label: label.trim(), category })
-  }
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}
-      onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#fff', borderRadius: 10, width: 380, boxShadow: '0 8px 32px rgba(0,0,0,0.15)', overflow: 'hidden' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #E0E0E0' }}>
-          <span style={{ fontWeight: 700, fontSize: 14 }}>เพิ่ม Mark Prefix</span>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8E8E8E' }}><X size={16} /></button>
-        </div>
-        <form onSubmit={handleSubmit} style={{ padding: '18px 20px 16px' }}>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Code *</label>
-            <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} maxLength={10} placeholder="เช่น BM" autoFocus
-              style={{ width: '100%', border: '1px solid #DDD', borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: 'monospace', fontWeight: 600, boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ marginBottom: 12 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Label *</label>
-            <input value={label} onChange={e => setLabel(e.target.value)} maxLength={40} placeholder="เช่น Beam"
-              style={{ width: '100%', border: '1px solid #DDD', borderRadius: 6, padding: '7px 10px', fontSize: 13, boxSizing: 'border-box' }} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Category *</label>
-            <select value={category} onChange={e => setCategory(e.target.value)}
-              style={{ width: '100%', border: '1px solid #DDD', borderRadius: 6, padding: '7px 10px', fontSize: 13, boxSizing: 'border-box', background: '#fff' }}>
-              {PREFIX_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </div>
-          {errMsg && <div style={{ marginBottom: 10, fontSize: 12, color: '#C8202A', background: '#FEF2F2', borderRadius: 6, padding: '6px 10px' }}>{errMsg}</div>}
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" onClick={onClose} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #DDD', background: '#fff', fontSize: 13, cursor: 'pointer' }}>ยกเลิก</button>
-            <button type="submit" disabled={mut.isPending} style={{ padding: '7px 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              {mut.isPending ? 'กำลังบันทึก…' : 'เพิ่ม Prefix'}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   )
 }
@@ -1533,7 +1455,6 @@ function RoutingBuilderInner() {
   const [code, setCode] = useState('')
   const [templateName, setTemplateName] = useState('')
   const [productType, setProductType] = useState('')
-  const [showAddPrefixModal, setShowAddPrefixModal] = useState(false)
   const { data: markPrefixes = [] } = useMarkPrefixes()
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const dropDataRef = useRef<Record<string, OperationData>>({})
@@ -2115,7 +2036,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                 value={productType}
                 prefixes={markPrefixes}
                 onChange={setProductType}
-                onAddNew={() => setShowAddPrefixModal(true)}
               />
               {/* Floor Plan Background — locked to factory layout (Layout-F1) */}
               <div style={{ position: 'relative', display: 'flex', gap: 2 }}>
@@ -2375,12 +2295,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
       </ParallelCtx.Provider>
       </SequenceCtx.Provider>
 
-      {showAddPrefixModal && (
-        <AddPrefixModal
-          onClose={() => setShowAddPrefixModal(false)}
-          onCreated={code => { queryClient.invalidateQueries({ queryKey: ['mark-prefixes'] }); setProductType(code) }}
-        />
-      )}
       {editingActivityId !== null && (
         <ActivityBuilderModal
           activityId={editingActivityId}

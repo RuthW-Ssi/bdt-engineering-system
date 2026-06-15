@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { markPrefixApi } from '../api/mark-prefix-master'
+import { libraryApi } from '../api/library'
 
-export function useMarkPrefixes(category?: string) {
+export function useMarkPrefixes() {
   return useQuery({
-    queryKey: ['mark-prefixes', category],
-    queryFn: () => markPrefixApi.list(category ? { category } : undefined),
+    queryKey: ['library-mark-prefixes'],
+    queryFn: () => libraryApi.markPrefixes(),
   })
 }

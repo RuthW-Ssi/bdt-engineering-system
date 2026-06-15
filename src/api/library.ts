@@ -4,6 +4,7 @@ import type {
   LibraryEntryListResponse,
   CreateLibraryEntryPayload,
   UpdateLibraryEntryPayload,
+  MarkPrefixDTO,
 } from './types'
 
 export const libraryApi = {
@@ -25,5 +26,17 @@ export const libraryApi = {
 
   remove(id: number): Promise<LibraryEntryDTO> {
     return apiClient.delete(`/product-library/${id}`).then(r => r.data)
+  },
+
+  checkPrefix(code: string): Promise<{ available: boolean }> {
+    return apiClient.get(`/product-library/check-prefix/${encodeURIComponent(code)}`).then(r => r.data)
+  },
+
+  markPrefixes(): Promise<MarkPrefixDTO[]> {
+    return apiClient.get('/product-library/mark-prefixes').then(r => r.data)
+  },
+
+  hardDelete(id: number): Promise<{ deleted: boolean; code: string; name: string }> {
+    return apiClient.delete(`/product-library/${id}/permanent`).then(r => r.data)
   },
 }

@@ -264,6 +264,9 @@ export interface LibraryEntryDTO {
   id: number
   code: string
   name: string
+  mark_prefix: string | null
+  mark_prefix_label: string | null
+  mark_prefix_category: string | null
   active: boolean
   std_count: number
   cus_count: number
@@ -283,8 +286,14 @@ export interface LibraryEntryListResponse {
   items: LibraryEntryDTO[]
 }
 
+export const PREFIX_CATEGORIES = ['assembly', 'member', 'plate_part', 'sub_component', 'other'] as const
+export type PrefixCategory = typeof PREFIX_CATEGORIES[number]
+
 export interface CreateLibraryEntryPayload {
   name: string
+  mark_prefix: string
+  mark_prefix_label: string
+  mark_prefix_category: PrefixCategory
 }
 
 export interface UpdateLibraryEntryPayload {

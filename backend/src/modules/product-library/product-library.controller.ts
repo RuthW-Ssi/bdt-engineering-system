@@ -24,6 +24,18 @@ export class ProductLibraryController {
     return this.svc.findAll(query)
   }
 
+  @Get('mark-prefixes')
+  @ApiOperation({ summary: 'List distinct mark prefixes from active product library entries' })
+  getMarkPrefixes() {
+    return this.svc.getMarkPrefixes()
+  }
+
+  @Get('check-prefix/:code')
+  @ApiOperation({ summary: 'Check if a mark prefix code is already taken' })
+  checkPrefix(@Param('code') code: string) {
+    return this.svc.checkPrefixAvailable(code)
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get library entry by id (includes std_count, cus_count)' })
   findOne(@Param('id', ParseIntPipe) id: number) {
@@ -44,6 +56,12 @@ export class ProductLibraryController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.svc.update(id, dto, user.sub)
+  }
+
+  @Delete(':id/permanent')
+  @ApiOperation({ summary: 'Hard delete — only allowed when already archived + 0 products reference it' })
+  hardDelete(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.hardDelete(id)
   }
 
   @Delete(':id')

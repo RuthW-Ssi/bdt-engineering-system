@@ -44,3 +44,11 @@ export function useDeleteLibraryEntry(id: number) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['library-entries'] }),
   })
 }
+
+export function useHardDeleteLibraryEntry(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => libraryApi.hardDelete(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['library-entries'] }),
+  })
+}
