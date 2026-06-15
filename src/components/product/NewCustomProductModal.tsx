@@ -4,7 +4,6 @@ import { useCategories } from '../../hooks/useMasters'
 import { useProjects } from '../../hooks/useProjects'
 import { useProjectZones } from '../../hooks/useProjectZones'
 import { useCreateProduct } from '../../hooks/useProducts'
-import { useCreateLibraryEntry } from '../../hooks/useLibrary'
 import { MarkPrefixDropdown } from './MarkPrefixDropdown'
 import { productsApi } from '../../api/products'
 import { libraryApi } from '../../api/library'
@@ -42,8 +41,6 @@ export function NewCustomProductModal({ onClose }: Props) {
   const [librarySearching, setLibrarySearching] = useState(false)
   const [freeformMode, setFreeformMode] = useState(false)
   const [libraryMatchSuggestion, setLibraryMatchSuggestion] = useState<LibraryEntryDTO | null>(null)
-  const { mutateAsync: createLibraryEntry } = useCreateLibraryEntry()
-
   const selectedProjectId = form.project_id ? parseInt(form.project_id) : undefined
   const selectedProject = projects.find(p => p.id === selectedProjectId)
   const { data: zones = [] } = useProjectZones(selectedProjectId)
@@ -284,14 +281,9 @@ export function NewCustomProductModal({ onClose }: Props) {
                             <span style={{ fontSize: 13 }}>{entry.name}</span>
                           </div>
                         ))}
-                        {libraryQuery.trim() && (
-                          <div onMouseDown={async () => {
-                            const entry = await createLibraryEntry({ name: libraryQuery.trim() })
-                            setLibraryId(entry.id); setLibraryCode(entry.code); setLibraryName(entry.name); setShowLibraryDropdown(false)
-                          }}
-                            style={{ padding: '7px 10px', cursor: 'pointer', borderTop: libraryResults.length ? '1px solid #F0F0F0' : 'none', color: '#0C447C', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
-                            className="hover:bg-chrome-50">
-                            <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Create "{libraryQuery.trim()}"
+                        {libraryQuery.trim() && libraryResults.length === 0 && (
+                          <div style={{ padding: '7px 10px', borderTop: '1px solid #F0F0F0', color: '#9CA3AF', fontSize: 12 }}>
+                            ไม่พบ — กรุณาสร้าง entry ใน Product Library ก่อน
                           </div>
                         )}
                       </div>

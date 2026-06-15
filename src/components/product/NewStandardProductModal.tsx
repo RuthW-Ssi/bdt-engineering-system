@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import { useCategories, useMaterialsByPrefix } from '../../hooks/useMasters'
 import { useCreateProduct, useProducts } from '../../hooks/useProducts'
-import { useCreateLibraryEntry } from '../../hooks/useLibrary'
 import { libraryApi } from '../../api/library'
 import type { CreateStandardProductPayload, PaintSpecPreset, WeldingSpecPreset, LibraryEntryDTO } from '../../api/types'
 
@@ -123,8 +122,6 @@ export function NewStandardProductModal({ onClose }: Props) {
   const [libraryResults, setLibraryResults] = useState<LibraryEntryDTO[]>([])
   const [showLibraryDropdown, setShowLibraryDropdown] = useState(false)
   const [librarySearching, setLibrarySearching] = useState(false)
-  const { mutateAsync: createLibraryEntry } = useCreateLibraryEntry()
-
   // ── auto-fill spec when shape / assembly type changes ────────────────────
   useEffect(() => {
     const d = form.shape ? SHAPE_SPEC[form.shape] : form.assembly_type ? ASSEMBLY_SPEC[form.assembly_type] : null
@@ -639,24 +636,10 @@ export function NewStandardProductModal({ onClose }: Props) {
                           </span>
                         </button>
                       ))}
-                      {libraryQuery.trim() && (
-                        <button type="button"
-                          onMouseDown={async () => {
-                            try {
-                              const entry = await createLibraryEntry({ name: libraryQuery.trim() })
-                              setLibraryId(entry.id)
-                              setLibraryCode(entry.code)
-                              setLibraryName(entry.name)
-                              setLibraryResults(prev => [entry, ...prev])
-                              setShowLibraryDropdown(false)
-                            } catch (err: any) {
-                              const msg = err?.response?.data?.message ?? 'Failed to create'
-                              setErrors(er => ({ ...er, library: typeof msg === 'string' ? msg : JSON.stringify(msg) }))
-                            }
-                          }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 12px', background: 'none', border: 'none', borderTop: '1px solid #E0E0E0', cursor: 'pointer', color: '#0C447C', fontSize: 13, fontWeight: 600 }}>
-                          + Create new library entry "{libraryQuery.trim()}"
-                        </button>
+                      {libraryQuery.trim() && libraryResults.length === 0 && (
+                        <div style={{ padding: '8px 12px', borderTop: '1px solid #E0E0E0', color: '#9CA3AF', fontSize: 12 }}>
+                          ไม่พบ — กรุณาสร้าง entry ใน Product Library ก่อน
+                        </div>
                       )}
                       {!librarySearching && libraryResults.length === 0 && !libraryQuery.trim() && (
                         <div style={{ padding: 12, fontSize: 12, color: '#BDBDBD', textAlign: 'center' }}>Type to search library</div>
