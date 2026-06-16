@@ -12,7 +12,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common'
-import { ApiOperation, ApiBearerAuth, ApiTags } from '@nestjs/swagger'
+import { ApiOperation, ApiBearerAuth, ApiTags, ApiQuery } from '@nestjs/swagger'
 import { PrismaService } from '../../prisma/prisma.service'
 import { RoutingService } from './services/routing.service'
 import { CycleTimeService } from './services/cycle-time.service'
@@ -159,8 +159,10 @@ export class RoutingsController {
 
   @Get('routing-templates')
   @ApiTags('RoutingTemplates')
-  @ApiOperation({ summary: 'List all routing templates' })
-  listRoutingTemplates() {
+  @ApiOperation({ summary: 'List routing templates · ?mark_prefix_id=CODE → {suggested, others} (T-MO.05)' })
+  @ApiQuery({ name: 'mark_prefix_id', required: false, description: 'mark prefix CODE → suggestion mode' })
+  listRoutingTemplates(@Query('mark_prefix_id') markPrefixId?: string) {
+    if (markPrefixId) return this.routingService.suggestByMarkPrefix(markPrefixId)
     return this.routingService.listTemplates()
   }
 

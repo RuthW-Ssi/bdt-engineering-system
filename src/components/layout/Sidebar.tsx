@@ -4,6 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
+  ClipboardList, FileText,
 } from 'lucide-react'
 
 interface NavItem {
@@ -50,6 +51,12 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Production',
     items: [
+      {
+        label: 'Order', labelTh: 'ใบสั่งการผลิต', icon: <ClipboardList size={18} />, path: '/mo',
+        children: [
+          { label: 'MO', labelTh: 'MO', icon: <FileText size={14} />, path: '/mo' },
+        ],
+      },
       { label: 'Machines', labelTh: 'เครื่องจักร', icon: <Cog size={18} />, path: '/machines' },
       { label: 'QC', labelTh: 'ควบคุมคุณภาพ', icon: <ShieldCheck size={18} />, path: '/qc' },
       { label: 'Reports', labelTh: 'รายงาน', icon: <BarChart3 size={18} />, path: '/reports' },
@@ -65,7 +72,7 @@ interface Props {
 }
 
 export function Sidebar({ mobileOpen, onClose, collapsed, onToggleCollapse }: Props) {
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ '/routings': true })
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ '/routings': true, '/mo': true })
   const navigate = useNavigate()
   const location = useLocation()
 

@@ -83,6 +83,43 @@ export class RoutingService {
     }))
   }
 
+  /**
+   * T-MO.05 · MO form Section 3. Suggest routing templates that match the chosen
+   * mark prefix. Two signals (in priority order):
+   *   1) routing_template_binding_rule.match_mark_prefix  (explicit rules)
+   *   2) routing_template.applies_to_product_type === prefix code  (the actual
+   *      mapping in current data — binding rules are empty)
+   * Returns { suggested, others } — `others` is the override list (FE hides it
+   * behind a "Show all" toggle). Both share listTemplates() item shape.
+   */
+  async suggestByMarkPrefix(markPrefix: string) {
+    const rules = await this.prisma.routing_template_binding_rule.findMany({
+      where: { active: true, NOT: { match_mark_prefix: null } },
+      orderBy: [{ priority: 'asc' }, { id: 'asc' }],
+    })
+    const suggestedIds: number[] = []
+    const push = (id: number) => {
+      if (!suggestedIds.includes(id)) suggestedIds.push(id)
+    }
+    for (const r of rules) {
+      if (r.match_mark_prefix && markPrefix.startsWith(r.match_mark_prefix)) push(r.routing_template_id)
+    }
+
+    const templates = await this.listTemplates()
+    // primary signal in current data: template targets this mark prefix directly
+    for (const t of templates) {
+      if (t.applies_to_product_type === markPrefix) push(t.id)
+    }
+
+    const byId = new Map(templates.map((t) => [t.id, t]))
+    const suggested = suggestedIds
+      .map((id) => byId.get(id))
+      .filter((t): t is NonNullable<typeof t> => Boolean(t))
+    const suggestedSet = new Set(suggested.map((t) => t.id))
+    const others = templates.filter((t) => !suggestedSet.has(t.id))
+    return { suggested, others }
+  }
+
   // create: binds product to a template (or creates custom routing stub)
   async create(productCode: string, dto: CreateRoutingDto, userId: number) {
     const product = await this.requireProduct(productCode)

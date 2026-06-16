@@ -27,6 +27,9 @@ import { ActivityLibraryList } from './pages/ActivityLibraryList'
 import { Dashboard } from './pages/Dashboard'
 import { MachineList } from './pages/MachineList'
 import { MachineDetail } from './pages/MachineDetail'
+import { MoList } from './pages/MoList'
+import { MoNew } from './pages/MoNew'
+import { MoDetail } from './pages/MoDetail'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -92,6 +95,11 @@ export default function App() {
             <Route path="/activity-library/:id/edit" element={<ActivityLibraryList />} />
             <Route path="/machines" element={<MachineList />} />
             <Route path="/machines/:id" element={<MachineDetail />} />
+            {/* Sprint 13: Manufacturing Order */}
+            <Route path="/mo" element={<MoList />} />
+            <Route path="/mo/new" element={<MoNew />} />
+            <Route path="/mo/:id/edit" element={<MoNew />} />
+            <Route path="/mo/:id" element={<MoDetail />} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />

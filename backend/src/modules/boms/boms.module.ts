@@ -1,13 +1,16 @@
 import { Module } from '@nestjs/common'
 import { BomsService } from './services/boms.service'
 import { BomExplosionService } from './services/bom-explosion.service'
+import { BomAssembliesService } from './services/bom-assemblies.service'
 import { BomsController } from './boms.controller'
+import { BomAssembliesController } from './bom-assemblies.controller'
 import { MailModule } from '../mail/mail.module'
+import { ManufacturingOrdersModule } from '../manufacturing-orders/manufacturing-orders.module'
 
 @Module({
-  imports: [MailModule],
-  controllers: [BomsController],
-  providers: [BomsService, BomExplosionService],
+  imports: [MailModule, ManufacturingOrdersModule],
+  controllers: [BomsController, BomAssembliesController],
+  providers: [BomsService, BomExplosionService, BomAssembliesService],
   exports: [BomsService],
 })
 export class BomsModule {}

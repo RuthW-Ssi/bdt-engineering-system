@@ -4,8 +4,8 @@ generator client {
 
 datasource db {
   provider  = "postgresql"
-  url       = env("DATABASE_URL")  // pooler (PgBouncer, port 6543)
-  directUrl = env("DIRECT_URL")    // direct — Prisma uses this for migrations
+  url       = env("DATABASE_URL") // pooler (PgBouncer, port 6543)
+  directUrl = env("DIRECT_URL") // direct — Prisma uses this for migrations
 }
 
 // ── 🟦 Standard Odoo: res_users (Sprint 6: JWT auth fields) ──
@@ -18,7 +18,7 @@ model res_users {
   lang        String?  @default("th_TH") @db.VarChar(10)
   tz          String?  @default("Asia/Bangkok") @db.VarChar(40)
   role        String   @default("user") @db.VarChar(20) // "admin" | "user"
-  partner_id  Int?     // FK placeholder → res_partner (Sprint 7)
+  partner_id  Int? // FK placeholder → res_partner (Sprint 7)
   active      Boolean  @default(true)
   create_date DateTime @default(now()) @db.Timestamptz
   write_date  DateTime @updatedAt @db.Timestamptz
@@ -28,10 +28,10 @@ model res_users {
   messages          mail_message[]
 
   // Sprint 2: Project + Product relations
-  projects_created project[]  @relation("project_create")
-  projects_written project[]  @relation("project_write")
-  products_created products[] @relation("product_create")
-  products_written products[] @relation("product_write")
+  projects_created        project[]         @relation("project_create")
+  projects_written        project[]         @relation("project_write")
+  products_created        products[]        @relation("product_create")
+  products_written        products[]        @relation("product_write")
   product_library_created product_library[] @relation("pl_create")
   product_library_written product_library[] @relation("pl_write")
 
@@ -44,42 +44,46 @@ model res_users {
   drawing_approvals drawing_revision[] @relation("DrawingApprover")
 
   // Sprint 4: Routing audit
-  workcenters_created        mrp_workcenter[]            @relation("wc_create")
-  workcenters_written        mrp_workcenter[]            @relation("wc_write")
-  routing_wc_created         mrp_routing_workcenter[]    @relation("rwc_create")
-  routing_wc_written         mrp_routing_workcenter[]    @relation("rwc_write")
+  workcenters_created mrp_workcenter[]         @relation("wc_create")
+  workcenters_written mrp_workcenter[]         @relation("wc_write")
+  routing_wc_created  mrp_routing_workcenter[] @relation("rwc_create")
+  routing_wc_written  mrp_routing_workcenter[] @relation("rwc_write")
 
   // Sprint 4.2: Routing Option 3 audit
-  routing_templates_created routing_template[]         @relation("rt_create")
-  routing_templates_written routing_template[]         @relation("rt_write")
+  routing_templates_created routing_template[] @relation("rt_create")
+  routing_templates_written routing_template[] @relation("rt_write")
 
   // Sprint 4.3: History audit + simulator fixtures
-  routing_template_history  routing_template_history[] @relation("rth_user")
-  test_fixtures_created     routing_template_test_fixture[] @relation("rtf_create")
+  routing_template_history routing_template_history[]      @relation("rth_user")
+  test_fixtures_created    routing_template_test_fixture[] @relation("rtf_create")
 
   // Sprint 7: BOM Dispatch audit
-  bom_dispatches_created  bom_dispatch[]      @relation("dispatch_create")
-  bom_dispatches_written  bom_dispatch[]      @relation("dispatch_write")
-  bom_assemblies_created  bom_assembly[]      @relation("assembly_create")
-  bom_assemblies_written  bom_assembly[]      @relation("assembly_write")
-  bom_parts_created       bom_part[]          @relation("part_create")
-  bom_parts_written       bom_part[]          @relation("part_write")
-  bom_doc_revs_created    bom_doc_revision[]  @relation("docrev_create")
-  bom_asm_parts_created   bom_assembly_part[] @relation("asmpart_create")
+  bom_dispatches_created bom_dispatch[]      @relation("dispatch_create")
+  bom_dispatches_written bom_dispatch[]      @relation("dispatch_write")
+  bom_assemblies_created bom_assembly[]      @relation("assembly_create")
+  bom_assemblies_written bom_assembly[]      @relation("assembly_write")
+  bom_parts_created      bom_part[]          @relation("part_create")
+  bom_parts_written      bom_part[]          @relation("part_write")
+  bom_doc_revs_created   bom_doc_revision[]  @relation("docrev_create")
+  bom_asm_parts_created  bom_assembly_part[] @relation("asmpart_create")
 
   // Sprint 12: Activity Library
-  activities_created      activity[]          @relation("activity_create_user")
-  activities_written      activity[]          @relation("activity_write_user")
+  activities_created activity[] @relation("activity_create_user")
+  activities_written activity[] @relation("activity_write_user")
+
+  // Sprint 13: Manufacturing Order audit
+  mos_created manufacturing_order[] @relation("mo_create")
+  mos_written manufacturing_order[] @relation("mo_write")
 }
 
 model uom_uom {
-  id          Int          @id @default(autoincrement())
-  name        String       @db.VarChar(40)
-  factor      Decimal      @default(1) @db.Decimal(12, 6)
-  uom_type    String       @default("reference") @db.VarChar(10)
-  rounding    Decimal      @default(0.01) @db.Decimal(12, 6)
-  active      Boolean      @default(true)
-  odoo_ref_id String?      @db.VarChar(40)
+  id          Int     @id @default(autoincrement())
+  name        String  @db.VarChar(40)
+  factor      Decimal @default(1) @db.Decimal(12, 6)
+  uom_type    String  @default("reference") @db.VarChar(10)
+  rounding    Decimal @default(0.01) @db.Decimal(12, 6)
+  active      Boolean @default(true)
+  odoo_ref_id String? @db.VarChar(40)
 
   materials_uom    materials[]        @relation("uom")
   materials_uom_po materials[]        @relation("uom_po")
@@ -140,11 +144,11 @@ model materials {
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines             product_bom_line[]               @relation("BomLineMaterial")
-  paint_configs         dispatch_assembly_paint_config[] @relation("PaintConfigMaterial")
-  material_requirements dispatch_material_requirement[]  @relation("MaterialRequirements")
+  bom_lines                product_bom_line[]                 @relation("BomLineMaterial")
+  paint_configs            dispatch_assembly_paint_config[]   @relation("PaintConfigMaterial")
+  material_requirements    dispatch_material_requirement[]    @relation("MaterialRequirements")
   assembly_welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfigMaterial")
-  welding_requirements  dispatch_welding_requirement[]   @relation("WeldingRequirements")
+  welding_requirements     dispatch_welding_requirement[]     @relation("WeldingRequirements")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -169,8 +173,8 @@ model product_library_seq {
 // Sprint 11: governance layer — STD products must link here (CUS optional)
 model product_library {
   id                   Int       @id @default(autoincrement())
-  code                 String    @unique @db.VarChar(20)   // LIB-NNN auto via product_library_seq
-  name                 String    @unique @db.VarChar(200)  // canonical product name (uppercase, case-insensitive UNIQUE enforced in service)
+  code                 String    @unique @db.VarChar(20) // LIB-NNN auto via product_library_seq
+  name                 String    @unique @db.VarChar(200) // canonical product name (uppercase, case-insensitive UNIQUE enforced in service)
   mark_prefix          String?   @db.VarChar(10)
   mark_prefix_label    String?   @db.VarChar(40)
   mark_prefix_category String?   @db.VarChar(20)
@@ -240,28 +244,28 @@ model res_partner {
 
 // ── 🟦 Project ──────────────────────────────────────────────────
 model project {
-  id              Int       @id @default(autoincrement())
-  project_code    String    @unique @db.VarChar(20)
-  name            String    @db.VarChar(200)
+  id              Int          @id @default(autoincrement())
+  project_code    String       @unique @db.VarChar(20)
+  name            String       @db.VarChar(200)
   customer_id     Int?
   customer        res_partner? @relation(fields: [customer_id], references: [id])
-  start_date      DateTime? @db.Date
-  target_handover DateTime? @db.Date
-  state           String    @default("lead") @db.VarChar(20)
-  active          Boolean   @default(true)
-  odoo_ref_id     String?   @db.VarChar(40)
+  start_date      DateTime?    @db.Date
+  target_handover DateTime?    @db.Date
+  state           String       @default("lead") @db.VarChar(20)
+  active          Boolean      @default(true)
+  odoo_ref_id     String?      @db.VarChar(40)
   create_uid      Int
-  create_user     res_users @relation("project_create", fields: [create_uid], references: [id])
-  create_date     DateTime  @default(now()) @db.Timestamptz
+  create_user     res_users    @relation("project_create", fields: [create_uid], references: [id])
+  create_date     DateTime     @default(now()) @db.Timestamptz
   write_uid       Int
-  write_user      res_users @relation("project_write", fields: [write_uid], references: [id])
-  write_date      DateTime  @default(now()) @db.Timestamptz
+  write_user      res_users    @relation("project_write", fields: [write_uid], references: [id])
+  write_date      DateTime     @default(now()) @db.Timestamptz
 
-  zones         project_zone[]
-  products      products[]
-  boms          product_bom[]          @relation("ProjectBom")
-  drawings      shop_drawing[]         @relation("ProjectDrawings")
-  dispatches    bom_dispatch[]         @relation("ProjectDispatches")
+  zones      project_zone[]
+  products   products[]
+  boms       product_bom[]  @relation("ProjectBom")
+  drawings   shop_drawing[] @relation("ProjectDrawings")
+  dispatches bom_dispatch[] @relation("ProjectDispatches")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -287,18 +291,18 @@ model project_zone {
 
 // ── 🟥 Sub Zone (Sprint 6: F2/ST3) ────────────────────────────
 model sub_zone {
-  id          Int            @id @default(autoincrement())
+  id          Int          @id @default(autoincrement())
   zone_id     Int
-  zone        project_zone   @relation(fields: [zone_id], references: [id])
-  name        String         @db.VarChar(80)
-  code        String?        @db.VarChar(20)
-  active      Boolean        @default(true)
+  zone        project_zone @relation(fields: [zone_id], references: [id])
+  name        String       @db.VarChar(80)
+  code        String?      @db.VarChar(20)
+  active      Boolean      @default(true)
   create_uid  Int?
   write_uid   Int?
-  create_date DateTime       @default(now()) @db.Timestamptz
-  write_date  DateTime       @updatedAt @db.Timestamptz
+  create_date DateTime     @default(now()) @db.Timestamptz
+  write_date  DateTime     @updatedAt @db.Timestamptz
 
-  dispatches  bom_dispatch[] @relation("SubZoneDispatches")
+  dispatches bom_dispatch[] @relation("SubZoneDispatches")
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -309,7 +313,8 @@ model mark_prefix_master {
   part_type_code String  @db.Char(1)
   active         Boolean @default(true)
 
-  products       products[]
+  products             products[]
+  manufacturing_orders manufacturing_order[] // Sprint 13: MO (P12, 1 prefix per MO)
 }
 
 // ── 🟦/🟨/🟥 Products (single-table inheritance, F4 / PD-01) ───
@@ -385,8 +390,8 @@ model products {
   product_kind String? @db.VarChar(20)
 
   // Sprint 11: Product Library link
-  library_id  Int?
-  library     product_library? @relation("ProductLibraryRef", fields: [library_id], references: [id], onDelete: SetNull)
+  library_id Int?
+  library    product_library? @relation("ProductLibraryRef", fields: [library_id], references: [id], onDelete: SetNull)
 
   // Odoo sync
   odoo_ref_id String? @db.VarChar(40)
@@ -399,16 +404,15 @@ model products {
   write_user  res_users @relation("product_write", fields: [write_uid], references: [id])
   write_date  DateTime  @default(now()) @db.Timestamptz
 
-  boms                   product_bom[]          @relation("ProductBom")
-  sub_product_bom_lines  product_bom_line[]     @relation("SubProductInBom")
-  drawings               shop_drawing[]         @relation("ProductDrawings")
-  bom_assemblies         bom_assembly[]
-  bom_parts              bom_part[]
+  boms                  product_bom[]      @relation("ProductBom")
+  sub_product_bom_lines product_bom_line[] @relation("SubProductInBom")
+  drawings              shop_drawing[]     @relation("ProductDrawings")
+  bom_assemblies        bom_assembly[]
+  bom_parts             bom_part[]
 
   @@index([product_kind, product_type, name])
   @@index([library_id])
 }
-
 
 // ═══════════════════════════════════════════════════════════════
 // Sprint 3: BOM + Drawings
@@ -594,51 +598,52 @@ model mrp_workcenter {
   write_user               res_users        @relation("wc_write", fields: [write_uid], references: [id])
   write_date               DateTime         @default(now()) @db.Timestamptz
 
-  routing_workcenters  mrp_routing_workcenter[]
-  op_types             mrp_op_type[]
-  operation_templates  operation_template[]
+  routing_workcenters mrp_routing_workcenter[]
+  op_types            mrp_op_type[]
+  operation_templates operation_template[]
+  mo_operations       mo_operation[]           @relation("mo_op_workcenter") // Sprint 13: MO op snapshot
 }
 
 // ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — Sprint 4.2: bound to template) ──
 model mrp_routing_workcenter {
-  id                Int              @id @default(autoincrement())
+  id                  Int              @id @default(autoincrement())
   // Sprint 4.2: bound to routing_template (no more per-product rows)
-  template_id       Int
-  template          routing_template @relation(fields: [template_id], references: [id], onDelete: Cascade)
-  name              String           @db.VarChar(60)
-  op_code           String           @db.VarChar(30)
-  sequence          Int              @default(10)
-  workcenter_id     Int
-  workcenter        mrp_workcenter   @relation(fields: [workcenter_id], references: [id])
+  template_id         Int
+  template            routing_template @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  name                String           @db.VarChar(60)
+  op_code             String           @db.VarChar(30)
+  sequence            Int              @default(10)
+  workcenter_id       Int
+  workcenter          mrp_workcenter   @relation(fields: [workcenter_id], references: [id])
   // Time (Odoo-compat)
-  time_cycle        Decimal          @default(0) @db.Decimal(10, 4)
-  time_cycle_manual Decimal?         @db.Decimal(10, 4)
-  time_mode         String           @default("formula") @db.VarChar(10)
+  time_cycle          Decimal          @default(0) @db.Decimal(10, 4)
+  time_cycle_manual   Decimal?         @db.Decimal(10, 4)
+  time_mode           String           @default("formula") @db.VarChar(10)
   // BDT-custom
-  routing_view      String           @default("eRoute") @db.VarChar(10)
-  method            String?          @db.VarChar(20)
-  formula_expr      String?          @db.VarChar(400)
-  op_type_id        Int?
-  op_type           mrp_op_type?     @relation(fields: [op_type_id], references: [id])
+  routing_view        String           @default("eRoute") @db.VarChar(10)
+  method              String?          @db.VarChar(20)
+  formula_expr        String?          @db.VarChar(400)
+  op_type_id          Int?
+  op_type             mrp_op_type?     @relation(fields: [op_type_id], references: [id])
   // Computed cache (template-level — averaged across all bound products)
-  last_computed_at  DateTime?        @db.Timestamptz
-  cache_key         String?          @db.VarChar(64)
+  last_computed_at    DateTime?        @db.Timestamptz
+  cache_key           String?          @db.VarChar(64)
   // Canvas position (RoutingBuilder)
-  canvas_x          Float?
-  canvas_y          Float?
+  canvas_x            Float?
+  canvas_y            Float?
   // Activities snapshot (JSON array saved by RoutingBuilder canvas)
   activities_snapshot Json?
   // Dependencies (Sprint 5+)
-  blocked_by_op_ids Int[]            @default([])
+  blocked_by_op_ids   Int[]            @default([])
   // Audit
-  create_uid        Int
-  create_user       res_users        @relation("rwc_create", fields: [create_uid], references: [id])
-  create_date       DateTime         @default(now()) @db.Timestamptz
-  write_uid         Int
-  write_user        res_users        @relation("rwc_write", fields: [write_uid], references: [id])
-  write_date        DateTime         @default(now()) @db.Timestamptz
+  create_uid          Int
+  create_user         res_users        @relation("rwc_create", fields: [create_uid], references: [id])
+  create_date         DateTime         @default(now()) @db.Timestamptz
+  write_uid           Int
+  write_user          res_users        @relation("rwc_write", fields: [write_uid], references: [id])
+  write_date          DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines     product_bom_line[]    @relation("BomLineOp")
+  bom_lines product_bom_line[] @relation("BomLineOp")
 
   @@unique([template_id, sequence], map: "ux_routing_op_seq_per_template")
   @@index([template_id])
@@ -655,7 +660,6 @@ model routing_formula_param {
   active             Boolean  @default(true)
   create_date        DateTime @default(now()) @db.Timestamptz
   write_date         DateTime @default(now()) @db.Timestamptz
-
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -686,15 +690,18 @@ model routing_template {
   write_user              res_users         @relation("rt_write", fields: [write_uid], references: [id])
   write_date              DateTime          @default(now()) @db.Timestamptz
 
-  operations             mrp_routing_workcenter[]
-  binding_rules          routing_template_binding_rule[]
-  bound_products         products[]                      @relation("ProductTemplateBind")
-  history                routing_template_history[]      @relation("TemplateHistory")
-  test_fixtures          routing_template_test_fixture[]
+  // Sprint 13 · P7: forward-looking DBR/TOC anchor → mrp_routing_workcenter.id (soft ref)
+  bottleneck_op_id Int?
+
+  operations           mrp_routing_workcenter[]
+  binding_rules        routing_template_binding_rule[]
+  bound_products       products[]                      @relation("ProductTemplateBind")
+  history              routing_template_history[]      @relation("TemplateHistory")
+  test_fixtures        routing_template_test_fixture[]
+  manufacturing_orders manufacturing_order[] // Sprint 13: MO snapshot source
 
   @@index([state])
 }
-
 
 // ── 🟨 Template Binding Rule (engineer-editable, priority-ordered rule chain) ──
 model routing_template_binding_rule {
@@ -730,12 +737,12 @@ model routing_template_test_fixture {
   id                  Int              @id @default(autoincrement())
   template_id         Int
   template            routing_template @relation(fields: [template_id], references: [id], onDelete: Cascade)
-  name                String           @db.VarChar(80)  // e.g. 'Standard 1500 kg / 12 m column'
+  name                String           @db.VarChar(80) // e.g. 'Standard 1500 kg / 12 m column'
   description         String?          @db.Text
-  source_mode         String           @db.VarChar(20)  // 'pick_product' | 'manual'
+  source_mode         String           @db.VarChar(20) // 'pick_product' | 'manual'
   source_product_id   Int?
   source_product      products?        @relation("FixtureProduct", fields: [source_product_id], references: [id])
-  attribute_values    Json             // resolved attribute values used (for replay)
+  attribute_values    Json // resolved attribute values used (for replay)
   expected_total_min  Decimal?         @db.Decimal(10, 2)
   expected_total_cost Decimal?         @db.Decimal(12, 2)
   // Audit
@@ -757,17 +764,16 @@ model routing_template_history {
   template_id    Int
   template       routing_template @relation("TemplateHistory", fields: [template_id], references: [id], onDelete: Cascade)
   version        String           @db.VarChar(20)
-  snapshot       Json             // full mutable-field snapshot of routing_template at time of change
+  snapshot       Json // full mutable-field snapshot of routing_template at time of change
   changed_by_uid Int
   changed_by     res_users        @relation("rth_user", fields: [changed_by_uid], references: [id])
   changed_at     DateTime         @default(now()) @db.Timestamptz
-  eco_id         Int?             // ⏳ Sprint 5 mrp_eco FK
+  eco_id         Int? // ⏳ Sprint 5 mrp_eco FK
   reason         String?          @db.Text
 
   @@index([template_id, changed_at])
   @@index([eco_id])
 }
-
 
 // ═══════════════════════════════════════════════════════════════
 // Sprint 7: BOM Upload (dispatch + doc_revision + assembly + part)
@@ -775,35 +781,35 @@ model routing_template_history {
 
 // ── 🟥 BOM Dispatch (one upload session = one dispatch) ──────────
 model bom_dispatch {
-  id           Int          @id @default(autoincrement())
-  project_id   Int
-  project      project      @relation("ProjectDispatches", fields: [project_id], references: [id])
-  zone_id      Int
-  zone         project_zone @relation("ZoneDispatches", fields: [zone_id], references: [id])
-  sub_zone_id  Int?
-  sub_zone     sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
-  status       String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
-  uploaded_at  DateTime     @default(now()) @db.Timestamptz
+  id                    Int          @id @default(autoincrement())
+  project_id            Int
+  project               project      @relation("ProjectDispatches", fields: [project_id], references: [id])
+  zone_id               Int
+  zone                  project_zone @relation("ZoneDispatches", fields: [zone_id], references: [id])
+  sub_zone_id           Int?
+  sub_zone              sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
+  status                String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
+  uploaded_at           DateTime     @default(now()) @db.Timestamptz
   // Aggregate counts — cached after processing
-  assembly_total Int?
-  part_total     Int?
+  assembly_total        Int?
+  part_total            Int?
   // mBOM coverage — saved after welding compute()
   welding_coverage_json Json?
   // Audit
-  create_uid   Int
-  create_user  res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
-  create_date  DateTime     @default(now()) @db.Timestamptz
-  write_uid    Int
-  write_user   res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
-  write_date   DateTime     @default(now()) @db.Timestamptz
+  create_uid            Int
+  create_user           res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
+  create_date           DateTime     @default(now()) @db.Timestamptz
+  write_uid             Int
+  write_user            res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
+  write_date            DateTime     @default(now()) @db.Timestamptz
 
-  doc_revisions         bom_doc_revision[]
-  assemblies            bom_assembly[]
-  parts                 bom_part[]
-  paint_configs         dispatch_assembly_paint_config[] @relation("DispatchPaintConfigs")
-  material_requirements dispatch_material_requirement[]  @relation("DispatchMaterialReqs")
+  doc_revisions            bom_doc_revision[]
+  assemblies               bom_assembly[]
+  parts                    bom_part[]
+  paint_configs            dispatch_assembly_paint_config[]   @relation("DispatchPaintConfigs")
+  material_requirements    dispatch_material_requirement[]    @relation("DispatchMaterialReqs")
   assembly_welding_configs dispatch_assembly_welding_config[] @relation("DispatchAssemblyWeldingConfigs")
-  welding_requirements  dispatch_welding_requirement[]   @relation("DispatchWeldingReqs")
+  welding_requirements     dispatch_welding_requirement[]     @relation("DispatchWeldingReqs")
 
   @@index([project_id, status])
   @@index([zone_id])
@@ -832,33 +838,34 @@ model bom_doc_revision {
 
 // ── 🟥 BOM Assembly (soft ref — assembly_mark is a plain string) ─
 model bom_assembly {
-  id            Int          @id @default(autoincrement())
-  dispatch_id   Int
-  dispatch      bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
-  assembly_mark String       @db.VarChar(60) // e.g. "WH-CO-001" — soft ref, no FK to products
-  name          String?      @db.VarChar(200)
-  qty           Decimal?     @db.Decimal(12, 3)
-  weight_kg     Decimal?     @db.Decimal(12, 3)
-  surface_area_m2 Decimal?   @db.Decimal(12, 4)
-  length_mm     Decimal?     @db.Decimal(12, 2)
-  width_mm      Decimal?     @db.Decimal(12, 2)
-  height_mm     Decimal?     @db.Decimal(12, 2)
-  attributes    Json         @default("{}")
+  id              Int          @id @default(autoincrement())
+  dispatch_id     Int
+  dispatch        bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  assembly_mark   String       @db.VarChar(60) // e.g. "WH-CO-001" — soft ref, no FK to products
+  name            String?      @db.VarChar(200)
+  qty             Decimal?     @db.Decimal(12, 3)
+  weight_kg       Decimal?     @db.Decimal(12, 3)
+  surface_area_m2 Decimal?     @db.Decimal(12, 4)
+  length_mm       Decimal?     @db.Decimal(12, 2)
+  width_mm        Decimal?     @db.Decimal(12, 2)
+  height_mm       Decimal?     @db.Decimal(12, 2)
+  attributes      Json         @default("{}")
   // Sprint 8: eBOM ↔ mBOM mapping
-  product_id    Int?
-  product       products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
-  match_status  String?      @db.VarChar(20) // MATCHED_STANDARD | MATCHED_CUSTOM | AUTO_CREATED
+  product_id      Int?
+  product         products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  match_status    String?      @db.VarChar(20) // MATCHED_STANDARD | MATCHED_CUSTOM | AUTO_CREATED
   // Audit
-  create_uid    Int
-  create_user   res_users    @relation("assembly_create", fields: [create_uid], references: [id])
-  create_date   DateTime     @default(now()) @db.Timestamptz
-  write_uid     Int
-  write_user    res_users    @relation("assembly_write", fields: [write_uid], references: [id])
-  write_date    DateTime     @default(now()) @db.Timestamptz
+  create_uid      Int
+  create_user     res_users    @relation("assembly_create", fields: [create_uid], references: [id])
+  create_date     DateTime     @default(now()) @db.Timestamptz
+  write_uid       Int
+  write_user      res_users    @relation("assembly_write", fields: [write_uid], references: [id])
+  write_date      DateTime     @default(now()) @db.Timestamptz
 
-  assembly_parts  bom_assembly_part[]
-  paint_configs   dispatch_assembly_paint_config[] @relation("AssemblyPaintConfigs")
-  welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfig")
+  assembly_parts    bom_assembly_part[]
+  paint_configs     dispatch_assembly_paint_config[]   @relation("AssemblyPaintConfigs")
+  welding_configs   dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfig")
+  mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
 
   @@unique([dispatch_id, assembly_mark])
   @@index([dispatch_id])
@@ -867,30 +874,30 @@ model bom_assembly {
 
 // ── 🟥 BOM Part (soft ref — part_mark is a plain string) ─────────
 model bom_part {
-  id          Int          @id @default(autoincrement())
-  dispatch_id Int
-  dispatch    bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
-  part_mark   String       @db.VarChar(60) // e.g. "WH-CO-001-P01" — soft ref
-  description String?      @db.VarChar(200)
-  profile     String?      @db.VarChar(60)
-  grade       String?      @db.VarChar(20)
-  qty         Decimal?     @db.Decimal(12, 3)
-  length_mm   Decimal?     @db.Decimal(10, 2)
-  weight_kg   Decimal?     @db.Decimal(12, 3)
-  attributes  Json         @default("{}")
+  id           Int          @id @default(autoincrement())
+  dispatch_id  Int
+  dispatch     bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  part_mark    String       @db.VarChar(60) // e.g. "WH-CO-001-P01" — soft ref
+  description  String?      @db.VarChar(200)
+  profile      String?      @db.VarChar(60)
+  grade        String?      @db.VarChar(20)
+  qty          Decimal?     @db.Decimal(12, 3)
+  length_mm    Decimal?     @db.Decimal(10, 2)
+  weight_kg    Decimal?     @db.Decimal(12, 3)
+  attributes   Json         @default("{}")
   // Sprint 8: eBOM ↔ mBOM mapping
-  product_id  Int?
-  product     products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
-  match_status String?     @db.VarChar(20) // MATCHED_STANDARD | MATCHED_CUSTOM | AUTO_CREATED
+  product_id   Int?
+  product      products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  match_status String?      @db.VarChar(20) // MATCHED_STANDARD | MATCHED_CUSTOM | AUTO_CREATED
   // Audit
-  create_uid  Int
-  create_user res_users    @relation("part_create", fields: [create_uid], references: [id])
-  create_date DateTime     @default(now()) @db.Timestamptz
-  write_uid   Int
-  write_user  res_users    @relation("part_write", fields: [write_uid], references: [id])
-  write_date  DateTime     @default(now()) @db.Timestamptz
+  create_uid   Int
+  create_user  res_users    @relation("part_create", fields: [create_uid], references: [id])
+  create_date  DateTime     @default(now()) @db.Timestamptz
+  write_uid    Int
+  write_user   res_users    @relation("part_write", fields: [write_uid], references: [id])
+  write_date   DateTime     @default(now()) @db.Timestamptz
 
-  assembly_parts  bom_assembly_part[]
+  assembly_parts bom_assembly_part[]
 
   @@unique([dispatch_id, part_mark])
   @@index([dispatch_id])
@@ -980,64 +987,63 @@ model dispatch_assembly_welding_config {
 
 // ── Sprint 9 (Wire): computed welding requirement per dispatch ─
 model dispatch_welding_requirement {
-  id                    Int          @id @default(autoincrement())
-  dispatch_id           Int
-  dispatch              bom_dispatch @relation("DispatchWeldingReqs", fields: [dispatch_id], references: [id], onDelete: Cascade)
-  material_id           Int
-  material              materials    @relation("WeldingRequirements", fields: [material_id], references: [id])
-  total_path_m          Decimal      @db.Decimal(14, 4)
-  total_consumption_kg  Decimal      @db.Decimal(14, 4)
-  total_packages        Int
-  computed_at           DateTime     @default(now()) @db.Timestamptz
+  id                   Int          @id @default(autoincrement())
+  dispatch_id          Int
+  dispatch             bom_dispatch @relation("DispatchWeldingReqs", fields: [dispatch_id], references: [id], onDelete: Cascade)
+  material_id          Int
+  material             materials    @relation("WeldingRequirements", fields: [material_id], references: [id])
+  total_path_m         Decimal      @db.Decimal(14, 4)
+  total_consumption_kg Decimal      @db.Decimal(14, 4)
+  total_packages       Int
+  computed_at          DateTime     @default(now()) @db.Timestamptz
 
   @@unique([dispatch_id, material_id])
   @@index([dispatch_id])
   @@index([material_id])
 }
 
-
 // ═══════════════════════════════════════════════════════════════
 // Sprint 11: Operation Library (operation_template)
 // ═══════════════════════════════════════════════════════════════
 
 model operation_template {
-  id            Int      @id @default(autoincrement())
-  op_code       String   @unique @db.VarChar(40)
-  name          String   @db.VarChar(100)
+  id            Int             @id @default(autoincrement())
+  op_code       String          @unique @db.VarChar(40)
+  name          String          @db.VarChar(100)
   op_type_id    Int?
-  op_type       mrp_op_type?     @relation(fields: [op_type_id], references: [id])
+  op_type       mrp_op_type?    @relation(fields: [op_type_id], references: [id])
   workcenter_id Int?
-  workcenter    mrp_workcenter?  @relation(fields: [workcenter_id], references: [id])
-  method        String?  @db.VarChar(20)
-  time_mode     String   @default("formula") @db.VarChar(20)
-  duration_min  Decimal? @db.Decimal(10, 4)
-  formula_expr  String?  @db.VarChar(400)
-  status        String   @default("draft") @db.VarChar(10)
-  create_uid    Int      @default(1)
-  create_date   DateTime @default(now()) @db.Timestamptz
-  write_uid     Int      @default(1)
-  write_date    DateTime @default(now()) @db.Timestamptz
+  workcenter    mrp_workcenter? @relation(fields: [workcenter_id], references: [id])
+  method        String?         @db.VarChar(20)
+  time_mode     String          @default("formula") @db.VarChar(20)
+  duration_min  Decimal?        @db.Decimal(10, 4)
+  formula_expr  String?         @db.VarChar(400)
+  status        String          @default("draft") @db.VarChar(10)
+  create_uid    Int             @default(1)
+  create_date   DateTime        @default(now()) @db.Timestamptz
+  write_uid     Int             @default(1)
+  write_date    DateTime        @default(now()) @db.Timestamptz
 
-  activities    operation_template_activity[]
+  activities operation_template_activity[]
 }
 
 model operation_template_activity {
-  id                          Int                        @id @default(autoincrement())
-  operation_template_id       Int
-  operation_template          operation_template         @relation(fields: [operation_template_id], references: [id], onDelete: Cascade)
-  sequence                    Int                        @default(10)
-  name                        String                     @db.VarChar(200)
-  measure                     String                     @db.VarChar(40)
-  unit                        String?                    @db.VarChar(20)
-  per_minute                  Decimal?                   @db.Decimal(10, 4)
-  machine_id                  Int?
-  machine                     equipment_resource?        @relation("OpActMachine", fields: [machine_id], references: [id], onDelete: SetNull)
-  source_activity_id          Int?
-  source_activity             activity?                  @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
-  snapshot_at                 DateTime?                  @db.Timestamptz
-  tools                       op_act_tool[]
-  labors                      op_act_labor[]
-  op_materials                op_act_material[]
+  id                    Int                 @id @default(autoincrement())
+  operation_template_id Int
+  operation_template    operation_template  @relation(fields: [operation_template_id], references: [id], onDelete: Cascade)
+  sequence              Int                 @default(10)
+  name                  String              @db.VarChar(200)
+  measure               String              @db.VarChar(40)
+  unit                  String?             @db.VarChar(20)
+  per_minute            Decimal?            @db.Decimal(10, 4)
+  machine_id            Int?
+  machine               equipment_resource? @relation("OpActMachine", fields: [machine_id], references: [id], onDelete: SetNull)
+  source_activity_id    Int?
+  source_activity       activity?           @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
+  snapshot_at           DateTime?           @db.Timestamptz
+  tools                 op_act_tool[]
+  labors                op_act_labor[]
+  op_materials          op_act_material[]
 
   @@index([operation_template_id])
 }
@@ -1068,7 +1074,7 @@ model equipment_resource {
   id          Int      @id @default(autoincrement())
   code        String   @unique @db.VarChar(30)
   name        String   @db.VarChar(80)
-  type        String   @db.VarChar(20)  // 'machine' | 'handling' | 'labor' | 'tool' | 'consumable'
+  type        String   @db.VarChar(20) // 'machine' | 'handling' | 'labor' | 'tool' | 'consumable'
   rate        Decimal? @db.Decimal(10, 4)
   rate_unit   String?  @db.VarChar(20)
   active      Boolean  @default(true)
@@ -1086,19 +1092,19 @@ model equipment_resource {
   specs               String?         @db.Text
   photo_url           String?
 
-  operation_template_acts       operation_template_activity[] @relation("OpActMachine")
-  op_act_tools                  op_act_tool[]
+  operation_template_acts operation_template_activity[] @relation("OpActMachine")
+  op_act_tools            op_act_tool[]
   // Sprint 11: Activity Library
-  activities                    activity[]                    @relation("activity_machine")
-  activity_labors               activity_labor[]              @relation("activity_labor_resource")
-  activity_consumes             activity_consume[]            @relation("activity_consume_resource")
-  activity_tools                activity_tool[]               @relation("activity_tool_resource")
-  op_act_labors                 op_act_labor[]                @relation("OpActLaborResource")
-  op_act_materials              op_act_material[]             @relation("op_act_material_resource")
+  activities              activity[]                    @relation("activity_machine")
+  activity_labors         activity_labor[]              @relation("activity_labor_resource")
+  activity_consumes       activity_consume[]            @relation("activity_consume_resource")
+  activity_tools          activity_tool[]               @relation("activity_tool_resource")
+  op_act_labors           op_act_labor[]                @relation("OpActLaborResource")
+  op_act_materials        op_act_material[]             @relation("op_act_material_resource")
   // T-MACH.01: Machine Tracker relations
-  maintenance_logs              maintenance_log[]
-  repair_tickets                repair_ticket[]
-  status_history                machine_status_history[]
+  maintenance_logs        maintenance_log[]
+  repair_tickets          repair_ticket[]
+  status_history          machine_status_history[]
 }
 
 model op_act_tool {
@@ -1144,22 +1150,22 @@ model op_act_material {
 // ═══════════════════════════════════════════════════════════════
 
 model activity {
-  id            Int                @id @default(autoincrement())
-  activity_code String             @unique @db.VarChar(20)
-  name          String             @db.VarChar(120)
-  machine_id    Int
-  machine       equipment_resource @relation("activity_machine", fields: [machine_id], references: [id])
-  duration_min  Decimal            @db.Decimal(10, 2)
-  create_uid    Int
-  create_user   res_users          @relation("activity_create_user", fields: [create_uid], references: [id])
-  create_date   DateTime           @default(now()) @db.Timestamptz
-  write_uid     Int
-  write_user    res_users          @relation("activity_write_user", fields: [write_uid], references: [id])
-  write_date    DateTime           @updatedAt @db.Timestamptz
-  consumes      activity_consume[]
-  labors        activity_labor[]
-  tools         activity_tool[]
-  operation_template_activities  operation_template_activity[]  @relation("OpActSourceActivity")
+  id                            Int                           @id @default(autoincrement())
+  activity_code                 String                        @unique @db.VarChar(20)
+  name                          String                        @db.VarChar(120)
+  machine_id                    Int
+  machine                       equipment_resource            @relation("activity_machine", fields: [machine_id], references: [id])
+  duration_min                  Decimal                       @db.Decimal(10, 2)
+  create_uid                    Int
+  create_user                   res_users                     @relation("activity_create_user", fields: [create_uid], references: [id])
+  create_date                   DateTime                      @default(now()) @db.Timestamptz
+  write_uid                     Int
+  write_user                    res_users                     @relation("activity_write_user", fields: [write_uid], references: [id])
+  write_date                    DateTime                      @updatedAt @db.Timestamptz
+  consumes                      activity_consume[]
+  labors                        activity_labor[]
+  tools                         activity_tool[]
+  operation_template_activities operation_template_activity[] @relation("OpActSourceActivity")
 
   @@index([machine_id])
   @@index([name])
@@ -1176,11 +1182,11 @@ model activity_consume {
 }
 
 model activity_labor {
-  activity_id        Int
-  labor_resource_id  Int
-  qty                Int               @default(1)
-  activity           activity          @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  labor_resource     equipment_resource @relation("activity_labor_resource", fields: [labor_resource_id], references: [id])
+  activity_id       Int
+  labor_resource_id Int
+  qty               Int                @default(1)
+  activity          activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  labor_resource    equipment_resource @relation("activity_labor_resource", fields: [labor_resource_id], references: [id])
 
   @@id([activity_id, labor_resource_id])
   @@index([labor_resource_id])
@@ -1253,6 +1259,109 @@ model machine_status_history {
 
 // ── 🟥 Custom: repair_ticket_seq (RPR-NNNNN counter) ─────────
 model repair_ticket_seq {
+  id       Int @id
+  next_val Int @default(1)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Sprint 13: F-MO · Manufacturing Order pilot
+//   MO = planning envelope over BOM + Routing. Structure-only (no
+//   per-op timestamps — those belong to Work Order, Sprint 14+).
+// ═══════════════════════════════════════════════════════════════
+
+enum MoStatus {
+  DRAFT // editable · allocation locked from DRAFT (P15)
+  CONFIRMED // ready for execution · no edits
+  IN_PROGRESS // execution started
+  DONE // completed
+  CANCELLED // void · allocation returned (P15)
+}
+
+enum MoOperationStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+}
+
+model manufacturing_order {
+  id                       Int                @id @default(autoincrement())
+  mo_code                  String             @unique @db.VarChar(20) // MO-00001 · race-safe via mo_code_seq (P5)
+  // P12: exactly 1 mark prefix per MO. FK by code (mark_prefix_master PK = code).
+  primary_mark_prefix_code String             @db.VarChar(10)
+  primary_mark_prefix      mark_prefix_master @relation(fields: [primary_mark_prefix_code], references: [code])
+  // P12: exactly 1 routing template per MO. Operations snapshotted at create (ADR-0012).
+  routing_template_id      Int
+  routing_template         routing_template   @relation(fields: [routing_template_id], references: [id])
+  status                   MoStatus           @default(DRAFT)
+  // P21: due date only (DATE, no time).
+  due_date                 DateTime?          @db.Date
+  // P7: forward-looking DBR/TOC anchor → mo_operation.id. Soft ref (set post-snapshot).
+  bottleneck_op_id         Int?
+  // Audit (parent only; children inherit lifecycle via cascade)
+  create_uid               Int
+  create_user              res_users          @relation("mo_create", fields: [create_uid], references: [id])
+  create_date              DateTime           @default(now()) @db.Timestamptz
+  write_uid                Int
+  write_user               res_users          @relation("mo_write", fields: [write_uid], references: [id])
+  write_date               DateTime           @updatedAt @db.Timestamptz
+
+  assembly_lines mo_assembly_line[]
+  operations     mo_operation[]
+  status_history mo_status_history[]
+
+  @@index([status])
+  @@index([primary_mark_prefix_code])
+  @@index([routing_template_id])
+  @@index([due_date])
+}
+
+// P13/P15/P17 · partial allocation line. qty ≤ remaining; locked from DRAFT.
+model mo_assembly_line {
+  id              Int                 @id @default(autoincrement())
+  mo_id           Int
+  mo              manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  bom_assembly_id Int // P17: granularity anchor = bom_assembly (not bom_dispatch)
+  bom_assembly    bom_assembly        @relation(fields: [bom_assembly_id], references: [id])
+  qty             Decimal             @db.Decimal(12, 3) // P13 · ≤ remaining at create time
+  line_seq        Int                 @default(0)
+
+  @@unique([mo_id, bom_assembly_id]) // no duplicate assemblies within one MO
+  @@index([bom_assembly_id])
+}
+
+// P22 · structure-only snapshot of routing ops. NO timestamps.
+model mo_operation {
+  id                    Int                 @id @default(autoincrement())
+  mo_id                 Int
+  mo                    manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  sequence              Int
+  source_routing_op_id  Int? // ADR-0012 breadcrumb → mrp_routing_workcenter.id (soft, snapshot immutable)
+  work_center_id        Int
+  work_center           mrp_workcenter      @relation("mo_op_workcenter", fields: [work_center_id], references: [id])
+  expected_duration_min Int                 @default(0) // copied from routing op time_cycle (rounded)
+  setup_time_min        Int                 @default(0)
+  op_attributes         Json                @default("{}") // material_grade · thickness · coating (future setup matrix)
+  status                MoOperationStatus   @default(NOT_STARTED)
+
+  @@index([mo_id])
+}
+
+// MO-level audit trail only (operation activity → WO, Sprint 14+).
+model mo_status_history {
+  id          Int                 @id @default(autoincrement())
+  mo_id       Int
+  mo          manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  from_status MoStatus
+  to_status   MoStatus
+  reason      String              @db.Text
+  changed_by  String              @db.VarChar(120)
+  changed_at  DateTime            @default(now()) @db.Timestamptz
+
+  @@index([mo_id])
+}
+
+// 🟥 Custom: mo_code_seq (MO-NNNNN counter · SELECT FOR UPDATE, P5)
+model mo_code_seq {
   id       Int @id
   next_val Int @default(1)
 }
