@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { MailMessageService } from '../mail/mail-message.service'
 import { MoCodeGenerator } from './mo-code.generator'
 import { MoAllocationService } from './mo-allocation.service'
+import { WorkOrderAutoCreateService } from '../work-orders/wo-auto-create.service'
 import { CreateMoDto, MoAssemblyLineInputDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
@@ -56,6 +57,7 @@ export class ManufacturingOrderService {
     private readonly mail: MailMessageService,
     private readonly codeGen: MoCodeGenerator,
     private readonly alloc: MoAllocationService,
+    private readonly woAutoCreate: WorkOrderAutoCreateService,
   ) {}
 
   // ── List (filter status | mark_prefix | project · search mo_code) ──────────
@@ -250,6 +252,8 @@ export class ManufacturingOrderService {
             changed_by: userName,
           },
         })
+        // T-WO.03: auto-create execution-layer WOs on confirm (Save + Confirm path).
+        await this.woAutoCreate.createForMo(tx, created.id, userName)
       }
       return created
     })
@@ -345,6 +349,10 @@ export class ManufacturingOrderService {
           changed_by: userName,
         },
       })
+      // T-WO.03: auto-create execution-layer WOs when an existing DRAFT is confirmed.
+      if (dto.to_status === 'CONFIRMED') {
+        await this.woAutoCreate.createForMo(tx, id, userName)
+      }
     })
 
     await this.mail.log({

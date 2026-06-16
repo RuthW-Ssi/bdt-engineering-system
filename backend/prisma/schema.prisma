@@ -602,6 +602,7 @@ model mrp_workcenter {
   op_types            mrp_op_type[]
   operation_templates operation_template[]
   mo_operations       mo_operation[]           @relation("mo_op_workcenter") // Sprint 13: MO op snapshot
+  work_orders         work_order[]             @relation("wo_workcenter") // Sprint 14: WO op snapshot
 }
 
 // ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — Sprint 4.2: bound to template) ──
@@ -866,6 +867,7 @@ model bom_assembly {
   paint_configs     dispatch_assembly_paint_config[]   @relation("AssemblyPaintConfigs")
   welding_configs   dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfig")
   mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
+  work_orders       work_order[] // Sprint 14: WO execution (F-WO)
 
   @@unique([dispatch_id, assembly_mark])
   @@index([dispatch_id])
@@ -1105,6 +1107,8 @@ model equipment_resource {
   maintenance_logs        maintenance_log[]
   repair_tickets          repair_ticket[]
   status_history          machine_status_history[]
+  // Sprint 14: schedule workcenter line (F-WO · Q14b=C)
+  prod_schedules          prod_schedule[]               @relation("sched_workcenter_line")
 }
 
 model op_act_tool {
@@ -1308,6 +1312,7 @@ model manufacturing_order {
   assembly_lines mo_assembly_line[]
   operations     mo_operation[]
   status_history mo_status_history[]
+  work_orders    work_order[] // Sprint 14: execution layer (F-WO)
 
   @@index([status])
   @@index([primary_mark_prefix_code])
@@ -1364,4 +1369,116 @@ model mo_status_history {
 model mo_code_seq {
   id       Int @id
   next_val Int @default(1)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Sprint 14 · F-WO Work Order (execution layer · Q1=D 1 WO = 1 operation)
+// WO header snapshots a mo_operation row; auto-created on MO confirm.
+// ═══════════════════════════════════════════════════════════════════════════
+
+model work_order {
+  id                       Int       @id @default(autoincrement())
+  wo_code                  String    @unique @db.VarChar(20) // WO-NNNNNNNN · race-safe via work_order_code_seq (Q18)
+  mo_id                    Int
+  mo_operation_id          Int? // soft ref → mo_operation.id (snapshot immutable, matches MO 4-impl-delta)
+  sequence                 Int // copied from mo_operation.sequence
+  work_center_id           Int
+  expected_duration_min    Int
+  setup_time_min           Int
+  op_attributes            Json      @default("{}")
+  bom_assembly_id          Int
+  bom_dispatch_id_snapshot Int // soft ref → bom_dispatch.id · drives BOM Version Alert (Q12=B)
+  status                   WoStatus  @default(NOT_STARTED)
+  earliest_start_at        DateTime? @db.Timestamptz // Q13=C · scheduling anchor on WO (priority dropped)
+  actual_start_at          DateTime? @db.Timestamptz
+  actual_end_at            DateTime? @db.Timestamptz
+  target_end_at            DateTime? @db.Timestamptz
+  qty_done                 Decimal?  @db.Decimal(12, 3)
+  qty_scrapped             Decimal?  @db.Decimal(12, 3)
+  assigned_to              String?   @db.VarChar(120)
+  notes                    String?   @db.Text
+  released_at              DateTime? @db.Timestamptz
+  released_by              String?   @db.VarChar(120)
+  created_at               DateTime  @default(now()) @db.Timestamptz
+  updated_at               DateTime  @updatedAt @db.Timestamptz
+  created_by               String    @db.VarChar(120)
+  updated_by               String?   @db.VarChar(120)
+
+  manufacturing_order manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  mrp_workcenter      mrp_workcenter      @relation("wo_workcenter", fields: [work_center_id], references: [id])
+  bom_assembly        bom_assembly        @relation(fields: [bom_assembly_id], references: [id])
+  events              work_order_event[]
+  schedules           prod_schedule[]
+
+  @@index([mo_id])
+  @@index([status])
+  @@index([work_center_id])
+}
+
+model work_order_event {
+  id            Int         @id @default(autoincrement())
+  work_order_id Int
+  event_type    WoEventType
+  notes         String?     @db.Text
+  recorded_by   String      @db.VarChar(120)
+  recorded_at   DateTime    @default(now()) @db.Timestamptz
+
+  work_order work_order @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+
+  @@index([work_order_id, recorded_at])
+}
+
+// 🟥 Custom: work_order_code_seq (WO-NNNNNNNN counter · SELECT FOR UPDATE, Q18)
+model work_order_code_seq {
+  id       Int @id
+  next_val Int @default(1)
+}
+
+// Q14=B · schedule version container. Q14a=A · 1 active system-wide. Mockup-only this sprint.
+model prod_schedule_version {
+  id               Int      @id @default(autoincrement())
+  version_code     String   @unique @db.VarChar(50)
+  description      String?  @db.Text
+  is_active        Boolean  @default(false)
+  scheduler_source String?  @db.VarChar(50) // Q14c=B · python-aps | manual | what-if
+  created_at       DateTime @default(now()) @db.Timestamptz
+  created_by       String   @db.VarChar(120)
+
+  schedules prod_schedule[]
+
+  @@index([is_active])
+}
+
+model prod_schedule {
+  id                       Int      @id @default(autoincrement())
+  prod_schedule_version_id Int
+  work_order_id            Int
+  start_datetime           DateTime @db.Timestamptz
+  end_datetime             DateTime @db.Timestamptz
+  workcenter_line_id       Int? // Q14b=C · FK → equipment_resource.id (separate from work_order.work_center_id → mrp_workcenter)
+
+  prod_schedule_version prod_schedule_version @relation(fields: [prod_schedule_version_id], references: [id], onDelete: Cascade)
+  work_order            work_order            @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+  equipment_resource    equipment_resource?   @relation("sched_workcenter_line", fields: [workcenter_line_id], references: [id])
+
+  @@index([prod_schedule_version_id])
+  @@index([work_order_id])
+}
+
+enum WoStatus {
+  NOT_STARTED
+  RELEASED
+  IN_PROGRESS
+  PAUSED
+  DONE
+  CANCELLED
+}
+
+enum WoEventType {
+  START
+  PAUSE
+  RESUME
+  DONE
+  CANCEL
+  ACCEPT_VERSION // T-WO.04 · BOM Version Alert accept audit (delta vs design §4 — spec requires an event row)
 }

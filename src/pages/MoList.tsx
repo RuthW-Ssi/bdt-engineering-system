@@ -12,7 +12,7 @@ function fmtDate(d: string | null) {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
-export function MoList() {
+export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<MoStatus | 'ALL'>('ALL')
@@ -24,24 +24,26 @@ export function MoList() {
   const items = data ?? []
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
-      {/* Header */}
-      <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
-        <div className="flex items-center gap-3">
-          <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Manufacturing Orders</span>
-          <span style={{ color: '#C2C2C2' }}>·</span>
-          <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {isLoading ? '...' : `${items.length} orders`}
-          </span>
+    <div className="flex flex-col" style={{ height: embedded ? '100%' : 'calc(100vh - 56px)', overflow: 'hidden' }}>
+      {/* Header — hidden when embedded in the Order Hub (the hub provides title + New MO) */}
+      {!embedded && (
+        <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
+          <div className="flex items-center gap-3">
+            <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Manufacturing Orders</span>
+            <span style={{ color: '#C2C2C2' }}>·</span>
+            <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
+              {isLoading ? '...' : `${items.length} orders`}
+            </span>
+          </div>
+          <button
+            onClick={() => navigate('/mo/new')}
+            className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
+          >
+            <Plus size={14} />New MO
+          </button>
         </div>
-        <button
-          onClick={() => navigate('/mo/new')}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
-        >
-          <Plus size={14} />New MO
-        </button>
-      </div>
+      )}
 
       {/* Filters */}
       <div className="border-b border-chrome-100 px-6 flex items-center gap-3" style={{ minHeight: 48, background: '#F5F5F5', flexShrink: 0, flexWrap: 'wrap', paddingTop: 8, paddingBottom: 8 }}>

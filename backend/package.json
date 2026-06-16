@@ -24,6 +24,7 @@
     "seed:factory1": "ts-node prisma/seed-factory1.ts",
     "seed:equipment": "ts-node prisma/seed-equipment-resources.ts",
     "seed:mo": "ts-node prisma/seed-mo.ts",
+    "seed:wo": "ts-node prisma/seed-wo.ts",
     "import:odoo": "ts-node prisma/import-odoo-data.ts",
     "import:routing-xlsx": "ts-node prisma/import-routing-xlsx.ts",
     "import:0x202": "ts-node prisma/import-0x202.ts",

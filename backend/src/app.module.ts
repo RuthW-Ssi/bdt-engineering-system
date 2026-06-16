@@ -35,6 +35,7 @@ import { ProductLibraryModule } from './modules/product-library/product-library.
 import { ActivitiesModule } from './modules/activities/activities.module'
 import { MachinesModule } from './modules/machines/machines.module'
 import { ManufacturingOrdersModule } from './modules/manufacturing-orders/manufacturing-orders.module'
+import { WorkOrdersModule } from './modules/work-orders/work-orders.module'
 
 @Module({
   imports: [
@@ -75,6 +76,8 @@ import { ManufacturingOrdersModule } from './modules/manufacturing-orders/manufa
     MachinesModule,
     // Sprint 13
     ManufacturingOrdersModule,
+    // Sprint 14
+    WorkOrdersModule,
   ],
 })
 export class AppModule {}

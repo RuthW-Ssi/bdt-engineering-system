@@ -27,9 +27,10 @@ import { ActivityLibraryList } from './pages/ActivityLibraryList'
 import { Dashboard } from './pages/Dashboard'
 import { MachineList } from './pages/MachineList'
 import { MachineDetail } from './pages/MachineDetail'
-import { MoList } from './pages/MoList'
 import { MoNew } from './pages/MoNew'
 import { MoDetail } from './pages/MoDetail'
+import { OrderHub } from './pages/OrderHub'
+import { WoDetail } from './pages/WoDetail'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -95,8 +96,11 @@ export default function App() {
             <Route path="/activity-library/:id/edit" element={<ActivityLibraryList />} />
             <Route path="/machines" element={<MachineList />} />
             <Route path="/machines/:id" element={<MachineDetail />} />
-            {/* Sprint 13: Manufacturing Order */}
-            <Route path="/mo" element={<MoList />} />
+            {/* Sprint 14: Order Hub (MO ↔ WO tabs) */}
+            <Route path="/order" element={<OrderHub />} />
+            <Route path="/order/wo/:id" element={<WoDetail />} />
+            {/* Sprint 13: Manufacturing Order · /mo list now aliases into the hub */}
+            <Route path="/mo" element={<Navigate to="/order?tab=mo" replace />} />
             <Route path="/mo/new" element={<MoNew />} />
             <Route path="/mo/:id/edit" element={<MoNew />} />
             <Route path="/mo/:id" element={<MoDetail />} />

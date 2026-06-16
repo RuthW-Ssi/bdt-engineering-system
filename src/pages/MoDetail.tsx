@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Info, Pencil } from 'lucide-react'
 import { useMo, useMoAssemblies, useMoHistory, useChangeMoStatus } from '../hooks/useMo'
+import { useWos } from '../hooks/useWo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
+import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { OperationsList } from '../components/mo/OperationsList'
 import type { MoStatus } from '../api/mo'
 
-const TABS = ['Overview', 'Operations', 'Assemblies', 'History'] as const
+const TABS = ['Overview', 'Operations', 'Work Orders', 'Assemblies', 'History'] as const
 type Tab = (typeof TABS)[number]
 
 // available forward actions per status (P3)
@@ -105,6 +107,7 @@ export function MoDetail() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#F7F7F7' }}>
         {tab === 'Overview' && <OverviewTab mo={mo} />}
         {tab === 'Operations' && <OperationsList moId={moId} operations={mo.operations} bottleneckOpId={mo.bottleneck_op_id} />}
+        {tab === 'Work Orders' && <WorkOrdersTab moId={moId} moStatus={mo.status} />}
         {tab === 'Assemblies' && <AssembliesTab moId={moId} />}
         {tab === 'History' && <HistoryTab moId={moId} />}
       </div>
@@ -211,6 +214,55 @@ function AssembliesTab({ moId }: { moId: number }) {
             <Info size={12} style={{ color: '#0C447C', flexShrink: 0 }} />
             {r.allocation_breakdown.map(b => `${b.mo_code} (${b.qty})`).join(' · ') || '—'}
           </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function WorkOrdersTab({ moId, moStatus }: { moId: number; moStatus: MoStatus }) {
+  const navigate = useNavigate()
+  const { data, isLoading } = useWos({ mo_id: moId })
+  if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
+  const rows = data ?? []
+  if (!rows.length) {
+    return (
+      <div style={{ color: '#8E8E8E', fontSize: 13, textAlign: 'center', padding: '40px 0' }}>
+        {moStatus === 'DRAFT' ? 'WOs will be created on confirm' : 'No work orders for this MO.'}
+      </div>
+    )
+  }
+  // Group by op sequence
+  const bySeq = new Map<number, typeof rows>()
+  for (const w of rows) {
+    const arr = bySeq.get(w.sequence) ?? []
+    arr.push(w)
+    bySeq.set(w.sequence, arr)
+  }
+  const seqs = [...bySeq.keys()].sort((a, b) => a - b)
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {seqs.map((seq) => (
+        <div key={seq} style={{ border: '1px solid #E8E8E8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+          <div style={{ background: '#F5F5F5', padding: '8px 14px', fontSize: 12, fontWeight: 700, color: '#555' }}>
+            Operation seq {String(seq).padStart(3, '0')} · {bySeq.get(seq)!.length} WO(s)
+          </div>
+          {bySeq.get(seq)!.map((w) => (
+            <div
+              key={w.id}
+              onClick={() => navigate(`/order/wo/${w.id}`)}
+              style={{ display: 'grid', gridTemplateColumns: '150px 1fr 130px 110px 90px 70px', borderTop: '1px solid #EEE', fontSize: 13, alignItems: 'center', cursor: 'pointer' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = '#FAFAFA')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
+            >
+              <div style={{ padding: '10px 14px', fontFamily: 'monospace', fontWeight: 700 }}>{w.wo_code}</div>
+              <div style={{ padding: '10px 14px', fontFamily: 'monospace', fontSize: 12, color: '#555' }}>{w.assembly_mark}</div>
+              <div style={{ padding: '10px 14px', fontSize: 12, color: '#666' }}>{w.work_center.code}</div>
+              <div style={{ padding: '10px 14px' }}><WoStatusPill status={w.status} /></div>
+              <div style={{ padding: '10px 14px', fontSize: 12, color: '#666' }}>{w.qty_done ?? '—'}</div>
+              <div style={{ padding: '10px 14px' }}>{w.is_outdated ? <span title="BOM outdated" style={{ color: '#C62828', fontSize: 11, fontWeight: 700 }}>⚠</span> : ''}</div>
+            </div>
+          ))}
         </div>
       ))}
     </div>
