@@ -2,7 +2,6 @@ import { apiClient } from './client'
 
 // ── Enums (mirror Prisma) ─────────────────────────────────────────────────────
 export type MoStatus = 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
-export type MoOperationStatus = 'NOT_STARTED' | 'IN_PROGRESS' | 'DONE'
 
 export interface MarkPrefix {
   code: string
@@ -22,16 +21,15 @@ export interface MoListItem {
   create_date: string
 }
 
-export interface MoOperation {
+// Routing op snapshot (read live from routing_template · replaces mo_operation)
+export interface RoutingOp {
   id: number
   sequence: number
-  source_routing_op_id: number | null
-  work_center_id: number
-  work_center: { id: number; code: string; name: string }
-  expected_duration_min: number
-  setup_time_min: number
-  op_attributes: Record<string, unknown>
-  status: MoOperationStatus
+  op_code: string
+  name: string
+  time_cycle: string | number
+  time_cycle_manual: string | number | null
+  workcenter: { id: number; code: string; name: string }
 }
 
 export interface MoAssemblyRow {
@@ -67,12 +65,11 @@ export interface MoAssemblyLine {
   bom_assembly: { assembly_mark: string; name: string | null }
 }
 
-export interface MoDetail extends MoListItem {
+export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
+  routing_template: { id: number; code: string; name: string; operations: RoutingOp[] }
   routing_template_id: number
   primary_mark_prefix_code: string
-  bottleneck_op_id: number | null
   assembly_lines: MoAssemblyLine[]
-  operations: MoOperation[]
   projects_involved: { id: number; project_code: string; name: string }[]
   zones_involved: { id: number; label: string }[]
   sub_zones_involved: { id: number; name: string }[]
@@ -155,10 +152,6 @@ export async function getMo(id: number): Promise<MoDetail> {
   return (await apiClient.get(`/mo/${id}`)).data
 }
 
-export async function getMoOperations(id: number): Promise<MoOperation[]> {
-  return (await apiClient.get(`/mo/${id}/operations`)).data
-}
-
 export async function getMoAssemblies(id: number): Promise<MoAssemblyRow[]> {
   return (await apiClient.get(`/mo/${id}/assemblies`)).data
 }
@@ -184,14 +177,6 @@ export async function changeMoStatus(
 
 export async function cancelMo(id: number): Promise<MoDetail> {
   return (await apiClient.delete(`/mo/${id}`)).data
-}
-
-export async function updateOpStatus(
-  id: number,
-  opId: number,
-  status: MoOperationStatus,
-): Promise<MoOperation> {
-  return (await apiClient.patch(`/mo/${id}/operations/${opId}/status`, { status })).data
 }
 
 // ── Form-support endpoints ────────────────────────────────────────────────────

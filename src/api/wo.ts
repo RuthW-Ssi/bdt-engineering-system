@@ -38,7 +38,7 @@ export interface WoDetail {
   wo_code: string
   status: WoStatus
   mo_id: number
-  mo_operation_id: number | null
+  source_routing_op_id: number | null
   sequence: number
   work_center_id: number
   expected_duration_min: number

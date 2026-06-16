@@ -19,7 +19,6 @@ import { ManufacturingOrderService } from './manufacturing-orders.service'
 import { CreateMoDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
-import { UpdateOpStatusDto } from './dto/update-op-status.dto'
 
 @ApiTags('Manufacturing Orders')
 @ApiBearerAuth()
@@ -52,12 +51,6 @@ export class ManufacturingOrderController {
   @ApiOperation({ summary: 'MO detail + derived projects/customers (P20)' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
-  }
-
-  @Get(':id/operations')
-  @ApiOperation({ summary: 'Operation snapshot (structure-only · P22-P23)' })
-  getOperations(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.getOperations(id)
   }
 
   @Get(':id/assemblies')
@@ -104,14 +97,4 @@ export class ManufacturingOrderController {
     return this.svc.cancel(id, user.sub, user.login)
   }
 
-  @Patch(':id/operations/:opId/status')
-  @ApiOperation({ summary: 'Update operation status (pilot v1 · no timestamps)' })
-  updateOperationStatus(
-    @Param('id', ParseIntPipe) id: number,
-    @Param('opId', ParseIntPipe) opId: number,
-    @Body() dto: UpdateOpStatusDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.svc.updateOperationStatus(id, opId, dto.status, user.sub)
-  }
 }

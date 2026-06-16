@@ -59,16 +59,6 @@ async function main() {
     return q
   }
 
-  function snapshotOps() {
-    return template!.operations.map((op) => ({
-      sequence: op.sequence,
-      source_routing_op_id: op.id,
-      work_center_id: op.workcenter_id,
-      expected_duration_min: Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0)),
-      setup_time_min: 0,
-    }))
-  }
-
   // status history chains per target status
   const CHAIN: Record<Exclude<MoStatus, 'DRAFT'>, MoStatus[]> = {
     CONFIRMED: ['DRAFT', 'CONFIRMED'],
@@ -108,9 +98,7 @@ async function main() {
           create_uid: uid,
           write_uid: uid,
           assembly_lines: { create: lines.map((l) => ({ ...l, qty: new Prisma.Decimal(l.qty) })) },
-          operations: { create: snapshotOps() },
         },
-        include: { operations: true },
       })
 
       // status history chain
@@ -129,15 +117,7 @@ async function main() {
         }
       }
 
-      // operation progress for IN_PROGRESS / DONE
-      if (p.status === 'IN_PROGRESS' && mo.operations[0]) {
-        await tx.mo_operation.update({ where: { id: mo.operations[0].id }, data: { status: 'IN_PROGRESS' } })
-      }
-      if (p.status === 'DONE') {
-        await tx.mo_operation.updateMany({ where: { mo_id: mo.id }, data: { status: 'DONE' } })
-      }
-
-      console.log(`  ✓ ${mo_code}  ${p.status}  · ${lines.length} line(s) · ${mo.operations.length} ops`)
+      console.log(`  ✓ ${mo_code}  ${p.status}  · ${lines.length} line(s) · ${template!.operations.length} routing ops`)
       created++
     })
   }

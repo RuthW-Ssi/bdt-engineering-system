@@ -28,16 +28,17 @@ async function main() {
   const mo = await prisma.manufacturing_order.findFirst({
     where: {
       status: { in: ['CONFIRMED', 'IN_PROGRESS', 'DONE'] },
-      operations: { some: {} },
+      routing_template: { operations: { some: {} } },
       assembly_lines: { some: {} },
     },
     orderBy: { id: 'asc' },
     include: {
-      operations: { orderBy: { sequence: 'asc' } },
+      routing_template: { include: { operations: { orderBy: { sequence: 'asc' } } } },
       assembly_lines: { include: { bom_assembly: { select: { id: true, dispatch_id: true } } }, orderBy: { line_seq: 'asc' } },
     },
   })
-  if (!mo) throw new Error('no MO with operations + assembly_lines found — run seed-mo first')
+  if (!mo) throw new Error('no MO with routing ops + assembly_lines found — run seed-mo first')
+  const routingOps = mo.routing_template.operations
 
   // Latest dispatch per (project,zone,sub_zone) group → to deliberately pick an OUTDATED snapshot.
   const dispatches = await prisma.bom_dispatch.findMany({
@@ -56,10 +57,10 @@ async function main() {
     ? await prisma.bom_assembly.findFirst({ where: { dispatch_id: { in: outdatedDispatchIds } }, select: { id: true, dispatch_id: true } })
     : null
 
-  // op × assembly combos to draw from
-  const combos: { op: (typeof mo.operations)[number]; bomAssemblyId: number; dispatchId: number }[] = []
+  // op × assembly combos to draw from (routing ops are the snapshot source now)
+  const combos: { op: (typeof routingOps)[number]; bomAssemblyId: number; dispatchId: number }[] = []
   for (const line of mo.assembly_lines) {
-    for (const op of mo.operations) {
+    for (const op of routingOps) {
       combos.push({ op, bomAssemblyId: line.bom_assembly.id, dispatchId: line.bom_assembly.dispatch_id })
     }
   }
@@ -102,12 +103,11 @@ async function main() {
         data: {
           wo_code,
           mo_id: mo.id,
-          mo_operation_id: c.op.id,
+          source_routing_op_id: c.op.id,
           sequence: c.op.sequence,
-          work_center_id: c.op.work_center_id,
-          expected_duration_min: c.op.expected_duration_min,
-          setup_time_min: c.op.setup_time_min,
-          op_attributes: c.op.op_attributes as Prisma.InputJsonValue,
+          work_center_id: c.op.workcenter_id,
+          expected_duration_min: Math.round(Number(c.op.time_cycle_manual ?? c.op.time_cycle ?? 0)),
+          setup_time_min: 0,
           bom_assembly_id: bomAssemblyId,
           bom_dispatch_id_snapshot: snapshotDispatch,
           status: spec.status,

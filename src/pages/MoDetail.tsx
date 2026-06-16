@@ -5,10 +5,9 @@ import { useMo, useMoAssemblies, useMoHistory, useChangeMoStatus } from '../hook
 import { useWos } from '../hooks/useWo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
-import { OperationsList } from '../components/mo/OperationsList'
 import type { MoStatus } from '../api/mo'
 
-const TABS = ['Overview', 'Operations', 'Work Orders', 'Assemblies', 'History'] as const
+const TABS = ['Overview', 'Work Orders', 'Assemblies', 'History'] as const
 type Tab = (typeof TABS)[number]
 
 // available forward actions per status (P3)
@@ -106,7 +105,6 @@ export function MoDetail() {
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#F7F7F7' }}>
         {tab === 'Overview' && <OverviewTab mo={mo} />}
-        {tab === 'Operations' && <OperationsList moId={moId} operations={mo.operations} bottleneckOpId={mo.bottleneck_op_id} />}
         {tab === 'Work Orders' && <WorkOrdersTab moId={moId} moStatus={mo.status} />}
         {tab === 'Assemblies' && <AssembliesTab moId={moId} />}
         {tab === 'History' && <HistoryTab moId={moId} />}
@@ -181,6 +179,22 @@ function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
         <Row k="Project" v={<Chips items={mo.projects_involved.map(p => p.name)} />} />
         <Row k="Zone" v={<Chips items={mo.zones_involved.map(z => z.label)} />} />
         <Row k="Sub Zone" v={<Chips items={mo.sub_zones_involved.map(s => s.name)} />} />
+      </Card>
+      <Card title="Routing Snapshot (live from template)">
+        {!mo.routing_template.operations.length ? (
+          <span style={{ color: '#B0B0B0', fontSize: 13 }}>No operations on this routing template.</span>
+        ) : (
+          mo.routing_template.operations.map(op => (
+            <div key={op.id} className="flex" style={{ fontSize: 13, padding: '6px 0', borderBottom: '1px solid #F2F2F2', gap: 12, alignItems: 'center' }}>
+              <span style={{ width: 44, color: '#999', fontFamily: 'monospace' }}>{String(op.sequence).padStart(3, '0')}</span>
+              <span style={{ flex: 1, fontWeight: 500, color: '#1A1A1A' }}>{op.name || op.op_code}</span>
+              <span style={{ width: 150, color: '#666' }}>{op.workcenter.code}</span>
+              <span style={{ width: 70, color: '#666', textAlign: 'right' }}>
+                {Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0))} min
+              </span>
+            </div>
+          ))
+        )}
       </Card>
       <Card title="Audit">
         <Row k="Created" v={`${fmtDate(mo.create_date)} · ${mo.create_user?.name ?? `uid ${mo.create_uid}`}`} />

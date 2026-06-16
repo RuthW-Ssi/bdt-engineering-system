@@ -8,13 +8,10 @@ import {
   getMo,
   getMoAssemblies,
   getMoHistory,
-  getMoOperations,
   getMos,
   getRoutingSuggestions,
   updateMo,
-  updateOpStatus,
   type CreateMoPayload,
-  type MoOperationStatus,
   type MoStatus,
 } from '../api/mo'
 
@@ -24,10 +21,6 @@ export function useMos(params?: Parameters<typeof getMos>[0]) {
 
 export function useMo(id: number) {
   return useQuery({ queryKey: ['mo', 'detail', id], queryFn: () => getMo(id), enabled: !!id })
-}
-
-export function useMoOperations(id: number) {
-  return useQuery({ queryKey: ['mo', 'operations', id], queryFn: () => getMoOperations(id), enabled: !!id })
 }
 
 export function useMoAssemblies(id: number) {
@@ -67,18 +60,6 @@ export function useCancelMo(id: number) {
   return useMutation({
     mutationFn: () => cancelMo(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
-  })
-}
-
-export function useUpdateOpStatus(id: number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ opId, status }: { opId: number; status: MoOperationStatus }) =>
-      updateOpStatus(id, opId, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['mo', 'operations', id] })
-      qc.invalidateQueries({ queryKey: ['mo', 'detail', id] })
-    },
   })
 }
 

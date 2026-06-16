@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common'
-import { MoOperationStatus, MoStatus, Prisma } from '@prisma/client'
+import { MoStatus, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MailMessageService } from '../mail/mail-message.service'
 import { MoCodeGenerator } from './mo-code.generator'
@@ -27,7 +27,26 @@ const DETAIL_INCLUDE = {
   primary_mark_prefix: true,
   create_user: { select: { id: true, name: true, login: true } },
   write_user: { select: { id: true, name: true, login: true } },
-  routing_template: { select: { id: true, code: true, name: true } },
+  routing_template: {
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      // Routing op snapshot source (replaces mo_operation · read live from template)
+      operations: {
+        orderBy: { sequence: 'asc' as const },
+        select: {
+          id: true,
+          sequence: true,
+          op_code: true,
+          name: true,
+          time_cycle: true,
+          time_cycle_manual: true,
+          workcenter: { select: { id: true, code: true, name: true } },
+        },
+      },
+    },
+  },
   assembly_lines: {
     orderBy: { line_seq: 'asc' as const },
     include: {
@@ -43,10 +62,6 @@ const DETAIL_INCLUDE = {
         },
       },
     },
-  },
-  operations: {
-    orderBy: { sequence: 'asc' as const },
-    include: { work_center: { select: { id: true, code: true, name: true } } },
   },
 } satisfies Prisma.manufacturing_orderInclude
 
@@ -87,8 +102,10 @@ export class ManufacturingOrderService {
       orderBy: { id: 'desc' },
       include: {
         primary_mark_prefix: true,
-        routing_template: { select: { id: true, code: true, name: true } },
-        _count: { select: { assembly_lines: true, operations: true } },
+        routing_template: {
+          select: { id: true, code: true, name: true, _count: { select: { operations: true } } },
+        },
+        _count: { select: { assembly_lines: true } },
       },
     })
     return rows.map((r) => ({
@@ -97,9 +114,9 @@ export class ManufacturingOrderService {
       status: r.status,
       due_date: r.due_date,
       mark_prefix: r.primary_mark_prefix,
-      routing_template: r.routing_template,
+      routing_template: { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name },
       assembly_count: r._count.assembly_lines,
-      operation_count: r._count.operations,
+      operation_count: r.routing_template._count.operations, // from routing template (ops no longer stored on MO)
       create_date: r.create_date,
     }))
   }
@@ -136,15 +153,6 @@ export class ManufacturingOrderService {
       zones_involved: [...zonesMap.values()],
       sub_zones_involved: [...subZonesMap.values()],
     }
-  }
-
-  async getOperations(id: number) {
-    await this.requireMo(id)
-    return this.prisma.mo_operation.findMany({
-      where: { mo_id: id },
-      orderBy: { sequence: 'asc' },
-      include: { work_center: { select: { id: true, code: true, name: true } } },
-    })
   }
 
   // ── Assemblies tab: lines + total + remaining + allocation breakdown ────────
@@ -196,7 +204,6 @@ export class ManufacturingOrderService {
   async create(dto: CreateMoDto, userId: number, userName: string) {
     const template = await this.prisma.routing_template.findUnique({
       where: { id: dto.routing_template_id },
-      include: { operations: { orderBy: { sequence: 'asc' } } },
     })
     if (!template) throw new NotFoundException(`Routing template ${dto.routing_template_id} not found`)
 
@@ -226,17 +233,6 @@ export class ManufacturingOrderService {
               bom_assembly_id: l.bom_assembly_id,
               qty: new Prisma.Decimal(l.qty),
               line_seq: i,
-            })),
-          },
-          operations: {
-            create: template.operations.map((op) => ({
-              sequence: op.sequence,
-              source_routing_op_id: op.id,
-              work_center_id: op.workcenter_id,
-              expected_duration_min: Math.round(
-                Number(op.time_cycle_manual ?? op.time_cycle ?? 0),
-              ),
-              setup_time_min: 0,
             })),
           },
         },
@@ -278,14 +274,11 @@ export class ManufacturingOrderService {
     if (dto.assembly_lines) {
       await this.assertQtyWithinRemaining(dto.assembly_lines, id)
     }
-    let templateOps: { id: number; sequence: number; workcenter_id: number; time_cycle: Prisma.Decimal; time_cycle_manual: Prisma.Decimal | null }[] | null = null
     if (dto.routing_template_id && dto.routing_template_id !== mo.routing_template_id) {
       const template = await this.prisma.routing_template.findUnique({
         where: { id: dto.routing_template_id },
-        include: { operations: { orderBy: { sequence: 'asc' } } },
       })
       if (!template) throw new NotFoundException(`Routing template ${dto.routing_template_id} not found`)
-      templateOps = template.operations
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -312,19 +305,6 @@ export class ManufacturingOrderService {
         })
       }
 
-      if (templateOps) {
-        await tx.mo_operation.deleteMany({ where: { mo_id: id } })
-        await tx.mo_operation.createMany({
-          data: templateOps.map((op) => ({
-            mo_id: id,
-            sequence: op.sequence,
-            source_routing_op_id: op.id,
-            work_center_id: op.workcenter_id,
-            expected_duration_min: Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0)),
-            setup_time_min: 0,
-          })),
-        })
-      }
     })
 
     return this.findOne(id)
@@ -381,26 +361,6 @@ export class ManufacturingOrderService {
     )
   }
 
-  // ── Operation status (pilot v1 · no timestamps) ─────────────────────────────
-  async updateOperationStatus(
-    id: number,
-    opId: number,
-    status: MoOperationStatus,
-    userId: number,
-  ) {
-    await this.requireMo(id)
-    const op = await this.prisma.mo_operation.findFirst({ where: { id: opId, mo_id: id } })
-    if (!op) throw new NotFoundException(`Operation ${opId} not found on MO ${id}`)
-    await this.prisma.mo_operation.update({ where: { id: opId }, data: { status } })
-    await this.prisma.manufacturing_order.update({
-      where: { id },
-      data: { write_uid: userId },
-    })
-    return this.prisma.mo_operation.findUnique({
-      where: { id: opId },
-      include: { work_center: { select: { id: true, code: true, name: true } } },
-    })
-  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   private async requireMo(id: number) {

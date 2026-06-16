@@ -601,7 +601,6 @@ model mrp_workcenter {
   routing_workcenters mrp_routing_workcenter[]
   op_types            mrp_op_type[]
   operation_templates operation_template[]
-  mo_operations       mo_operation[]           @relation("mo_op_workcenter") // Sprint 13: MO op snapshot
   work_orders         work_order[]             @relation("wo_workcenter") // Sprint 14: WO op snapshot
 }
 
@@ -1281,12 +1280,6 @@ enum MoStatus {
   CANCELLED // void · allocation returned (P15)
 }
 
-enum MoOperationStatus {
-  NOT_STARTED
-  IN_PROGRESS
-  DONE
-}
-
 model manufacturing_order {
   id                       Int                @id @default(autoincrement())
   mo_code                  String             @unique @db.VarChar(20) // MO-00001 · race-safe via mo_code_seq (P5)
@@ -1299,8 +1292,6 @@ model manufacturing_order {
   status                   MoStatus           @default(DRAFT)
   // P21: due date only (DATE, no time).
   due_date                 DateTime?          @db.Date
-  // P7: forward-looking DBR/TOC anchor → mo_operation.id. Soft ref (set post-snapshot).
-  bottleneck_op_id         Int?
   // Audit (parent only; children inherit lifecycle via cascade)
   create_uid               Int
   create_user              res_users          @relation("mo_create", fields: [create_uid], references: [id])
@@ -1310,7 +1301,6 @@ model manufacturing_order {
   write_date               DateTime           @updatedAt @db.Timestamptz
 
   assembly_lines mo_assembly_line[]
-  operations     mo_operation[]
   status_history mo_status_history[]
   work_orders    work_order[] // Sprint 14: execution layer (F-WO)
 
@@ -1332,23 +1322,6 @@ model mo_assembly_line {
 
   @@unique([mo_id, bom_assembly_id]) // no duplicate assemblies within one MO
   @@index([bom_assembly_id])
-}
-
-// P22 · structure-only snapshot of routing ops. NO timestamps.
-model mo_operation {
-  id                    Int                 @id @default(autoincrement())
-  mo_id                 Int
-  mo                    manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
-  sequence              Int
-  source_routing_op_id  Int? // ADR-0012 breadcrumb → mrp_routing_workcenter.id (soft, snapshot immutable)
-  work_center_id        Int
-  work_center           mrp_workcenter      @relation("mo_op_workcenter", fields: [work_center_id], references: [id])
-  expected_duration_min Int                 @default(0) // copied from routing op time_cycle (rounded)
-  setup_time_min        Int                 @default(0)
-  op_attributes         Json                @default("{}") // material_grade · thickness · coating (future setup matrix)
-  status                MoOperationStatus   @default(NOT_STARTED)
-
-  @@index([mo_id])
 }
 
 // MO-level audit trail only (operation activity → WO, Sprint 14+).
@@ -1380,7 +1353,7 @@ model work_order {
   id                       Int       @id @default(autoincrement())
   wo_code                  String    @unique @db.VarChar(20) // WO-NNNNNNNN · race-safe via work_order_code_seq (Q18)
   mo_id                    Int
-  mo_operation_id          Int? // soft ref → mo_operation.id (snapshot immutable, matches MO 4-impl-delta)
+  source_routing_op_id     Int? // soft ref → mrp_routing_workcenter.id (snapshot immutable; replaces mo_operation_id)
   sequence                 Int // copied from mo_operation.sequence
   work_center_id           Int
   expected_duration_min    Int
