@@ -368,7 +368,6 @@ model products {
   promoted_from        products?  @relation("Promotion", fields: [promoted_from_id], references: [id])
   promoted_descendants products[] @relation("Promotion")
   promoted_date        DateTime?  @db.Timestamptz
-  legacy_codes         String[]
 
   // Engineering attributes
   attributes Json @default("{}")
