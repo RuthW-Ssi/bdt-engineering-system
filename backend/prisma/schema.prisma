@@ -684,9 +684,6 @@ model routing_template {
   write_user              res_users         @relation("rt_write", fields: [write_uid], references: [id])
   write_date              DateTime          @default(now()) @db.Timestamptz
 
-  // Sprint 13 · P7: forward-looking DBR/TOC anchor → mrp_routing_workcenter.id (soft ref)
-  bottleneck_op_id Int?
-
   operations           mrp_routing_workcenter[]
   binding_rules        routing_template_binding_rule[]
   bound_products       products[]                      @relation("ProductTemplateBind")
