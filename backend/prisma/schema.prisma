@@ -130,7 +130,6 @@ model materials {
   substitute_ref   materials?       @relation("SubstituteMaterials", fields: [substitute_for], references: [id])
   substitutes      materials[]      @relation("SubstituteMaterials")
   substitute_seq   Int?             @db.SmallInt
-  priority         String?          @db.Char(1)
   criticality      String?          @db.VarChar(2)
   attributes       Json             @default("{}")
   drawing_ref      String?          @db.VarChar(60)
