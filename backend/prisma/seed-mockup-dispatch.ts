@@ -150,87 +150,8 @@ async function main() {
   }
   console.log(`✓ ${revisions.length} doc revisions`);
 
-  // ── 7. Copy paint configs ─────────────────────────────────────────────────
-  const paintConfigs = await local.$queryRaw<
-    { dispatch_id: number; assembly_id: number; paint_type: string; layers: number }[]
-  >`SELECT dispatch_id, assembly_id, paint_type, layers FROM dispatch_assembly_paint_config ORDER BY id`;
-
-  let paintCount = 0;
-  for (const pc of paintConfigs) {
-    const dispatch_id = dispatchMap.get(pc.dispatch_id);
-    const assembly_id = assemblyMap.get(pc.assembly_id);
-    if (!dispatch_id || !assembly_id) continue;
-    await supa.dispatch_assembly_paint_config.create({
-      data: { dispatch_id, assembly_id, paint_type: pc.paint_type,
-              layers: pc.layers, create_uid: 1, write_uid: 1 },
-    });
-    paintCount++;
-  }
-  console.log(`✓ ${paintCount} paint configs`);
-
-  // ── 8. Copy welding configs ───────────────────────────────────────────────
-  const weldConfigs = await local.$queryRaw<
-    { dispatch_id: number; assembly_id: number; fillet_mm: any; sides: number | null; weld_layers: number | null }[]
-  >`SELECT dispatch_id, assembly_id, fillet_mm, sides, weld_layers FROM dispatch_assembly_welding_config ORDER BY id`;
-
-  let weldCount = 0;
-  for (const wc of weldConfigs) {
-    const dispatch_id = dispatchMap.get(wc.dispatch_id);
-    const assembly_id = assemblyMap.get(wc.assembly_id);
-    if (!dispatch_id || !assembly_id) continue;
-    await supa.dispatch_assembly_welding_config.create({
-      data: { dispatch_id, assembly_id, fillet_mm: wc.fillet_mm,
-              sides: wc.sides, weld_layers: wc.weld_layers, create_uid: 1, write_uid: 1 },
-    });
-    weldCount++;
-  }
-  console.log(`✓ ${weldCount} welding configs`);
-
-  // ── 9. Copy material requirements ─────────────────────────────────────────
-  const matReqs = await local.$queryRaw<
-    { dispatch_id: number; material_id: number; paint_type: string | null;
-      total_area_m2: any; total_qty_gallon: any; computed_at: Date }[]
-  >`SELECT dispatch_id, material_id, paint_type, total_area_m2, total_qty_gallon, computed_at
-    FROM dispatch_material_requirement ORDER BY id`;
-
-  for (const mr of matReqs) {
-    const dispatch_id = dispatchMap.get(mr.dispatch_id);
-    if (!dispatch_id) continue;
-    const localMat = await local.$queryRaw<{ default_code: string }[]>`
-      SELECT default_code FROM materials WHERE id = ${mr.material_id}`;
-    if (!localMat[0]) continue;
-    const supaMat = await supa.materials.findFirst({ where: { default_code: localMat[0].default_code } });
-    if (!supaMat) continue;
-    await supa.dispatch_material_requirement.create({
-      data: { dispatch_id, material_id: supaMat.id, paint_type: mr.paint_type ?? '',
-              total_area_m2: mr.total_area_m2, total_qty_gallon: mr.total_qty_gallon,
-              computed_at: mr.computed_at },
-    });
-  }
-  console.log(`✓ ${matReqs.length} material requirements`);
-
-  // ── 10. Copy welding requirements ─────────────────────────────────────────
-  const weldReqs = await local.$queryRaw<
-    { dispatch_id: number; material_id: number; total_path_m: any;
-      total_consumption_kg: any; total_packages: number | null; computed_at: Date }[]
-  >`SELECT dispatch_id, material_id, total_path_m, total_consumption_kg, total_packages, computed_at
-    FROM dispatch_welding_requirement ORDER BY id`;
-
-  for (const wr of weldReqs) {
-    const dispatch_id = dispatchMap.get(wr.dispatch_id);
-    if (!dispatch_id) continue;
-    const localMat = await local.$queryRaw<{ default_code: string }[]>`
-      SELECT default_code FROM materials WHERE id = ${wr.material_id}`;
-    if (!localMat[0]) continue;
-    const supaMat = await supa.materials.findFirst({ where: { default_code: localMat[0].default_code } });
-    if (!supaMat) continue;
-    await supa.dispatch_welding_requirement.create({
-      data: { dispatch_id, material_id: supaMat.id, total_path_m: wr.total_path_m,
-              total_consumption_kg: wr.total_consumption_kg, total_packages: wr.total_packages as number,
-              computed_at: wr.computed_at },
-    });
-  }
-  console.log(`✓ ${weldReqs.length} welding requirements`);
+  // NOTE: paint/welding config + material/welding requirement copy blocks removed
+  // in Sprint 15 (T-MBOM.01) — the dispatch-level MBOM tables were dropped.
 
   console.log('\n✅ Done! Mockup dispatch data migrated to Supabase.');
 }

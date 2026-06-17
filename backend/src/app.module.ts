@@ -24,9 +24,6 @@ import { CustomersModule } from './modules/customers/customers.module'
 import { SubZonesModule } from './modules/sub-zones/sub-zones.module'
 // Sprint 7
 import { BomUploadModule } from './modules/bom-upload/bom-upload.module'
-// Sprint 9
-import { MbomPaintModule } from './modules/mbom-paint/mbom-paint.module'
-import { MbomWeldingModule } from './modules/mbom-welding/mbom-welding.module'
 // Sprint 10
 import { ProductDerivationModule } from './modules/product-derivation/product-derivation.module'
 // Sprint 11
@@ -64,9 +61,6 @@ import { WorkOrdersModule } from './modules/work-orders/work-orders.module'
     SubZonesModule,
     // Sprint 7
     BomUploadModule,
-    // Sprint 9
-    MbomPaintModule,
-    MbomWeldingModule,
     // Sprint 10
     ProductDerivationModule,
     // Sprint 11

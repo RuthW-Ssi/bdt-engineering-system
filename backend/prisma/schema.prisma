@@ -144,11 +144,7 @@ model materials {
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines                product_bom_line[]                 @relation("BomLineMaterial")
-  paint_configs            dispatch_assembly_paint_config[]   @relation("PaintConfigMaterial")
-  material_requirements    dispatch_material_requirement[]    @relation("MaterialRequirements")
-  assembly_welding_configs dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfigMaterial")
-  welding_requirements     dispatch_welding_requirement[]     @relation("WeldingRequirements")
+  bom_lines product_bom_line[] @relation("BomLineMaterial")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -803,13 +799,9 @@ model bom_dispatch {
   write_user            res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
   write_date            DateTime     @default(now()) @db.Timestamptz
 
-  doc_revisions            bom_doc_revision[]
-  assemblies               bom_assembly[]
-  parts                    bom_part[]
-  paint_configs            dispatch_assembly_paint_config[]   @relation("DispatchPaintConfigs")
-  material_requirements    dispatch_material_requirement[]    @relation("DispatchMaterialReqs")
-  assembly_welding_configs dispatch_assembly_welding_config[] @relation("DispatchAssemblyWeldingConfigs")
-  welding_requirements     dispatch_welding_requirement[]     @relation("DispatchWeldingReqs")
+  doc_revisions bom_doc_revision[]
+  assemblies    bom_assembly[]
+  parts         bom_part[]
 
   @@index([project_id, status])
   @@index([zone_id])
@@ -863,8 +855,6 @@ model bom_assembly {
   write_date      DateTime     @default(now()) @db.Timestamptz
 
   assembly_parts    bom_assembly_part[]
-  paint_configs     dispatch_assembly_paint_config[]   @relation("AssemblyPaintConfigs")
-  welding_configs   dispatch_assembly_welding_config[] @relation("AssemblyWeldingConfig")
   mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
   work_orders       work_order[] // Sprint 14: WO execution (F-WO)
 
@@ -922,85 +912,6 @@ model bom_assembly_part {
   @@unique([assembly_id, part_id])
   @@index([assembly_id])
   @@index([part_id])
-}
-
-// ── Sprint 9: mBOM Paint Config per dispatch assembly ──────────
-model dispatch_assembly_paint_config {
-  id          Int          @id @default(autoincrement())
-  dispatch_id Int
-  dispatch    bom_dispatch @relation("DispatchPaintConfigs", fields: [dispatch_id], references: [id], onDelete: Cascade)
-  assembly_id Int
-  assembly    bom_assembly @relation("AssemblyPaintConfigs", fields: [assembly_id], references: [id], onDelete: Cascade)
-  paint_type  String       @db.VarChar(20)
-  material_id Int?
-  material    materials?   @relation("PaintConfigMaterial", fields: [material_id], references: [id], onDelete: SetNull)
-  layers      Int          @default(1)
-  create_uid  Int
-  create_date DateTime     @default(now()) @db.Timestamptz
-  write_uid   Int
-  write_date  DateTime     @default(now()) @db.Timestamptz
-
-  @@unique([assembly_id, paint_type])
-  @@index([dispatch_id])
-  @@index([assembly_id])
-  @@index([material_id])
-}
-
-// ── Sprint 9: Computed mBOM material requirement per dispatch ───
-model dispatch_material_requirement {
-  id               Int          @id @default(autoincrement())
-  dispatch_id      Int
-  dispatch         bom_dispatch @relation("DispatchMaterialReqs", fields: [dispatch_id], references: [id], onDelete: Cascade)
-  material_id      Int
-  material         materials    @relation("MaterialRequirements", fields: [material_id], references: [id])
-  paint_type       String       @db.VarChar(20)
-  total_area_m2    Decimal      @db.Decimal(14, 4)
-  total_qty_gallon Decimal      @db.Decimal(14, 4)
-  computed_at      DateTime     @default(now()) @db.Timestamptz
-
-  @@unique([dispatch_id, material_id, paint_type])
-  @@index([dispatch_id])
-  @@index([material_id])
-}
-
-// ── Sprint 9 (Wire): welding config per assembly ─────────────
-model dispatch_assembly_welding_config {
-  id          Int          @id @default(autoincrement())
-  dispatch_id Int
-  dispatch    bom_dispatch @relation("DispatchAssemblyWeldingConfigs", fields: [dispatch_id], references: [id], onDelete: Cascade)
-  assembly_id Int
-  assembly    bom_assembly @relation("AssemblyWeldingConfig", fields: [assembly_id], references: [id], onDelete: Cascade)
-  material_id Int?
-  material    materials?   @relation("AssemblyWeldingConfigMaterial", fields: [material_id], references: [id], onDelete: SetNull)
-  fillet_mm   Decimal?     @db.Decimal(4, 1)
-  sides       Int?
-  weld_layers Int?
-  create_uid  Int
-  create_date DateTime     @default(now()) @db.Timestamptz
-  write_uid   Int
-  write_date  DateTime     @default(now()) @db.Timestamptz
-
-  @@unique([dispatch_id, assembly_id])
-  @@index([dispatch_id])
-  @@index([assembly_id])
-  @@index([material_id])
-}
-
-// ── Sprint 9 (Wire): computed welding requirement per dispatch ─
-model dispatch_welding_requirement {
-  id                   Int          @id @default(autoincrement())
-  dispatch_id          Int
-  dispatch             bom_dispatch @relation("DispatchWeldingReqs", fields: [dispatch_id], references: [id], onDelete: Cascade)
-  material_id          Int
-  material             materials    @relation("WeldingRequirements", fields: [material_id], references: [id])
-  total_path_m         Decimal      @db.Decimal(14, 4)
-  total_consumption_kg Decimal      @db.Decimal(14, 4)
-  total_packages       Int
-  computed_at          DateTime     @default(now()) @db.Timestamptz
-
-  @@unique([dispatch_id, material_id])
-  @@index([dispatch_id])
-  @@index([material_id])
 }
 
 // ═══════════════════════════════════════════════════════════════
