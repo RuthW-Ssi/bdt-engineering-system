@@ -89,6 +89,8 @@ function PaintTab({
         <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '6px 10px' }}>
           {assemblies.map(asm => {
             const primer = asm.configs.find(c => c.paint_type === 'primer')
+            const intermediate = asm.configs.find(c => c.paint_type === 'intermediate')
+            const fireproof = asm.configs.find(c => c.paint_type === 'fireproof')
             const topcoat = asm.configs.find(c => c.paint_type === 'topcoat')
             return (
               <div
@@ -122,6 +124,8 @@ function PaintTab({
 
                 {/* Paint chips */}
                 <PaintChip label="P" name={primer?.material_name} />
+                <PaintChip label="I" name={intermediate?.material_name} />
+                <PaintChip label="F" name={fireproof?.material_name} />
                 <PaintChip label="T" name={topcoat?.material_name} />
 
                 {/* Qty */}
