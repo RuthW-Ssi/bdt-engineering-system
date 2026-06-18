@@ -4,7 +4,7 @@ import { ChevronLeft, Loader2, Search, X } from 'lucide-react'
 import { useDispatchDetail } from '../hooks/useBomDispatches'
 import { usePaintConfig, useSavePaintConfig, usePaintMaterials } from '../hooks/usePaint'
 
-type PaintRow = { primer: number | null; topcoat: number | null }
+type PaintRow = { primer: number | null; intermediate: number | null; fireproof: number | null; topcoat: number | null }
 
 export function BomPaintConfig() {
   const { id } = useParams<{ id: string }>()
@@ -24,12 +24,16 @@ export function BomPaintConfig() {
   const { data: detail, isLoading } = useDispatchDetail(dispatchId)
   const { data: existingPaint, isFetched: paintFetched } = usePaintConfig(dispatchId)
   const { data: primerMats = [] } = usePaintMaterials('primer')
+  const { data: intermediateMats = [] } = usePaintMaterials('intermediate')
+  const { data: fireproofMats = [] } = usePaintMaterials('fireproof')
   const { data: topcoatMats = [] } = usePaintMaterials('topcoat')
   const savePaint = useSavePaintConfig(dispatchId!)
 
   const [rows, setRows] = useState<Map<number, PaintRow>>(new Map())
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkPrimer, setBulkPrimer] = useState('')
+  const [bulkIntermediate, setBulkIntermediate] = useState('')
+  const [bulkFireproof, setBulkFireproof] = useState('')
   const [bulkTopcoat, setBulkTopcoat] = useState('')
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [markFilter, setMarkFilter] = useState('')
@@ -41,12 +45,14 @@ export function BomPaintConfig() {
     if (!assemblies.length || !paintFetched || initialized.current) return
     initialized.current = true
     const m = new Map<number, PaintRow>()
-    for (const asm of assemblies) m.set(asm.id, { primer: null, topcoat: null })
+    for (const asm of assemblies) m.set(asm.id, { primer: null, intermediate: null, fireproof: null, topcoat: null })
     if (existingPaint) {
       for (const asm of existingPaint.assemblies) {
-        const row = m.get(asm.assembly_id) ?? { primer: null, topcoat: null }
+        const row = m.get(asm.assembly_id) ?? { primer: null, intermediate: null, fireproof: null, topcoat: null }
         for (const cfg of asm.configs) {
           if (cfg.paint_type === 'primer') row.primer = cfg.material_id
+          if (cfg.paint_type === 'intermediate') row.intermediate = cfg.material_id
+          if (cfg.paint_type === 'fireproof') row.fireproof = cfg.material_id
           if (cfg.paint_type === 'topcoat') row.topcoat = cfg.material_id
         }
         m.set(asm.assembly_id, row)
@@ -61,10 +67,10 @@ export function BomPaintConfig() {
   )
 
 
-  const setRow = useCallback((asmId: number, field: 'primer' | 'topcoat', val: number | null) => {
+  const setRow = useCallback((asmId: number, field: keyof PaintRow, val: number | null) => {
     setRows(prev => {
       const next = new Map(prev)
-      next.set(asmId, { ...(next.get(asmId) ?? { primer: null, topcoat: null }), [field]: val })
+      next.set(asmId, { ...(next.get(asmId) ?? { primer: null, intermediate: null, fireproof: null, topcoat: null }), [field]: val })
       return next
     })
   }, [])
@@ -89,20 +95,24 @@ export function BomPaintConfig() {
 
   const applyBulk = (targetIds: number[]) => {
     const primer = bulkPrimer ? Number(bulkPrimer) : null
+    const intermediate = bulkIntermediate ? Number(bulkIntermediate) : null
+    const fireproof = bulkFireproof ? Number(bulkFireproof) : null
     const topcoat = bulkTopcoat ? Number(bulkTopcoat) : null
     setRows(prev => {
       const next = new Map(prev)
-      for (const id of targetIds) next.set(id, { primer, topcoat })
+      for (const id of targetIds) next.set(id, { primer, intermediate, fireproof, topcoat })
       return next
     })
   }
 
   const buildPayload = () =>
     assemblies.flatMap(asm => {
-      const row = rows.get(asm.id) ?? { primer: null, topcoat: null }
+      const row = rows.get(asm.id) ?? { primer: null, intermediate: null, fireproof: null, topcoat: null }
       return [
-        { assembly_id: asm.id, paint_type: 'primer' as const, material_id: row.primer, layers: 1 },
-        { assembly_id: asm.id, paint_type: 'topcoat' as const, material_id: row.topcoat, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'primer', material_id: row.primer, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'intermediate', material_id: row.intermediate, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'fireproof', material_id: row.fireproof, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'topcoat', material_id: row.topcoat, layers: 1 },
       ]
     })
 
@@ -224,41 +234,29 @@ export function BomPaintConfig() {
               textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 12,
             }}
           >
-            ⚡ เลือก Primer + Topcoat · กรอกครั้งเดียว
+            ⚡ Bulk apply · กรอกครั้งเดียวใช้ได้ทุก row ที่เลือก
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto auto', gap: 10, alignItems: 'end' }}>
-            <div>
-              <label style={{ fontSize: 11, color: '#6e6e73', display: 'block', marginBottom: 3 }}>
-                Primer (optional)
-              </label>
-              <select
-                value={bulkPrimer}
-                onChange={e => setBulkPrimer(e.target.value)}
-                style={{
-                  width: '100%', padding: '7px 10px', border: '1px solid #d2d2d7',
-                  borderRadius: 6, fontSize: 13, background: '#fff',
-                }}
-              >
-                <option value="">— None —</option>
-                {primerMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label style={{ fontSize: 11, color: '#6e6e73', display: 'block', marginBottom: 3 }}>
-                Topcoat <span style={{ color: '#c62828' }}>*</span>
-              </label>
-              <select
-                value={bulkTopcoat}
-                onChange={e => setBulkTopcoat(e.target.value)}
-                style={{
-                  width: '100%', padding: '7px 10px', border: '1px solid #d2d2d7',
-                  borderRadius: 6, fontSize: 13, background: '#fff',
-                }}
-              >
-                <option value="">— None —</option>
-                {topcoatMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-              </select>
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+            {([
+              { label: 'Primer', value: bulkPrimer, setter: setBulkPrimer, mats: primerMats },
+              { label: 'Intermediate', value: bulkIntermediate, setter: setBulkIntermediate, mats: intermediateMats },
+              { label: 'Fireproof', value: bulkFireproof, setter: setBulkFireproof, mats: fireproofMats },
+              { label: 'Topcoat', value: bulkTopcoat, setter: setBulkTopcoat, mats: topcoatMats },
+            ] as const).map(({ label, value, setter, mats }) => (
+              <div key={label}>
+                <label style={{ fontSize: 11, color: '#6e6e73', display: 'block', marginBottom: 3 }}>{label}</label>
+                <select
+                  value={value}
+                  onChange={e => setter(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', border: '1px solid #d2d2d7', borderRadius: 6, fontSize: 13, background: '#fff' }}
+                >
+                  <option value="">— None —</option>
+                  {mats.map((m: { id: number; name: string }) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
             <button
               onClick={() => applyBulk([...selected])}
               disabled={selected.size === 0}
@@ -346,25 +344,27 @@ export function BomPaintConfig() {
                 <th style={TH}>Mark</th>
                 <th style={{ ...TH, textAlign: 'right' }}>Qty</th>
                 <th style={TH}>Primer</th>
+                <th style={TH}>Intermediate</th>
+                <th style={TH}>Fireproof</th>
                 <th style={TH}>Topcoat</th>
               </tr>
             </thead>
             <tbody>
               {assemblies.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
+                  <td colSpan={7} style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
                     No assemblies found — upload a BOM first
                   </td>
                 </tr>
               ) : filteredAssemblies.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
+                  <td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
                     ไม่พบ mark "{markFilter}"
                   </td>
                 </tr>
               ) : (
                 filteredAssemblies.map((asm, i) => {
-                  const row = rows.get(asm.id) ?? { primer: null, topcoat: null }
+                  const row = rows.get(asm.id) ?? { primer: null, intermediate: null, fireproof: null, topcoat: null }
                   const isSelected = selected.has(asm.id)
                   return (
                     <tr
@@ -384,33 +384,26 @@ export function BomPaintConfig() {
                       <td style={{ ...TD, textAlign: 'right', fontWeight: 500 }}>
                         ×{asm.assembly_qty}
                       </td>
-                      <td style={{ ...TD }}>
-                        <select
-                          value={row.primer ?? ''}
-                          onChange={e => setRow(asm.id, 'primer', e.target.value ? Number(e.target.value) : null)}
-                          style={{
-                            padding: '5px 7px', border: '1px solid #d2d2d7', borderRadius: 6,
-                            fontSize: 12, background: '#fff', width: '100%', minWidth: 140,
-                          }}
-                        >
-                          <option value="">— None —</option>
-                          {primerMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
-                      </td>
-                      <td style={{ ...TD }}>
-                        <select
-                          value={row.topcoat ?? ''}
-                          onChange={e => setRow(asm.id, 'topcoat', e.target.value ? Number(e.target.value) : null)}
-                          style={{
-                            padding: '5px 7px', border: '1px solid #d2d2d7',
-                            borderRadius: 6, fontSize: 12,
-                            background: '#fff', width: '100%', minWidth: 140,
-                          }}
-                        >
-                          <option value="">— None —</option>
-                          {topcoatMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-                        </select>
-                      </td>
+                      {([
+                        { field: 'primer', mats: primerMats },
+                        { field: 'intermediate', mats: intermediateMats },
+                        { field: 'fireproof', mats: fireproofMats },
+                        { field: 'topcoat', mats: topcoatMats },
+                      ] as const).map(({ field, mats }) => (
+                        <td key={field} style={{ ...TD }}>
+                          <select
+                            value={row[field] ?? ''}
+                            onChange={e => setRow(asm.id, field, e.target.value ? Number(e.target.value) : null)}
+                            style={{
+                              padding: '5px 7px', border: '1px solid #d2d2d7', borderRadius: 6,
+                              fontSize: 12, background: '#fff', width: '100%', minWidth: 130,
+                            }}
+                          >
+                            <option value="">— None —</option>
+                            {mats.map((m: { id: number; name: string }) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                          </select>
+                        </td>
+                      ))}
                     </tr>
                   )
                 })
