@@ -143,7 +143,8 @@ model materials {
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines product_bom_line[] @relation("BomLineMaterial")
+  bom_lines      product_bom_line[]     @relation("BomLineMaterial")
+  assembly_paint mbom_assembly_paint[]  @relation("PaintMaterial")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -796,9 +797,10 @@ model bom_dispatch {
   write_user            res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
   write_date            DateTime     @default(now()) @db.Timestamptz
 
-  doc_revisions bom_doc_revision[]
-  assemblies    bom_assembly[]
-  parts         bom_part[]
+  doc_revisions  bom_doc_revision[]
+  assemblies     bom_assembly[]
+  parts          bom_part[]
+  paint_configs  mbom_assembly_paint[] @relation("DispatchPaint")
 
   @@index([project_id, status])
   @@index([zone_id])
@@ -852,8 +854,9 @@ model bom_assembly {
   write_date      DateTime     @default(now()) @db.Timestamptz
 
   assembly_parts    bom_assembly_part[]
-  mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
-  work_orders       work_order[] // Sprint 14: WO execution (F-WO)
+  mo_assembly_lines mo_assembly_line[]   // Sprint 13: MO allocation (P17)
+  work_orders       work_order[]         // Sprint 14: WO execution (F-WO)
+  paint_configs     mbom_assembly_paint[]
 
   @@unique([dispatch_id, assembly_mark])
   @@index([dispatch_id])
@@ -909,6 +912,23 @@ model bom_assembly_part {
   @@unique([assembly_id, part_id])
   @@index([assembly_id])
   @@index([part_id])
+}
+
+// ── 🟥 mBOM Assembly Paint Config ───────────────────────────────
+model mbom_assembly_paint {
+  id          Int          @id @default(autoincrement())
+  dispatch_id Int
+  dispatch    bom_dispatch @relation("DispatchPaint", fields: [dispatch_id], references: [id], onDelete: Cascade)
+  assembly_id Int
+  assembly    bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
+  paint_type  String       @db.VarChar(20) // primer | intermediate | fireproof | topcoat
+  material_id Int?
+  material    materials?   @relation("PaintMaterial", fields: [material_id], references: [id], onDelete: SetNull)
+  layers      Int          @default(1)
+  write_date  DateTime     @default(now()) @db.Timestamptz
+
+  @@unique([assembly_id, paint_type])
+  @@index([dispatch_id])
 }
 
 // ═══════════════════════════════════════════════════════════════
