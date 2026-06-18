@@ -83,6 +83,13 @@ function SortableZoneRow({
               {zone.sub_zones.length} sub-zones
             </span>
           )}
+          {!reorderMode && (zone.target_erection_start || zone.target_erection_end) && (
+            <span style={{ fontSize: 11, background: '#F3F4F6', borderRadius: 4, padding: '2px 7px', color: '#8E8E8E', display: 'flex', alignItems: 'center', gap: 3 }}>
+              {zone.target_erection_start && new Date(zone.target_erection_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+              {zone.target_erection_start && zone.target_erection_end && ' → '}
+              {zone.target_erection_end && new Date(zone.target_erection_end).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+            </span>
+          )}
         </div>
         {!reorderMode && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -105,10 +112,17 @@ function SortableZoneRow({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {subZones.map(sz => (
                 <div key={sz.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', background: '#F8F8F8', borderRadius: 4 }}>
-                  <span style={{ fontSize: 13, color: '#333' }}>
+                  <span style={{ fontSize: 13, color: '#333', display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ fontWeight: 500 }}>{sz.code ?? '—'}</span>
-                    {sz.code && <span style={{ color: '#8E8E8E', margin: '0 8px' }}>·</span>}
+                    {sz.code && <span style={{ color: '#8E8E8E' }}>·</span>}
                     {sz.name}
+                    {(sz.start_date || sz.due_date) && (
+                      <span style={{ fontSize: 11, color: '#8E8E8E', background: '#F3F4F6', borderRadius: 4, padding: '1px 6px' }}>
+                        {sz.start_date && `${new Date(sz.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
+                        {sz.start_date && sz.due_date && ' → '}
+                        {sz.due_date && `${new Date(sz.due_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`}
+                      </span>
+                    )}
                   </span>
                   <button onClick={() => onDeleteSub(sz.id)} style={{ fontSize: 11, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer' }}>
                     Archive
@@ -141,7 +155,7 @@ export function ZoneList() {
   const [zoneTouched, setZoneTouched] = useState(false)
 
   const [subModal, setSubModal] = useState<{ open: boolean; zoneId: number | null }>({ open: false, zoneId: null })
-  const [subForm, setSubForm] = useState({ name: '', code: '' })
+  const [subForm, setSubForm] = useState({ name: '', code: '', start_date: '', due_date: '' })
 
   useEffect(() => {
     if (zoneList.length > 0) setExpandedZone(zoneList[0].id)
@@ -204,9 +218,14 @@ export function ZoneList() {
 
   async function handleCreateSub() {
     if (!subForm.name || !subModal.zoneId) return
-    await createSubMut.mutateAsync({ name: subForm.name, code: subForm.code || undefined })
+    await createSubMut.mutateAsync({
+      name: subForm.name,
+      code: subForm.code || undefined,
+      start_date: subForm.start_date || undefined,
+      due_date: subForm.due_date || undefined,
+    })
     setSubModal({ open: false, zoneId: null })
-    setSubForm({ name: '', code: '' })
+    setSubForm({ name: '', code: '', start_date: '', due_date: '' })
   }
 
   // Build ordered zone objects for render
@@ -339,6 +358,26 @@ export function ZoneList() {
                 />
                 {zoneTouched && !zoneForm.label?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a Label</span>}
               </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Target Start</label>
+                  <input
+                    type="date"
+                    value={zoneForm.target_erection_start ?? ''}
+                    onChange={e => setZoneForm(f => ({ ...f, target_erection_start: e.target.value || undefined }))}
+                    style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                  />
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Target End</label>
+                  <input
+                    type="date"
+                    value={zoneForm.target_erection_end ?? ''}
+                    onChange={e => setZoneForm(f => ({ ...f, target_erection_end: e.target.value || undefined }))}
+                    style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                  />
+                </div>
+              </div>
             </div>
             <div className="flex justify-end gap-2" style={{ marginTop: 24 }}>
               <button onClick={() => setZoneModal(false)} style={{ padding: '7px 16px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>
@@ -369,6 +408,16 @@ export function ZoneList() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Name *</label>
                 <input value={subForm.name} onChange={e => setSubForm(f => ({ ...f, name: e.target.value }))} required style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Start Date</label>
+                  <input type="date" value={subForm.start_date} onChange={e => setSubForm(f => ({ ...f, start_date: e.target.value }))} style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} />
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Due Date</label>
+                  <input type="date" value={subForm.due_date} onChange={e => setSubForm(f => ({ ...f, due_date: e.target.value }))} style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} />
+                </div>
               </div>
             </div>
             <div className="flex justify-end gap-2" style={{ marginTop: 20 }}>

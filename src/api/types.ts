@@ -165,6 +165,8 @@ export interface ProjectDTO {
   name: string
   state: string
   active: boolean
+  start_date: string | null
+  target_handover: string | null
   create_date: string
   write_date: string
   _count?: { zones: number; products: number }
@@ -186,6 +188,8 @@ export interface ProjectZoneDTO {
   code: string
   label: string
   erection_sequence: number | null
+  target_erection_start: string | null
+  target_erection_end: string | null
   active: boolean
 }
 

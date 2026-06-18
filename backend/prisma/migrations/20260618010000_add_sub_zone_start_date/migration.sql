@@ -1,0 +1,1 @@
+ALTER TABLE "sub_zone" ADD COLUMN IF NOT EXISTS "start_date" DATE;

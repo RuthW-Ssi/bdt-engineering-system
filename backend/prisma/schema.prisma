@@ -292,6 +292,8 @@ model sub_zone {
   name        String       @db.VarChar(80)
   code        String?      @db.VarChar(20)
   active      Boolean      @default(true)
+  start_date  DateTime?    @db.Date
+  due_date    DateTime?    @db.Date
   create_uid  Int?
   write_uid   Int?
   create_date DateTime     @default(now()) @db.Timestamptz

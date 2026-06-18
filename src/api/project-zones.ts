@@ -5,6 +5,8 @@ export interface CreateZonePayload {
   code: string
   label: string
   erection_sequence?: number
+  target_erection_start?: string
+  target_erection_end?: string
 }
 
 export const projectZonesApi = {

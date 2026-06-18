@@ -106,9 +106,17 @@ function ProjectCard({ p, isActive, onClick, onDoubleClick }: { p: ProjectDTO; i
           <span>products</span>
         </div>
 
-        <div className="flex items-center gap-1" style={{ fontSize: 11, color: '#B0B0B0', minWidth: 80 }}>
+        <div className="flex items-center gap-1" style={{ fontSize: 11, color: '#8E8E8E', minWidth: 140 }}>
           <Calendar size={11} />
-          <span>{fmtDate(p.write_date)}</span>
+          {p.start_date && p.target_handover ? (
+            <span>{fmtDate(p.start_date)} → {fmtDate(p.target_handover)}</span>
+          ) : p.start_date ? (
+            <span>Start {fmtDate(p.start_date)}</span>
+          ) : p.target_handover ? (
+            <span>Due {fmtDate(p.target_handover)}</span>
+          ) : (
+            <span style={{ color: '#C2C2C2' }}>No dates set</span>
+          )}
         </div>
       </div>
     </div>
@@ -260,6 +268,27 @@ export function ProjectList() {
                   ))}
                 </select>
                 {touched && !form.customer_id && <span style={{ fontSize: 11, color: '#C8202A' }}>Please select a Customer</span>}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Start Date</label>
+                  <input
+                    type="date"
+                    value={form.start_date ?? ''}
+                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value || undefined }))}
+                    style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                  />
+                </div>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Due Date</label>
+                  <input
+                    type="date"
+                    value={form.target_handover ?? ''}
+                    onChange={e => setForm(f => ({ ...f, target_handover: e.target.value || undefined }))}
+                    style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                  />
+                </div>
               </div>
             </div>
 

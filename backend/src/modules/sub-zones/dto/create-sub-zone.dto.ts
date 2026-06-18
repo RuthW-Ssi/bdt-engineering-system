@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt } from 'class-validator'
+import { IsString, IsOptional, IsDateString } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 export class CreateSubZoneDto {
@@ -10,4 +10,14 @@ export class CreateSubZoneDto {
   @IsOptional()
   @IsString()
   code?: string
+
+  @ApiPropertyOptional({ example: '2026-07-01' })
+  @IsOptional()
+  @IsDateString()
+  start_date?: string
+
+  @ApiPropertyOptional({ example: '2026-09-30' })
+  @IsOptional()
+  @IsDateString()
+  due_date?: string
 }

@@ -21,6 +21,8 @@ export class ProjectZonesService {
         code: dto.code,
         label: dto.label,
         erection_sequence: dto.erection_sequence,
+        target_erection_start: dto.target_erection_start ? new Date(dto.target_erection_start) : undefined,
+        target_erection_end: dto.target_erection_end ? new Date(dto.target_erection_end) : undefined,
         crane_assignment: dto.crane_assignment,
         notes: dto.notes,
       },
@@ -38,6 +40,8 @@ export class ProjectZonesService {
       data: {
         ...(dto.label ? { label: dto.label } : {}),
         ...(dto.erection_sequence !== undefined ? { erection_sequence: dto.erection_sequence } : {}),
+        ...(dto.target_erection_start !== undefined ? { target_erection_start: dto.target_erection_start ? new Date(dto.target_erection_start) : null } : {}),
+        ...(dto.target_erection_end !== undefined ? { target_erection_end: dto.target_erection_end ? new Date(dto.target_erection_end) : null } : {}),
         ...(dto.crane_assignment !== undefined ? { crane_assignment: dto.crane_assignment } : {}),
         ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
       },
