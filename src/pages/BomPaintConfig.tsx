@@ -1,245 +1,130 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { WeldingSpecValues } from '../api/welding'
-import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronLeft, Loader2 } from 'lucide-react'
-import { useDispatchDetail, useSaveAssemblyMatch } from '../hooks/useBomDispatches'
-import type { MatchStatus } from '../api/dispatches'
-import { usePaintConfig, useSavePaintConfig } from '../hooks/usePaint'
-import { useWeldingConfig, useSaveWeldingConfig } from '../hooks/useWelding'
-import { useProducts } from '../hooks/useProducts'
-import { PAINT_TYPES } from '../api/paint'
-import type { PaintType } from '../api/paint'
-import { MbomConfigTable } from '../components/bom/MbomConfigTable'
-import type { PaintCellKey, PaintCell, WireCell } from '../components/bom/MbomConfigTable'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import { ChevronLeft, Loader2, Search, X } from 'lucide-react'
+import { useDispatchDetail } from '../hooks/useBomDispatches'
+import { usePaintConfig, useSavePaintConfig, usePaintMaterials } from '../hooks/usePaint'
+
+type PaintRow = { primer: number | null; topcoat: number | null }
 
 export function BomPaintConfig() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const dispatchId = id ? Number(id) : undefined
+
+  const goBack = () => {
+    const fromBomList = (location.state as { fromBomList?: boolean } | null)?.fromBomList
+    if (fromBomList && dispatchId) {
+      navigate('/bom', { state: { selectDispatch: dispatchId, tab: 'paint' } })
+    } else {
+      navigate(`/bom/dispatch/${dispatchId}`)
+    }
+  }
 
   const { data: detail, isLoading } = useDispatchDetail(dispatchId)
   const { data: existingPaint, isFetched: paintFetched } = usePaintConfig(dispatchId)
-  const { data: existingWire, isFetched: wireFetched } = useWeldingConfig(dispatchId)
-  const { data: standardProducts } = useProducts({ product_type: 'standard', state: 'released', limit: 100 })
+  const { data: primerMats = [] } = usePaintMaterials('primer')
+  const { data: topcoatMats = [] } = usePaintMaterials('topcoat')
   const savePaint = useSavePaintConfig(dispatchId!)
-  const saveWire = useSaveWeldingConfig(dispatchId!)
-  const saveMatch = useSaveAssemblyMatch(dispatchId!)
 
-  const assemblies = useMemo(() => detail?.assemblies ?? [], [detail])
-  const orphanParts = useMemo(() => detail?.orphan_parts ?? [], [detail])
-  const allPartsCount = useMemo(() => [
-    ...assemblies.flatMap(a => a.parts),
-    ...orphanParts,
-  ].length, [assemblies, orphanParts])
-
-  const [paintState, setPaintState] = useState<Map<PaintCellKey, PaintCell>>(new Map())
-  const [wireState, setWireState] = useState<Map<number, WireCell>>(new Map())
-  const [weldingSpecState, setWeldingSpecState] = useState<Map<number, WeldingSpecValues>>(new Map())
-  const [matchState, setMatchState] = useState<Map<number, MatchStatus | null>>(new Map())
-  const [productState, setProductState] = useState<Map<number, number | null>>(new Map())
-  const [selectedAssemblies, setSelectedAssemblies] = useState<Set<number>>(new Set())
+  const [rows, setRows] = useState<Map<number, PaintRow>>(new Map())
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [bulkPrimer, setBulkPrimer] = useState('')
+  const [bulkTopcoat, setBulkTopcoat] = useState('')
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [markFilter, setMarkFilter] = useState('')
   const initialized = useRef(false)
 
+  const assemblies = useMemo(() => detail?.assemblies ?? [], [detail])
+
   useEffect(() => {
-    if (!assemblies.length || !paintFetched || !wireFetched || initialized.current) return
+    if (!assemblies.length || !paintFetched || initialized.current) return
     initialized.current = true
-
-    // Paint state
-    const pm = new Map<PaintCellKey, PaintCell>()
-    for (const asm of assemblies) {
-      for (const pt of PAINT_TYPES) {
-        pm.set(`${asm.id}_${pt}`, { material_id: null })
-      }
-    }
-    // Build preset map keyed by product_id for auto-fill
-    const presetMap = new Map(
-      (existingPaint?.available_presets ?? existingWire?.available_presets ?? []).map(p => [p.product_id, p])
-    )
-
+    const m = new Map<number, PaintRow>()
+    for (const asm of assemblies) m.set(asm.id, { primer: null, topcoat: null })
     if (existingPaint) {
       for (const asm of existingPaint.assemblies) {
+        const row = m.get(asm.assembly_id) ?? { primer: null, topcoat: null }
         for (const cfg of asm.configs) {
-          pm.set(`${asm.assembly_id}_${cfg.paint_type as PaintType}`, { material_id: cfg.material_id })
+          if (cfg.paint_type === 'primer') row.primer = cfg.material_id
+          if (cfg.paint_type === 'topcoat') row.topcoat = cfg.material_id
         }
+        m.set(asm.assembly_id, row)
       }
     }
+    setRows(m)
+  }, [assemblies, existingPaint, paintFetched])
 
-    // Match state
-    const mm = new Map<number, MatchStatus | null>()
-    for (const asm of assemblies) {
-      mm.set(asm.id, (asm.match_status as MatchStatus | null) ?? null)
-    }
-    setMatchState(mm)
+  const doneCount = useMemo(
+    () => [...rows.values()].filter(r => r.topcoat != null).length,
+    [rows],
+  )
 
-    // Product state
-    const pm2 = new Map<number, number | null>()
-    for (const asm of assemblies) {
-      pm2.set(asm.id, asm.product?.id ?? null)
-    }
-    setProductState(pm2)
 
-    // Wire state — keyed by assembly_id
-    const wm = new Map<number, WireCell>()
-    const wsm = new Map<number, WeldingSpecValues>()
-    for (const asm of assemblies) {
-      wm.set(asm.id, { material_id: null })
-      wsm.set(asm.id, { fillet_mm: null, sides: null, weld_layers: null })
-    }
-    if (existingWire) {
-      for (const a of existingWire.assemblies) {
-        wm.set(a.assembly_id, { material_id: a.material_id })
-        wsm.set(a.assembly_id, { fillet_mm: a.fillet_mm, sides: a.sides, weld_layers: a.weld_layers })
-      }
-    }
-
-    // Auto-fill from spec preset for MATCHED_STANDARD assemblies with no saved config
-    const savedPaintAsms = new Set(
-      existingPaint?.assemblies.filter(a => a.configs.length > 0).map(a => a.assembly_id) ?? []
-    )
-    const savedWireAsms = new Set(
-      existingWire?.assemblies.filter(a => a.material_id != null).map(a => a.assembly_id) ?? []
-    )
-    for (const asm of assemblies) {
-      if (asm.match_status !== 'MATCHED_STANDARD' || !asm.product?.id) continue
-      const preset = presetMap.get(asm.product.id)
-      if (!preset) continue
-      if (!savedPaintAsms.has(asm.id) && preset.paint_spec) {
-        for (const layer of preset.paint_spec.layers) {
-          pm.set(`${asm.id}_${layer.paint_type}` as PaintCellKey, { material_id: layer.material_id })
-        }
-      }
-      if (!savedWireAsms.has(asm.id) && preset.welding_spec) {
-        if (preset.welding_spec.material_id != null)
-          wm.set(asm.id, { material_id: preset.welding_spec.material_id })
-        wsm.set(asm.id, {
-          fillet_mm: preset.welding_spec.fillet_mm,
-          sides: preset.welding_spec.sides,
-          weld_layers: preset.welding_spec.weld_layers,
-        })
-      }
-    }
-
-    setPaintState(pm)
-    setWireState(wm)
-    setWeldingSpecState(wsm)
-  }, [assemblies, existingPaint, existingWire, paintFetched, wireFetched])
-
-  const handlePaintChange = useCallback((key: PaintCellKey, value: PaintCell) => {
-    setPaintState(prev => new Map(prev).set(key, value))
+  const setRow = useCallback((asmId: number, field: 'primer' | 'topcoat', val: number | null) => {
+    setRows(prev => {
+      const next = new Map(prev)
+      next.set(asmId, { ...(next.get(asmId) ?? { primer: null, topcoat: null }), [field]: val })
+      return next
+    })
   }, [])
 
-  const handleWireChange = useCallback((asmId: number, value: WireCell) => {
-    setWireState(prev => new Map(prev).set(asmId, value))
-  }, [])
-
-  const handleMatchChange = useCallback((asmId: number, value: MatchStatus | null) => {
-    setMatchState(prev => new Map(prev).set(asmId, value))
-  }, [])
-
-  const handleProductChange = useCallback((asmId: number, productId: number | null) => {
-    setProductState(prev => new Map(prev).set(asmId, productId))
-
-    if (!productId || matchState.get(asmId) !== 'MATCHED_STANDARD') return
-    const product = standardProducts?.items.find(p => p.id === productId)
-    if (!product) return
-
-    const attrs = product.attributes as Record<string, unknown>
-    const paintSpec = attrs.paint_spec as Record<string, number | null> | undefined
-    if (paintSpec) {
-      setPaintState(prev => {
-        const next = new Map(prev)
-        for (const pt of PAINT_TYPES) {
-          next.set(`${asmId}_${pt}` as PaintCellKey, { material_id: paintSpec[pt] ?? null })
-        }
-        return next
-      })
-    }
-
-    const wireMatId = attrs.welding_wire_material_id
-    if (wireMatId != null) {
-      setWireState(prev => new Map(prev).set(asmId, { material_id: Number(wireMatId) }))
-    }
-  }, [matchState, standardProducts])
-
-  const handleAssemblySelect = useCallback((id: number, checked: boolean, e: React.MouseEvent) => {
-    setSelectedAssemblies(prev => {
+  const toggleSelect = useCallback((asmId: number, checked: boolean) => {
+    setSelected(prev => {
       const next = new Set(prev)
-      if (e.shiftKey) {
-        const ids = assemblies.map(a => a.id)
-        const last = [...prev].at(-1) ?? id
-        const a = ids.indexOf(last), b = ids.indexOf(id)
-        const [lo, hi] = a < b ? [a, b] : [b, a]
-        for (let i = lo; i <= hi; i++) checked ? next.add(ids[i]) : next.delete(ids[i])
-      } else {
-        checked ? next.add(id) : next.delete(id)
-      }
+      checked ? next.add(asmId) : next.delete(asmId)
       return next
     })
-  }, [assemblies])
+  }, [])
 
-  const handleSelectAllAssemblies = useCallback((checked: boolean) => {
-    setSelectedAssemblies(checked ? new Set(assemblies.map(a => a.id)) : new Set())
-  }, [assemblies])
+  const toggleAll = useCallback(
+    (checked: boolean) =>
+      setSelected(prev => {
+        const next = new Set(prev)
+        filteredAssemblies.forEach(a => checked ? next.add(a.id) : next.delete(a.id))
+        return next
+      }),
+    [assemblies],
+  )
 
-  const handleApplyToSelected = useCallback(() => {
-    if (selectedAssemblies.size < 2) return
-    const [sourceId, ...targetIds] = [...selectedAssemblies]
-    setPaintState(prev => {
+  const applyBulk = (targetIds: number[]) => {
+    const primer = bulkPrimer ? Number(bulkPrimer) : null
+    const topcoat = bulkTopcoat ? Number(bulkTopcoat) : null
+    setRows(prev => {
       const next = new Map(prev)
-      for (const pt of PAINT_TYPES) {
-        const src = prev.get(`${sourceId}_${pt}`) ?? { material_id: null }
-        for (const tid of targetIds) next.set(`${tid}_${pt}`, { ...src })
-      }
+      for (const id of targetIds) next.set(id, { primer, topcoat })
       return next
     })
-  }, [selectedAssemblies])
+  }
 
-  const handleClearSelected = useCallback(() => {
-    if (!window.confirm(`Clear paint config for ${selectedAssemblies.size} assemblies?`)) return
-    setPaintState(prev => {
-      const next = new Map(prev)
-      for (const id of selectedAssemblies) {
-        for (const pt of PAINT_TYPES) next.set(`${id}_${pt}`, { material_id: null })
-      }
-      return next
+  const buildPayload = () =>
+    assemblies.flatMap(asm => {
+      const row = rows.get(asm.id) ?? { primer: null, topcoat: null }
+      return [
+        { assembly_id: asm.id, paint_type: 'primer' as const, material_id: row.primer, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'topcoat' as const, material_id: row.topcoat, layers: 1 },
+      ]
     })
-  }, [selectedAssemblies])
 
-  const handleSubmit = async () => {
+  const handleSave = async () => {
     if (!dispatchId) return
     setSubmitError(null)
-
-    const paintConfigs = assemblies.flatMap(asm =>
-      PAINT_TYPES.map(pt => ({
-        assembly_id: asm.id,
-        paint_type: pt,
-        material_id: paintState.get(`${asm.id}_${pt}`)?.material_id ?? null,
-        layers: 1,
-      }))
-    )
-    const wireConfigs = assemblies.map(asm => ({
-      assembly_id: asm.id,
-      material_id: wireState.get(asm.id)?.material_id ?? null,
-      ...(weldingSpecState.get(asm.id) ?? { fillet_mm: null, sides: null, weld_layers: null }),
-    }))
-    const matchAssignments = assemblies.map(asm => ({
-      assembly_id: asm.id,
-      match_status: matchState.get(asm.id) ?? null,
-      product_id: productState.get(asm.id) ?? null,
-    }))
-
     try {
-      await Promise.all([
-        savePaint.mutateAsync({ configs: paintConfigs }),
-        saveWire.mutateAsync({ configs: wireConfigs }),
-        saveMatch.mutateAsync(matchAssignments),
-      ])
-      navigate(`/bom/dispatch/${dispatchId}`)
+      await savePaint.mutateAsync({ configs: buildPayload() })
+      goBack()
     } catch {
       setSubmitError('Save failed — check backend')
     }
   }
+
+  const isSaving = savePaint.isPending
+  const filteredAssemblies = useMemo(() => {
+    const term = markFilter.trim().toLowerCase()
+    return term ? assemblies.filter(a => a.assembly_mark.toLowerCase().includes(term)) : assemblies
+  }, [assemblies, markFilter])
+
+  const allSelected = filteredAssemblies.length > 0 && filteredAssemblies.every(a => selected.has(a.id))
+  const progressPct = assemblies.length ? (doneCount / assemblies.length) * 100 : 0
 
   const zoneLabel = useMemo(() => {
     if (!detail) return ''
@@ -248,100 +133,329 @@ export function BomPaintConfig() {
     return `${zone}${sub}`
   }, [detail])
 
-  const isSaving = savePaint.isPending || saveWire.isPending || saveMatch.isPending
+  const dispatchLabel = `DSP-${String(dispatchId).padStart(5, '0')}`
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center gap-2" style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E', fontSize: 13 }}>
-        <Loader2 size={18} className="animate-spin" />Loading...
+      <div
+        className="flex items-center justify-center gap-2"
+        style={{ height: 'calc(100vh - 56px)', color: '#8E8E8E', fontSize: 13 }}
+      >
+        <Loader2 size={18} className="animate-spin" />
+        Loading...
       </div>
     )
   }
 
+  const TH: React.CSSProperties = {
+    padding: '10px 8px',
+    background: '#fafafa',
+    color: '#6e6e73',
+    fontWeight: 600,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    borderBottom: '1px solid #e5e5e7',
+    textAlign: 'left',
+    whiteSpace: 'nowrap',
+  }
+  const TD: React.CSSProperties = { padding: '8px', borderBottom: '1px solid #f5f5f7' }
+
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+    <div style={{ minHeight: 'calc(100vh - 56px)', background: '#F5F5F7', display: 'flex', flexDirection: 'column' }}>
+
       {/* Header */}
-      <div className="bg-white flex items-center gap-3 border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
+      <div
+        className="bg-white border-b border-chrome-100 px-6 flex items-center gap-3"
+        style={{ height: 56, flexShrink: 0 }}
+      >
         <button
-          onClick={() => navigate(`/bom/dispatch/${dispatchId}`)}
+          onClick={goBack}
           className="flex items-center justify-center rounded hover:bg-chrome-50"
           style={{ width: 32, height: 32, color: '#8E8E8E' }}
         >
           <ChevronLeft size={18} />
         </button>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A' }}>
-            Configure mBOM — {zoneLabel || `Dispatch #${dispatchId}`}
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#1d1d1f' }}>
+            Paint Config — {zoneLabel || dispatchLabel}
           </div>
           <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-            {assemblies.length} assemblies · {allPartsCount} parts
+            BOM › {dispatchLabel} · <strong>Paint</strong>
+          </div>
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 13, color: '#6e6e73' }}>
+            <strong style={{ color: '#1d1d1f' }}>{doneCount}/{assemblies.length}</strong> เลือกแล้ว
+          </div>
+          <div
+            style={{
+              width: 140, height: 5, background: '#f0f0f0', borderRadius: 3,
+              overflow: 'hidden', marginTop: 4,
+            }}
+          >
+            <div
+              style={{
+                height: '100%', background: '#2e7d32',
+                width: `${progressPct}%`, transition: 'width 0.3s',
+              }}
+            />
           </div>
         </div>
       </div>
 
-      {/* Bulk-edit toolbar */}
-      {selectedAssemblies.size > 0 && (
-        <div className="bg-white border-b border-chrome-100 px-6 flex items-center gap-3" style={{ height: 40, flexShrink: 0 }}>
-          <span style={{ fontSize: 12, color: '#555' }}>{selectedAssemblies.size} assemblies selected</span>
-          <button
-            onClick={handleApplyToSelected}
-            disabled={selectedAssemblies.size < 2}
-            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, border: '1px solid #C8202A', color: '#C8202A', background: '#fff', cursor: selectedAssemblies.size < 2 ? 'not-allowed' : 'pointer', opacity: selectedAssemblies.size < 2 ? 0.5 : 1 }}
-          >
-            Apply first to all
-          </button>
-          <button
-            onClick={handleClearSelected}
-            style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, border: '1px solid #D9D9D9', color: '#555', background: '#fff', cursor: 'pointer' }}
-          >
-            Clear paint
-          </button>
-        </div>
-      )}
+      {/* Content */}
+      <div
+        style={{
+          maxWidth: 1000, width: '100%', margin: '0 auto',
+          padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14,
+        }}
+      >
 
-      {/* Table */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
-        {assemblies.length === 0 ? (
-          <div style={{ padding: 32, color: '#8E8E8E', fontSize: 14, textAlign: 'center' }}>
-            No assemblies found — upload a BOM first
+        {/* Bulk apply card */}
+        <div
+          style={{
+            background: '#fff', borderRadius: 10, padding: 18,
+            boxShadow: '0 1px 3px rgba(0,0,0,.05)',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11, fontWeight: 600, color: '#6e6e73',
+              textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 12,
+            }}
+          >
+            ⚡ เลือก Primer + Topcoat · กรอกครั้งเดียว
           </div>
-        ) : (
-          <MbomConfigTable
-            assemblies={assemblies}
-            paintState={paintState}
-            wireState={wireState}
-            weldingSpecState={weldingSpecState}
-            matchState={matchState}
-            productState={productState}
-            onPaintChange={handlePaintChange}
-            onWireChange={handleWireChange}
-            onMatchChange={handleMatchChange}
-            onProductChange={handleProductChange}
-            selectedAssemblies={selectedAssemblies}
-            onAssemblySelect={handleAssemblySelect}
-            onSelectAllAssemblies={handleSelectAllAssemblies}
-          />
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="bg-white border-t border-chrome-100 px-6 flex items-center justify-between" style={{ height: 56, flexShrink: 0 }}>
-        <span style={{ fontSize: 12, color: '#C8202A' }}>{submitError ?? ''}</span>
-        <div className="flex gap-2">
-          <button
-            onClick={() => navigate(`/bom/dispatch/${dispatchId}`)}
-            style={{ fontSize: 13, padding: '7px 16px', borderRadius: 6, border: '1px solid #D9D9D9', color: '#555', background: '#fff', cursor: 'pointer' }}
-          >
-            Skip
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={isSaving}
-            style={{ fontSize: 13, fontWeight: 600, padding: '7px 20px', borderRadius: 6, border: 'none', background: isSaving ? '#ccc' : '#C8202A', color: '#fff', cursor: isSaving ? 'not-allowed' : 'pointer' }}
-          >
-            {isSaving ? 'Saving...' : 'Save & Compute mBOM'}
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto auto', gap: 10, alignItems: 'end' }}>
+            <div>
+              <label style={{ fontSize: 11, color: '#6e6e73', display: 'block', marginBottom: 3 }}>
+                Primer (optional)
+              </label>
+              <select
+                value={bulkPrimer}
+                onChange={e => setBulkPrimer(e.target.value)}
+                style={{
+                  width: '100%', padding: '7px 10px', border: '1px solid #d2d2d7',
+                  borderRadius: 6, fontSize: 13, background: '#fff',
+                }}
+              >
+                <option value="">— None —</option>
+                {primerMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#6e6e73', display: 'block', marginBottom: 3 }}>
+                Topcoat <span style={{ color: '#c62828' }}>*</span>
+              </label>
+              <select
+                value={bulkTopcoat}
+                onChange={e => setBulkTopcoat(e.target.value)}
+                style={{
+                  width: '100%', padding: '7px 10px', border: '1px solid #d2d2d7',
+                  borderRadius: 6, fontSize: 13, background: '#fff',
+                }}
+              >
+                <option value="">— None —</option>
+                {topcoatMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+            <button
+              onClick={() => applyBulk([...selected])}
+              disabled={selected.size === 0}
+              style={{
+                padding: '7px 14px', borderRadius: 6,
+                border: '1px solid #C8202A', background: '#fff', color: '#C8202A',
+                fontSize: 13, fontWeight: 500, cursor: selected.size === 0 ? 'not-allowed' : 'pointer',
+                opacity: selected.size === 0 ? 0.4 : 1, whiteSpace: 'nowrap',
+              }}
+            >
+              Apply ({selected.size})
+            </button>
+            <button
+              onClick={() => applyBulk(assemblies.map(a => a.id))}
+              style={{
+                padding: '7px 14px', borderRadius: 6, border: 'none',
+                background: '#C8202A', color: '#fff',
+                fontSize: 13, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}
+            >
+              Apply all ({assemblies.length})
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 8 }}>
+            💡 <strong>Apply</strong> = กับเฉพาะ row ที่ check ·{' '}
+            <strong>Apply all</strong> = ทุก row · per-row dropdown ใต้ก็แก้เองได้
+          </div>
         </div>
+
+        {/* Assemblies table */}
+        <div
+          style={{
+            background: '#fff', borderRadius: 10,
+            boxShadow: '0 1px 3px rgba(0,0,0,.05)', overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              padding: '14px 18px 0 18px',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#6e6e73', textTransform: 'uppercase', letterSpacing: '.5px' }}>
+              Assemblies · {filteredAssemblies.length}{markFilter ? `/${assemblies.length}` : ''} items
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <Search size={12} style={{ position: 'absolute', left: 8, color: '#8E8E8E', pointerEvents: 'none' }} />
+                <input
+                  type="text"
+                  value={markFilter}
+                  onChange={e => setMarkFilter(e.target.value)}
+                  placeholder="Filter mark…"
+                  style={{
+                    paddingLeft: 26, paddingRight: markFilter ? 24 : 8, paddingTop: 4, paddingBottom: 4,
+                    border: '1px solid #D0D0D0', borderRadius: 6, fontSize: 12,
+                    background: '#fff', outline: 'none', width: 140,
+                  }}
+                />
+                {markFilter && (
+                  <button
+                    onClick={() => setMarkFilter('')}
+                    style={{ position: 'absolute', right: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#8E8E8E', display: 'flex' }}
+                  >
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+              <span style={{ fontSize: 13, color: '#6e6e73' }}>
+                <strong style={{ color: '#C8202A' }}>{selected.size}</strong> selected
+              </span>
+            </div>
+          </div>
+
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginTop: 8 }}>
+            <thead>
+              <tr>
+                <th style={{ ...TH, width: 36, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={e => toggleAll(e.target.checked)}
+                  />
+                </th>
+                <th style={TH}>Mark</th>
+                <th style={{ ...TH, textAlign: 'right' }}>Qty</th>
+                <th style={TH}>Primer</th>
+                <th style={TH}>Topcoat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {assemblies.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
+                    No assemblies found — upload a BOM first
+                  </td>
+                </tr>
+              ) : filteredAssemblies.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ padding: 30, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
+                    ไม่พบ mark "{markFilter}"
+                  </td>
+                </tr>
+              ) : (
+                filteredAssemblies.map((asm, i) => {
+                  const row = rows.get(asm.id) ?? { primer: null, topcoat: null }
+                  const isSelected = selected.has(asm.id)
+                  return (
+                    <tr
+                      key={asm.id}
+                      style={{ background: isSelected ? '#fff8e1' : i % 2 === 0 ? '#fff' : '#fafafa' }}
+                    >
+                      <td style={{ ...TD, textAlign: 'center' }}>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={e => toggleSelect(asm.id, e.target.checked)}
+                        />
+                      </td>
+                      <td style={{ ...TD, fontFamily: 'monospace', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {asm.assembly_mark}
+                      </td>
+                      <td style={{ ...TD, textAlign: 'right', fontWeight: 500 }}>
+                        ×{asm.assembly_qty}
+                      </td>
+                      <td style={{ ...TD }}>
+                        <select
+                          value={row.primer ?? ''}
+                          onChange={e => setRow(asm.id, 'primer', e.target.value ? Number(e.target.value) : null)}
+                          style={{
+                            padding: '5px 7px', border: '1px solid #d2d2d7', borderRadius: 6,
+                            fontSize: 12, background: '#fff', width: '100%', minWidth: 140,
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          {primerMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        </select>
+                      </td>
+                      <td style={{ ...TD }}>
+                        <select
+                          value={row.topcoat ?? ''}
+                          onChange={e => setRow(asm.id, 'topcoat', e.target.value ? Number(e.target.value) : null)}
+                          style={{
+                            padding: '5px 7px', border: '1px solid #d2d2d7',
+                            borderRadius: 6, fontSize: 12,
+                            background: '#fff', width: '100%', minWidth: 140,
+                          }}
+                        >
+                          <option value="">— None —</option>
+                          {topcoatMats.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+
+          {/* Action bar */}
+          <div
+            style={{
+              position: 'sticky', bottom: 0, background: '#fff',
+              padding: '14px 18px', borderTop: '1px solid #e5e5e7',
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              boxShadow: '0 -2px 8px rgba(0,0,0,.04)',
+            }}
+          >
+            <button
+              onClick={goBack}
+              style={{
+                padding: '7px 14px', borderRadius: 6, border: '1px solid #d2d2d7',
+                background: '#fff', fontSize: 13, cursor: 'pointer', color: '#1d1d1f',
+              }}
+            >
+              ← กลับไป BOM
+            </button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              {submitError && (
+                <span style={{ fontSize: 12, color: '#C8202A' }}>{submitError}</span>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                style={{
+                  padding: '7px 20px', borderRadius: 6, border: 'none',
+                  background: isSaving ? '#ccc' : '#C8202A', color: '#fff',
+                  fontSize: 13, fontWeight: 600, cursor: isSaving ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {isSaving ? 'Saving...' : '💾 Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+
       </div>
     </div>
   )

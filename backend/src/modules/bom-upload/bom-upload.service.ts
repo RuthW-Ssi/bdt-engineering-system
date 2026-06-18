@@ -208,6 +208,9 @@ export class BomUploadService {
       // Auto-create custom products for all still-unmatched assemblies
       await this.matching.autoCreateCustomProducts(dispatchId, projectId, zoneId, uid)
 
+      // Carry forward paint config from previous version (same zone)
+      await this.carryForwardPaintConfig(dispatchId, projectId, zoneId, subZoneId, assemblyIdByMark)
+
       return this.findOne(dispatchId)
     } catch (err) {
       // Rollback: delete saved files
@@ -538,6 +541,57 @@ export class BomUploadService {
     const docTypes = files.map(f => f.docType)
     if (new Set(docTypes).size !== docTypes.length) {
       throw new BadRequestException('Duplicate doc_type — each type may only appear once per dispatch')
+    }
+  }
+
+  // ─── Paint carry-forward ──────────────────────────────────────
+
+  private async carryForwardPaintConfig(
+    dispatchId: number,
+    projectId: number,
+    zoneId: number,
+    subZoneId: number | null,
+    assemblyIdByMark: Map<string, number>,
+  ): Promise<void> {
+    if (!assemblyIdByMark.size) return
+
+    const prev = await this.prisma.bom_dispatch.findFirst({
+      where: {
+        project_id: projectId,
+        zone_id: zoneId,
+        sub_zone_id: subZoneId,
+        id: { not: dispatchId },
+        status: { not: 'error' },
+      },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+    if (!prev) return
+
+    const prevConfigs = await this.prisma.mbom_assembly_paint.findMany({
+      where: { dispatch_id: prev.id },
+      select: {
+        paint_type: true,
+        material_id: true,
+        layers: true,
+        assembly: { select: { assembly_mark: true } },
+      },
+    })
+
+    const toCreate = prevConfigs
+      .filter(pc => assemblyIdByMark.has(pc.assembly.assembly_mark))
+      .map(pc => ({
+        dispatch_id: dispatchId,
+        assembly_id: assemblyIdByMark.get(pc.assembly.assembly_mark)!,
+        paint_type: pc.paint_type,
+        material_id: pc.material_id,
+        layers: pc.layers,
+        write_date: new Date(),
+      }))
+
+    if (toCreate.length) {
+      await this.prisma.mbom_assembly_paint.createMany({ data: toCreate })
+      this.logger.log(`Paint carry-forward: ${toCreate.length} configs from dispatch ${prev.id} → ${dispatchId}`)
     }
   }
 }

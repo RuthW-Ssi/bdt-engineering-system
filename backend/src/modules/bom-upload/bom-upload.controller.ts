@@ -10,6 +10,7 @@ import { memoryStorage } from 'multer'
 import type { Response } from 'express'
 import { BomUploadService, FileInput } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
+import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto } from './dto/dispatch.dto'
@@ -34,6 +35,7 @@ export class BomUploadController {
   constructor(
     private readonly svc: BomUploadService,
     private readonly diffSvc: BomDiffService,
+    private readonly paintSvc: PaintConfigService,
   ) {}
 
   @Post('bom/upload')
@@ -124,6 +126,21 @@ export class BomUploadController {
   @ApiOperation({ summary: 'Get eBOM ↔ mBOM product mapping for a dispatch' })
   getMapping(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getMapping(id)
+  }
+
+  @Get('dispatches/:id/paint-config')
+  @ApiOperation({ summary: 'Get paint config for a dispatch' })
+  getPaintConfig(@Param('id', ParseIntPipe) id: number) {
+    return this.paintSvc.getConfig(id)
+  }
+
+  @Post('dispatches/:id/paint-config')
+  @ApiOperation({ summary: 'Save paint config for a dispatch' })
+  savePaintConfig(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SavePaintConfigDto,
+  ) {
+    return this.paintSvc.saveConfig(id, dto)
   }
 
   @Post('dispatches/:id/assembly-match')
