@@ -109,10 +109,10 @@ export function BomPaintConfig() {
     assemblies.flatMap(asm => {
       const row = rows.get(asm.id) ?? { primer: null, intermediate: null, fireproof: null, topcoat: null }
       return [
-        { assembly_id: asm.id, paint_type: 'primer', material_id: row.primer, layers: 1 },
-        { assembly_id: asm.id, paint_type: 'intermediate', material_id: row.intermediate, layers: 1 },
-        { assembly_id: asm.id, paint_type: 'fireproof', material_id: row.fireproof, layers: 1 },
-        { assembly_id: asm.id, paint_type: 'topcoat', material_id: row.topcoat, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'primer' as const, material_id: row.primer, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'intermediate' as const, material_id: row.intermediate, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'fireproof' as const, material_id: row.fireproof, layers: 1 },
+        { assembly_id: asm.id, paint_type: 'topcoat' as const, material_id: row.topcoat, layers: 1 },
       ]
     })
 
