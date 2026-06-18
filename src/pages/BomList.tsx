@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X } from 'lucide-react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
+import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X, Layers } from 'lucide-react'
 import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
+import { usePaintConfig } from '../hooks/usePaint'
+import type { PaintConfigResponseDto } from '../api/paint'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
@@ -10,13 +12,130 @@ import { UpdateBomModal } from '../components/bom/UpdateBomModal'
 import { MatchStatusBadge } from '../components/bom/MatchStatusBadge'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto, MatchStatus } from '../api/dispatches'
 
-type ContentTab = 'tree' | 'assemblies' | 'parts'
+type ContentTab = 'tree' | 'assemblies' | 'parts' | 'paint'
 
 const CONTENT_TABS: { id: ContentTab; label: string }[] = [
   { id: 'tree',       label: 'Tree' },
   { id: 'assemblies', label: 'Assemblies' },
   { id: 'parts',      label: 'Parts' },
+  { id: 'paint',      label: 'Paint' },
 ]
+
+// ── Paint tab ─────────────────────────────────────────────────
+function PaintChip({ label, name }: { label: string; name: string | null | undefined }) {
+  const hasValue = name != null && name !== ''
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 3,
+      fontSize: 10, fontWeight: 500, flexShrink: 0,
+      maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    }}>
+      <span style={{ color: '#888', fontWeight: 400 }}>{label}</span>
+      <span style={{ color: hasValue ? '#1F1F1F' : '#BDBDBD' }}>{hasValue ? name : 'None'}</span>
+    </span>
+  )
+}
+
+function PaintTab({
+  dispatchId,
+  paintConfig,
+  isLoading,
+  onEdit,
+}: {
+  dispatchId: number | null
+  paintConfig: PaintConfigResponseDto | undefined
+  isLoading: boolean
+  onEdit: () => void
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
+        <Loader2 size={16} className="animate-spin" />Loading...
+      </div>
+    )
+  }
+
+  const assemblies = paintConfig?.assemblies ?? []
+  const doneCount = assemblies.filter(a => a.configs.some(c => c.paint_type === 'topcoat' && c.material_id != null)).length
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #F0F0F0', flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: '#8E8E8E' }}>
+          <strong style={{ color: '#1A1A1A' }}>{doneCount}</strong>/{assemblies.length} assemblies มีสี
+        </span>
+        <button
+          onClick={onEdit}
+          disabled={!dispatchId}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '5px 12px', borderRadius: 6,
+            border: '1px solid #C8202A', background: '#fff', color: '#C8202A',
+            fontSize: 11, fontWeight: 600, cursor: dispatchId ? 'pointer' : 'not-allowed',
+            opacity: dispatchId ? 1 : 0.4,
+          }}
+        >
+          <ArrowUpRight size={12} />Config
+        </button>
+      </div>
+
+      {/* List */}
+      {assemblies.length === 0 ? (
+        <div style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
+          ยังไม่ได้ตั้งค่าสี
+        </div>
+      ) : (
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '6px 10px' }}>
+          {assemblies.map(asm => {
+            const primer = asm.configs.find(c => c.paint_type === 'primer')
+            const topcoat = asm.configs.find(c => c.paint_type === 'topcoat')
+            return (
+              <div
+                key={asm.assembly_id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '7px 10px',
+                  border: '1px solid #C2C2C2',
+                  borderRadius: 6,
+                  marginBottom: 2,
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  background: '#fff',
+                }}
+              >
+                {/* Layers icon circle */}
+                <span style={{
+                  width: 20, height: 20, borderRadius: '50%',
+                  background: '#E8F1FD', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <Layers size={11} color="#185FA5" />
+                </span>
+
+                {/* Assembly mark */}
+                <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'monospace', color: '#1F1F1F', flexShrink: 0 }}>
+                  {asm.assembly_mark}
+                </span>
+
+                {/* Spacer */}
+                <span style={{ flex: 1 }} />
+
+                {/* Paint chips */}
+                <PaintChip label="P" name={primer?.material_name} />
+                <PaintChip label="T" name={topcoat?.material_name} />
+
+                {/* Qty */}
+                <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#8E8E8E', flexShrink: 0 }}>
+                  ×{asm.assembly_qty}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Assemblies flat table ──────────────────────────────────────
 function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
@@ -355,8 +474,10 @@ function DispatchGroup({
 export function BomList() {
   const navigate = useNavigate()
   const { activeProject } = useActiveProject()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const pendingTabRef = useRef<ContentTab | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [nameFilter, setNameFilter] = useState('')
 
@@ -447,10 +568,28 @@ export function BomList() {
 
   const [contentTab, setContentTab] = useState<ContentTab>('tree')
 
-  // Reset to tree tab when a different dispatch is selected
-  useEffect(() => { setContentTab('tree') }, [selectedId])
+  // On mount: restore dispatch + tab if returning from paint config
+  useEffect(() => {
+    const state = location.state as { selectDispatch?: number; tab?: ContentTab } | null
+    if (state?.selectDispatch) {
+      pendingTabRef.current = state.tab ?? 'tree'
+      setSelectedId(state.selectDispatch)
+      window.history.replaceState({}, '')
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset to tree tab when dispatch changes, unless we have a pending tab override
+  useEffect(() => {
+    if (pendingTabRef.current) {
+      setContentTab(pendingTabRef.current)
+      pendingTabRef.current = null
+    } else {
+      setContentTab('tree')
+    }
+  }, [selectedId])
 
   const { data: detail, isLoading: detailLoading } = useDispatchDetail(selectedId ?? undefined)
+  const { data: paintConfig, isLoading: paintLoading } = usePaintConfig(selectedId ?? undefined)
 
   const term = nameFilter.trim().toLowerCase()
 
@@ -642,7 +781,8 @@ export function BomList() {
                     background: 'none', border: 'none',
                     borderBottomWidth: 2, borderBottomStyle: 'solid',
                     borderBottomColor: contentTab === tab.id ? '#C8202A' : 'transparent',
-                    cursor: 'pointer', marginBottom: -1,
+                    cursor: 'pointer',
+                    marginBottom: -1,
                   }}
                 >
                   {tab.label}
@@ -683,6 +823,15 @@ export function BomList() {
               detailLoading
                 ? <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}><Loader2 size={18} className="animate-spin" />Loading...</div>
                 : <PartsTable assemblies={detail?.assemblies ?? []} orphanParts={detail?.orphan_parts ?? []} />
+            )}
+
+            {contentTab === 'paint' && (
+              <PaintTab
+                dispatchId={selectedId}
+                paintConfig={paintConfig}
+                isLoading={paintLoading}
+                onEdit={() => selectedId && navigate(`/bom/dispatch/${selectedId}/paint`, { state: { fromBomList: true } })}
+              />
             )}
 
           </div>
