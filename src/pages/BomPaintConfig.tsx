@@ -236,7 +236,7 @@ export function BomPaintConfig() {
           >
             ⚡ Bulk apply · กรอกครั้งเดียวใช้ได้ทุก row ที่เลือก
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             {([
               { label: 'Primer', value: bulkPrimer, setter: setBulkPrimer, mats: primerMats },
               { label: 'Intermediate', value: bulkIntermediate, setter: setBulkIntermediate, mats: intermediateMats },
@@ -256,7 +256,7 @@ export function BomPaintConfig() {
               </div>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 10 }}>
             <button
               onClick={() => applyBulk([...selected])}
               disabled={selected.size === 0}
