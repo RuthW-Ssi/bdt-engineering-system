@@ -22,12 +22,7 @@ const PREFIX_CATEGORY_CHIP: Record<string, { label: string; color: string }> = {
   building_component:  { label: 'Building Component',  color: '#166534' },
 }
 
-const PREFIX_CATEGORY_LABELS: Record<string, string> = {
-  main_structure: 'Main Structure',
-  secondary_structure: 'Secondary Structure',
-  accessory: 'Accessory',
-  building_component: 'Building Component',
-}
+
 
 export function ProductList() {
   const navigate = useNavigate()

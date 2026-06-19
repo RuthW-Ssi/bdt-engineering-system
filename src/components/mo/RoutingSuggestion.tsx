@@ -35,7 +35,6 @@ export function RoutingSuggestion({
                 key={t.id}
                 t={t}
                 selected={value === t.id}
-                suggested
                 onClick={() => onChange(t.id, t.name)}
                 onDetail={() => setDetailId(t.id)}
               />
@@ -56,11 +55,10 @@ export function RoutingSuggestion({
 }
 
 function RoutingCard({
-  t, selected, suggested, onClick, onDetail,
+  t, selected, onClick, onDetail,
 }: {
   t: RoutingTemplateLite
   selected: boolean
-  suggested?: boolean
   onClick: () => void
   onDetail: () => void
 }) {

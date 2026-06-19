@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { Loader2, Info, ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { useAssembliesByPrefix } from '../../hooks/useMo'
 import type { AssemblyPickerGroup, AssemblyPickerItem } from '../../api/mo'
@@ -40,13 +40,6 @@ function dateForLevel(g: AssemblyPickerGroup, level: DateLevel): string | null {
   return g.sub_zone_due_date
 }
 
-function sortByDate(a: string | null, b: string | null): number {
-  if (!a && !b) return 0
-  if (!a) return 1
-  if (!b) return -1
-  return a.localeCompare(b)
-}
-
 function sortGroups(groups: AssemblyPickerGroup[], sortBy: AssemblyFilter['sortBy']): AssemblyPickerGroup[] {
   return [...groups].sort((a, b) => {
     if (sortBy === 'project') return (a.key?.project ?? '').localeCompare(b.key?.project ?? '')
@@ -80,31 +73,6 @@ function ItemDateBadge({ dateStr, label }: { dateStr: string | null; label: stri
       <span>{label}</span>
       <span style={{ fontWeight: 400, color: '#555' }}>{dateStr}</span>
       <span style={{ opacity: 0.7 }}>({dayText})</span>
-    </span>
-  )
-}
-
-function DateChip({ dateStr, label }: { dateStr: string | null; label: string }) {
-  if (!dateStr) return null
-  const days = daysUntil(dateStr)
-  if (days === null) return null
-
-  const isOverdue = days < 0
-  const isToday   = days === 0
-  const isUrgent  = days <= 30
-
-  const dot     = isOverdue || isToday ? '🔴' : isUrgent ? '🟡' : '🟢'
-  const dayText = isOverdue ? `${Math.abs(days)}D overdue` : isToday ? 'today' : `${days}D`
-  const color   = isOverdue || isToday ? '#B91C1C' : isUrgent ? '#92400E' : '#166534'
-  const bg      = isOverdue || isToday ? '#FFF0F0' : isUrgent ? '#FFFBEB' : '#F0FDF4'
-  const border  = isOverdue || isToday ? '#FECACA' : isUrgent ? '#FDE68A' : '#BBF7D0'
-
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, color, background: bg, border: `1px solid ${border}`, borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
-      <span style={{ fontSize: 10 }}>{dot}</span>
-      <span>{label}</span>
-      <span style={{ fontWeight: 400, color: '#555' }}>{dateStr}</span>
-      <span style={{ opacity: 0.65 }}>({dayText})</span>
     </span>
   )
 }
