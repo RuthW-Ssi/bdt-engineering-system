@@ -4,11 +4,10 @@ import { useMarkPrefixesWithCount } from '../../hooks/useMo'
 import type { MarkPrefixWithCount } from '../../api/mo'
 
 const CATEGORY_META: Record<string, { label: string; color: string }> = {
-  member: { label: 'Member', color: '#185FA5' },
-  assembly: { label: 'Assembly', color: '#C8202A' },
-  plate_part: { label: 'Plate Part', color: '#854F0B' },
-  sub_component: { label: 'Sub Component', color: '#1E6B36' },
-  other: { label: 'Other', color: '#555555' },
+  main_structure:      { label: 'Main Structure',      color: '#991B1B' },
+  secondary_structure: { label: 'Secondary Structure', color: '#185FA5' },
+  accessory:           { label: 'Accessory',           color: '#555555' },
+  building_component:  { label: 'Building Component',  color: '#1E6B36' },
 }
 const catMeta = (c: string) => CATEGORY_META[c] ?? { label: c, color: '#555555' }
 

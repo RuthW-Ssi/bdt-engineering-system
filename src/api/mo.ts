@@ -103,6 +103,9 @@ export interface AssemblyPickerItem {
   project: string | null
   zone: string | null
   sub_zone: string | null
+  project_due_date: string | null
+  zone_end_date: string | null
+  sub_zone_due_date: string | null
   bom_version: number
   total: number
   allocated: number
@@ -114,6 +117,9 @@ export interface AssemblyPickerGroup {
   key: Record<string, string | null> | null
   label: string
   bom_version: number | null
+  project_due_date: string | null
+  zone_end_date: string | null
+  sub_zone_due_date: string | null
   items: AssemblyPickerItem[]
 }
 
@@ -135,6 +141,38 @@ export interface RoutingTemplateLite {
 export interface RoutingSuggestResponse {
   suggested: RoutingTemplateLite[]
   others: RoutingTemplateLite[]
+}
+
+export interface RoutingActivitySnap {
+  name: string
+  measure: string | null
+  per_minute: number | null
+  source_activity_id: number | null
+  machine_id: number | null
+  machine_name: string | null
+  tool_ids: number[] | null
+  tool_names: string[]
+  labors: { labor_resource_id: number; labor_name: string; qty: number }[] | null
+  consumables: { resource_id: number; code: string; name: string }[] | null
+}
+
+export interface RoutingOpDetail {
+  id: number
+  sequence: number
+  op_code: string
+  name: string
+  time_cycle: number
+  workcenter: { id: number; code: string; name: string }
+  op_type: { id: number; key: string; label: string; color: string } | null
+  activities_snapshot: RoutingActivitySnap[] | null
+}
+
+export interface RoutingTemplateDetail {
+  id: number
+  code: string
+  name: string
+  state: string
+  operations: RoutingOpDetail[]
 }
 
 // ── MO CRUD ───────────────────────────────────────────────────────────────────
@@ -194,4 +232,8 @@ export async function getBomAssembliesByPrefix(params: {
 
 export async function getRoutingSuggestions(mark_prefix_id: string): Promise<RoutingSuggestResponse> {
   return (await apiClient.get('/routing-templates', { params: { mark_prefix_id } })).data
+}
+
+export async function getRoutingTemplateDetail(id: number): Promise<RoutingTemplateDetail> {
+  return (await apiClient.get(`/routing-templates/${id}`)).data
 }

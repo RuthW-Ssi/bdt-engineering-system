@@ -152,7 +152,7 @@ export class BomMatchingService {
       await this.prisma.mark_prefix_master.upsert({
         where: { code: prefix },
         update: {},
-        create: { code: prefix, label: prefix, category: 'assembly', part_type_code: 'p' },
+        create: { code: prefix, label: prefix, category: 'main_structure', part_type_code: 'm' },
       })
 
       // Reuse existing product if same mark already exists in this project/zone

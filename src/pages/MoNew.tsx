@@ -5,8 +5,8 @@ import { useCreateMo, useMo, useUpdateMo } from '../hooks/useMo'
 import { changeMoStatus } from '../api/mo'
 import { MarkPrefixGrid } from '../components/mo/MarkPrefixGrid'
 import { AssemblyPicker } from '../components/mo/AssemblyPicker'
+import { AssemblyFilterBar, DEFAULT_FILTER, type AssemblyFilter } from '../components/mo/AssemblyFilterBar'
 import { RoutingSuggestion } from '../components/mo/RoutingSuggestion'
-import { ScheduleMetadataForm, type ScheduleMeta } from '../components/mo/ScheduleMetadataForm'
 import { StickySaveBar } from '../components/mo/StickySaveBar'
 import type { AssemblyPickerItem } from '../api/mo'
 
@@ -36,8 +36,9 @@ export function MoNew() {
   const [markPrefix, setMarkPrefix] = useState<string | null>(null)
   const [selected, setSelected] = useState<Record<number, { item: AssemblyPickerItem; qty: number }>>({})
   const [routingId, setRoutingId] = useState<number | null>(null)
+  const [filter, setFilter] = useState<AssemblyFilter>(DEFAULT_FILTER)
+  const patchFilter = (patch: Partial<AssemblyFilter>) => setFilter(prev => ({ ...prev, ...patch }))
   const [routingName, setRoutingName] = useState<string | null>(null)
-  const [schedule, setSchedule] = useState<ScheduleMeta>({ due_date: '' })
   const [error, setError] = useState<string | null>(null)
 
   // prefill once when editing (only DRAFT is editable — bounce otherwise)
@@ -52,7 +53,6 @@ export function MoNew() {
     setMarkPrefix(existing.primary_mark_prefix_code)
     setRoutingId(existing.routing_template_id)
     setRoutingName(existing.routing_template?.name ?? null)
-    setSchedule({ due_date: existing.due_date?.slice(0, 10) ?? '' })
     const sel: Record<number, { item: AssemblyPickerItem; qty: number }> = {}
     for (const l of existing.assembly_lines) {
       sel[l.bom_assembly_id] = {
@@ -62,6 +62,7 @@ export function MoNew() {
           assembly_mark: l.bom_assembly.assembly_mark,
           name: l.bom_assembly.name,
           mark_prefix: null, project: null, zone: null, sub_zone: null,
+          project_due_date: null, zone_end_date: null, sub_zone_due_date: null,
           bom_version: 1,
           total: 0, allocated: 0, remaining: Number(l.qty),
           allocation_breakdown: [],
@@ -98,8 +99,6 @@ export function MoNew() {
     const payload = {
       primary_mark_prefix_code: markPrefix,
       routing_template_id: routingId,
-      // send date-only 'YYYY-MM-DD' (no time) — avoids timezone shift
-      due_date: schedule.due_date || undefined,
       assembly_lines: lines.map(l => ({ bom_assembly_id: l.item.id, qty: l.qty })),
     }
     try {
@@ -131,7 +130,7 @@ export function MoNew() {
         {isEdit && <span style={{ fontSize: 11, fontWeight: 700, color: '#555', background: '#F0F0F0', borderRadius: 999, padding: '2px 10px' }}>DRAFT</span>}
       </div>
 
-      {/* Body — 3 columns, fits viewport, each scrolls internally */}
+      {/* Body */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#F7F7F7' }}>
         {error && (
           <div className="flex items-center gap-2" style={{ background: '#FCEBEB', border: '1px solid #E8A0A0', borderRadius: 8, padding: '10px 14px', margin: '12px 20px 0', fontSize: 13, color: '#C8202A' }}>
@@ -139,40 +138,38 @@ export function MoNew() {
           </div>
         )}
 
-        <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16, padding: '16px 20px', overflow: 'hidden' }}>
-          {/* Left: Mark Prefix */}
-          <div style={{ width: 268, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <ColHead n={1} title="Mark Prefix" />
-            <div style={{ flex: 1, minHeight: 0 }}>
-              <MarkPrefixGrid value={markPrefix} onChange={selectPrefix} />
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16, padding: '12px 20px 16px', overflow: 'hidden' }}>
+          {/* Left col — Select By + Mark Prefix */}
+          <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0, gap: 10 }}>
+            <div style={{ flexShrink: 0 }}>
+              <ColHead n={1} title="Select By" />
+              <AssemblyFilterBar filter={filter} onChange={patchFilter} />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <ColHead n={2} title="Mark Prefix" />
+              <div style={{ flex: 1, minHeight: 0 }}>
+                <MarkPrefixGrid value={markPrefix} onChange={selectPrefix} />
+              </div>
             </div>
           </div>
 
-          {/* Middle: Assemblies (internal scroll) */}
+          {/* 3. Assemblies */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <ColHead n={2} title="Assemblies" hint={markPrefix ? 'qty ≤ remaining' : undefined} />
+            <ColHead n={3} title="Assemblies" hint={markPrefix ? 'qty ≤ remaining' : undefined} />
             <div style={PANEL_SCROLL}>
               {markPrefix
-                ? <AssemblyPicker markPrefix={markPrefix} selected={selected} onSetQty={setQty} />
+                ? <AssemblyPicker key={markPrefix} markPrefix={markPrefix} selected={selected} onSetQty={setQty} filter={filter} />
                 : <PickFirst />}
             </div>
           </div>
 
-          {/* Right: Routing (top) + Schedule (bottom) */}
-          <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0 }}>
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <ColHead n={3} title="Routing" />
-              <div style={PANEL_SCROLL}>
-                {markPrefix
-                  ? <RoutingSuggestion markPrefix={markPrefix} value={routingId} onChange={(rid, name) => { setRoutingId(rid); setRoutingName(name) }} />
-                  : <PickFirst />}
-              </div>
-            </div>
-            <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
-              <ColHead n={4} title="Schedule" />
-              <div style={{ ...PANEL, padding: 14 }}>
-                <ScheduleMetadataForm value={schedule} onChange={setSchedule} />
-              </div>
+          {/* 4. Routing */}
+          <div style={{ width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <ColHead n={4} title="Routing" />
+            <div style={PANEL_SCROLL}>
+              {markPrefix
+                ? <RoutingSuggestion markPrefix={markPrefix} value={routingId} onChange={(rid, name) => { setRoutingId(rid); setRoutingName(name) }} />
+                : <PickFirst />}
             </div>
           </div>
         </div>

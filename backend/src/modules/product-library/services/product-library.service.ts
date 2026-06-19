@@ -92,11 +92,10 @@ export class ProductLibraryService {
     if (existing) throw new ConflictException(`Mark prefix "${prefixCode}" already exists`)
 
     const partTypeMap: Record<string, string> = {
-      assembly: 'p',
-      member: 'm',
-      plate_part: 'p',
-      sub_component: 'w',
-      other: 'o',
+      main_structure: 'm',
+      secondary_structure: 'm',
+      accessory: 'o',
+      building_component: 'p',
     }
     const part_type_code = partTypeMap[dto.mark_prefix_category] ?? 'o'
 
@@ -146,7 +145,7 @@ export class ProductLibraryService {
       orderBy: { mark_prefix: 'asc' },
     })
     const partTypeMap: Record<string, string> = {
-      assembly: 'p', member: 'm', plate_part: 'p', sub_component: 'w', other: 'o',
+      main_structure: 'm', secondary_structure: 'm', accessory: 'o', building_component: 'p',
     }
     return rows.map(r => ({
       code: r.mark_prefix!,
@@ -180,7 +179,7 @@ export class ProductLibraryService {
 
     // Handle mark prefix changes
     const partTypeMap: Record<string, string> = {
-      assembly: 'p', member: 'm', plate_part: 'p', sub_component: 'w', other: 'o',
+      main_structure: 'm', secondary_structure: 'm', accessory: 'o', building_component: 'p',
     }
     if (dto.mark_prefix !== undefined) {
       const newCode = dto.mark_prefix.toUpperCase()

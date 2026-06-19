@@ -154,7 +154,7 @@ export class RoutingService {
 
   // getTemplateById: returns full template with ops + activities (used by RoutingBuilder edit mode)
   async getTemplateById(id: number) {
-    return this.prisma.routing_template.findUniqueOrThrow({
+    const template = await this.prisma.routing_template.findUniqueOrThrow({
       where: { id },
       include: {
         operations: {
@@ -166,6 +166,43 @@ export class RoutingService {
         },
       },
     })
+
+    // Collect all machine/tool IDs from activities_snapshot to resolve names in one query
+    const machineIds = new Set<number>()
+    const toolIds = new Set<number>()
+    for (const op of template.operations) {
+      const snap = op.activities_snapshot as any[]
+      if (!Array.isArray(snap)) continue
+      for (const act of snap) {
+        if (act.machine_id != null) machineIds.add(act.machine_id)
+        if (Array.isArray(act.tool_ids)) act.tool_ids.forEach((tid: number) => toolIds.add(tid))
+      }
+    }
+
+    const allIds = [...machineIds, ...toolIds]
+    const resources = allIds.length
+      ? await this.prisma.equipment_resource.findMany({
+          where: { id: { in: allIds } },
+          select: { id: true, code: true, name: true },
+        })
+      : []
+    const resourceMap = new Map(resources.map(r => [r.id, r]))
+
+    const operations = template.operations.map(op => {
+      const snap = op.activities_snapshot as any[]
+      const activities_snapshot = Array.isArray(snap)
+        ? snap.map(act => ({
+            ...act,
+            machine_name: act.machine_id != null ? (resourceMap.get(act.machine_id)?.name ?? null) : null,
+            tool_names: Array.isArray(act.tool_ids)
+              ? act.tool_ids.map((tid: number) => resourceMap.get(tid)?.name ?? `#${tid}`)
+              : [],
+          }))
+        : snap
+      return { ...op, activities_snapshot }
+    })
+
+    return { ...template, operations }
   }
 
   async findOperationsLibrary(search?: string) {

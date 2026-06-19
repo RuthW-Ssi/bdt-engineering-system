@@ -290,7 +290,7 @@ export interface LibraryEntryListResponse {
   items: LibraryEntryDTO[]
 }
 
-export const PREFIX_CATEGORIES = ['assembly', 'member', 'plate_part', 'sub_component', 'other'] as const
+export const PREFIX_CATEGORIES = ['main_structure', 'secondary_structure', 'accessory', 'building_component'] as const
 export type PrefixCategory = typeof PREFIX_CATEGORIES[number]
 
 export interface CreateLibraryEntryPayload {

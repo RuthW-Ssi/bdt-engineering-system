@@ -6,11 +6,10 @@ import { PREFIX_CATEGORIES } from '../../api/types'
 import type { LibraryEntryDTO, PrefixCategory } from '../../api/types'
 
 const CATEGORY_LABELS: Record<PrefixCategory, string> = {
-  assembly: 'Assembly',
-  member: 'Member',
-  plate_part: 'Plate Part',
-  sub_component: 'Sub Component',
-  other: 'Other',
+  main_structure: 'Main Structure',
+  secondary_structure: 'Secondary Structure',
+  accessory: 'Accessory',
+  building_component: 'Building Component',
 }
 
 interface Props {

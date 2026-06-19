@@ -12,6 +12,9 @@ export interface AssemblyPickerItem {
   project: string | null
   zone: string | null
   sub_zone: string | null
+  project_due_date: string | null    // project.target_handover as YYYY-MM-DD
+  zone_end_date: string | null       // project_zone.target_erection_end as YYYY-MM-DD
+  sub_zone_due_date: string | null  // sub_zone.due_date as YYYY-MM-DD
   bom_version: number // BOM upload version of this assembly's dispatch (latest)
   total: number
   allocated: number
@@ -75,6 +78,9 @@ export class BomAssembliesService {
         project: a.dispatch.project?.name ?? null,
         zone: a.dispatch.zone?.label ?? null,
         sub_zone: a.dispatch.sub_zone?.name ?? null,
+        project_due_date: a.dispatch.project?.target_handover?.toISOString().slice(0, 10) ?? null,
+        zone_end_date: a.dispatch.zone?.target_erection_end?.toISOString().slice(0, 10) ?? null,
+        sub_zone_due_date: a.dispatch.sub_zone?.due_date?.toISOString().slice(0, 10) ?? null,
         bom_version: latestMap.get(a.dispatch_id)?.version ?? 1,
         total,
         allocated,
@@ -88,8 +94,13 @@ export class BomAssembliesService {
       total: items.length,
       groups: dims.length
         ? this.group(items, dims)
-        : [{ key: null, label: 'All', bom_version: items[0]?.bom_version ?? null, items }],
+        : [{ key: null, label: 'All', bom_version: items[0]?.bom_version ?? null, project_due_date: this.minDate(items.map((i) => i.project_due_date)), zone_end_date: this.minDate(items.map((i) => i.zone_end_date)), sub_zone_due_date: this.minDate(items.map((i) => i.sub_zone_due_date)), items }],
     }
+  }
+
+  private minDate(dates: (string | null)[]): string | null {
+    const valid = dates.filter((d): d is string => d !== null)
+    return valid.length ? valid.sort()[0] : null
   }
 
   private parseGroupBy(raw?: string): GroupDim[] {
@@ -102,7 +113,7 @@ export class BomAssembliesService {
   }
 
   private group(items: AssemblyPickerItem[], dims: GroupDim[]) {
-    const buckets = new Map<string, { key: Record<string, string | null>; label: string; bom_version: number | null; items: AssemblyPickerItem[] }>()
+    const buckets = new Map<string, { key: Record<string, string | null>; label: string; bom_version: number | null; project_due_date: string | null; zone_end_date: string | null; sub_zone_due_date: string | null; items: AssemblyPickerItem[] }>()
     for (const item of items) {
       const key: Record<string, string | null> = {}
       for (const d of dims) {
@@ -111,9 +122,15 @@ export class BomAssembliesService {
       const label = dims.map((d) => key[d] ?? '—').join(' · ')
       const bucketKey = JSON.stringify(key)
       // one (project/zone/sub-zone) group = one dispatch → one BOM version
-      const bucket = buckets.get(bucketKey) ?? { key, label, bom_version: item.bom_version, items: [] }
+      const bucket = buckets.get(bucketKey) ?? { key, label, bom_version: item.bom_version, project_due_date: null, zone_end_date: null, sub_zone_due_date: null, items: [] }
       bucket.items.push(item)
       buckets.set(bucketKey, bucket)
+    }
+    // compute dates per group: min of each level (earliest = most urgent)
+    for (const bucket of buckets.values()) {
+      bucket.project_due_date = this.minDate(bucket.items.map((i) => i.project_due_date))
+      bucket.zone_end_date = this.minDate(bucket.items.map((i) => i.zone_end_date))
+      bucket.sub_zone_due_date = this.minDate(bucket.items.map((i) => i.sub_zone_due_date))
     }
     return [...buckets.values()]
   }

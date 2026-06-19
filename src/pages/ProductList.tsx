@@ -15,12 +15,18 @@ import { PRODUCT_STATE_LABELS, PRODUCT_STATE_COLORS } from '../api/types'
 const STATES: ProductState[] = ['draft', 'in_design', 'in_review', 'approved', 'released', 'obsolete']
 const PAGE_SIZE = 20
 
+const PREFIX_CATEGORY_CHIP: Record<string, { label: string; color: string }> = {
+  main_structure:      { label: 'Main Structure',      color: '#991B1B' },
+  secondary_structure: { label: 'Secondary Structure', color: '#0C447C' },
+  accessory:           { label: 'Accessory',           color: '#374151' },
+  building_component:  { label: 'Building Component',  color: '#166534' },
+}
+
 const PREFIX_CATEGORY_LABELS: Record<string, string> = {
-  assembly: 'Assembly',
-  member: 'Member',
-  plate_part: 'Plate Part',
-  sub_component: 'Sub Component',
-  other: 'Other',
+  main_structure: 'Main Structure',
+  secondary_structure: 'Secondary Structure',
+  accessory: 'Accessory',
+  building_component: 'Building Component',
 }
 
 export function ProductList() {
@@ -192,7 +198,7 @@ export function ProductList() {
             <div style={{
               position: 'sticky', top: 0, zIndex: 10,
               display: 'grid',
-              gridTemplateColumns: '110px 1fr 140px 110px 120px 80px 80px 48px',
+              gridTemplateColumns: '110px 1fr 140px 170px 110px 80px 80px 48px',
               alignItems: 'center', padding: '0 12px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0',
             }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase' }}>LIB Code</div>
@@ -308,7 +314,7 @@ export function ProductList() {
                     {p.engineering_code ?? '—'}
                   </div>
                 ) : (
-                  <div className="font-mono" style={{ fontSize: 13, color: '#B45309', fontWeight: 600 }}>{markDisplay(p)}</div>
+                  <div className="font-mono" style={{ fontSize: 13, color: '#1F1F1F', fontWeight: 500 }}>{markDisplay(p)}</div>
                 )}
                 <div style={{ fontSize: 12, color: '#555' }}>{p.category?.name ?? '-'}</div>
                 <div><ProductStatePill state={p.state} /></div>
@@ -433,12 +439,12 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
   return (
     <div className="hover:bg-chrome-50 transition-colors" style={{
       display: 'grid',
-      gridTemplateColumns: '110px 1fr 140px 110px 120px 80px 80px 48px',
+      gridTemplateColumns: '110px 1fr 140px 170px 110px 80px 80px 48px',
       alignItems: 'center', padding: '0 12px', height: 48, borderBottom: '1px solid #E0E0E0',
       opacity: dimmed ? 0.65 : 1,
     }}>
       {/* LIB Code */}
-      <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: dimmed ? '#8E8E8E' : '#065F46' }}>{entry.code}</div>
+      <div className="font-mono" style={{ fontSize: 13, fontWeight: 500, color: dimmed ? '#8E8E8E' : '#1F1F1F' }}>{entry.code}</div>
 
       {/* Name */}
       <div className="min-w-0 pr-4">
@@ -452,7 +458,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
             <span className="font-mono" style={{ fontSize: 12, fontWeight: 700, color: dimmed ? '#8E8E8E' : '#0C447C', background: dimmed ? '#F0F0F0' : '#E6F1FB', borderRadius: 3, padding: '1px 6px', flexShrink: 0 }}>
               {entry.mark_prefix}
             </span>
-            <span className="truncate" style={{ fontSize: 12, color: dimmed ? '#8E8E8E' : '#333' }}>{entry.mark_prefix_label}</span>
+            <span className="truncate" style={{ fontSize: 12, color: dimmed ? '#8E8E8E' : '#1F1F1F' }}>{entry.mark_prefix_label}</span>
           </div>
         ) : (
           <span style={{ fontSize: 12, color: '#C2C2C2' }}>—</span>
@@ -460,10 +466,17 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
       </div>
 
       {/* Category */}
-      <div style={{ fontSize: 12, color: dimmed ? '#8E8E8E' : '#555' }}>
-        {entry.mark_prefix_category
-          ? PREFIX_CATEGORY_LABELS[entry.mark_prefix_category] ?? entry.mark_prefix_category
-          : <span style={{ color: '#C2C2C2' }}>—</span>}
+      <div>
+        {entry.mark_prefix_category && PREFIX_CATEGORY_CHIP[entry.mark_prefix_category]
+          ? (() => {
+              const chip = PREFIX_CATEGORY_CHIP[entry.mark_prefix_category!]
+              return (
+                <span style={{ fontSize: 12, fontWeight: 500, color: dimmed ? '#8E8E8E' : '#1F1F1F', whiteSpace: 'nowrap' }}>
+                  {chip.label}
+                </span>
+              )
+            })()
+          : <span style={{ color: '#C2C2C2', fontSize: 12 }}>—</span>}
       </div>
 
       {/* Used By pills */}

@@ -18,7 +18,7 @@ export class MarkPrefixController {
 
   @Get()
   @ApiOperation({ summary: 'List mark prefixes (for dropdown)' })
-  @ApiQuery({ name: 'category', required: false, enum: ['assembly', 'member', 'other', 'sub_component', 'plate_part'] })
+  @ApiQuery({ name: 'category', required: false, enum: ['main_structure', 'secondary_structure', 'accessory', 'building_component'] })
   findAll(
     @Query('category') category?: string,
     @Query('active') active?: string,

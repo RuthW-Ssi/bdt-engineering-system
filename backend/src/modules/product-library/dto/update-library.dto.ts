@@ -1,7 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
 import { IsBoolean, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator'
 
-const CATEGORIES = ['assembly', 'member', 'plate_part', 'sub_component', 'other'] as const
+const CATEGORIES = ['main_structure', 'secondary_structure', 'accessory', 'building_component'] as const
 
 export class UpdateLibraryDto {
   @ApiPropertyOptional({ example: 'H300x300x12x12-revised', maxLength: 200 })
@@ -33,6 +33,6 @@ export class UpdateLibraryDto {
 
   @ApiPropertyOptional({ enum: CATEGORIES })
   @IsOptional()
-  @IsIn(CATEGORIES, { message: 'mark_prefix_category must be one of: assembly, member, plate_part, sub_component, other' })
+  @IsIn(CATEGORIES, { message: 'mark_prefix_category must be one of: main_structure, secondary_structure, accessory, building_component' })
   mark_prefix_category?: string
 }

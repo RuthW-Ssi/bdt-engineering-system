@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger'
 import { IsString, IsIn, MaxLength, MinLength, Matches } from 'class-validator'
 
-const CATEGORIES = ['assembly', 'member', 'plate_part', 'sub_component', 'other'] as const
+const CATEGORIES = ['main_structure', 'secondary_structure', 'accessory', 'building_component'] as const
 export type PrefixCategory = typeof CATEGORIES[number]
 
 export class CreateLibraryDto {
@@ -25,6 +25,6 @@ export class CreateLibraryDto {
   mark_prefix_label: string
 
   @ApiProperty({ enum: CATEGORIES })
-  @IsIn(CATEGORIES, { message: 'mark_prefix_category must be one of: assembly, member, plate_part, sub_component, other' })
+  @IsIn(CATEGORIES, { message: 'mark_prefix_category must be one of: main_structure, secondary_structure, accessory, building_component' })
   mark_prefix_category: PrefixCategory
 }

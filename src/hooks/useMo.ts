@@ -10,6 +10,7 @@ import {
   getMoHistory,
   getMos,
   getRoutingSuggestions,
+  getRoutingTemplateDetail,
   updateMo,
   type CreateMoPayload,
   type MoStatus,
@@ -93,5 +94,13 @@ export function useRoutingSuggestions(mark_prefix_id: string | null) {
     queryKey: ['mo', 'routing-suggest', mark_prefix_id],
     queryFn: () => getRoutingSuggestions(mark_prefix_id!),
     enabled: !!mark_prefix_id,
+  })
+}
+
+export function useRoutingTemplateDetail(id: number | null) {
+  return useQuery({
+    queryKey: ['routing-template', id],
+    queryFn: () => getRoutingTemplateDetail(id!),
+    enabled: id != null,
   })
 }
