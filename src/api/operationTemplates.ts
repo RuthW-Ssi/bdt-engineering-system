@@ -26,7 +26,7 @@ export interface OpActDto {
   source_activity_code: string | null
   snapshot_at: string | null
   is_stale: boolean
-  tools: { resource: ResourceDto }[]
+  tools: { resource: ResourceDto; qty: number }[]
   consumables: { resource: ResourceDto; qty: string | null; unit: string | null }[]
   skills: OpActLaborDto[]
   op_materials: OpActMaterialDto[]
