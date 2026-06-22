@@ -14,8 +14,10 @@ interface OpTypeItem { id: number; key: string; label: string; color: string; de
 
 interface ConsumableFormItem { resource_id: number; qty: string; unit: string }
 
-interface FormActivityLabor { labor_resource_id: number; name: string; code: string; qty: number }
-interface FormActivityMaterial { material_id: number; name: string; code: string }
+interface FormActivityLabor { skill: string; qty: number; level?: string }
+interface FormActivityMaterial { material_id: number; name: string; code: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null }
+
+interface FormActivityTool { id: number; qty: number }
 
 interface FormActivity {
   id?: number
@@ -25,7 +27,7 @@ interface FormActivity {
   source_activity_code: string | null
   snapshot_at: string | null
   machine_id: number | null
-  tool_ids: number[]
+  tools: FormActivityTool[]
   consumables: ConsumableFormItem[]
   labors: FormActivityLabor[]
   op_materials: FormActivityMaterial[]
@@ -76,7 +78,7 @@ export default function OperationBuilder() {
 
   const [editingActivityId, setEditingActivityId] = useState<number | null>(null)
   const [form, setForm] = useState<FormState>({
-    op_code: '', name: '', op_type_id: '', workcenter_id: '', method: '', activities: [],
+    op_code: '', name: '', op_type_id: '', workcenter_id: '', method: '', activities: [] as FormActivity[],
   })
   const queryClient = useQueryClient()
   const patch = (p: Partial<FormState>) => setForm(f => ({ ...f, ...p }))
@@ -97,10 +99,10 @@ export default function OperationBuilder() {
       source_activity_code: a.source_activity_code ?? null,
       snapshot_at: a.snapshot_at ?? null,
       machine_id: a.machine_id ?? null,
-      tool_ids: a.tools?.map((t) => t.resource.id) ?? [],
+      tools: a.tools?.map((t) => ({ id: t.resource.id, qty: t.qty ?? 1 })) ?? [],
       consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '' })) ?? [],
-      labors: a.labors?.map(l => ({ labor_resource_id: l.labor_resource.id, name: l.labor_resource.name, code: l.labor_resource.code, qty: l.qty })) ?? [],
-      op_materials: a.op_materials?.map(m => ({ material_id: m.resource.id, name: m.resource.name, code: m.resource.code })) ?? [],
+      labors: a.skills?.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })) ?? [],
+      op_materials: a.op_materials?.map(m => ({ material_id: m.resource.id, name: m.resource.name, code: m.resource.code, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })) ?? [],
     }))
 
   useEffect(() => {
@@ -153,12 +155,12 @@ export default function OperationBuilder() {
       name: a.name, measure: a.measure, unit: a.unit || null,
       per_minute: a.per_minute ? Number(a.per_minute) : null,
       machine_id: a.machine_id ?? null,
-      tool_ids: a.tool_ids,
+      tool_ids: a.tools,
       consumables: [
         ...a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
-        ...a.op_materials.map(m => ({ resource_id: m.material_id })),
+        ...a.op_materials.map(m => ({ resource_id: m.material_id, formula_id: m.formula_id ?? null })),
       ],
-      labors: a.labors.map(l => ({ labor_resource_id: l.labor_resource_id, qty: l.qty })),
+      skills: a.labors.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
       sequence: (i + 1) * 10,
       source_activity_id: a.source_activity_id ?? null,
       snapshot_at: a.snapshot_at ?? null,
@@ -337,7 +339,7 @@ export default function OperationBuilder() {
                 if (!pm || pm <= 0) { opTotalOk = false; break }
                 opTotal += pm
               }
-              const machines = equipmentList.filter(e => ['machine', 'handling', 'labor'].includes(e.type))
+              const machines = equipmentList.filter(e => ['machine', 'handling'].includes(e.type))
               const chip: React.CSSProperties = { fontSize: 11, padding: '2px 9px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
               const COL = '1fr 64px 1fr 24px'
               const COL_LIB = '1fr 64px 1fr 20px 20px'
@@ -393,27 +395,27 @@ export default function OperationBuilder() {
                           </div>
                         )}
 
-                        {/* Tools / Labour / Consumes sub-row — read-only */}
-                        {(act.tool_ids.length > 0 || act.labors.length > 0 || act.op_materials.length > 0 || act.consumables.length > 0) && (
+                        {/* Tools / Skill / Consumes sub-row — read-only */}
+                        {(act.tools.length > 0 || act.labors.length > 0 || act.op_materials.length > 0 || act.consumables.length > 0) && (
                           <div style={{ display: 'flex', gap: 0, borderTop: `1px solid ${isLib ? '#DDEEFF' : '#F0F0F0'}`, background: '#fff' }}>
-                            {act.tool_ids.length > 0 && (
+                            {act.tools.length > 0 && (
                               <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
                                 <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                  {act.tool_ids.map(tid => {
-                                    const eq = equipmentList.find(e => e.id === tid)
-                                    return eq ? <span key={tid} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name}</span> : null
+                                  {act.tools.map(t => {
+                                    const eq = equipmentList.find(e => e.id === t.id)
+                                    return eq ? <span key={t.id} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name} ×{t.qty}</span> : null
                                   })}
                                 </div>
                               </div>
                             )}
                             {act.labors.length > 0 && (
                               <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Skill</div>
                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                   {act.labors.map(l => (
-                                    <span key={l.labor_resource_id} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
-                                      {l.name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                    <span key={l.skill} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                      {l.skill}{l.level ? ` (${l.level})` : ''} ×{l.qty}
                                     </span>
                                   ))}
                                 </div>
@@ -424,7 +426,14 @@ export default function OperationBuilder() {
                                 <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumes</div>
                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                   {act.op_materials.map(m => (
-                                    <span key={m.material_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>{m.name}</span>
+                                    <span key={m.material_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
+                                      {m.name}
+                                      {m.formula_name && (
+                                        <span style={{ marginLeft: 4, fontSize: 10, color: '#9E6B00', fontStyle: 'italic' }}>
+                                          [{m.formula_name}{m.formula_unit ? ` · ${m.formula_unit}` : ''}]
+                                        </span>
+                                      )}
+                                    </span>
                                   ))}
                                   {act.consumables.map(c => {
                                     const eq = equipmentList.find(e => e.id === c.resource_id)

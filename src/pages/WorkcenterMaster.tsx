@@ -59,7 +59,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
   const laborValid = Math.abs(laborSum - 100) <= 0.5
 
   const handleSave = async () => {
-    if (!laborValid) { setError(`Labor mix totals ${laborSum}% (must equal 100%)`); return }
+    if (!laborValid) { setError(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
     setError(null)
     try {
       await update.mutateAsync({
@@ -114,7 +114,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
         {/* Labor mix */}
         <div style={{ marginBottom: 20 }}>
           <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Labor Mix</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Operator Mix</span>
             <span style={{ fontSize: 11, color: laborValid ? '#2E7D32' : '#C8202A' }}>Total {laborSum}%</span>
           </div>
           <div className="flex flex-col gap-2">
@@ -138,7 +138,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
           <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>Cost (THB/min)</div>
           <div className="flex flex-col gap-2">
             {[
-              { label: 'Labor', value: laborCost, setter: setLaborCost },
+              { label: 'Operator', value: laborCost, setter: setLaborCost },
               { label: 'Electricity', value: electricityCost, setter: setElectricityCost },
               { label: 'Consumable', value: consumableCost, setter: setConsumableCost },
               { label: 'Overhead', value: overheadCost, setter: setOverheadCost },
@@ -209,7 +209,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   const handleSave = async () => {
     if (!code.trim()) { setError('Code is required'); return }
     if (!name.trim()) { setError('Name is required'); return }
-    if (!laborValid) { setError(`Labor mix totals ${laborSum}% (must equal 100%)`); return }
+    if (!laborValid) { setError(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
     setError(null)
     try {
       await create.mutateAsync({
@@ -290,7 +290,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
         {/* Labor mix */}
         <div style={{ marginBottom: 20 }}>
           <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Labor Mix</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Operator Mix</span>
             <span style={{ fontSize: 11, color: laborValid ? '#2E7D32' : '#C8202A' }}>Total {laborSum}%</span>
           </div>
           <div className="flex flex-col gap-2">
@@ -314,7 +314,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
           <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>Cost (THB/min)</div>
           <div className="flex flex-col gap-2">
             {[
-              { label: 'Labor', value: laborCost, setter: setLaborCost },
+              { label: 'Operator', value: laborCost, setter: setLaborCost },
               { label: 'Electricity', value: electricityCost, setter: setElectricityCost },
               { label: 'Consumable', value: consumableCost, setter: setConsumableCost },
               { label: 'Overhead', value: overheadCost, setter: setOverheadCost },
@@ -397,7 +397,7 @@ function WcCard({ wc, onEdit }: { wc: WorkcenterDTO; onEdit: () => void }) {
 
       {/* Labor mix */}
       <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 600, marginBottom: 4 }}>LABOR MIX</div>
+        <div style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 600, marginBottom: 4 }}>OPERATOR MIX</div>
         <div className="flex gap-1" style={{ height: 8, borderRadius: 999, overflow: 'hidden' }}>
           <div style={{ flex: wc.labor_mix.operator, background: '#1565C0' }} />
           <div style={{ flex: wc.labor_mix.skilled, background: '#2E7D32' }} />

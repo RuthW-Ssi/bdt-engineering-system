@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ActivityCodeGenerator } from './activity-code.generator'
-import { CreateActivityDto, LaborEntryDto } from './dto/create-activity.dto'
+import { CreateActivityDto, LaborEntryDto, ConsumeEntryDto, ToolEntryDto } from './dto/create-activity.dto'
 import { UpdateActivityDto } from './dto/update-activity.dto'
 import { QueryActivityDto } from './dto/query-activity.dto'
 
@@ -10,13 +10,10 @@ const INCLUDE = {
   consumes: {
     include: {
       resource: { select: { id: true, code: true, name: true } },
+      formula:  { select: { id: true, name: true, expr: true, result_unit: true, variables: true } },
     },
   },
-  labors: {
-    include: {
-      labor_resource: { select: { id: true, code: true, name: true } },
-    },
-  },
+  skills: true,
   tools: {
     include: {
       resource: { select: { id: true, code: true, name: true } },
@@ -52,9 +49,9 @@ export class ActivitiesService {
   }
 
   async create(dto: CreateActivityDto, userId: number) {
-    await this.validateMachine(dto.machine_id)
+    if (dto.machine_id) await this.validateMachine(dto.machine_id)
     const consumeIds = await this.resolveConsumes(dto.consumes)
-    const laborEntries = await this.resolveLabors(dto.labors)
+    const laborEntries = this.resolveLabors(dto.labors)
     const toolIds = await this.resolveTools(dto.tools)
 
     return this.prisma.$transaction(async (tx) => {
@@ -63,22 +60,22 @@ export class ActivitiesService {
         data: {
           activity_code,
           name: dto.name,
-          machine_id: dto.machine_id,
+          machine_id: dto.machine_id ?? null,
           duration_min: dto.duration_min,
           create_uid: userId,
           write_uid: userId,
           consumes: {
-            create: consumeIds.map((resource_id) => ({ resource_id })),
+            create: consumeIds.map(({ resource_id, formula_id }) => ({ resource_id, formula_id: formula_id ?? null })),
           },
-          labors: {
-            create: laborEntries.map(({ labor_resource_id, qty }) => ({ labor_resource_id, qty })),
+          skills: {
+            create: laborEntries.map(({ skill, qty, level }) => ({ skill, qty, level: level ?? null })),
           },
         },
         include: INCLUDE,
       })
       if (toolIds.length) {
         await tx.activity_tool.createMany({
-          data: toolIds.map((resource_id) => ({ activity_id: created.id, resource_id })),
+          data: toolIds.map(({ resource_id, qty }) => ({ activity_id: created.id, resource_id, qty })),
           skipDuplicates: true,
         })
       }
@@ -88,11 +85,11 @@ export class ActivitiesService {
 
   async update(id: number, dto: UpdateActivityDto, userId: number) {
     await this.findOne(id)
-    if (dto.machine_id !== undefined) await this.validateMachine(dto.machine_id)
+    if (dto.machine_id) await this.validateMachine(dto.machine_id)
     const consumeIds =
       dto.consumes !== undefined ? await this.resolveConsumes(dto.consumes) : undefined
     const laborEntries =
-      dto.labors !== undefined ? await this.resolveLabors(dto.labors) : undefined
+      dto.labors !== undefined ? this.resolveLabors(dto.labors) : undefined
     const toolIds =
       dto.tools !== undefined ? await this.resolveTools(dto.tools) : undefined
     await this.prisma.activity.update({
@@ -106,15 +103,15 @@ export class ActivitiesService {
           ? {
               consumes: {
                 deleteMany: {},
-                create: consumeIds.map((resource_id) => ({ resource_id })),
+                create: consumeIds.map(({ resource_id, formula_id }) => ({ resource_id, formula_id: formula_id ?? null })),
               },
             }
           : {}),
         ...(laborEntries !== undefined
           ? {
-              labors: {
+              skills: {
                 deleteMany: {},
-                create: laborEntries.map(({ labor_resource_id, qty }) => ({ labor_resource_id, qty })),
+                create: laborEntries.map(({ skill, qty, level }) => ({ skill, qty, level: level ?? null })),
               },
             }
           : {}),
@@ -124,7 +121,7 @@ export class ActivitiesService {
       await this.prisma.activity_tool.deleteMany({ where: { activity_id: id } })
       if (toolIds.length) {
         await this.prisma.activity_tool.createMany({
-          data: toolIds.map((resource_id) => ({ activity_id: id, resource_id })),
+          data: toolIds.map(({ resource_id, qty }) => ({ activity_id: id, resource_id, qty })),
           skipDuplicates: true,
         })
       }
@@ -142,47 +139,38 @@ export class ActivitiesService {
     if (!machine) throw new BadRequestException(`Machine ${machine_id} not found`)
   }
 
-  private async resolveTools(ids: number[] | undefined): Promise<number[]> {
-    if (!ids || ids.length === 0) return []
-    const unique = [...new Set(ids)]
-    const found = await this.prisma.equipment_resource.findMany({
-      where: { id: { in: unique } },
-      select: { id: true },
-    })
-    if (found.length !== unique.length) {
-      const missing = unique.filter((id) => !found.find((r) => r.id === id))
-      throw new BadRequestException(`Tool resource ids not found: ${missing.join(', ')}`)
-    }
-    return unique
-  }
-
-  private async resolveConsumes(ids: number[] | undefined): Promise<number[]> {
-    if (!ids || ids.length === 0) return []
-    const unique = [...new Set(ids)]
-    const found = await this.prisma.equipment_resource.findMany({
-      where: { id: { in: unique } },
-      select: { id: true },
-    })
-    if (found.length !== unique.length) {
-      const missing = unique.filter((id) => !found.find((r) => r.id === id))
-      throw new BadRequestException(`Resource ids not found: ${missing.join(', ')}`)
-    }
-    return unique
-  }
-
-  private async resolveLabors(
-    entries: LaborEntryDto[] | undefined,
-  ): Promise<{ labor_resource_id: number; qty: number }[]> {
+  private async resolveTools(entries: ToolEntryDto[] | undefined): Promise<ToolEntryDto[]> {
     if (!entries || entries.length === 0) return []
-    const uniqueIds = [...new Set(entries.map((e) => e.id))]
+    const uniqueIds = [...new Set(entries.map(e => e.resource_id))]
     const found = await this.prisma.equipment_resource.findMany({
       where: { id: { in: uniqueIds } },
       select: { id: true },
     })
     if (found.length !== uniqueIds.length) {
       const missing = uniqueIds.filter((id) => !found.find((r) => r.id === id))
-      throw new BadRequestException(`Labor resource ids not found: ${missing.join(', ')}`)
+      throw new BadRequestException(`Tool resource ids not found: ${missing.join(', ')}`)
     }
-    return entries.map((e) => ({ labor_resource_id: e.id, qty: e.qty }))
+    return entries
+  }
+
+  private async resolveConsumes(entries: ConsumeEntryDto[] | undefined): Promise<ConsumeEntryDto[]> {
+    if (!entries || entries.length === 0) return []
+    const uniqueIds = [...new Set(entries.map(e => e.resource_id))]
+    const found = await this.prisma.equipment_resource.findMany({
+      where: { id: { in: uniqueIds } },
+      select: { id: true },
+    })
+    if (found.length !== uniqueIds.length) {
+      const missing = uniqueIds.filter((id) => !found.find((r) => r.id === id))
+      throw new BadRequestException(`Resource ids not found: ${missing.join(', ')}`)
+    }
+    return entries
+  }
+
+  private resolveLabors(
+    entries: LaborEntryDto[] | undefined,
+  ): { skill: string; qty: number; level?: string }[] {
+    if (!entries || entries.length === 0) return []
+    return entries.map((e) => ({ skill: e.skill, qty: e.qty, level: e.level ?? undefined }))
   }
 }

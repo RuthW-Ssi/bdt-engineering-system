@@ -152,7 +152,7 @@ export interface RoutingActivitySnap {
   machine_name: string | null
   tool_ids: number[] | null
   tool_names: string[]
-  labors: { labor_resource_id: number; labor_name: string; qty: number }[] | null
+  labors: { skill: string; qty: number; level?: string | null }[] | null
   consumables: { resource_id: number; code: string; name: string }[] | null
 }
 

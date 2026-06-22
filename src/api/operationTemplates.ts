@@ -5,11 +5,12 @@ export interface ResourceDto {
 }
 
 export interface OpActLaborDto {
-  labor_resource: ResourceDto; qty: number
+  skill: string; qty: number; level?: string | null
 }
 
 export interface OpActMaterialDto {
   resource: { id: number; code: string; name: string }
+  formula:  { id: number; name: string; expr: string; result_unit: string | null } | null
 }
 
 export interface OpActDto {
@@ -27,7 +28,7 @@ export interface OpActDto {
   is_stale: boolean
   tools: { resource: ResourceDto }[]
   consumables: { resource: ResourceDto; qty: string | null; unit: string | null }[]
-  labors: OpActLaborDto[]
+  skills: OpActLaborDto[]
   op_materials: OpActMaterialDto[]
 }
 

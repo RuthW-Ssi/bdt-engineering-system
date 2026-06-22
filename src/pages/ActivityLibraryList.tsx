@@ -59,7 +59,7 @@ export function ActivityLibraryList() {
 
         {/* Header row */}
         <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 110px 1fr 80px 90px 90px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
-          {['Code', 'Name', 'Machine', 'Consumes', 'Labor', 'Duration', ''].map((h) => (
+          {['Code', 'Name', 'Machine', 'Consumes', 'Skill', 'Duration', ''].map((h) => (
             <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
           ))}
         </div>
@@ -92,8 +92,8 @@ export function ActivityLibraryList() {
                 {act.consumes.length > 0 ? act.consumes.map((c) => c.resource.name).join(', ') : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
               <div style={{ fontSize: 11, color: '#1B5E20', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {act.labors && act.labors.length > 0
-                  ? act.labors.map((l) => `${l.labor_resource.code} ×${l.qty}`).join(', ')
+                {act.skills && act.skills.length > 0
+                  ? act.skills.map((l) => `${l.skill}${l.level ? ` (${l.level})` : ''} ×${l.qty}`).join(', ')
                   : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
               <div>
