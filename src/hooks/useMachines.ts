@@ -2,10 +2,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   getMachines, getMachine, getMaintenanceLogs, getRepairTickets, getStatusHistory,
   createMaintenanceLog, openRepairTicket, closeRepairTicket, changeStatus,
-  type EquipmentStatus,
+  type EquipmentStatus, type ResourceType,
 } from '../api/machines'
 
-export function useMachines(params?: { status?: EquipmentStatus; area?: string; name?: string }) {
+export function useMachines(params?: { status?: EquipmentStatus; area?: string; name?: string; type?: ResourceType }) {
   return useQuery({
     queryKey: ['machines', params],
     queryFn: () => getMachines(params),

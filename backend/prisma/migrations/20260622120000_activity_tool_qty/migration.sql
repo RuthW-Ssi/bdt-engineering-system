@@ -1,0 +1,1 @@
+ALTER TABLE "activity_tool" ADD COLUMN "qty" INTEGER NOT NULL DEFAULT 1;

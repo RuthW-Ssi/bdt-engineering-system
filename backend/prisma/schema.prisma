@@ -971,7 +971,7 @@ model operation_template_activity {
   source_activity       activity?           @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
   snapshot_at           DateTime?           @db.Timestamptz
   tools                 op_act_tool[]
-  labors                op_act_labor[]
+  skills                op_act_skills[]
   op_materials          op_act_material[]
 
   @@index([operation_template_id])
@@ -1020,15 +1020,17 @@ model equipment_resource {
   install_date        DateTime?
   specs               String?         @db.Text
   photo_url           String?
+  // Labor fields
+  skills              Json?           // string[] — used when type='labor'
+  // Machine/Tool fields
+  qty                 Int?            // stock quantity — used when type='machine'|'handling'|'tool'
 
   operation_template_acts operation_template_activity[] @relation("OpActMachine")
   op_act_tools            op_act_tool[]
   // Sprint 11: Activity Library
   activities              activity[]                    @relation("activity_machine")
-  activity_labors         activity_labor[]              @relation("activity_labor_resource")
   activity_consumes       activity_consume[]            @relation("activity_consume_resource")
   activity_tools          activity_tool[]               @relation("activity_tool_resource")
-  op_act_labors           op_act_labor[]                @relation("OpActLaborResource")
   op_act_materials        op_act_material[]             @relation("op_act_material_resource")
   // T-MACH.01: Machine Tracker relations
   maintenance_logs        maintenance_log[]
@@ -1043,6 +1045,7 @@ model op_act_tool {
   activity_id Int
   activity    operation_template_activity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
   resource_id Int
+  qty         Int                         @default(1)
   resource    equipment_resource          @relation(fields: [resource_id], references: [id], onDelete: Cascade)
 
   @@unique([activity_id, resource_id])
@@ -1053,15 +1056,15 @@ model op_act_tool {
 // Note: these models use `op_act_id` (not `activity_id`) to avoid ambiguity
 // with op_act_tool/op_act_consumable which pre-date this naming.
 
-model op_act_labor {
-  id                Int                         @id @default(autoincrement())
-  op_act_id         Int
-  op_act            operation_template_activity @relation(fields: [op_act_id], references: [id], onDelete: Cascade)
-  labor_resource_id Int
-  labor_resource    equipment_resource          @relation("OpActLaborResource", fields: [labor_resource_id], references: [id], onDelete: Cascade)
-  qty               Int                         @default(1)
+model op_act_skills {
+  id        Int                         @id @default(autoincrement())
+  op_act_id Int
+  op_act    operation_template_activity @relation(fields: [op_act_id], references: [id], onDelete: Cascade)
+  skill     String                      @db.VarChar(80)
+  qty       Int                         @default(1)
+  level     String?                     @db.VarChar(20)
 
-  @@unique([op_act_id, labor_resource_id])
+  @@unique([op_act_id, skill])
   @@index([op_act_id])
 }
 
@@ -1070,10 +1073,13 @@ model op_act_material {
   op_act_id   Int
   op_act      operation_template_activity @relation(fields: [op_act_id], references: [id], onDelete: Cascade)
   resource_id Int
+  formula_id  Int?
   resource    equipment_resource          @relation("op_act_material_resource", fields: [resource_id], references: [id], onDelete: Cascade)
+  formula     consume_formula?            @relation("op_act_material_formula", fields: [formula_id], references: [id], onDelete: SetNull)
 
   @@unique([op_act_id, resource_id])
   @@index([op_act_id])
+  @@index([formula_id])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1084,8 +1090,8 @@ model activity {
   id                            Int                           @id @default(autoincrement())
   activity_code                 String                        @unique @db.VarChar(20)
   name                          String                        @db.VarChar(120)
-  machine_id                    Int
-  machine                       equipment_resource            @relation("activity_machine", fields: [machine_id], references: [id])
+  machine_id                    Int?
+  machine                       equipment_resource?           @relation("activity_machine", fields: [machine_id], references: [id], onDelete: SetNull)
   duration_min                  Decimal                       @db.Decimal(10, 2)
   create_uid                    Int
   create_user                   res_users                     @relation("activity_create_user", fields: [create_uid], references: [id])
@@ -1094,7 +1100,7 @@ model activity {
   write_user                    res_users                     @relation("activity_write_user", fields: [write_uid], references: [id])
   write_date                    DateTime                      @updatedAt @db.Timestamptz
   consumes                      activity_consume[]
-  labors                        activity_labor[]
+  skills                        activity_skill[]
   tools                         activity_tool[]
   operation_template_activities operation_template_activity[] @relation("OpActSourceActivity")
 
@@ -1105,27 +1111,31 @@ model activity {
 model activity_consume {
   activity_id Int
   resource_id Int
+  formula_id  Int?
   activity    activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
   resource    equipment_resource @relation("activity_consume_resource", fields: [resource_id], references: [id], onDelete: Cascade)
+  formula     consume_formula?   @relation("activity_consume_formula", fields: [formula_id], references: [id], onDelete: SetNull)
 
   @@id([activity_id, resource_id])
   @@index([resource_id])
+  @@index([formula_id])
 }
 
-model activity_labor {
-  activity_id       Int
-  labor_resource_id Int
-  qty               Int                @default(1)
-  activity          activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  labor_resource    equipment_resource @relation("activity_labor_resource", fields: [labor_resource_id], references: [id])
+model activity_skill {
+  activity_id Int
+  skill       String   @db.VarChar(80)
+  qty         Int      @default(1)
+  level       String?  @db.VarChar(20)
+  activity    activity @relation(fields: [activity_id], references: [id], onDelete: Cascade)
 
-  @@id([activity_id, labor_resource_id])
-  @@index([labor_resource_id])
+  @@id([activity_id, skill])
+  @@index([skill])
 }
 
 model activity_tool {
   activity_id Int
   resource_id Int
+  qty         Int                @default(1)
   activity    activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
   resource    equipment_resource @relation("activity_tool_resource", fields: [resource_id], references: [id], onDelete: Cascade)
 
@@ -1136,6 +1146,39 @@ model activity_tool {
 model activity_code_seq {
   id       Int @id
   next_val Int @default(1)
+}
+
+// ── Operator (plant workforce from Supabase operator table) ──────────────────
+model operator {
+  id           Int              @id @default(autoincrement())
+  code         String           @unique @db.VarChar(40)
+  name         String           @db.VarChar(120)
+  nationality  String?          @db.VarChar(10)
+  position_raw String?          @db.VarChar(120)
+  start_raw    String?          @db.VarChar(40)
+  active       Boolean          @default(true)
+  created_at   DateTime         @default(now()) @db.Timestamptz
+
+  skills operator_skill[]
+}
+
+model skill {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(80)
+
+  operators operator_skill[]
+}
+
+model operator_skill {
+  id          Int      @id @default(autoincrement())
+  operator_id Int
+  skill_id    Int
+  level       String?  @db.VarChar(20)
+
+  operator operator @relation(fields: [operator_id], references: [id], onDelete: Cascade)
+  skill    skill    @relation(fields: [skill_id], references: [id], onDelete: Cascade)
+
+  @@unique([operator_id, skill_id])
 }
 
 // ── T-MACH.01: Machine Tracker tables ────────────────────────────────────────
@@ -1382,4 +1425,23 @@ enum WoEventType {
   DONE
   CANCEL
   ACCEPT_VERSION // T-WO.04 · BOM Version Alert accept audit (delta vs design §4 — spec requires an event row)
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Consume Formula Templates
+// ═══════════════════════════════════════════════════════════════
+
+model consume_formula {
+  id          Int      @id @default(autoincrement())
+  name        String   @db.VarChar(80)
+  expr        String   @db.Text
+  result_unit String?  @db.VarChar(20)
+  variables   String[]
+  category    String?  @db.VarChar(30)
+  description String?  @db.Text
+
+  activity_consumes activity_consume[]  @relation("activity_consume_formula")
+  op_act_materials  op_act_material[]   @relation("op_act_material_formula")
+
+  @@index([category])
 }

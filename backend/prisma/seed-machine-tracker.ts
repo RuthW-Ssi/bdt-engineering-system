@@ -8,7 +8,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
   // Covers all 5 statuses for testing
   const machines = [
     {
-      code: 'EQ-CUT-PLASMA25',
+      code: 'MC-0002',
       name: 'Plasma/Gas CNC 2.5 m',
       type: 'machine',
       location: 'โซนตัด A',
@@ -18,7 +18,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(22),  // 22 days → green badge
     },
     {
-      code: 'EQ-CUT-PLASMA60',
+      code: 'MC-0003',
       name: 'Plasma/Gas CNC 6 m',
       type: 'machine',
       location: 'โซนตัด A',
@@ -28,7 +28,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(45),  // 45 days → yellow badge
     },
     {
-      code: 'EQ-HBEAM',
+      code: 'MC-0011',
       name: 'Integrated H-beam Making',
       type: 'machine',
       location: 'โซน H-Beam',
@@ -38,7 +38,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(72),  // 72 days → red badge
     },
     {
-      code: 'EQ-WELD-SAW',
+      code: 'MC-0013',
       name: 'SAW (auto weld)',
       type: 'machine',
       location: 'โซน H-Beam',
@@ -48,7 +48,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(60),
     },
     {
-      code: 'EQ-PRESS-110',
+      code: 'MC-0006',
       name: 'Machine Press 110T',
       type: 'machine',
       location: 'โซนขึ้นรูป',
@@ -58,7 +58,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(35),
     },
     {
-      code: 'EQ-CRANE-25T',
+      code: 'MC-0018',
       name: 'Overhead Crane 25T',
       type: 'handling',
       location: 'Hall A',
@@ -68,7 +68,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(90),
     },
     {
-      code: 'EQ-BLAST',
+      code: 'MC-0021',
       name: 'Shot Blast Machine',
       type: 'machine',
       location: 'โซนพ่นสี',
@@ -78,7 +78,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
       last_maintenance_at: d(180),
     },
     {
-      code: 'EQ-BRAKE-200',
+      code: 'MC-0007',
       name: 'Hydraulic Press Brake 200T',
       type: 'machine',
       location: 'โซนขึ้นรูป',
@@ -120,7 +120,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
     where: { id: 1 },
     update: {},
     create: {
-      machine_id: savedMachines['EQ-CUT-PLASMA25'].id,
+      machine_id: savedMachines['MC-0002'].id,
       performed_at: d(22),
       performed_by: 'ช่างเอ',
       description: 'เปลี่ยนชุด torch tip และ shield cap, ทดสอบ plasma หัวตัด',
@@ -135,7 +135,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
     where: { id: 2 },
     update: {},
     create: {
-      machine_id: savedMachines['EQ-HBEAM'].id,
+      machine_id: savedMachines['MC-0011'].id,
       performed_at: d(72),
       performed_by: 'ช่างบี',
       description: 'ตรวจสอบและหล่อลื่น bearing, ปรับ alignment แนวทาง',
@@ -146,7 +146,7 @@ export async function seedMachineTracker(prisma: PrismaClient) {
   })
 
   // Repair ticket for EQ-PRESS-110 (currently in REPAIR status)
-  const pressId = savedMachines['EQ-PRESS-110'].id
+  const pressId = savedMachines['MC-0006'].id
   const existingTicket = await prisma.repair_ticket.findFirst({
     where: { machine_id: pressId, status: { not: RepairStatus.CLOSED } },
   })

@@ -9,11 +9,11 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   }
 
   // ─── Reset machine-tracker tables for the 8 key machines ─────────────────
-  const keyCodes = ['EQ-CUT-PLASMA25','EQ-CUT-PLASMA60','EQ-HBEAM','EQ-WELD-SAW',
-    'EQ-PRESS-110','EQ-CRANE-25T','EQ-BLAST','EQ-BRAKE-200','EQ-WELD-MAG',
-    'EQ-WELD-SMAW',
-    'EQ-CUT-PIPE','EQ-SAW-BAND','EQ-PUNCH','EQ-DRILL','EQ-TAP',
-    'EQ-STRAIGHTEN','EQ-GRIND-4','EQ-GRIND-7','EQ-SPRAY-AIRLESS','EQ-CRANE-10T','EQ-CONV-01']
+  const keyCodes = ['MC-0002','MC-0003','MC-0011','MC-0013',
+    'MC-0006','MC-0018','MC-0021','MC-0007','MC-0015',
+    'MC-0014',
+    'MC-0004','MC-0005','MC-0008','MC-0009','MC-0010',
+    'MC-0012','MC-0016','MC-0017','MC-0022','MC-0019','MC-0020']
   const machines = await prisma.equipment_resource.findMany({ where: { code: { in: keyCodes } } })
   const ids = machines.map(m => m.id)
   await prisma.machine_status_history.deleteMany({ where: { machine_id: { in: ids } } })
@@ -27,28 +27,28 @@ export async function seedMachineDemo(prisma: PrismaClient) {
 
   // ─── Upsert machines with target statuses ─────────────────────────────────
   const machineData = [
-    { code: 'EQ-CUT-PLASMA25',  status: EquipmentStatus.OPERATIONAL, last_pm: d(23) },
-    { code: 'EQ-CUT-PLASMA60',  status: EquipmentStatus.OPERATIONAL, last_pm: d(46) },
-    { code: 'EQ-HBEAM',         status: EquipmentStatus.OPERATIONAL, last_pm: d(73) },
-    { code: 'EQ-WELD-SAW',      status: EquipmentStatus.MAINTENANCE, last_pm: d(61) },
-    { code: 'EQ-PRESS-110',     status: EquipmentStatus.REPAIR,      last_pm: d(58) },
-    { code: 'EQ-CRANE-25T',     status: EquipmentStatus.UNAVAILABLE, last_pm: d(91) },
-    { code: 'EQ-BLAST',         status: EquipmentStatus.RETIRED,     last_pm: d(181) },
-    { code: 'EQ-BRAKE-200',     status: EquipmentStatus.OPERATIONAL, last_pm: d(38) },
-    { code: 'EQ-WELD-MAG',      status: EquipmentStatus.OPERATIONAL, last_pm: d(53) },
-    { code: 'EQ-WELD-SMAW',     status: EquipmentStatus.OPERATIONAL, last_pm: d(28) },
+    { code: 'MC-0002',  status: EquipmentStatus.OPERATIONAL, last_pm: d(23) },
+    { code: 'MC-0003',  status: EquipmentStatus.OPERATIONAL, last_pm: d(46) },
+    { code: 'MC-0011',         status: EquipmentStatus.OPERATIONAL, last_pm: d(73) },
+    { code: 'MC-0013',      status: EquipmentStatus.MAINTENANCE, last_pm: d(61) },
+    { code: 'MC-0006',     status: EquipmentStatus.REPAIR,      last_pm: d(58) },
+    { code: 'MC-0018',     status: EquipmentStatus.UNAVAILABLE, last_pm: d(91) },
+    { code: 'MC-0021',         status: EquipmentStatus.RETIRED,     last_pm: d(181) },
+    { code: 'MC-0007',     status: EquipmentStatus.OPERATIONAL, last_pm: d(38) },
+    { code: 'MC-0015',      status: EquipmentStatus.OPERATIONAL, last_pm: d(53) },
+    { code: 'MC-0014',     status: EquipmentStatus.OPERATIONAL, last_pm: d(28) },
     // ─── 11 additional machines ───────────────────────────────────────────────
-    { code: 'EQ-CUT-PIPE',      status: EquipmentStatus.OPERATIONAL, last_pm: d(25) },
-    { code: 'EQ-SAW-BAND',      status: EquipmentStatus.OPERATIONAL, last_pm: d(18) },
-    { code: 'EQ-PUNCH',         status: EquipmentStatus.OPERATIONAL, last_pm: d(67) },
-    { code: 'EQ-DRILL',         status: EquipmentStatus.OPERATIONAL, last_pm: d(31) },
-    { code: 'EQ-TAP',           status: EquipmentStatus.OPERATIONAL, last_pm: d(89) },
-    { code: 'EQ-STRAIGHTEN',    status: EquipmentStatus.OPERATIONAL, last_pm: d(55) },
-    { code: 'EQ-GRIND-4',       status: EquipmentStatus.OPERATIONAL, last_pm: d(14) },
-    { code: 'EQ-GRIND-7',       status: EquipmentStatus.MAINTENANCE, last_pm: d(5) },
-    { code: 'EQ-SPRAY-AIRLESS', status: EquipmentStatus.OPERATIONAL, last_pm: d(41) },
-    { code: 'EQ-CRANE-10T',     status: EquipmentStatus.OPERATIONAL, last_pm: d(22) },
-    { code: 'EQ-CONV-01',       status: EquipmentStatus.OPERATIONAL, last_pm: d(78) },
+    { code: 'MC-0004',      status: EquipmentStatus.OPERATIONAL, last_pm: d(25) },
+    { code: 'MC-0005',      status: EquipmentStatus.OPERATIONAL, last_pm: d(18) },
+    { code: 'MC-0008',         status: EquipmentStatus.OPERATIONAL, last_pm: d(67) },
+    { code: 'MC-0009',         status: EquipmentStatus.OPERATIONAL, last_pm: d(31) },
+    { code: 'MC-0010',           status: EquipmentStatus.OPERATIONAL, last_pm: d(89) },
+    { code: 'MC-0012',    status: EquipmentStatus.OPERATIONAL, last_pm: d(55) },
+    { code: 'MC-0016',       status: EquipmentStatus.OPERATIONAL, last_pm: d(14) },
+    { code: 'MC-0017',       status: EquipmentStatus.MAINTENANCE, last_pm: d(5) },
+    { code: 'MC-0022', status: EquipmentStatus.OPERATIONAL, last_pm: d(41) },
+    { code: 'MC-0019',     status: EquipmentStatus.OPERATIONAL, last_pm: d(22) },
+    { code: 'MC-0020',       status: EquipmentStatus.OPERATIONAL, last_pm: d(78) },
   ]
   for (const m of machineData) {
     await prisma.equipment_resource.update({
@@ -59,7 +59,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
 
   // ─── PM LOGS ─────────────────────────────────────────────────────────────
   // EQ-CUT-PLASMA25 — 5 PM logs every ~30 days
-  const pm25 = id('EQ-CUT-PLASMA25')
+  const pm25 = id('MC-0002')
   const pmLogs25 = [
     { performed_at: d(143), performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 1 ประจำปี — เปลี่ยน torch tip ครบชุด, ทำความสะอาดหัวตัด plasma, ตรวจ coolant level', parts_replaced: 'Plasma tip ×4, Shield cap ×4', duration_min: 90 },
     { performed_at: d(113), performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — ตรวจสอบ linear guide rail + หล่อลื่น, เปลี่ยน consumable electrode', parts_replaced: 'Electrode ×2, Grease 1 ถัง', duration_min: 75 },
@@ -70,7 +70,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogs25) await prisma.maintenance_log.create({ data: { machine_id: pm25, ...l, notes: null, photo_urls: [] } })
 
   // EQ-CUT-PLASMA60 — 3 PM logs
-  const pm60 = id('EQ-CUT-PLASMA60')
+  const pm60 = id('MC-0003')
   const pmLogs60 = [
     { performed_at: d(135), performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ coolant system + เปลี่ยน torch body, ปรับ THC (Torch Height Control)', parts_replaced: 'Torch body, Coolant filter', duration_min: 150 },
     { performed_at: d(89),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — เปลี่ยน plasma tip ครบชุด, ทำความสะอาด cutting table + slat', parts_replaced: 'Plasma tip ×6, Shield cap ×6', duration_min: 120 },
@@ -79,7 +79,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogs60) await prisma.maintenance_log.create({ data: { machine_id: pm60, ...l, notes: null, photo_urls: [] } })
 
   // EQ-HBEAM — 2 PM logs (overdue !)
-  const pmHB = id('EQ-HBEAM')
+  const pmHB = id('MC-0011')
   const pmLogsHB = [
     { performed_at: d(153), performed_by: 'ช่างดี',  description: 'PM ประจำปี — ตรวจสอบ roller ทุกตัว, เปลี่ยน bearing ที่สึกหรอ, ปรับ alignment เส้นทาง H-Beam', parts_replaced: 'Bearing ×4, Seal ring ×4', duration_min: 240 },
     { performed_at: d(73),  performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — หล่อลื่น bearing ครบชุด 8 จุด, ตรวจ welding flux feed, ทดสอบ feed speed 1.2 m/min', parts_replaced: 'Grease 2 ถัง, Flux 5 kg', duration_min: 180 },
@@ -87,7 +87,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsHB) await prisma.maintenance_log.create({ data: { machine_id: pmHB, ...l, notes: null, photo_urls: [] } })
 
   // EQ-WELD-SAW — 3 PM logs
-  const pmSAW = id('EQ-WELD-SAW')
+  const pmSAW = id('MC-0013')
   const pmLogsSAW = [
     { performed_at: d(127), performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 1 — ตรวจสอบ wire feeder, เปลี่ยน contact tip + nozzle, ปรับ wire tension', parts_replaced: 'Contact tip ×10, Nozzle ×2', duration_min: 60 },
     { performed_at: d(72),  performed_by: 'ช่างซี',  description: 'PM ครั้งที่ 2 — ทำความสะอาด flux hopper + flux recovery, ปรับ submerged arc parameters', parts_replaced: 'Flux 10 kg', duration_min: 90 },
@@ -96,7 +96,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsSAW) await prisma.maintenance_log.create({ data: { machine_id: pmSAW, ...l, notes: null, photo_urls: [] } })
 
   // EQ-PRESS-110 — 2 PM logs before repair incident
-  const pmP110 = id('EQ-PRESS-110')
+  const pmP110 = id('MC-0006')
   const pmLogsP110 = [
     { performed_at: d(143), performed_by: 'ช่างดี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ hydraulic system, เปลี่ยน oil filter, วัดแรงดัน 210 bar ปกติ', parts_replaced: 'Hydraulic oil filter, Seal kit', duration_min: 120 },
     { performed_at: d(58),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — ตรวจสอบ hydraulic seal พบรั่วเล็กน้อย แต่แรงดันยังอยู่ 195 bar ตัดสินใจ monitor ต่อ', parts_replaced: 'Oil 5L (เติม)', duration_min: 90, notes: 'พบรั่วที่ cylinder seal ขนาดเล็ก แนะนำเปลี่ยนใน PM ครั้งถัดไป' },
@@ -104,7 +104,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsP110) await prisma.maintenance_log.create({ data: { machine_id: pmP110, ...l, photo_urls: [] } })
 
   // EQ-CRANE-25T — 2 PM logs
-  const pmCR = id('EQ-CRANE-25T')
+  const pmCR = id('MC-0018')
   const pmLogsCR = [
     { performed_at: d(148), performed_by: 'ช่างดี',  description: 'PM ประจำปี + ต่อใบรับรองความปลอดภัยประจำปี — ตรวจ wire rope, sheave, brake, load test 27.5T', parts_replaced: 'Wire rope 1 section, Brake pad ×4', duration_min: 480 },
     { performed_at: d(91),  performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — ตรวจสอบ hoist mechanism, หล่อลื่น drum + sheave, ตรวจ limit switch ครบทุกตัว', parts_replaced: 'Grease 3 ถัง, Wire rope grease 2L', duration_min: 240 },
@@ -112,7 +112,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsCR) await prisma.maintenance_log.create({ data: { machine_id: pmCR, ...l, notes: null, photo_urls: [] } })
 
   // EQ-BRAKE-200 — 2 PM logs
-  const pmBK = id('EQ-BRAKE-200')
+  const pmBK = id('MC-0007')
   const pmLogsBK = [
     { performed_at: d(108), performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 1 — ตรวจสอบ hydraulic clamping system, ปรับ back gauge ± 0.1mm', parts_replaced: 'Hydraulic seal kit', duration_min: 90 },
     { performed_at: d(38),  performed_by: 'ช่างซี',  description: 'PM ครั้งที่ 2 — เปลี่ยน hydraulic oil ครบระบบ, ปรับ bending angle calibration, ทดสอบ bending plate 6mm', parts_replaced: 'Hydraulic oil 20L, Oil filter ×2', duration_min: 150 },
@@ -120,7 +120,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsBK) await prisma.maintenance_log.create({ data: { machine_id: pmBK, ...l, notes: null, photo_urls: [] } })
 
   // EQ-WELD-MAG — 2 PM logs
-  const pmMAG = id('EQ-WELD-MAG')
+  const pmMAG = id('MC-0015')
   const pmLogsMAG = [
     { performed_at: d(113), performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ wire feeder, เปลี่ยน contact tip ครบชุด, ปรับ wire tension 2.5 kgf', parts_replaced: 'Contact tip ×10, Nozzle ×2', duration_min: 45 },
     { performed_at: d(53),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — ทำความสะอาด torch + ท่อ gas, เปลี่ยน liner, ปรับ shielding gas flow 15 L/min', parts_replaced: 'Wire liner, Contact tip ×6', duration_min: 60 },
@@ -128,7 +128,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsMAG) await prisma.maintenance_log.create({ data: { machine_id: pmMAG, ...l, notes: null, photo_urls: [] } })
 
   // EQ-WELD-SMAW — 2 PM logs
-  const pmSMAW = id('EQ-WELD-SMAW')
+  const pmSMAW = id('MC-0014')
   const pmLogsSMAW = [
     { performed_at: d(98),  performed_by: 'ช่างซี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ cable + electrode holder, ทดสอบ OCV + welding current accuracy', parts_replaced: 'Electrode holder tip', duration_min: 30 },
     { performed_at: d(28),  performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — ตรวจสอบ connection + ทำความสะอาด terminal, ทดสอบ welding ด้วย E7018', parts_replaced: null, duration_min: 30 },
@@ -138,7 +138,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   // ─── PM LOGS · 11 additional machines ────────────────────────────────────
 
   // EQ-CUT-PIPE — 3 PM logs every ~45d
-  const pmPIPE = id('EQ-CUT-PIPE')
+  const pmPIPE = id('MC-0004')
   const pmLogsPIPE = [
     { performed_at: d(115), performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 1 — ปรับ CNC pipe center, ตรวจ clamp mechanism + chuck, ทดสอบ cutting แนวตรง', parts_replaced: 'Cutting blade ×2', duration_min: 90 },
     { performed_at: d(70),  performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — เปลี่ยน cutting blade, ตรวจสอบ coolant system + refill, ปรับ feed rate', parts_replaced: 'Cutting blade ×2, Coolant 2L', duration_min: 75 },
@@ -147,7 +147,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsPIPE) await prisma.maintenance_log.create({ data: { machine_id: pmPIPE, ...l, notes: null, photo_urls: [] } })
 
   // EQ-SAW-BAND — 4 PM logs (blade change every ~35d)
-  const pmBAND = id('EQ-SAW-BAND')
+  const pmBAND = id('MC-0005')
   const pmLogsBAND = [
     { performed_at: d(123), performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 1 — เปลี่ยน band saw blade M42 + ปรับ blade tension + guide, ทดสอบ cut SUS 50mm', parts_replaced: 'Band saw blade M42 (3600×27) ×1, Blade guide pad ×2', duration_min: 60 },
     { performed_at: d(83),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — เปลี่ยน blade ใหม่, ตรวจ guide bearing + coolant nozzle position', parts_replaced: 'Band saw blade M42 ×1', duration_min: 60 },
@@ -157,7 +157,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsBAND) await prisma.maintenance_log.create({ data: { machine_id: pmBAND, ...l, notes: null, photo_urls: [] } })
 
   // EQ-PUNCH — 2 PM logs
-  const pmPUNCH = id('EQ-PUNCH')
+  const pmPUNCH = id('MC-0008')
   const pmLogsPUNCH = [
     { performed_at: d(130), performed_by: 'ช่างดี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ hydraulic system ครบ, เปลี่ยน cylinder seal kit, วัดแรงดัน 180 bar ปกติ', parts_replaced: 'Cylinder seal kit, O-ring ×12', duration_min: 150 },
     { performed_at: d(67),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — เปลี่ยน punch die ใหม่, ตรวจ ram alignment + stripper spring', parts_replaced: 'Punch die set, Stripper spring ×4', duration_min: 90 },
@@ -165,7 +165,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsPUNCH) await prisma.maintenance_log.create({ data: { machine_id: pmPUNCH, ...l, notes: null, photo_urls: [] } })
 
   // EQ-DRILL — 3 PM logs
-  const pmDRILL = id('EQ-DRILL')
+  const pmDRILL = id('MC-0009')
   const pmLogsDRILL = [
     { performed_at: d(135), performed_by: 'ช่างซี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ spindle runout (ค่า <0.03mm), ปรับ belt tension, หล่อลื่น quill', parts_replaced: 'Belt V-type ×2, Grease 0.5 ถัง', duration_min: 60 },
     { performed_at: d(90),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — ล้างทำความสะอาด + เปลี่ยน drill chuck ใหม่, ทดสอบ drill ด้วย bit 10–25mm', parts_replaced: 'Jacobs drill chuck 16mm ×1', duration_min: 75 },
@@ -174,14 +174,14 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsDRILL) await prisma.maintenance_log.create({ data: { machine_id: pmDRILL, ...l, notes: null, photo_urls: [] } })
 
   // EQ-TAP — 1 PM log
-  const pmTAP = id('EQ-TAP')
+  const pmTAP = id('MC-0010')
   const pmLogsTAP = [
     { performed_at: d(89),  performed_by: 'ช่างซี',  description: 'PM ครั้งที่ 1 ประจำปี — ตรวจสอบ tap holder set ทุกขนาด, ทดสอบ tapping M12–M24 บน plate 10mm', parts_replaced: 'Tap M16 ×2 (ชำรุด)', duration_min: 60 },
   ]
   for (const l of pmLogsTAP) await prisma.maintenance_log.create({ data: { machine_id: pmTAP, ...l, notes: null, photo_urls: [] } })
 
   // EQ-STRAIGHTEN — 2 PM logs
-  const pmSTR = id('EQ-STRAIGHTEN')
+  const pmSTR = id('MC-0012')
   const pmLogsSTR = [
     { performed_at: d(145), performed_by: 'ช่างดี',  description: 'PM ประจำปี — ตรวจสอบ roller set ทุกตัว, เปลี่ยน bearing ที่สึกหรอ ×2 จุด, ตรวจ hydraulic clamp', parts_replaced: 'Bearing UC205 ×4, Seal ring ×4', duration_min: 240 },
     { performed_at: d(55),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — ปรับ roller alignment ครบทุกตัว, ทดสอบ straightness กับ flat bar 10mm ยาว 3m', parts_replaced: 'Grease 1 ถัง', duration_min: 120 },
@@ -189,7 +189,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsSTR) await prisma.maintenance_log.create({ data: { machine_id: pmSTR, ...l, notes: null, photo_urls: [] } })
 
   // EQ-GRIND-4 — 5 PM logs (high-frequency blade change monthly)
-  const pmGR4 = id('EQ-GRIND-4')
+  const pmGR4 = id('MC-0016')
   const pmLogsGR4 = [
     { performed_at: d(155), performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 1 — เปลี่ยน grinding disc 4" ใหม่, ตรวจ safety guard + wheel guard ไม่มีรอยแตก', parts_replaced: 'Grinding disc 4"×6mm ×1', duration_min: 20 },
     { performed_at: d(124), performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — เปลี่ยน disc, ตรวจ on/off switch + lock button', parts_replaced: 'Grinding disc 4"×6mm ×1', duration_min: 20 },
@@ -200,7 +200,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsGR4) await prisma.maintenance_log.create({ data: { machine_id: pmGR4, ...l, notes: null, photo_urls: [] } })
 
   // EQ-GRIND-7 — 4 PM logs (PM#4 ongoing → MAINTENANCE status)
-  const pmGR7 = id('EQ-GRIND-7')
+  const pmGR7 = id('MC-0017')
   const pmLogsGR7 = [
     { performed_at: d(120), performed_by: 'ช่างดี',  description: 'PM ครั้งที่ 1 — เปลี่ยน grinding disc 7" + ตรวจ guard, ทดสอบ RPM ที่ load', parts_replaced: 'Grinding disc 7"×6mm ×1', duration_min: 25, notes: null },
     { performed_at: d(88),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — เปลี่ยน disc, ตรวจ on/off switch + side handle', parts_replaced: 'Grinding disc 7" ×1', duration_min: 25, notes: null },
@@ -210,7 +210,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsGR7) await prisma.maintenance_log.create({ data: { machine_id: pmGR7, ...l, photo_urls: [] } })
 
   // EQ-SPRAY-AIRLESS — 3 PM logs
-  const pmSPRAY = id('EQ-SPRAY-AIRLESS')
+  const pmSPRAY = id('MC-0022')
   const pmLogsSPRAY = [
     { performed_at: d(135), performed_by: 'ช่างดี',  description: 'PM ครั้งที่ 1 — ตรวจสอบ pump pressure, เปลี่ยน inlet filter + manifold filter ครบชุด', parts_replaced: 'Filter kit (inlet+manifold) ×1 set', duration_min: 45 },
     { performed_at: d(83),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — ตรวจสอบ spray gun, เปลี่ยน tip ที่ worn ทุกขนาด, ตรวจ hose ไม่มีรอยแตก', parts_replaced: 'Spray tip ×3 (517,519,521), Tip guard ×1', duration_min: 60 },
@@ -219,7 +219,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsSPRAY) await prisma.maintenance_log.create({ data: { machine_id: pmSPRAY, ...l, notes: null, photo_urls: [] } })
 
   // EQ-CRANE-10T — 4 PM logs (PM#1 = annual cert + load test)
-  const pmCR10 = id('EQ-CRANE-10T')
+  const pmCR10 = id('MC-0019')
   const pmLogsCR10 = [
     { performed_at: d(175), performed_by: 'ช่างดี',  description: 'PM ประจำปี + ต่อใบรับรองความปลอดภัยเครน — ตรวจ wire rope, sheave, brake, hook, load test 11T', parts_replaced: 'Brake pad ×2, Hook latch ×1', duration_min: 360 },
     { performed_at: d(130), performed_by: 'ช่างบี',  description: 'PM ครั้งที่ 2 — ตรวจสอบ hoist mechanism + wire rope condition, หล่อลื่น drum shaft', parts_replaced: 'Wire rope grease 1L, Grease 1 ถัง', duration_min: 180 },
@@ -229,7 +229,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
   for (const l of pmLogsCR10) await prisma.maintenance_log.create({ data: { machine_id: pmCR10, ...l, notes: null, photo_urls: [] } })
 
   // EQ-CONV-01 — 2 PM logs
-  const pmCONV = id('EQ-CONV-01')
+  const pmCONV = id('MC-0020')
   const pmLogsCONV = [
     { performed_at: d(145), performed_by: 'ช่างดี',  description: 'PM ประจำปี — ตรวจสอบ belt condition, roller bearing ทุกตัว, motor shaft alignment, ปรับ belt tracking', parts_replaced: 'Bearing 6205 ×2, Belt tensioner ×1', duration_min: 240 },
     { performed_at: d(78),  performed_by: 'ช่างเอ',  description: 'PM ครั้งที่ 2 — ตรวจสอบ belt tension + ปรับ speed controller, ทดสอบ conveyor speed ที่ setpoint', parts_replaced: 'Grease 0.5 ถัง', duration_min: 90 },
@@ -402,7 +402,7 @@ export async function seedMachineDemo(prisma: PrismaClient) {
 
   // EQ-BLAST: OPERATIONAL → RETIRED (equipment replaced)
   await prisma.machine_status_history.create({ data: {
-    machine_id: id('EQ-BLAST'), from_status: EquipmentStatus.OPERATIONAL, to_status: EquipmentStatus.RETIRED,
+    machine_id: id('MC-0021'), from_status: EquipmentStatus.OPERATIONAL, to_status: EquipmentStatus.RETIRED,
     reason: 'ปลดระวางแทนด้วยเครื่องใหม่ Wheelabrator EV20 — เครื่องนี้อายุ 18 ปี ซ่อมบำรุงแพงเกินคุ้ม',
     changed_by: 'ผู้อำนวยการฝ่าย', changed_at: d(181),
   }})
