@@ -7,11 +7,13 @@ export interface ConsumableInput {
   resource_id: number
   qty?: number | null
   unit?: string | null
+  formula_id?: number | null
 }
 
 export interface LaborInput {
-  labor_resource_id: number
+  skill: string
   qty: number
+  level?: string | null
 }
 
 export interface CreateOpTemplateActivityDto {
@@ -20,9 +22,9 @@ export interface CreateOpTemplateActivityDto {
   unit?: string
   per_minute?: number
   machine_id?: number | null
-  tool_ids?: number[]
+  tool_ids?: { id: number; qty: number }[]
   consumables?: ConsumableInput[]
-  labors?: LaborInput[]
+  skills?: LaborInput[]
   sequence?: number
   source_activity_id?: number | null
   snapshot_at?: string | null
@@ -60,8 +62,8 @@ const FULL_INCLUDE = {
     orderBy: { sequence: 'asc' as const },
     include: {
       tools:        { include: { resource: RESOURCE_SELECT } },
-      labors:       { include: { labor_resource: RESOURCE_SELECT } },
-      op_materials: { include: { resource: { select: { id: true, code: true, name: true } } } },
+      skills:       true,
+      op_materials: { include: { resource: { select: { id: true, code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true, variables: true } } } },
     },
   },
 }
@@ -69,8 +71,8 @@ const FULL_INCLUDE = {
 const OP_ACT_INCLUDE = {
   machine:         { select: { id: true, code: true, name: true, type: true } },
   tools:           { include: { resource: RESOURCE_SELECT } },
-  labors:          { include: { labor_resource: RESOURCE_SELECT } },
-  op_materials:    { include: { resource: { select: { id: true, code: true, name: true } } } },
+  skills:          true,
+  op_materials:    { include: { resource: { select: { id: true, code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true, variables: true } } } },
   source_activity: { select: { activity_code: true, write_date: true } },
 } as const
 
@@ -81,8 +83,8 @@ const FULL_INCLUDE_WITH_STALE = {
     include: {
       tools:           { include: { resource: RESOURCE_SELECT } },
       source_activity: { select: { activity_code: true, write_date: true } },
-      labors:          { include: { labor_resource: RESOURCE_SELECT } },
-      op_materials:    { include: { resource: RESOURCE_SELECT } },
+      skills:          true,
+      op_materials:    { include: { resource: RESOURCE_SELECT, formula: { select: { id: true, name: true, result_unit: true } } } },
     },
   },
 }
@@ -261,7 +263,7 @@ export class OperationTemplateService {
 
     const src = await this.prisma.activity.findUnique({
       where: { id: activityId },
-      include: { consumes: true, labors: true, tools: true },
+      include: { consumes: true, skills: true, tools: true },
     })
     if (!src) throw new NotFoundException(`Activity ${activityId} not found`)
 
@@ -284,12 +286,13 @@ export class OperationTemplateService {
           snapshot_at:           new Date(),
         },
       })
-      if (src.labors.length) {
-        await tx.op_act_labor.createMany({
-          data: src.labors.map(l => ({
+      if (src.skills.length) {
+        await tx.op_act_skills.createMany({
+          data: src.skills.map(l => ({
             op_act_id:         opAct.id,
-            labor_resource_id: l.labor_resource_id,
+            skill: l.skill,
             qty:               l.qty,
+            level:             l.level ?? null,
           })),
           skipDuplicates: true,
         })
@@ -299,6 +302,7 @@ export class OperationTemplateService {
           data: src.consumes.map(c => ({
             op_act_id:   opAct.id,
             resource_id: c.resource_id,
+            formula_id:  c.formula_id ?? null,
           })),
           skipDuplicates: true,
         })
@@ -308,6 +312,7 @@ export class OperationTemplateService {
           data: src.tools.map(t => ({
             activity_id: opAct.id,
             resource_id: t.resource_id,
+            qty: t.qty ?? 1,
           })),
           skipDuplicates: true,
         })
@@ -333,7 +338,7 @@ export class OperationTemplateService {
 
     const src = await this.prisma.activity.findUniqueOrThrow({
       where: { id: opAct.source_activity_id },
-      include: { consumes: true, labors: true, tools: true },
+      include: { consumes: true, skills: true, tools: true },
     })
 
     const updated = await this.prisma.$transaction(async tx => {
@@ -348,25 +353,25 @@ export class OperationTemplateService {
         },
       })
       await tx.op_act_tool.deleteMany({ where: { activity_id: opActId } })
-      await tx.op_act_labor.deleteMany({ where: { op_act_id: opActId } })
+      await tx.op_act_skills.deleteMany({ where: { op_act_id: opActId } })
       await tx.op_act_material.deleteMany({ where: { op_act_id: opActId } })
       if (src.tools.length) {
         await tx.op_act_tool.createMany({
-          data: src.tools.map(t => ({ activity_id: opActId, resource_id: t.resource_id })),
+          data: src.tools.map(t => ({ activity_id: opActId, resource_id: t.resource_id, qty: t.qty ?? 1 })),
           skipDuplicates: true,
         })
       }
-      if (src.labors.length) {
-        await tx.op_act_labor.createMany({
-          data: src.labors.map(l => ({
-            op_act_id: opActId, labor_resource_id: l.labor_resource_id, qty: l.qty,
+      if (src.skills.length) {
+        await tx.op_act_skills.createMany({
+          data: src.skills.map(l => ({
+            op_act_id: opActId, skill: l.skill, qty: l.qty,
           })),
           skipDuplicates: true,
         })
       }
       if (src.consumes.length) {
         await tx.op_act_material.createMany({
-          data: src.consumes.map(c => ({ op_act_id: opActId, resource_id: c.resource_id })),
+          data: src.consumes.map(c => ({ op_act_id: opActId, resource_id: c.resource_id, formula_id: c.formula_id ?? null })),
           skipDuplicates: true,
         })
       }
@@ -397,19 +402,19 @@ export class OperationTemplateService {
       const actId = activityIds[i]
       if (a.tool_ids?.length) {
         await tx.op_act_tool.createMany({
-          data: a.tool_ids.map(rid => ({ activity_id: actId, resource_id: rid })),
+          data: a.tool_ids.map(t => ({ activity_id: actId, resource_id: t.id, qty: t.qty })),
           skipDuplicates: true,
         })
       }
-      if (a.labors?.length) {
-        await tx.op_act_labor.createMany({
-          data: a.labors.map(l => ({ op_act_id: actId, labor_resource_id: l.labor_resource_id, qty: l.qty })),
+      if (a.skills?.length) {
+        await tx.op_act_skills.createMany({
+          data: a.skills.map(l => ({ op_act_id: actId, skill: l.skill, qty: l.qty, level: l.level ?? null })),
           skipDuplicates: true,
         })
       }
       if (a.consumables?.length) {
         await tx.op_act_material.createMany({
-          data: a.consumables.map(c => ({ op_act_id: actId, resource_id: c.resource_id })),
+          data: a.consumables.map(c => ({ op_act_id: actId, resource_id: c.resource_id, formula_id: c.formula_id ?? null })),
           skipDuplicates: true,
         })
       }

@@ -129,7 +129,7 @@ function ActivityCard({ a }: { a: RoutingActivitySnap }) {
             <Chip key={i} icon={<Wrench size={10} />} text={name} bg="#FFFBEB" color="#92400E" border="#FDE68A" />
           ))}
           {labors.map((l, i) => (
-            <Chip key={i} icon={<Users size={10} />} text={`${l.labor_name} ×${l.qty}`} bg="#F0FDF4" color="#166534" border="#BBF7D0" />
+            <Chip key={i} icon={<Users size={10} />} text={`${l.skill}${l.level ? ` (${l.level})` : ''} ×${l.qty}`} bg="#F0FDF4" color="#166534" border="#BBF7D0" />
           ))}
           {consumables.map((c, i) => (
             <Chip key={i} icon={<FlaskConical size={10} />} text={`${c.code} ${c.name}`} bg="#EFF6FF" color="#1E40AF" border="#BFDBFE" />

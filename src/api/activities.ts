@@ -14,24 +14,27 @@ export interface ActivityMaterialDto {
 
 export interface ActivityConsumeDto {
   resource: { id: number; code: string; name: string }
+  formula:  { id: number; name: string; expr: string; result_unit: string | null; variables: string[] } | null
 }
 
 export interface ActivityLaborDto {
-  labor_resource: ActivityMachineDto
+  skill: string
   qty: number
+  level?: string | null
 }
 
 export interface ActivityToolDto {
   resource: { id: number; code: string; name: string }
+  qty: number
 }
 
 export interface ActivityDto {
   id: number
   activity_code: string
   name: string
-  machine: ActivityMachineDto
+  machine: ActivityMachineDto | null
   consumes: ActivityConsumeDto[]
-  labors: ActivityLaborDto[]
+  skills: ActivityLaborDto[]
   tools?: ActivityToolDto[]
   duration_min: string
   create_uid: number
@@ -42,11 +45,11 @@ export interface ActivityDto {
 
 export interface CreateActivityPayload {
   name: string
-  machine_id: number
+  machine_id?: number
   duration_min: number
-  consumes?: number[]
-  labors?: { id: number; qty: number }[]
-  tools?: number[]
+  consumes?: { resource_id: number; formula_id?: number }[]
+  labors?: { skill: string; qty: number; level?: string }[]
+  tools?: { resource_id: number; qty: number }[]
 }
 
 export const activitiesApi = {

@@ -57,10 +57,10 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
                   border: '1px solid #EEE',
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
-                    <div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 11, color: '#999', fontFamily: 'monospace' }}>{act.activity_code}</div>
                       <div style={{ fontSize: 12, fontWeight: 500 }}>{act.name}</div>
-                      <div style={{ marginTop: 3 }}>
+                      <div style={{ marginTop: 4 }}>
                         <span style={{ fontSize: 11, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
                           {Number(act.duration_min).toFixed(2)} min
                         </span>

@@ -1,15 +1,37 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength, ValidateNested } from 'class-validator'
+import { IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength, ValidateNested, IsPositive } from 'class-validator'
 import { Type } from 'class-transformer'
 
+export class ConsumeEntryDto {
+  @IsInt() @Min(1)
+  resource_id: number
+
+  @IsOptional() @IsInt() @Min(1)
+  formula_id?: number
+}
+
+export class ToolEntryDto {
+  @IsInt() @Min(1)
+  resource_id: number
+
+  @IsInt() @Min(1)
+  qty: number
+}
+
 export class LaborEntryDto {
-  @IsInt()
-  @Min(1)
-  id: number
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  skill: string
 
   @IsInt()
   @Min(1)
   qty: number
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  level?: string
 }
 
 export class CreateActivityDto {
@@ -19,31 +41,32 @@ export class CreateActivityDto {
   @MaxLength(120)
   name: string
 
-  @ApiProperty({ description: 'FK → equipment_resource.id', example: 5 })
+  @ApiPropertyOptional({ description: 'FK → equipment_resource.id', example: 5 })
+  @IsOptional()
   @IsInt()
   @Min(1)
-  machine_id: number
+  machine_id?: number
 
-  @ApiPropertyOptional({ description: 'FK → materials.id list (consumed materials, no qty)', example: [12, 34] })
+  @ApiPropertyOptional({ description: 'Consumed materials with optional formula', example: [{ resource_id: 12, formula_id: 3 }] })
   @IsOptional()
   @IsArray()
-  @IsInt({ each: true })
-  @Min(1, { each: true })
-  consumes?: number[]
+  @ValidateNested({ each: true })
+  @Type(() => ConsumeEntryDto)
+  consumes?: ConsumeEntryDto[]
 
-  @ApiPropertyOptional({ description: 'Labor resources with quantity', example: [{ id: 1, qty: 2 }] })
+  @ApiPropertyOptional({ description: 'Required skills with quantity', example: [{ skill: 'ช่างเชื่อม MIG', qty: 2 }] })
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LaborEntryDto)
   labors?: LaborEntryDto[]
 
-  @ApiPropertyOptional({ description: 'FK → equipment_resource.id list (tools/jigs)', example: [7, 8] })
+  @ApiPropertyOptional({ description: 'Tools/jigs with quantity', example: [{ resource_id: 7, qty: 2 }] })
   @IsOptional()
   @IsArray()
-  @IsInt({ each: true })
-  @Min(1, { each: true })
-  tools?: number[]
+  @ValidateNested({ each: true })
+  @Type(() => ToolEntryDto)
+  tools?: ToolEntryDto[]
 
   @ApiProperty({ description: 'Duration in minutes (≥ 0)', example: 5.5 })
   @IsNumber()

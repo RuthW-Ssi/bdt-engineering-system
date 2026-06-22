@@ -1,7 +1,7 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, Query,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query,
   ParseIntPipe, UseGuards, UseInterceptors, UploadedFile,
-  BadRequestException,
+  BadRequestException, HttpCode, HttpStatus,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger'
@@ -14,6 +14,10 @@ import { CreateMaintenanceLogDto } from './dto/create-maintenance-log.dto'
 import { OpenRepairTicketDto } from './dto/open-repair-ticket.dto'
 import { CloseRepairTicketDto } from './dto/close-repair-ticket.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { CreateEquipmentResourceDto } from './dto/create-resource.dto'
+import { UpdateEquipmentResourceDto } from './dto/update-resource.dto'
+import { CreateOperatorDto } from './dto/create-operator.dto'
+import { UpdateOperatorDto } from './dto/update-operator.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
@@ -30,9 +34,86 @@ export class MachinesController {
   constructor(private readonly svc: MachinesService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List machines with filter' })
+  @ApiOperation({ summary: 'List machines/tools with filter' })
   findAll(@Query() query: QueryMachineDto) {
     return this.svc.findAll(query)
+  }
+
+  @Post()
+  @ApiOperation({ summary: 'Create machine or tool (code auto-generated)' })
+  createResource(@Body() dto: CreateEquipmentResourceDto) {
+    return this.svc.createResource(dto)
+  }
+
+  @Patch('resource/:id')
+  @ApiOperation({ summary: 'Update machine or tool' })
+  updateResource(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateEquipmentResourceDto,
+  ) {
+    return this.svc.updateResource(id, dto)
+  }
+
+  @Delete('resource/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete machine or tool' })
+  removeResource(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.removeResource(id)
+  }
+
+  @Get('skills')
+  @ApiOperation({ summary: 'List all skill types' })
+  findAllSkills() {
+    return this.svc.findAllSkills()
+  }
+
+  @Get('consume-formulas')
+  @ApiOperation({ summary: 'List all consume formula templates' })
+  findAllFormulas() {
+    return this.svc.findAllFormulas()
+  }
+
+  @Post('consume-formulas')
+  @ApiOperation({ summary: 'Create consume formula template' })
+  createFormula(@Body() dto: { name: string; expr: string; result_unit?: string; variables?: string[]; category?: string; description?: string }) {
+    return this.svc.createFormula(dto)
+  }
+
+  @Patch('consume-formulas/:id')
+  @ApiOperation({ summary: 'Update consume formula template' })
+  updateFormula(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { name?: string; expr?: string; result_unit?: string; variables?: string[]; category?: string; description?: string },
+  ) {
+    return this.svc.updateFormula(id, dto)
+  }
+
+  @Delete('consume-formulas/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete consume formula template' })
+  removeFormula(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.removeFormula(id)
+  }
+
+  @Get('operators')
+  @ApiOperation({ summary: 'List operators with skills' })
+  findAllOperators() {
+    return this.svc.findAllOperators()
+  }
+
+  @Post('operators')
+  @ApiOperation({ summary: 'Create operator' })
+  createOperator(@Body() dto: CreateOperatorDto) {
+    return this.svc.createOperator(dto)
+  }
+
+  @Patch('operators/:id')
+  @ApiOperation({ summary: 'Update operator' })
+  updateOperator(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateOperatorDto,
+  ) {
+    return this.svc.updateOperator(id, dto)
   }
 
   @Get(':id')

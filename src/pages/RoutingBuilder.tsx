@@ -78,7 +78,7 @@ type TimeMode = 'formula' | 'manual' | 'activities'
 
 interface WorkcenterItem { id: number; code: string; name: string }
 
-interface ConsumedMaterial { resource_id: number; code: string; name: string }
+interface ConsumedMaterial { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null }
 
 interface ActivityRef {
   localId: string
@@ -89,9 +89,9 @@ interface ActivityRef {
   unit?: string
   stdMeasure?: number
   machineId?: number | null
-  toolIds?: number[]
+  toolIds?: { id: number; qty: number }[]
   consumables?: ConsumedMaterial[]
-  labors?: { labor_resource_id: number; labor_name: string; qty: number }[]
+  labors?: { skill: string; qty: number; level?: string }[]
 }
 
 interface OperationData extends Record<string, unknown> {
@@ -127,9 +127,9 @@ interface LibraryOpItem {
     source_activity_id: number | null
     machine_id: number | null
     machine: { id: number; code: string; name: string } | null
-    tools: Array<{ resource_id: number; resource: { id: number; code: string; name: string; type: string } }>
-    op_materials: Array<{ resource: { id: number; code: string; name: string } }>
-    labors: Array<{ labor_resource_id: number; qty: number; labor_resource: { id: number; code: string; name: string; type: string } }>
+    tools: Array<{ resource_id: number; qty: number; resource: { id: number; code: string; name: string; type: string } }>
+    op_materials: Array<{ resource: { id: number; code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }>
+    skills: Array<{ skill: string; qty: number; level?: string | null }>
   }>
 }
 
@@ -154,8 +154,8 @@ interface ExistingTemplate {
     activities_snapshot: Array<{
       name: string; measure: string | null; per_minute: number | null
       machine_id: number | null; source_activity_id: number | null
-      tool_ids: number[] | null
-      labors: Array<{ labor_resource_id: number; labor_name: string; qty: number }> | null
+      tool_ids: { id: number; qty: number }[] | null
+      labors: Array<{ skill: string; qty: number; level?: string | null }> | null
       consumables: ConsumedMaterial[] | null
     }> | null
   }>
@@ -234,9 +234,9 @@ function makeDragPayload(op: LibraryOpItem): Omit<OperationData, 'existing_op_id
       perMinute: a.per_minute ? Number(a.per_minute) : undefined,
       unit: a.unit ?? undefined,
       machineId: a.machine_id ?? undefined,
-      toolIds: (a.tools ?? []).map(t => t.resource_id),
-      consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name })),
-      labors: (a.labors ?? []).map(l => ({ labor_resource_id: l.labor_resource_id, labor_name: l.labor_resource.name, qty: l.qty })),
+      toolIds: (a.tools ?? []).map(t => ({ id: t.resource_id, qty: t.qty ?? 1 })),
+      consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })),
+      labors: (a.skills ?? []).map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
     })),
   }
 }
@@ -634,7 +634,7 @@ function InlineMatSearch({ onSelect, excludeIds }: {
 
 function ModalActivityLib({ addedIds, onAdd }: {
   addedIds: Set<number>
-  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { labor_resource_id: number; labor_name: string; qty: number }[] }) => void
+  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }) => void
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -724,9 +724,9 @@ function ModalActivityLib({ addedIds, onAdd }: {
                           std_measure: '',
                           source_activity_template_id: act.id,
                           machine_id: act.machine?.id ?? null,
-                          tool_ids: (act.tools ?? []).map((t: { resource: { id: number } }) => t.resource.id),
-                          consumables: (act.consumes ?? []).map((c: { resource: { id: number; code: string; name: string } }) => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name })),
-                          labors: (act.labors ?? []).map((l: { labor_resource: { id: number; name: string }; qty: number }) => ({ labor_resource_id: l.labor_resource.id, labor_name: l.labor_resource.name, qty: l.qty })),
+                          tool_ids: (act.tools ?? []).map((t: { resource: { id: number }; qty: number }) => ({ id: t.resource.id, qty: t.qty ?? 1 })),
+                          consumables: (act.consumes ?? []).map((c: { resource: { id: number; code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }) => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name, formula_id: c.formula?.id ?? null, formula_name: c.formula?.name ?? null, formula_unit: c.formula?.result_unit ?? null })),
+                          labors: (act.skills ?? []).map((l: { skill: string; qty: number; level?: string | null }) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
                         })}
                           style={{ padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none', background: '#1976D2', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
                           + Add
@@ -749,7 +749,7 @@ function ModalActivityLib({ addedIds, onAdd }: {
 interface InspModalForm {
   op_code: string; name: string
   op_type_id: number | ''; workcenter_id: number | ''; method: string
-  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { labor_resource_id: number; labor_name: string; qty: number }[] }>
+  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }>
 }
 
 interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void }
@@ -778,7 +778,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
         std_measure: a.stdMeasure != null ? String(a.stdMeasure) : '',
         source_activity_template_id: a.templateId ?? null,
         machine_id: a.machineId ?? null,
-        tool_ids: a.toolIds ?? [],
+        tool_ids: a.toolIds ?? [] as { id: number; qty: number }[],
         consumables: a.consumables ?? [],
         labors: a.labors ?? [],
       })) ?? [],
@@ -962,7 +962,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                     ))}
                   </div>
                   {form.activities.map((act) => {
-                    const machines = equipmentList.filter(e => ['machine', 'handling', 'labor'].includes(e.type))
+                    const machines = equipmentList.filter(e => ['machine', 'handling'].includes(e.type))
                     const toolOpts = equipmentList.filter(e => e.type === 'tool')
                     const chip: React.CSSProperties = { fontSize: 10, padding: '2px 8px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
                     const chipEdit: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
@@ -1013,20 +1013,20 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                                   <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
                                     <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
                                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                                      {act.tool_ids.map(tid => {
-                                        const eq = equipmentList.find(e => e.id === tid)
-                                        return eq ? <span key={tid} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name}</span> : null
+                                      {act.tool_ids.map(t => {
+                                        const eq = equipmentList.find(e => e.id === t.id)
+                                        return eq ? <span key={t.id} style={{ ...chip, background: '#EEF4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>{eq.name} ×{t.qty}</span> : null
                                       })}
                                     </div>
                                   </div>
                                 )}
                                 {(act.labors ?? []).length > 0 && (
                                   <div style={{ padding: '5px 10px 7px', borderRight: '1px solid #EEF3FF' }}>
-                                    <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
+                                    <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Skill</div>
                                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                       {(act.labors ?? []).map(l => (
-                                        <span key={l.labor_resource_id} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
-                                          {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                        <span key={l.skill} style={{ ...chip, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                          {l.skill}{l.level ? ` (${l.level})` : ''} ×{l.qty}
                                         </span>
                                       ))}
                                     </div>
@@ -1039,6 +1039,9 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                                       {act.consumables.map(c => (
                                         <span key={c.resource_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
                                           <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.code}</span> {c.name}
+                                          {c.formula_name && (
+                                            <span style={{ marginLeft: 4, fontSize: 9, color: '#9E6B00', fontStyle: 'italic' }}>[{c.formula_name}{c.formula_unit ? ` · ${c.formula_unit}` : ''}]</span>
+                                          )}
                                         </span>
                                       ))}
                                     </div>
@@ -1052,12 +1055,12 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                             <div style={{ padding: '5px 10px 6px', borderRight: '1px solid #F0F0F0', position: 'relative' }}>
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tools</div>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-                                {act.tool_ids.map(tid => {
-                                  const eq = equipmentList.find(e => e.id === tid)
+                                {act.tool_ids.map(t => {
+                                  const eq = equipmentList.find(e => e.id === t.id)
                                   return eq ? (
-                                    <span key={tid} style={{ ...chipEdit, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
-                                      {eq.name}
-                                      <button onClick={() => patchAct(act.localId, { tool_ids: act.tool_ids.filter(id => id !== tid) })}
+                                    <span key={t.id} style={{ ...chipEdit, background: '#F0F4FF', borderColor: '#BBDEFB', color: '#1565C0' }}>
+                                      {eq.name} ×{t.qty}
+                                      <button onClick={() => patchAct(act.localId, { tool_ids: act.tool_ids.filter(tt => tt.id !== t.id) })}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1565C0', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
                                     </span>
                                   ) : null
@@ -1071,8 +1074,8 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                                     <div onMouseDown={e2 => e2.stopPropagation()} style={{ position: 'absolute', top: 22, left: 0, zIndex: 100, background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', minWidth: 180, maxHeight: 200, overflowY: 'auto' }}>
                                       {toolOpts.length === 0 ? (
                                         <div style={{ padding: '10px 12px', fontSize: 11, color: '#9E9E9E' }}>No tool resources seeded yet</div>
-                                      ) : toolOpts.filter(e => !act.tool_ids.includes(e.id)).map(e => (
-                                        <button key={e.id} onClick={() => { patchAct(act.localId, { tool_ids: [...act.tool_ids, e.id] }); setOpenInspPicker(null) }}
+                                      ) : toolOpts.filter(e => !act.tool_ids.some(tt => tt.id === e.id)).map(e => (
+                                        <button key={e.id} onClick={() => { patchAct(act.localId, { tool_ids: [...act.tool_ids, { id: e.id, qty: 1 }] }); setOpenInspPicker(null) }}
                                           style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 11, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
                                           onMouseEnter={e2 => (e2.currentTarget.style.background = '#F5F5F5')}
                                           onMouseLeave={e2 => (e2.currentTarget.style.background = 'none')}>
@@ -1085,13 +1088,13 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               </div>
                             </div>
                             <div style={{ padding: '5px 10px 6px', borderRight: '1px solid #F0F0F0' }}>
-                              <div style={{ fontSize: 9, fontWeight: 700, color: '#9C27B0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Labour</div>
+                              <div style={{ fontSize: 9, fontWeight: 700, color: '#9C27B0', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Skill</div>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                 {(act.labors ?? []).length === 0 ? (
                                   <span style={{ fontSize: 10, color: '#BDBDBD' }}>—</span>
                                 ) : (act.labors ?? []).map(l => (
-                                  <span key={l.labor_resource_id} style={{ ...chipEdit, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
-                                    {l.labor_name}{l.qty > 1 ? ` ×${l.qty}` : ''}
+                                  <span key={l.skill} style={{ ...chipEdit, background: '#F3E5F5', borderColor: '#CE93D8', color: '#6A1B9A' }}>
+                                    {l.skill}{l.level ? ` (${l.level})` : ''} ×{l.qty}
                                   </span>
                                 ))}
                               </div>
@@ -1793,9 +1796,9 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
             perMinute: a.per_minute ? Number(a.per_minute) : undefined,
             unit: a.unit ?? undefined,
             machineId: a.machine_id ?? undefined,
-            toolIds: (a.tools ?? []).map(t => t.resource_id),
-            consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name })),
-            labors: (a.labors ?? []).map(l => ({ labor_resource_id: l.labor_resource_id, labor_name: l.labor_resource.name, qty: l.qty })),
+            toolIds: (a.tools ?? []).map(t => ({ id: t.resource_id, qty: t.qty ?? 1 })),
+            consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })),
+            labors: (a.skills ?? []).map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
           })),
         } satisfies OperationData,
       }
@@ -1838,7 +1841,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
           perMinute:  a.per_minute ?? undefined,
           unit:       undefined,
           machineId:  a.machine_id ?? undefined,
-          toolIds:    a.tool_ids ?? [],
+          toolIds:    (a.tool_ids ?? []).map(t => typeof t === 'number' ? { id: t, qty: 1 } : t),
           labors:     a.labors ?? [],
           consumables: a.consumables ?? [],
         })),
@@ -1946,7 +1949,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
             per_minute: a.perMinute ?? null,
             machine_id: a.machineId ?? null,
             source_activity_id: a.templateId ?? null,
-            tool_ids: a.toolIds ?? [],
+            tool_ids: a.toolIds ?? [] as { id: number; qty: number }[],
             labors: a.labors ?? [],
             consumables: a.consumables ?? [],
           })),

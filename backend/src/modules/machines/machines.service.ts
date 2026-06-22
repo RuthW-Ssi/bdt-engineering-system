@@ -8,6 +8,10 @@ import { CreateMaintenanceLogDto } from './dto/create-maintenance-log.dto'
 import { OpenRepairTicketDto } from './dto/open-repair-ticket.dto'
 import { CloseRepairTicketDto } from './dto/close-repair-ticket.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { CreateEquipmentResourceDto } from './dto/create-resource.dto'
+import { UpdateEquipmentResourceDto } from './dto/update-resource.dto'
+import { CreateOperatorDto } from './dto/create-operator.dto'
+import { UpdateOperatorDto } from './dto/update-operator.dto'
 import { EquipmentStatus, RepairStatus } from '@prisma/client'
 
 const MOCK_JOBS = [
@@ -32,7 +36,7 @@ export class MachinesService {
   async findAll(query: QueryMachineDto) {
     const machines = await this.prisma.equipment_resource.findMany({
       where: {
-        type: { in: ['machine', 'handling'] },
+        type: query.type ? query.type : { in: ['machine', 'handling'] },
         active: true,
         ...(query.status ? { current_status: query.status } : {}),
         ...(query.area ? { location: { contains: query.area, mode: 'insensitive' } } : {}),
@@ -45,19 +49,15 @@ export class MachinesService {
       },
       select: {
         id: true, code: true, name: true, type: true,
+        rate: true, rate_unit: true, qty: true,
         current_status: true, last_maintenance_at: true,
         location: true, manufacturer: true, model: true,
+        skills: true,
       },
     })
 
     const now = new Date()
-    const sorted = machines.sort((a, b) => {
-      const statusDiff = STATUS_ORDER[a.current_status] - STATUS_ORDER[b.current_status]
-      if (statusDiff !== 0) return statusDiff
-      const daysA = a.last_maintenance_at ? (now.getTime() - a.last_maintenance_at.getTime()) / 86400000 : 9999
-      const daysB = b.last_maintenance_at ? (now.getTime() - b.last_maintenance_at.getTime()) / 86400000 : 9999
-      return daysB - daysA
-    })
+    const sorted = machines.sort((a, b) => b.id - a.id)
 
     return sorted.map(m => ({
       ...m,
@@ -65,6 +65,112 @@ export class MachinesService {
         ? Math.floor((now.getTime() - m.last_maintenance_at.getTime()) / 86400000)
         : null,
     }))
+  }
+
+  async createResource(dto: CreateEquipmentResourceDto) {
+    const prefix = dto.type === 'tool' ? 'TOOL' : dto.type === 'consumable' ? 'CON' : 'MC'
+    const record = await this.prisma.equipment_resource.create({
+      data: { code: dto.code ?? `${prefix}-TEMP`, name: dto.name, type: dto.type,
+              location: dto.location, manufacturer: dto.manufacturer, model: dto.model,
+              qty: dto.qty, rate: dto.rate, rate_unit: dto.rate_unit },
+    })
+    const code = dto.code ?? `${prefix}-${String(record.id).padStart(4, '0')}`
+    return this.prisma.equipment_resource.update({ where: { id: record.id }, data: { code },
+      select: { id: true, code: true, name: true, type: true, rate: true, rate_unit: true,
+                qty: true, current_status: true, last_maintenance_at: true,
+                location: true, manufacturer: true, model: true, skills: true } })
+  }
+
+  async updateResource(id: number, dto: UpdateEquipmentResourceDto) {
+    await this.assertExists(id)
+    return this.prisma.equipment_resource.update({ where: { id }, data: dto,
+      select: { id: true, code: true, name: true, type: true, rate: true, rate_unit: true,
+                qty: true, current_status: true, last_maintenance_at: true,
+                location: true, manufacturer: true, model: true, skills: true } })
+  }
+
+  async removeResource(id: number) {
+    await this.assertExists(id)
+    await this.prisma.equipment_resource.delete({ where: { id } })
+  }
+
+  async findAllSkills() {
+    return this.prisma.skill.findMany({ orderBy: { name: 'asc' }, select: { id: true, name: true } })
+  }
+
+  async findAllFormulas() {
+    return this.prisma.consume_formula.findMany({ orderBy: [{ category: 'asc' }, { name: 'asc' }] })
+  }
+
+  async createFormula(dto: { name: string; expr: string; result_unit?: string; variables?: string[]; category?: string; description?: string }) {
+    return this.prisma.consume_formula.create({ data: { ...dto, variables: dto.variables ?? [] } })
+  }
+
+  async updateFormula(id: number, dto: { name?: string; expr?: string; result_unit?: string; variables?: string[]; category?: string; description?: string }) {
+    return this.prisma.consume_formula.update({ where: { id }, data: dto })
+  }
+
+  async removeFormula(id: number) {
+    await this.prisma.consume_formula.delete({ where: { id } })
+  }
+
+  async findAllOperators() {
+    return this.prisma.operator.findMany({
+      where: { active: true },
+      select: {
+        id: true, code: true, name: true, nationality: true,
+        position_raw: true, start_raw: true,
+        skills: { select: { skill: { select: { id: true, name: true } }, level: true } },
+      },
+      orderBy: { id: 'asc' },
+    })
+  }
+
+  private operatorSelect = {
+    id: true, code: true, name: true, nationality: true,
+    position_raw: true, start_raw: true,
+    skills: { select: { skill: { select: { id: true, name: true } }, level: true } },
+  } as const
+
+  async createOperator(dto: CreateOperatorDto) {
+    return this.prisma.$transaction(async (tx) => {
+      const op = await tx.operator.create({
+        data: { code: dto.code, name: dto.name, nationality: dto.nationality ?? null,
+                position_raw: dto.position_raw ?? null, start_raw: dto.start_raw ?? null, active: true },
+      })
+      if (dto.skills?.length) {
+        await tx.operator_skill.createMany({
+          data: dto.skills.map(s => ({ operator_id: op.id, skill_id: s.skill_id, level: s.level ?? null })),
+          skipDuplicates: true,
+        })
+      }
+      return tx.operator.findUniqueOrThrow({ where: { id: op.id }, select: this.operatorSelect })
+    })
+  }
+
+  async updateOperator(id: number, dto: UpdateOperatorDto) {
+    const exists = await this.prisma.operator.findUnique({ where: { id } })
+    if (!exists) throw new NotFoundException(`Operator #${id} not found`)
+    return this.prisma.$transaction(async (tx) => {
+      await tx.operator.update({
+        where: { id },
+        data: { ...(dto.code !== undefined && { code: dto.code }),
+                ...(dto.name !== undefined && { name: dto.name }),
+                ...(dto.nationality !== undefined && { nationality: dto.nationality }),
+                ...(dto.position_raw !== undefined && { position_raw: dto.position_raw }),
+                ...(dto.start_raw !== undefined && { start_raw: dto.start_raw }) },
+      })
+      if (dto.skills !== undefined) {
+        await tx.operator_skill.deleteMany({ where: { operator_id: id } })
+        if (dto.skills.length) {
+          await tx.operator_skill.createMany({
+            data: dto.skills.map(s => ({ operator_id: id, skill_id: s.skill_id, level: s.level ?? null })),
+            skipDuplicates: true,
+          })
+        }
+      }
+      return tx.operator.findUniqueOrThrow({ where: { id }, select: this.operatorSelect })
+    })
   }
 
   async findOne(id: number) {
