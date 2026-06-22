@@ -270,7 +270,7 @@ function ToolPicker({ value, onChange }: { value: ToolOption[]; onChange: (items
 
   useEffect(() => {
     apiClient.get('/equipment-resources').then((r) => {
-      setAll((r.data as any[]).filter((m) => m.type === 'tool').map((m) => ({ id: m.id, code: m.code, name: m.name })))
+      setAll((r.data as any[]).filter((m) => m.type === 'tool').map((m) => ({ id: m.id, code: m.code, name: m.name, qty: 1 })))
     })
   }, [])
 
