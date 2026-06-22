@@ -1,0 +1,2 @@
+ALTER TABLE "activity_labor" ADD COLUMN IF NOT EXISTS "level" VARCHAR(20);
+ALTER TABLE "op_act_skills"  ADD COLUMN IF NOT EXISTS "level" VARCHAR(20);

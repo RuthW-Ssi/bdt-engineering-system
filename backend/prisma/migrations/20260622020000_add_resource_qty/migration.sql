@@ -1,0 +1,1 @@
+ALTER TABLE "equipment_resource" ADD COLUMN IF NOT EXISTS "qty" INTEGER;

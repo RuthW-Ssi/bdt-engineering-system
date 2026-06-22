@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 
 export type EquipmentStatus = 'OPERATIONAL' | 'MAINTENANCE' | 'REPAIR' | 'UNAVAILABLE' | 'RETIRED'
+export type ResourceType = 'machine' | 'handling' | 'labor' | 'tool' | 'consumable'
 export type RepairStatus = 'OPEN' | 'IN_PROGRESS' | 'CLOSED'
 export type RepairSeverity = 'LOW' | 'MEDIUM' | 'HIGH'
 
@@ -9,12 +10,16 @@ export interface Machine {
   code: string
   name: string
   type: string
+  rate: number | null
+  rate_unit: string | null
+  qty: number | null
   current_status: EquipmentStatus
   last_maintenance_at: string | null
   days_since_pm: number | null
   location: string | null
   manufacturer: string | null
   model: string | null
+  skills: string[] | null
 }
 
 export interface MachineDetail extends Machine {
@@ -95,6 +100,7 @@ export async function getMachines(params?: {
   status?: EquipmentStatus
   area?: string
   name?: string
+  type?: ResourceType
 }): Promise<Machine[]> {
   const res = await apiClient.get('/machines', { params })
   return res.data
@@ -164,6 +170,35 @@ export async function changeStatus(machineId: number, payload: {
   related_maintenance_id?: number
 }): Promise<MachineDetail> {
   const res = await apiClient.patch(`/machines/${machineId}/status`, payload)
+  return res.data
+}
+
+export interface CreateResourcePayload {
+  type: 'machine' | 'handling' | 'tool' | 'consumable'
+  code?: string
+  name: string
+  location?: string
+  manufacturer?: string
+  model?: string
+  qty?: number
+}
+
+export interface UpdateResourcePayload {
+  code?: string
+  name?: string
+  location?: string
+  manufacturer?: string
+  model?: string
+  qty?: number
+}
+
+export async function createResource(payload: CreateResourcePayload): Promise<Machine> {
+  const res = await apiClient.post('/machines', payload)
+  return res.data
+}
+
+export async function updateResource(id: number, payload: UpdateResourcePayload): Promise<Machine> {
+  const res = await apiClient.patch(`/machines/resource/${id}`, payload)
   return res.data
 }
 

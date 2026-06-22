@@ -27,6 +27,7 @@ import { ActivityLibraryList } from './pages/ActivityLibraryList'
 import { Dashboard } from './pages/Dashboard'
 import { MachineList } from './pages/MachineList'
 import { MachineDetail } from './pages/MachineDetail'
+import { ResourceList } from './pages/ResourceList'
 import { MoNew } from './pages/MoNew'
 import { MoDetail } from './pages/MoDetail'
 import { OrderHub } from './pages/OrderHub'
@@ -94,7 +95,8 @@ export default function App() {
             <Route path="/activity-library" element={<ActivityLibraryList />} />
             <Route path="/activity-library/new" element={<Navigate to="/activity-library" replace />} />
             <Route path="/activity-library/:id/edit" element={<ActivityLibraryList />} />
-            <Route path="/machines" element={<MachineList />} />
+            <Route path="/resources" element={<ResourceList />} />
+            <Route path="/machines" element={<Navigate to="/resources" replace />} />
             <Route path="/machines/:id" element={<MachineDetail />} />
             {/* Sprint 14: Order Hub (MO ↔ WO tabs) */}
             <Route path="/order" element={<OrderHub />} />

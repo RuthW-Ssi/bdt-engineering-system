@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { AlertCircle, X, Search } from 'lucide-react'
 import { useActivity, useCreateActivity, useUpdateActivity } from '../hooks/useActivities'
 import { apiClient } from '../api/client'
+import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
 
 interface MachineOption {
   id: number
@@ -11,21 +13,24 @@ interface MachineOption {
   type: string
 }
 
-interface ConsumableOption {
+interface ConsumableEntry {
   id: number
   code: string
   name: string
+  formula_id?: number
 }
 
-interface LaborOption {
+interface ToolOption {
   id: number
   code: string
   name: string
+  qty: number
 }
 
 interface LaborEntry {
-  option: LaborOption
+  skill: string
   qty: number
+  level?: string
 }
 
 interface FormValues {
@@ -159,10 +164,14 @@ function MachinePicker({
 
 // ── Consumable Picker ─────────────────────────────────────────────────────────
 
-function ConsumablePicker({ value, onChange }: { value: ConsumableOption[]; onChange: (items: ConsumableOption[]) => void }) {
+function ConsumablePicker({ value, onChange, formulas }: {
+  value: ConsumableEntry[]
+  onChange: (items: ConsumableEntry[]) => void
+  formulas: ConsumeFormula[]
+}) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  const [all, setAll] = useState<ConsumableOption[]>([])
+  const [all, setAll] = useState<ConsumableEntry[]>([])
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -184,23 +193,39 @@ function ConsumablePicker({ value, onChange }: { value: ConsumableOption[]; onCh
     return q ? all.filter((m) => m.code.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)) : all
   }, [query, all])
 
+  function setFormula(id: number, formula_id: number | undefined) {
+    onChange(value.map(v => v.id === id ? { ...v, formula_id } : v))
+  }
+
   return (
     <div ref={wrapperRef} style={{ position: 'relative' }}>
       {value.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {value.map((m) => (
-            <span key={m.id} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              background: '#FFF8E1', border: '1px solid #FFE082',
-              borderRadius: 4, padding: '3px 8px', fontSize: 12, color: '#7B4F00',
-            }}>
-              <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{m.code}</span>
-              <span style={{ color: '#555', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+            <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4, flex: '0 0 auto',
+                background: '#FFF8E1', border: '1px solid #FFE082',
+                borderRadius: 4, padding: '3px 8px', fontSize: 12, color: '#7B4F00',
+              }}>
+                <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{m.code}</span>
+                <span style={{ color: '#555', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+              </span>
+              <select
+                value={m.formula_id ?? ''}
+                onChange={e => setFormula(m.id, e.target.value ? Number(e.target.value) : undefined)}
+                style={{ fontSize: 11, border: '1px solid #E0E0E0', borderRadius: 4, padding: '3px 6px', color: m.formula_id ? '#1B5E20' : '#9E9E9E', background: m.formula_id ? '#F1F8E9' : '#FAFAFA', flex: 1, minWidth: 0 }}
+              >
+                <option value="">— formula —</option>
+                {formulas.map(f => (
+                  <option key={f.id} value={f.id}>{f.name} [{f.result_unit ?? '?'}]</option>
+                ))}
+              </select>
               <button type="button" onClick={() => onChange(value.filter((v) => v.id !== m.id))}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: '#7B4F00', opacity: 0.6 }}>
-                <X size={12} />
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#9E9E9E', flexShrink: 0 }}>
+                <X size={13} />
               </button>
-            </span>
+            </div>
           ))}
         </div>
       )}
@@ -237,10 +262,10 @@ function ConsumablePicker({ value, onChange }: { value: ConsumableOption[]; onCh
 
 // ── Tool Picker ───────────────────────────────────────────────────────────────
 
-function ToolPicker({ value, onChange }: { value: LaborOption[]; onChange: (items: LaborOption[]) => void }) {
+function ToolPicker({ value, onChange }: { value: ToolOption[]; onChange: (items: ToolOption[]) => void }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  const [all, setAll] = useState<LaborOption[]>([])
+  const [all, setAll] = useState<ToolOption[]>([])
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -265,20 +290,26 @@ function ToolPicker({ value, onChange }: { value: LaborOption[]; onChange: (item
   return (
     <div ref={wrapperRef} style={{ position: 'relative' }}>
       {value.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
           {value.map((tool) => (
-            <span key={tool.id} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
+            <div key={tool.id} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
               background: '#F0F4FF', border: '1px solid #BBDEFB',
-              borderRadius: 4, padding: '4px 8px', fontSize: 12, color: '#1565C0',
+              borderRadius: 6, padding: '6px 10px', fontSize: 12,
             }}>
-              <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{tool.code}</span>
-              <span style={{ color: '#555' }}>{tool.name}</span>
+              <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11, color: '#1565C0', minWidth: 60 }}>{tool.code}</span>
+              <span style={{ color: '#555', flex: 1 }}>{tool.name}</span>
+              <span style={{ fontSize: 11, color: '#9E9E9E', marginRight: 2 }}>จำนวน</span>
+              <input
+                type="number" min={1} value={tool.qty}
+                onChange={e => onChange(value.map(v => v.id === tool.id ? { ...v, qty: Math.max(1, Number(e.target.value)) } : v))}
+                style={{ width: 52, padding: '2px 6px', border: '1px solid #BBDEFB', borderRadius: 4, fontSize: 12, textAlign: 'center', background: '#fff' }}
+              />
               <button type="button" onClick={() => onChange(value.filter((v) => v.id !== tool.id))}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: '#1565C0', opacity: 0.6 }}>
+                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: '#1565C0', opacity: 0.6, marginLeft: 2 }}>
                 <X size={12} />
               </button>
-            </span>
+            </div>
           ))}
         </div>
       )}
@@ -296,7 +327,7 @@ function ToolPicker({ value, onChange }: { value: LaborOption[]; onChange: (item
           {filtered.map((item) => {
             const already = value.some((v) => v.id === item.id)
             return (
-              <div key={item.id} onMouseDown={() => { if (!already) { onChange([...value, item]); setQuery(''); setOpen(false) } }}
+              <div key={item.id} onMouseDown={() => { if (!already) { onChange([...value, { ...item, qty: 1 }]); setQuery(''); setOpen(false) } }}
                 style={{ padding: '8px 12px', cursor: already ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 10, opacity: already ? 0.4 : 1, borderBottom: '1px solid #F5F5F5' }}
                 onMouseEnter={(e) => { if (!already) (e.currentTarget as HTMLDivElement).style.background = '#F0F4FF' }}
                 onMouseLeave={(e) => { if (!already) (e.currentTarget as HTMLDivElement).style.background = '' }}
@@ -313,17 +344,17 @@ function ToolPicker({ value, onChange }: { value: LaborOption[]; onChange: (item
   )
 }
 
-// ── Labor Picker ──────────────────────────────────────────────────────────────
+// ── Skill Picker ──────────────────────────────────────────────────────────────
 
-function LaborPicker({ value, onChange }: { value: LaborEntry[]; onChange: (items: LaborEntry[]) => void }) {
+function SkillPicker({ value, onChange }: { value: LaborEntry[]; onChange: (items: LaborEntry[]) => void }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
-  const [all, setAll] = useState<LaborOption[]>([])
+  const [allSkills, setAllSkills] = useState<string[]>([])
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    apiClient.get('/equipment-resources').then((r) => {
-      setAll((r.data as any[]).filter((m) => m.type === 'labor').map((m) => ({ id: m.id, code: m.code, name: m.name })))
+    apiClient.get('/machines/skills').then((r) => {
+      setAllSkills((r.data as { id: number; name: string }[]).map((s) => s.name))
     })
   }, [])
 
@@ -337,34 +368,47 @@ function LaborPicker({ value, onChange }: { value: LaborEntry[]; onChange: (item
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
-    return q ? all.filter((m) => m.code.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)).slice(0, 10) : all.slice(0, 10)
-  }, [query, all])
+    return (q ? allSkills.filter((s) => s.toLowerCase().includes(q)) : allSkills).slice(0, 10)
+  }, [query, allSkills])
 
-  function setQty(id: number, qty: number) {
-    onChange(value.map((v) => v.option.id === id ? { ...v, qty: Math.max(1, qty) } : v))
+  function setQty(skill: string, qty: number) {
+    onChange(value.map((v) => v.skill === skill ? { ...v, qty: Math.max(1, qty) } : v))
   }
+  function setLevel(skill: string, level: string) {
+    onChange(value.map((v) => v.skill === skill ? { ...v, level: (level && level !== '-') ? level : undefined } : v))
+  }
+
+  const LEVEL_OPTIONS = ['-', 'A', 'B+', 'B', 'C']
 
   return (
     <div ref={wrapperRef} style={{ position: 'relative' }}>
       {value.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-          {value.map(({ option, qty }) => (
-            <div key={option.id} style={{
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+          {value.map(({ skill, qty, level }) => (
+            <div key={skill} style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               background: '#EDF7ED', border: '1px solid #B2DFDB',
               borderRadius: 6, padding: '4px 8px', fontSize: 12, color: '#1B5E20',
             }}>
-              <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{option.code}</span>
-              <span style={{ color: '#555' }}>{option.name}</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 4, background: '#fff', borderRadius: 4, border: '1px solid #B2DFDB', padding: '0 4px' }}>
-                <button type="button" onMouseDown={(e) => { e.preventDefault(); setQty(option.id, qty - 1) }}
+              <span style={{ color: '#1B5E20', fontWeight: 600, minWidth: 80 }}>{skill}</span>
+              {/* qty */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', borderRadius: 4, border: '1px solid #B2DFDB', padding: '0 4px' }}>
+                <button type="button" onMouseDown={(e) => { e.preventDefault(); setQty(skill, qty - 1) }}
                   style={{ background: 'none', border: 'none', cursor: qty > 1 ? 'pointer' : 'default', color: qty > 1 ? '#1B5E20' : '#BDBDBD', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}>−</button>
                 <span style={{ fontSize: 12, fontWeight: 700, minWidth: 16, textAlign: 'center', color: '#1B5E20' }}>{qty}</span>
-                <button type="button" onMouseDown={(e) => { e.preventDefault(); setQty(option.id, qty + 1) }}
+                <button type="button" onMouseDown={(e) => { e.preventDefault(); setQty(skill, qty + 1) }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1B5E20', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}>+</button>
               </div>
               <span style={{ fontSize: 10, color: '#888' }}>คน</span>
-              <button type="button" onClick={() => onChange(value.filter((v) => v.option.id !== option.id))}
+              {/* level */}
+              <select
+                value={level ?? ''}
+                onChange={(e) => setLevel(skill, e.target.value)}
+                style={{ fontSize: 11, border: '1px solid #B2DFDB', borderRadius: 4, padding: '1px 4px', background: '#fff', color: '#1B5E20', outline: 'none', cursor: 'pointer' }}
+              >
+                {LEVEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              <button type="button" onClick={() => onChange(value.filter((v) => v.skill !== skill))}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: '#1B5E20', opacity: 0.5 }}>
                 <X size={12} />
               </button>
@@ -375,7 +419,7 @@ function LaborPicker({ value, onChange }: { value: LaborEntry[]; onChange: (item
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9E9E9E', pointerEvents: 'none' }} />
         <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
-          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา labor…" />
+          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา skill…" />
       </div>
       {open && filtered.length > 0 && (
         <div style={{
@@ -383,17 +427,16 @@ function LaborPicker({ value, onChange }: { value: LaborEntry[]; onChange: (item
           background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6,
           boxShadow: '0 4px 16px rgba(0,0,0,0.10)', marginTop: 2, maxHeight: 200, overflowY: 'auto',
         }}>
-          {filtered.map((item) => {
-            const already = value.some((v) => v.option.id === item.id)
+          {filtered.map((skill) => {
+            const already = value.some((v) => v.skill === skill)
             return (
-              <div key={item.id}
-                onMouseDown={() => { if (!already) { onChange([...value, { option: item, qty: 1 }]); setQuery(''); setOpen(false) } }}
+              <div key={skill}
+                onMouseDown={() => { if (!already) { onChange([...value, { skill, qty: 1 }]); setQuery(''); setOpen(false) } }}
                 style={{ padding: '8px 12px', cursor: already ? 'default' : 'pointer', display: 'flex', alignItems: 'center', gap: 10, opacity: already ? 0.4 : 1, borderBottom: '1px solid #F5F5F5' }}
                 onMouseEnter={(e) => { if (!already) (e.currentTarget as HTMLDivElement).style.background = '#F1F8F1' }}
                 onMouseLeave={(e) => { if (!already) (e.currentTarget as HTMLDivElement).style.background = '' }}
               >
-                <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#1B5E20', flexShrink: 0 }}>{item.code}</span>
-                <span style={{ fontSize: 13, color: '#1F1F1F' }}>{item.name}</span>
+                <span style={{ fontSize: 13, color: '#1F1F1F' }}>{skill}</span>
                 {already && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#9E9E9E' }}>added</span>}
               </div>
             )
@@ -416,10 +459,11 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   const isEdit = activityId !== undefined
 
   const [selectedMachine, setSelectedMachine] = useState<MachineOption | null>(null)
-  const [selectedConsumables, setSelectedConsumables] = useState<ConsumableOption[]>([])
-  const [selectedTools, setSelectedTools] = useState<LaborOption[]>([])
-  const [selectedLabors, setSelectedLabors] = useState<LaborEntry[]>([])
-  const [machineError, setMachineError] = useState(false)
+  const [selectedConsumables, setSelectedConsumables] = useState<ConsumableEntry[]>([])
+  const [selectedTools, setSelectedTools] = useState<ToolOption[]>([])
+  const [selectedSkills, setSelectedSkills] = useState<LaborEntry[]>([])
+
+  const { data: formulas = [] } = useQuery({ queryKey: ['consume-formulas'], queryFn: consumeFormulasApi.list, staleTime: 10 * 60 * 1000 })
 
   const { data: existing, isLoading: isLoadingExisting } = useActivity(activityId)
   const createMutation = useCreateActivity()
@@ -432,23 +476,21 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   useEffect(() => {
     if (existing) {
       reset({ name: existing.name, duration_min: Number(existing.duration_min) })
-      setSelectedMachine({ id: existing.machine.id, code: existing.machine.code, name: existing.machine.name, type: '' })
-      setSelectedConsumables(existing.consumes.map((c) => ({ id: c.resource.id, code: c.resource.code, name: c.resource.name })))
-      setSelectedTools((existing.tools ?? []).map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name })))
-      setSelectedLabors(existing.labors.map((l) => ({ option: { id: l.labor_resource.id, code: l.labor_resource.code, name: l.labor_resource.name }, qty: l.qty })))
+      setSelectedMachine(existing.machine ? { id: existing.machine.id, code: existing.machine.code, name: existing.machine.name, type: '' } : null)
+      setSelectedConsumables(existing.consumes.map((c) => ({ id: c.resource.id, code: c.resource.code, name: c.resource.name, formula_id: c.formula?.id ?? undefined })))
+      setSelectedTools((existing.tools ?? []).map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name, qty: t.qty ?? 1 })))
+      setSelectedSkills(existing.skills.map((l) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })))
     }
   }, [existing, reset])
 
   async function onSubmit(values: FormValues) {
-    if (!selectedMachine) { setMachineError(true); return }
-    setMachineError(false)
     const payload = {
       name: values.name,
-      machine_id: selectedMachine.id,
+      machine_id: selectedMachine?.id,
       duration_min: Number(values.duration_min),
-      consumes: selectedConsumables.map((c) => c.id),
-      tools: selectedTools.map((t) => t.id),
-      labors: selectedLabors.map((l) => ({ id: l.option.id, qty: l.qty })),
+      consumes: selectedConsumables.map((c) => ({ resource_id: c.id, formula_id: c.formula_id })),
+      tools: selectedTools.map((t) => ({ resource_id: t.id, qty: t.qty })),
+      labors: selectedSkills.map((l) => ({ skill: l.skill, qty: l.qty, level: l.level || undefined })),
     }
     if (isEdit) {
       await updateMutation.mutateAsync(payload)
@@ -524,18 +566,13 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
               <div style={{ background: '#F8F9FA', border: '1px solid #E8E8E8', borderRadius: 10, padding: 20 }}>
                 <div style={sectionLabel}>Resources</div>
                 <div style={{ marginBottom: 20 }}>
-                  <label style={labelStyle}>Machine <span style={{ color: '#C8202A' }}>*</span></label>
-                  <MachinePicker value={selectedMachine} onChange={(m) => { setSelectedMachine(m); setMachineError(false) }} hasError={machineError} />
-                  {machineError && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#C8202A', marginTop: 4 }}>
-                      <AlertCircle size={11} />Required
-                    </div>
-                  )}
+                  <label style={labelStyle}>Machine <span style={{ color: '#9E9E9E', fontWeight: 400 }}>(optional)</span></label>
+                  <MachinePicker value={selectedMachine} onChange={setSelectedMachine} hasError={false} />
                 </div>
                 <div style={{ borderTop: '1px solid #EEEEEE', marginBottom: 20 }} />
                 <div style={{ marginBottom: 20 }}>
                   <label style={labelStyle}>Consumed Materials (optional)</label>
-                  <ConsumablePicker value={selectedConsumables} onChange={setSelectedConsumables} />
+                  <ConsumablePicker value={selectedConsumables} onChange={setSelectedConsumables} formulas={formulas} />
                 </div>
                 <div style={{ borderTop: '1px solid #EEEEEE', marginBottom: 20 }} />
                 <div style={{ marginBottom: 20 }}>
@@ -544,8 +581,8 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                 </div>
                 <div style={{ borderTop: '1px solid #EEEEEE', marginBottom: 20 }} />
                 <div>
-                  <label style={labelStyle}>Labor / คนทำงาน (optional)</label>
-                  <LaborPicker value={selectedLabors} onChange={setSelectedLabors} />
+                  <label style={labelStyle}>Skill / ทักษะ (optional)</label>
+                  <SkillPicker value={selectedSkills} onChange={setSelectedSkills} />
                 </div>
               </div>
 
