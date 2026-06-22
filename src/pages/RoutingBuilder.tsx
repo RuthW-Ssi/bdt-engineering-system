@@ -634,7 +634,7 @@ function InlineMatSearch({ onSelect, excludeIds }: {
 
 function ModalActivityLib({ addedIds, onAdd }: {
   addedIds: Set<number>
-  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: number[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }) => void
+  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }) => void
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -1842,7 +1842,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
           unit:       undefined,
           machineId:  a.machine_id ?? undefined,
           toolIds:    (a.tool_ids ?? []).map(t => typeof t === 'number' ? { id: t, qty: 1 } : t),
-          labors:     a.labors ?? [],
+          labors:     (a.labors ?? []).map(l => ({ ...l, level: l.level ?? undefined })),
           consumables: a.consumables ?? [],
         })),
       } satisfies OperationData,
