@@ -9,7 +9,7 @@ const INCLUDE = {
   machine: { select: { id: true, code: true, name: true } },
   consumes: {
     include: {
-      resource: { select: { id: true, code: true, name: true } },
+      material: { select: { id: true, default_code: true, name: true } },
       formula:  { select: { id: true, name: true, expr: true, result_unit: true, variables: true } },
     },
   },
@@ -20,6 +20,15 @@ const INCLUDE = {
     },
   },
 } as const
+
+export interface RoutingFormulaParam {
+  code: string
+  description: string
+  formula_expression: string
+  inputs_required: string[]
+  return_unit: string
+  name: string
+}
 
 @Injectable()
 export class ActivitiesService {
@@ -34,7 +43,7 @@ export class ActivitiesService {
       where: {
         ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
         ...(machine_id ? { machine_id } : {}),
-        ...(material_id ? { consumes: { some: { resource_id: material_id } } } : {}),
+        ...(material_id ? { consumes: { some: { material_id } } } : {}),
       },
       orderBy: { activity_code: 'asc' },
       take: 500,
@@ -46,6 +55,14 @@ export class ActivitiesService {
     const row = await this.prisma.activity.findUnique({ where: { id }, include: INCLUDE })
     if (!row) throw new NotFoundException(`Activity ${id} not found`)
     return row
+  }
+
+  async listRoutingFormulaParams(): Promise<RoutingFormulaParam[]> {
+    return this.prisma.$queryRaw<RoutingFormulaParam[]>`
+      SELECT code, description, formula_expression, inputs_required, return_unit, name
+      FROM routing_formula_param
+      ORDER BY code
+    `
   }
 
   async create(dto: CreateActivityDto, userId: number) {
@@ -62,10 +79,15 @@ export class ActivitiesService {
           name: dto.name,
           machine_id: dto.machine_id ?? null,
           duration_min: dto.duration_min,
+          per_minute:   dto.per_minute   ?? null,
+          formula_code: dto.formula_code ?? null,
+          ratio:        dto.ratio        ?? null,
+          ratio_unit:   dto.ratio_unit   ?? null,
+          per_time:     dto.per_time     ?? null,
           create_uid: userId,
           write_uid: userId,
           consumes: {
-            create: consumeIds.map(({ resource_id, formula_id }) => ({ resource_id, formula_id: formula_id ?? null })),
+            create: consumeIds.map(({ material_id, formula_id }) => ({ material_id, formula_id: formula_id ?? null })),
           },
           skills: {
             create: laborEntries.map(({ skill, qty, level }) => ({ skill, qty, level: level ?? null })),
@@ -95,15 +117,20 @@ export class ActivitiesService {
     await this.prisma.activity.update({
       where: { id },
       data: {
-        ...(dto.name !== undefined ? { name: dto.name } : {}),
-        ...(dto.machine_id !== undefined ? { machine_id: dto.machine_id } : {}),
-        ...(dto.duration_min !== undefined ? { duration_min: dto.duration_min } : {}),
+        ...(dto.name         !== undefined && { name:         dto.name }),
+        ...(dto.machine_id   !== undefined && { machine_id:   dto.machine_id }),
+        ...(dto.duration_min !== undefined && { duration_min: dto.duration_min }),
+        ...(dto.per_minute   !== undefined && { per_minute:   dto.per_minute }),
+        ...(dto.formula_code !== undefined && { formula_code: dto.formula_code }),
+        ...(dto.ratio        !== undefined && { ratio:        dto.ratio }),
+        ...(dto.ratio_unit   !== undefined && { ratio_unit:   dto.ratio_unit }),
+        ...(dto.per_time     !== undefined && { per_time:     dto.per_time }),
         write_uid: userId,
         ...(consumeIds !== undefined
           ? {
               consumes: {
                 deleteMany: {},
-                create: consumeIds.map(({ resource_id, formula_id }) => ({ resource_id, formula_id: formula_id ?? null })),
+                create: consumeIds.map(({ material_id, formula_id }) => ({ material_id, formula_id: formula_id ?? null })),
               },
             }
           : {}),
@@ -155,14 +182,14 @@ export class ActivitiesService {
 
   private async resolveConsumes(entries: ConsumeEntryDto[] | undefined): Promise<ConsumeEntryDto[]> {
     if (!entries || entries.length === 0) return []
-    const uniqueIds = [...new Set(entries.map(e => e.resource_id))]
-    const found = await this.prisma.equipment_resource.findMany({
-      where: { id: { in: uniqueIds } },
+    const uniqueIds = [...new Set(entries.map(e => e.material_id))]
+    const found = await this.prisma.materials.findMany({
+      where: { id: { in: uniqueIds }, type: 'consu', active: true },
       select: { id: true },
     })
     if (found.length !== uniqueIds.length) {
       const missing = uniqueIds.filter((id) => !found.find((r) => r.id === id))
-      throw new BadRequestException(`Resource ids not found: ${missing.join(', ')}`)
+      throw new BadRequestException(`Consumable material ids not found: ${missing.join(', ')}`)
     }
     return entries
   }

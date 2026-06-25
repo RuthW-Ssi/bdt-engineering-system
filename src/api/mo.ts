@@ -21,6 +21,16 @@ export interface MoListItem {
   create_date: string
 }
 
+export interface RoutingOpActivity {
+  name: string
+  measure: string | null
+  per_minute: number | null
+  machine: { id: number; code: string; name: string } | null
+  tools: { id: number; code: string; name: string; qty: number }[]
+  labors: { skill: string; qty: number; level?: string | null }[] | null
+  consumables: { resource_id: number; code: string; name: string }[] | null
+}
+
 // Routing op snapshot (read live from routing_template · replaces mo_operation)
 export interface RoutingOp {
   id: number
@@ -30,6 +40,7 @@ export interface RoutingOp {
   time_cycle: string | number
   time_cycle_manual: string | number | null
   workcenter: { id: number; code: string; name: string }
+  activities?: RoutingOpActivity[]
 }
 
 export interface MoAssemblyRow {
@@ -162,6 +173,9 @@ export interface RoutingOpDetail {
   op_code: string
   name: string
   time_cycle: number
+  time_cycle_manual: number | null
+  time_mode: string
+  formula_expr: string | null
   workcenter: { id: number; code: string; name: string }
   op_type: { id: number; key: string; label: string; color: string } | null
   activities_snapshot: RoutingActivitySnap[] | null
@@ -173,6 +187,19 @@ export interface RoutingTemplateDetail {
   name: string
   state: string
   operations: RoutingOpDetail[]
+}
+
+export interface MoPartRow {
+  part_mark: string
+  description: string | null
+  profile: string | null
+  grade: string | null
+  length_mm: number | null
+  weight_kg_each: number | null
+  total_qty: number
+  total_weight_kg: number | null
+  assembly_marks: string[]
+  mo_breakdown: { mo_code: string; qty: number }[]
 }
 
 // ── MO CRUD ───────────────────────────────────────────────────────────────────
@@ -192,6 +219,10 @@ export async function getMo(id: number): Promise<MoDetail> {
 
 export async function getMoAssemblies(id: number): Promise<MoAssemblyRow[]> {
   return (await apiClient.get(`/mo/${id}/assemblies`)).data
+}
+
+export async function getMoParts(id: number): Promise<MoPartRow[]> {
+  return (await apiClient.get(`/mo/${id}/parts`)).data
 }
 
 export async function getMoHistory(id: number): Promise<MoHistoryEntry[]> {

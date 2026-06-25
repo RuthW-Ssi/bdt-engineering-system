@@ -116,11 +116,12 @@ export class MaterialsService {
 
   // ── B5: GET /materials ────────────────────────────────────
   async findAll(query: QueryMaterialDto) {
-    const { state, categ_id, q, page = 1, limit = 20 } = query
+    const { type, state, categ_id, q, page = 1, limit = 20 } = query
     const skip = (page - 1) * limit
 
     const where: Prisma.materialsWhereInput = {
       active: true,
+      ...(type ? { type } : {}),
       ...(state ? { state } : {}),
       ...(categ_id ? { categ_id } : {}),
       ...(q

@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, Workflow, X } from 'lucide-react'
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
@@ -86,12 +86,16 @@ interface ActivityRef {
   name: string
   measure: string
   perMinute?: number
+  ratio?: number | null
+  ratioUnit?: string | null
+  perTime?: number | null
   unit?: string
   stdMeasure?: number
   machineId?: number | null
   toolIds?: { id: number; qty: number }[]
   consumables?: ConsumedMaterial[]
   labors?: { skill: string; qty: number; level?: string }[]
+  formulaCode?: string | null
 }
 
 interface OperationData extends Record<string, unknown> {
@@ -129,7 +133,9 @@ interface LibraryOpItem {
     machine: { id: number; code: string; name: string } | null
     tools: Array<{ resource_id: number; qty: number; resource: { id: number; code: string; name: string; type: string } }>
     op_materials: Array<{ resource: { id: number; code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }>
+    consumables?: Array<{ resource: { id: number; code: string; name: string; type: string }; formula_id: number | null; formula_name: string | null }>
     skills: Array<{ skill: string; qty: number; level?: string | null }>
+    source_activity: { ratio: string | null; ratio_unit: string | null; per_time: string | null; formula_code: string | null } | null
   }>
 }
 
@@ -154,6 +160,8 @@ interface ExistingTemplate {
     activities_snapshot: Array<{
       name: string; measure: string | null; per_minute: number | null
       machine_id: number | null; source_activity_id: number | null
+      formula_code: string | null
+      ratio: number | null; ratio_unit: string | null; per_time: number | null
       tool_ids: { id: number; qty: number }[] | null
       labors: Array<{ skill: string; qty: number; level?: string | null }> | null
       consumables: ConsumedMaterial[] | null
@@ -174,17 +182,17 @@ function isOpReady(d: OperationData): boolean {
 }
 
 // Realistic qty defaults for a typical structural steel job (H-Beam ~6 m)
+// Sample job: H-beam/rafter 6m, 50kg, 16 holes, 8m perimeter, 12m² surface
 const SAMPLE_JOB_QTY: Record<string, number> = {
-  'แนวตัด':    6,   // 6 plasma cuts per plate batch
-  'ท่อน':      4,   // 4 pipe/bar pieces
-  'จุดพับ':    4,   // 4 press-brake bend lines
-  'ชิ้น':      2,   // 2 fabricated parts
-  'รู':        16,  // 16 bolt holes per member
-  'ตัว':       1,   // 1 H-beam at a time
-  'จุด':       12,  // 12 tack/grind points
-  'แนวเชื่อม': 8,   // 8 weld passes
-  'ตร.ม.':    12,   // 12 m² surface per member
-  'ครั้ง':     3,   // 3 crane lifts
+  mm:     6000,  // 6000 mm cut / weld / edge length
+  holes:    16,  // 16 bolt holes per member
+  points:   12,  // 12 tack / weld points
+  pass:      4,  // 4 weld passes
+  m:         8,  // 8 m perimeter (painting / blasting)
+  m2:       12,  // 12 m² surface area
+  kg:       50,  // 50 kg (SAW weld / build-up weight)
+  pcs:       1,  // 1 piece (setup default)
+  ea:        8,  // 8 ea (assembly / fit-up points)
 }
 
 function estimateOpMin(d: OperationData, inputs: Record<string, number>): number | null {
@@ -196,9 +204,14 @@ function estimateOpMin(d: OperationData, inputs: Record<string, number>): number
   if (!d.activities.length) return null
   let total = 0
   for (const a of d.activities) {
-    if (!a.perMinute || a.perMinute <= 0) return null
     const qty = a.measure ? (inputs[a.measure] ?? 1) : 1
-    total += a.perMinute * qty
+    if (a.ratio && a.perTime && a.ratio > 0) {
+      total += (qty / a.ratio) * a.perTime
+    } else if (a.perMinute && a.perMinute > 0) {
+      total += qty / a.perMinute
+    } else {
+      return null
+    }
   }
   return +total.toFixed(2)
 }
@@ -232,10 +245,16 @@ function makeDragPayload(op: LibraryOpItem): Omit<OperationData, 'existing_op_id
       name: a.name,
       measure: a.measure,
       perMinute: a.per_minute ? Number(a.per_minute) : undefined,
+      ratio:     a.source_activity?.ratio     ? Number(a.source_activity.ratio)    : undefined,
+      ratioUnit: a.source_activity?.ratio_unit ?? undefined,
+      perTime:   a.source_activity?.per_time  ? Number(a.source_activity.per_time) : undefined,
+      formulaCode: a.source_activity?.formula_code ?? undefined,
       unit: a.unit ?? undefined,
       machineId: a.machine_id ?? undefined,
       toolIds: (a.tools ?? []).map(t => ({ id: t.resource_id, qty: t.qty ?? 1 })),
-      consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })),
+      consumables: a.source_activity_id
+        ? (a.consumables ?? []).map(c => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name, formula_id: c.formula_id ?? null, formula_name: c.formula_name ?? null, formula_unit: null }))
+        : (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })),
       labors: (a.skills ?? []).map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
     })),
   }
@@ -365,11 +384,15 @@ function OperationNode({ id, selected }: NodeProps) {
             }}>
               <span style={{ fontSize: 9, color: '#D0D0D0', flexShrink: 0, width: 12, textAlign: 'right', fontFamily: 'monospace' }}>{i + 1}</span>
               <span style={{ fontSize: 10, color: '#444', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{act.name}</span>
-              {act.perMinute != null && act.perMinute > 0 && (
+              {act.ratio != null && act.perTime != null ? (
+                <span style={{ fontSize: 9, color: '#0D47A1', background: '#E3F2FD', border: '1px solid #90CAF9', borderRadius: 8, padding: '0 5px', flexShrink: 0, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {act.ratio}{act.ratioUnit ? ` ${act.ratioUnit}` : ''}/{act.perTime}m
+                </span>
+              ) : act.perMinute != null && act.perMinute > 0 ? (
                 <span style={{ fontSize: 9, color: '#2E7D32', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 8, padding: '0 5px', flexShrink: 0, fontWeight: 600 }}>
                   {act.perMinute.toFixed(1)}m
                 </span>
-              )}
+              ) : null}
             </div>
           ))}
         </div>
@@ -582,11 +605,9 @@ function InlineMatSearch({ onSelect, excludeIds }: {
   const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    apiClient.get('/equipment-resources').then((r: any) => {
+    apiClient.get('/materials', { params: { type: 'consu', limit: 500 } }).then((r: any) => {
       setAll(
-        (r.data as any[])
-          .filter((m) => m.type === 'consumable')
-          .map((m) => ({ resource_id: m.id, code: m.code, name: m.name }))
+        (r.data.items as any[]).map((m) => ({ resource_id: m.id, code: m.default_code, name: m.name }))
       )
     })
   }, [])
@@ -634,7 +655,7 @@ function InlineMatSearch({ onSelect, excludeIds }: {
 
 function ModalActivityLib({ addedIds, onAdd }: {
   addedIds: Set<number>
-  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }) => void
+  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; formula_code?: string | null; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }) => void
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -720,12 +741,13 @@ function ModalActivityLib({ addedIds, onAdd }: {
                           name: act.name,
                           measure: act.activity_code,
                           unit: '',
-                          per_minute: String(act.duration_min),
+                          per_minute: (act as any).per_minute != null ? String((act as any).per_minute) : String(act.duration_min),
+                          formula_code: (act as any).formula_code ?? null,
                           std_measure: '',
                           source_activity_template_id: act.id,
                           machine_id: act.machine?.id ?? null,
                           tool_ids: (act.tools ?? []).map((t: { resource: { id: number }; qty: number }) => ({ id: t.resource.id, qty: t.qty ?? 1 })),
-                          consumables: (act.consumes ?? []).map((c: { resource: { id: number; code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }) => ({ resource_id: c.resource.id, code: c.resource.code, name: c.resource.name, formula_id: c.formula?.id ?? null, formula_name: c.formula?.name ?? null, formula_unit: c.formula?.result_unit ?? null })),
+                          consumables: (act.consumes ?? []).map((c: { material: { id: number; default_code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }) => ({ resource_id: c.material.id, code: c.material.default_code, name: c.material.name, formula_id: c.formula?.id ?? null, formula_name: c.formula?.name ?? null, formula_unit: c.formula?.result_unit ?? null })),
                           labors: (act.skills ?? []).map((l: { skill: string; qty: number; level?: string | null }) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
                         })}
                           style={{ padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none', background: '#1976D2', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
@@ -749,12 +771,12 @@ function ModalActivityLib({ addedIds, onAdd }: {
 interface InspModalForm {
   op_code: string; name: string
   op_type_id: number | ''; workcenter_id: number | ''; method: string
-  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }>
+  activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[]; ratio?: number | null; ratioUnit?: string | null; perTime?: number | null }>
 }
 
-interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void }
+interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null }
 
-const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete }: InspectorDrawerProps) {
+const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
@@ -781,6 +803,9 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
         tool_ids: a.toolIds ?? [] as { id: number; qty: number }[],
         consumables: a.consumables ?? [],
         labors: a.labors ?? [],
+        ratio: a.ratio ?? null,
+        ratioUnit: a.ratioUnit ?? null,
+        perTime: a.perTime ?? null,
       })) ?? [],
     }
   })
@@ -833,7 +858,32 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
   const removeAct = (localId: string) =>
     patch({ activities: form.activities.filter(a => a.localId !== localId) })
 
+  useEffect(() => {
+    if (!pendingActivityRefresh) return
+    apiClient.get(`/activities/${pendingActivityRefresh.id}`).then(r => {
+      const act = r.data
+      const updated = formRef.current.activities.map(a =>
+        a.source_activity_template_id === pendingActivityRefresh.id
+          ? {
+              ...a,
+              name: act.name,
+              machine_id: act.machine?.id ?? null,
+              tool_ids: (act.tools ?? []).map((t: { resource: { id: number }; qty: number }) => ({ id: t.resource.id, qty: t.qty ?? 1 })),
+              consumables: act.consumes.map((c: { material: { id: number; default_code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }) => ({
+                resource_id: c.material.id, code: c.material.default_code, name: c.material.name,
+                formula_id: c.formula?.id ?? null, formula_name: c.formula?.name ?? null, formula_unit: c.formula?.result_unit ?? null,
+              })),
+              labors: act.skills.map((l: { skill: string; qty: number; level?: string }) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
+            }
+          : a
+      )
+      patch({ activities: updated })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingActivityRefresh])
+
   const [openInspPicker, setOpenInspPicker] = useState<{ actId: string; kind: 'tool' | 'consumable' } | null>(null)
+  const [editingActId, setEditingActId] = useState<string | null>(null)
   useEffect(() => {
     if (!openInspPicker) return
     const close = () => setOpenInspPicker(null)
@@ -862,7 +912,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
   return (
     <>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 400 }} />
-      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 980, background: '#fff', zIndex: 401, display: 'flex', flexDirection: 'column', boxShadow: '-6px 0 32px rgba(0,0,0,0.18)', fontFamily: 'inherit' }}>
+      <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 1120, background: '#fff', zIndex: 401, display: 'flex', flexDirection: 'column', boxShadow: '-6px 0 32px rgba(0,0,0,0.18)', fontFamily: 'inherit' }}>
 
         {/* Header — matches NewOpModal */}
         <div style={{ height: 52, borderBottom: '1px solid #E0E0E0', padding: '0 20px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
@@ -968,27 +1018,40 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                     const chipEdit: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
                     const isPickerOpen = (kind: 'tool' | 'consumable') => openInspPicker?.actId === act.localId && openInspPicker.kind === kind
                     const isFromLib = act.source_activity_template_id !== null
+                    const isEditing = editingActId === act.localId
                     const pm = Number(act.per_minute)
                     const estMin = pm > 0 ? pm : null
                     const machineName = machines.find(m => m.id === act.machine_id)?.name ?? '—'
                     const COL = '1fr 64px 1fr 24px'
                     const COL_LIB = '1fr 64px 1fr 20px 20px'
                     return (
-                      <div key={act.localId} style={{ border: `1px solid ${isFromLib ? '#BBDEFB' : '#E8E8E8'}`, borderRadius: 6, overflow: 'visible' }}>
+                      <div key={act.localId} style={{ border: `1px solid ${isEditing ? '#FFD54F' : '#BBDEFB'}`, borderRadius: 6, overflow: 'visible' }}>
                         {/* Main row */}
                         {isFromLib ? (
-                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 6, alignItems: 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
-                            <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
-                            <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 6, alignItems: act.ratio != null && act.perTime != null ? 'start' : 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
+                              {act.ratio != null && act.perTime != null && (
+                                <div style={{ marginTop: 2, fontSize: 10, fontFamily: 'monospace', color: '#1565C0' }}>
+                                  ทุก {act.ratio} {act.ratioUnit ?? ''} → {act.perTime} min
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
-                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
-                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>{machineName}</div>
+                            <button onClick={() => act.source_activity_template_id && onEditActivity?.(act.source_activity_template_id)}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
+                              <Pencil size={11} />
+                            </button>
+                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
                               <X size={12} />
                             </button>
                           </div>
-                        ) : (
-                          <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 6, alignItems: 'center', background: '#F8F8F8', padding: '6px 8px' }}>
+                        ) : isEditing ? (
+                          /* Manual activity — edit mode (toggled by pencil) */
+                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 6, alignItems: 'center', background: '#FFF8E1', padding: '7px 8px', borderLeft: '3px solid #FFD54F' }}>
                             <input value={act.name} onChange={e => patchAct(act.localId, { name: e.target.value })}
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
                             <input type="number" min={0} step="0.01" value={act.per_minute} onChange={e => patchAct(act.localId, { per_minute: e.target.value })}
@@ -998,14 +1061,41 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               <option value="">—</option>
                               {machines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
                             </select>
+                            <button onClick={() => setEditingActId(null)} title="Done"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4CAF50', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                              <Check size={12} />
+                            </button>
                             <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                              <X size={12} />
+                            </button>
+                          </div>
+                        ) : (
+                          /* Manual activity — display mode (default) */
+                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 6, alignItems: act.ratio != null && act.perTime != null ? 'start' : 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name || '—'}</div>
+                              {act.ratio != null && act.perTime != null && (
+                                <div style={{ marginTop: 2, fontSize: 10, fontFamily: 'monospace', color: '#1565C0' }}>
+                                  ทุก {act.ratio} {act.ratioUnit ?? ''} → {act.perTime} min
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>
+                              {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
+                            </div>
+                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>{machineName}</div>
+                            <button onClick={() => setEditingActId(act.localId)} title="Edit"
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
+                              <Pencil size={11} />
+                            </button>
+                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
                               <X size={12} />
                             </button>
                           </div>
                         )}
 
-                        {/* Sub-row: library → read-only chips + Edit link; manual → pickers */}
-                        {isFromLib ? (
+                        {/* Sub-row: library or display mode → read-only chips; edit mode → pickers */}
+                        {(isFromLib || !isEditing) ? (
                           <>
                             {(act.tool_ids.length > 0 || (act.labors ?? []).length > 0 || act.consumables.length > 0) && (
                               <div style={{ display: 'flex', gap: 0, borderTop: '1px solid #DDEEFF', background: '#fff' }}>
@@ -1037,10 +1127,12 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                                     <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
                                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                       {act.consumables.map(c => (
-                                        <span key={c.resource_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
-                                          <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.code}</span> {c.name}
+                                        <span key={c.resource_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00', display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 220, overflow: 'hidden' }}>
+                                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</span>
                                           {c.formula_name && (
-                                            <span style={{ marginLeft: 4, fontSize: 9, color: '#9E6B00', fontStyle: 'italic' }}>[{c.formula_name}{c.formula_unit ? ` · ${c.formula_unit}` : ''}]</span>
+                                            <span style={{ background: '#E0F2F1', border: '1px solid #80CBC4', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#00695C', fontWeight: 600, flexShrink: 0 }}>
+                                              {c.formula_name}
+                                            </span>
                                           )}
                                         </span>
                                       ))}
@@ -1103,10 +1195,15 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumables</div>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                                 {act.consumables.map((c, ci) => (
-                                  <span key={c.resource_id} style={{ ...chipEdit, background: '#FFF3E0', borderColor: '#FFE082', color: '#E65100', gap: 4 }}>
-                                    <span style={{ fontFamily: 'monospace', fontSize: 9 }}>{c.code}</span> {c.name}
+                                  <span key={c.resource_id} style={{ ...chipEdit, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00', gap: 4, maxWidth: 220, overflow: 'hidden' }}>
+                                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</span>
+                                    {c.formula_name && (
+                                      <span style={{ background: '#E0F2F1', border: '1px solid #80CBC4', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#00695C', fontWeight: 600, flexShrink: 0 }}>
+                                        {c.formula_name}
+                                      </span>
+                                    )}
                                     <button onClick={() => patchAct(act.localId, { consumables: act.consumables.filter((_, xi) => xi !== ci) })}
-                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#E65100', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex' }}>×</button>
+                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7B4F00', padding: 0, fontSize: 11, lineHeight: 1, display: 'flex', flexShrink: 0 }}>×</button>
                                   </span>
                                 ))}
                                 <InlineMatSearch
@@ -1138,7 +1235,22 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
 
           {/* RIGHT: Activity Library 40% */}
           <div style={{ flex: '0 0 40%', borderLeft: '1px solid #E0E0E0', background: '#FAFAFA', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-            <ModalActivityLib addedIds={addedIds} onAdd={act => patch({ activities: [...form.activities, act] })} />
+            <ModalActivityLib addedIds={addedIds} onAdd={act => patch({ activities: [...form.activities, {
+              localId:                    act.localId,
+              name:                       act.name,
+              measure:                    act.measure,
+              unit:                       act.unit ?? '',
+              per_minute:                 act.per_minute ?? '',
+              std_measure:                act.std_measure ?? '',
+              source_activity_template_id: act.source_activity_template_id,
+              machine_id:                 act.machine_id ?? null,
+              tool_ids:                   act.tool_ids ?? [],
+              consumables:                act.consumables ?? [],
+              labors:                     act.labors ?? [],
+              ratio:                      null,
+              ratioUnit:                  null,
+              perTime:                    null,
+            }] })} />
           </div>
         </div>
 
@@ -1170,7 +1282,7 @@ function OpLibraryPanel() {
       const { data: list } = await apiClient.get('/operation-templates')
       const visible = (Array.isArray(list) ? list : []).filter((op: LibraryOpItem) => op.status !== 'draft')
       const details = await Promise.all(
-        visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}`).then(r => r.data))
+        visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}?include=stale_check`).then(r => r.data))
       )
       return details as LibraryOpItem[]
     },
@@ -1340,6 +1452,46 @@ function GatherControl() {
   )
 }
 
+// ── AutoWireControl — connect all ops in sequence with one click ─
+
+function AutoWireControl() {
+  const { getNodes, setEdges } = useReactFlow()
+
+  const handleAutoWire = useCallback(() => {
+    const ops = getNodes()
+      .filter(n => n.type === 'operation')
+      .sort((a, b) => a.position.x - b.position.x)
+    if (ops.length === 0) return
+
+    const mkEdge = (source: string, target: string, step: number, sourceHandle?: string, targetHandle?: string): Edge => ({
+      id: `aw-${source}-${target}`,
+      source,
+      target,
+      ...(sourceHandle != null && { sourceHandle }),
+      ...(targetHandle != null && { targetHandle }),
+      type: 'labeled',
+      label: String(step),
+      animated: true,
+      style: { stroke: '#C8202A', strokeWidth: 2 },
+      markerEnd: { type: MarkerType.ArrowClosed, color: '#C8202A' },
+      data: { midOffsetX: 0, midOffsetY: 0 },
+    })
+
+    const newEdges: Edge[] = [
+      mkEdge('start', ops[0].id, 1, undefined, 'left-t'),
+      ...ops.slice(0, -1).map((op, i) => mkEdge(op.id, ops[i + 1].id, i + 2, 'right-s', 'left-t')),
+      mkEdge(ops[ops.length - 1].id, 'end', ops.length + 1, 'right-s', undefined),
+    ]
+    setEdges(newEdges)
+  }, [getNodes, setEdges])
+
+  return (
+    <ControlButton onClick={handleAutoWire} title="เชื่อม operations เป็น sequence อัตโนมัติ">
+      <Workflow size={12} />
+    </ControlButton>
+  )
+}
+
 const NODE_W = 190
 const LAYOUT_GAP_X = 60
 const LAYOUT_START = { x: 60, y: 200 }
@@ -1466,6 +1618,7 @@ function RoutingBuilderInner() {
 
   const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [editingActivityId, setEditingActivityId] = useState<number | null>(null)
+  const [pendingActivityRefresh, setPendingActivityRefresh] = useState<{ id: number; ts: number } | null>(null)
   // Floor plan background — locked to factory layout
   const BG_URL      = '/assets/bg/Layout-F1.png'
   const BG_ROTATION = 270
@@ -1764,7 +1917,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
       const { data: list } = await apiClient.get('/operation-templates')
       const visible = (Array.isArray(list) ? list : []).filter((op: LibraryOpItem) => op.status !== 'draft')
       const details = await Promise.all(
-        visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}`).then(r => r.data))
+        visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}?include=stale_check`).then(r => r.data))
       )
       return details as LibraryOpItem[]
     },
@@ -1799,6 +1952,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
             toolIds: (a.tools ?? []).map(t => ({ id: t.resource_id, qty: t.qty ?? 1 })),
             consumables: (a.op_materials ?? []).map(m => ({ resource_id: m.resource.id, code: m.resource.code, name: m.resource.name, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })),
             labors: (a.skills ?? []).map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
+            formulaCode: (a as any).formula_code ?? undefined,
           })),
         } satisfies OperationData,
       }
@@ -1834,16 +1988,20 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
         duration_min: op.time_cycle_manual ? Number(op.time_cycle_manual) : undefined,
         formula: op.formula_expr ?? undefined,
         activities: (op.activities_snapshot ?? []).map(a => ({
-          localId:    newLocalId(),
-          templateId: a.source_activity_id ?? undefined,
-          name:       a.name,
-          measure:    a.measure ?? '',
-          perMinute:  a.per_minute ?? undefined,
-          unit:       undefined,
-          machineId:  a.machine_id ?? undefined,
-          toolIds:    (a.tool_ids ?? []).map(t => typeof t === 'number' ? { id: t, qty: 1 } : t),
-          labors:     (a.labors ?? []).map(l => ({ ...l, level: l.level ?? undefined })),
+          localId:     newLocalId(),
+          templateId:  a.source_activity_id ?? undefined,
+          name:        a.name,
+          measure:     a.measure ?? '',
+          perMinute:   a.per_minute ?? undefined,
+          ratio:       a.ratio ?? undefined,
+          ratioUnit:   a.ratio_unit ?? undefined,
+          perTime:     a.per_time ?? undefined,
+          unit:        undefined,
+          machineId:   a.machine_id ?? undefined,
+          toolIds:     (a.tool_ids ?? []).map(t => typeof t === 'number' ? { id: t, qty: 1 } : t),
+          labors:      (a.labors ?? []).map(l => ({ ...l, level: l.level ?? undefined })),
           consumables: a.consumables ?? [],
+          formulaCode: a.formula_code ?? undefined,
         })),
       } satisfies OperationData,
     }))
@@ -1947,6 +2105,10 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
             name: a.name,
             measure: a.measure || null,
             per_minute: a.perMinute ?? null,
+            ratio: a.ratio ?? null,
+            ratio_unit: a.ratioUnit ?? null,
+            per_time: a.perTime ?? null,
+            formula_code: a.formulaCode ?? null,
             machine_id: a.machineId ?? null,
             source_activity_id: a.templateId ?? null,
             tool_ids: a.toolIds ?? [] as { id: number; qty: number }[],
@@ -1989,6 +2151,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
       }
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['routing-templates'] })
       queryClient.invalidateQueries({ queryKey: ['routing-template-detail', templateId] })
       navigate('/routings')
     },
@@ -2175,6 +2338,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                     <ExpandAllControl />
                     <MiniMapControl />
                     <GatherControl />
+                    <AutoWireControl />
                   </Controls>
                   {showMiniMap && <MiniMap nodeStrokeWidth={3} style={{ bottom: 16, right: 16, background: '#FAFAFA', border: '1px solid #E0E0E0' }} zoomable pannable />}
                 </ReactFlow>
@@ -2188,6 +2352,8 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                   initialData={dropDataRef.current[selectedNodeId] ?? (nodes.find(n => n.id === selectedNodeId)?.data as OperationData | undefined)}
                   onClose={handleInspectorClose}
                   onDelete={handleInspectorDelete}
+                  onEditActivity={setEditingActivityId}
+                  pendingActivityRefresh={pendingActivityRefresh}
                 />
               )}
             </div>
@@ -2301,7 +2467,10 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
       {editingActivityId !== null && (
         <ActivityBuilderModal
           activityId={editingActivityId}
-          onSaved={() => queryClient.invalidateQueries({ queryKey: ['routing-template-detail', templateId] })}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ['routing-template-detail', templateId] })
+            setPendingActivityRefresh({ id: editingActivityId, ts: Date.now() })
+          }}
           onClose={() => setEditingActivityId(null)}
         />
       )}

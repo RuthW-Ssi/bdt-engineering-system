@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Info, Pencil } from 'lucide-react'
-import { useMo, useMoAssemblies, useMoHistory, useChangeMoStatus } from '../hooks/useMo'
+import { ArrowLeft, Loader2, Info, Pencil, Cpu, Wrench, Package, Users } from 'lucide-react'
+import { useMo, useMoAssemblies, useMoHistory, useMoParts, useChangeMoStatus } from '../hooks/useMo'
 import { useWos } from '../hooks/useWo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import type { MoStatus } from '../api/mo'
 
-const TABS = ['Overview', 'Work Orders', 'Assemblies', 'History'] as const
+const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
 
 // available forward actions per status (P3)
@@ -107,6 +107,7 @@ export function MoDetail() {
         {tab === 'Overview' && <OverviewTab mo={mo} />}
         {tab === 'Work Orders' && <WorkOrdersTab moId={moId} moStatus={mo.status} />}
         {tab === 'Assemblies' && <AssembliesTab moId={moId} />}
+        {tab === 'Parts' && <PartsTab moId={moId} />}
         {tab === 'History' && <HistoryTab moId={moId} />}
       </div>
 
@@ -184,14 +185,56 @@ function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
         {!mo.routing_template.operations.length ? (
           <span style={{ color: '#B0B0B0', fontSize: 13 }}>No operations on this routing template.</span>
         ) : (
-          mo.routing_template.operations.map(op => (
-            <div key={op.id} className="flex" style={{ fontSize: 13, padding: '6px 0', borderBottom: '1px solid #F2F2F2', gap: 12, alignItems: 'center' }}>
-              <span style={{ width: 44, color: '#999', fontFamily: 'monospace' }}>{String(op.sequence).padStart(3, '0')}</span>
-              <span style={{ flex: 1, fontWeight: 500, color: '#1A1A1A' }}>{op.name || op.op_code}</span>
-              <span style={{ width: 150, color: '#666' }}>{op.workcenter.code}</span>
-              <span style={{ width: 70, color: '#666', textAlign: 'right' }}>
-                {Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0))} min
-              </span>
+          mo.routing_template.operations.map((op, opIdx) => (
+            <div key={op.id} style={{ borderBottom: opIdx < mo.routing_template.operations.length - 1 ? '1px solid #F2F2F2' : 'none', paddingBottom: 10, marginBottom: 10 }}>
+              {/* Op header */}
+              <div className="flex" style={{ fontSize: 13, gap: 10, alignItems: 'center' }}>
+                <span style={{ width: 36, color: '#999', fontFamily: 'monospace', fontSize: 11, flexShrink: 0 }}>{String(op.sequence).padStart(3, '0')}</span>
+                <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#C8202A', flexShrink: 0 }}>{op.op_code}</span>
+                <span style={{ fontWeight: 600, color: '#1A1A1A', flex: 1 }}>{op.name}</span>
+                <span style={{ color: '#888', fontSize: 12 }}>{op.workcenter.code}</span>
+                {(() => { const t = Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0)); return t > 0 ? (
+                  <span style={{ color: '#555', fontSize: 12, fontFamily: 'monospace', background: '#F0F0F0', borderRadius: 5, padding: '1px 8px', flexShrink: 0 }}>{t} min</span>
+                ) : null })()}
+              </div>
+              {/* Activity rows */}
+              {(op.activities?.length ?? 0) > 0 && (
+                <div style={{ marginTop: 6, paddingLeft: 46 }}>
+                  {op.activities!.map((act, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderTop: '1px solid #F6F6F6', flexWrap: 'wrap' }}>
+                      <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#EEEEEE', fontSize: 10, fontWeight: 700, color: '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', minWidth: 90, flex: '0 0 auto' }}>{act.name}</span>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
+                        {act.machine && (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#1565C0', background: '#EBF2FF', border: '1px solid #BBDEFB', borderRadius: 999, padding: '1px 7px' }}>
+                            <Cpu size={9} />{act.machine.name}
+                          </span>
+                        )}
+                        {act.tools.map(t => (
+                          <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#6A1B9A', background: '#F3E5F5', border: '1px solid #E1BEE7', borderRadius: 999, padding: '1px 7px' }}>
+                            <Wrench size={9} />{t.name} ×{t.qty}
+                          </span>
+                        ))}
+                        {(act.consumables ?? []).map((c, ci) => (
+                          <span key={ci} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#E65100', background: '#FBE9E7', border: '1px solid #FFCCBC', borderRadius: 999, padding: '1px 7px' }}>
+                            <Package size={9} />{c.name}
+                          </span>
+                        ))}
+                        {(act.labors ?? []).map((l, li) => (
+                          <span key={li} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#2E7D32', background: '#E8F5E9', border: '1px solid #C8E6C9', borderRadius: 999, padding: '1px 7px' }}>
+                            <Users size={9} />{l.skill} ×{l.qty}
+                          </span>
+                        ))}
+                      </div>
+                      {act.per_minute != null && act.per_minute > 0 && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#185FA5', background: '#E3F0FF', border: '1px solid #BBDEFB', borderRadius: 6, padding: '1px 7px', flexShrink: 0 }}>
+                          {act.per_minute}/min
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ))
         )}
@@ -279,6 +322,53 @@ function WorkOrdersTab({ moId, moStatus }: { moId: number; moStatus: MoStatus })
           ))}
         </div>
       ))}
+    </div>
+  )
+}
+
+function PartsTab({ moId }: { moId: number }) {
+  const { data, isLoading } = useMoParts(moId)
+  if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
+  const rows = data ?? []
+  if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>No parts found.</div>
+
+  const totalWeight = rows.reduce((s, r) => s + (r.total_weight_kg ?? 0), 0)
+
+  return (
+    <div>
+      <div style={{ border: '1px solid #E8E8E8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 80px 60px 120px 1.2fr', background: '#F5F5F5', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#999', borderBottom: '1px solid #E8E8E8' }}>
+          <div style={{ padding: '9px 14px' }}>Part Mark</div>
+          <div style={{ padding: '9px 14px' }}>Profile</div>
+          <div style={{ padding: '9px 14px' }}>Grade</div>
+          <div style={{ padding: '9px 14px', textAlign: 'right' }}>Qty</div>
+          <div style={{ padding: '9px 14px', textAlign: 'right' }}>Total (kg)</div>
+          <div style={{ padding: '9px 14px' }}>Allocation</div>
+        </div>
+        {rows.map(r => (
+          <div key={r.part_mark} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 80px 60px 120px 1.2fr', borderTop: '1px solid #F0F0F0', fontSize: 13, alignItems: 'center' }}>
+            <div style={{ padding: '10px 14px' }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#1A1A1A' }}>{r.part_mark}</span>
+              {r.assembly_marks.length > 0 && (
+                <div style={{ fontSize: 11, color: '#ABABAB', marginTop: 2 }}>{r.assembly_marks.join(', ')}</div>
+              )}
+            </div>
+            <div style={{ padding: '10px 14px', color: '#444' }}>{r.profile ?? '—'}</div>
+            <div style={{ padding: '10px 14px', fontSize: 12, color: '#666' }}>{r.grade ?? '—'}</div>
+            <div style={{ padding: '10px 14px', fontWeight: 700, color: '#C8202A', textAlign: 'right' }}>{r.total_qty}</div>
+            <div style={{ padding: '10px 14px', fontWeight: 500, color: '#333', textAlign: 'right' }}>{r.total_weight_kg != null ? r.total_weight_kg.toFixed(2) : '—'}</div>
+            <div style={{ padding: '10px 14px', fontSize: 11, color: '#666', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Info size={12} style={{ color: '#0C447C', flexShrink: 0 }} />
+              {r.mo_breakdown.length
+                ? r.mo_breakdown.map(b => `${b.mo_code} (${b.qty})`).join(' · ')
+                : '—'}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 10, fontSize: 12, color: '#888', textAlign: 'right' }}>
+        {rows.length} parts · Total weight: <strong style={{ color: '#333' }}>{totalWeight.toFixed(2)} kg</strong>
+      </div>
     </div>
   )
 }

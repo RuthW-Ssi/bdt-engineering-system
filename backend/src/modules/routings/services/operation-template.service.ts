@@ -55,15 +55,18 @@ export interface UpdateOperationTemplateDto {
 
 const RESOURCE_SELECT = { select: { id: true, code: true, name: true, type: true } } as const
 
+const SOURCE_ACT_RATE_SELECT = { activity_code: true, write_date: true, ratio: true, ratio_unit: true, per_time: true, formula_code: true } as const
+
 const FULL_INCLUDE = {
   workcenter: { select: { id: true, code: true, name: true } },
   op_type:    { select: { id: true, key: true, label: true, color: true } },
   activities: {
     orderBy: { sequence: 'asc' as const },
     include: {
-      tools:        { include: { resource: RESOURCE_SELECT } },
-      skills:       true,
-      op_materials: { include: { resource: { select: { id: true, code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true, variables: true } } } },
+      tools:           { include: { resource: RESOURCE_SELECT } },
+      skills:          true,
+      op_materials:    { include: { resource: { select: { id: true, code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true, variables: true } } } },
+      source_activity: { select: SOURCE_ACT_RATE_SELECT },
     },
   },
 }
@@ -73,7 +76,7 @@ const OP_ACT_INCLUDE = {
   tools:           { include: { resource: RESOURCE_SELECT } },
   skills:          true,
   op_materials:    { include: { resource: { select: { id: true, code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true, variables: true } } } },
-  source_activity: { select: { activity_code: true, write_date: true } },
+  source_activity: { select: SOURCE_ACT_RATE_SELECT },
 } as const
 
 const FULL_INCLUDE_WITH_STALE = {
@@ -82,9 +85,9 @@ const FULL_INCLUDE_WITH_STALE = {
     orderBy: { sequence: 'asc' as const },
     include: {
       tools:           { include: { resource: RESOURCE_SELECT } },
-      source_activity: { select: { activity_code: true, write_date: true } },
+      source_activity: { select: { ...SOURCE_ACT_RATE_SELECT, consumes: { select: { material_id: true, material: { select: { id: true, default_code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true } } } } } },
       skills:          true,
-      op_materials:    { include: { resource: RESOURCE_SELECT, formula: { select: { id: true, name: true, result_unit: true } } } },
+      op_materials:    { include: { resource: RESOURCE_SELECT, formula: { select: { id: true, name: true, expr: true, result_unit: true } } } },
     },
   },
 }
@@ -123,14 +126,31 @@ export class OperationTemplateService {
     if (!tpl) throw new NotFoundException(`Operation template ${id} not found`)
     return {
       ...tpl,
-      activities: tpl.activities.map(act => ({
-        ...act,
-        source_activity_code: act.source_activity?.activity_code ?? null,
-        is_stale:
-          act.source_activity !== null && act.snapshot_at !== null
-            ? act.source_activity.write_date > act.snapshot_at
-            : false,
-      })),
+      activities: tpl.activities.map(act => {
+        const srcConsumes: { material_id: number; material: { id: number; default_code: string; name: string } | null; formula: { id: number; name: string; expr: string; result_unit: string | null } | null }[] =
+          (act.source_activity as any)?.consumes ?? []
+        return {
+          ...act,
+          source_activity_code: act.source_activity?.activity_code ?? null,
+          is_stale:
+            act.source_activity !== null && act.snapshot_at !== null
+              ? act.source_activity.write_date > act.snapshot_at
+              : false,
+          op_materials: act.op_materials.map(m => ({
+            ...m,
+            formula: m.formula ?? null,
+          })),
+          consumables: srcConsumes
+            .filter(c => c.material != null)
+            .map(c => ({
+              resource: { id: c.material!.id, code: c.material!.default_code, name: c.material!.name, type: 'material' as const },
+              qty: null,
+              unit: null,
+              formula_id: c.formula?.id ?? null,
+              formula_name: c.formula?.name ?? null,
+            })),
+        }
+      }),
     }
   }
 
@@ -297,16 +317,6 @@ export class OperationTemplateService {
           skipDuplicates: true,
         })
       }
-      if (src.consumes.length) {
-        await tx.op_act_material.createMany({
-          data: src.consumes.map(c => ({
-            op_act_id:   opAct.id,
-            resource_id: c.resource_id,
-            formula_id:  c.formula_id ?? null,
-          })),
-          skipDuplicates: true,
-        })
-      }
       if (src.tools.length) {
         await tx.op_act_tool.createMany({
           data: src.tools.map(t => ({
@@ -366,12 +376,6 @@ export class OperationTemplateService {
           data: src.skills.map(l => ({
             op_act_id: opActId, skill: l.skill, qty: l.qty,
           })),
-          skipDuplicates: true,
-        })
-      }
-      if (src.consumes.length) {
-        await tx.op_act_material.createMany({
-          data: src.consumes.map(c => ({ op_act_id: opActId, resource_id: c.resource_id, formula_id: c.formula_id ?? null })),
           skipDuplicates: true,
         })
       }
