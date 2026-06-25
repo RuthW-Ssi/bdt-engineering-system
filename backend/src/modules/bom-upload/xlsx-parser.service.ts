@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common'
+import { Injectable, BadRequestException, Logger } from '@nestjs/common'
 import * as XLSX from 'xlsx'
 import type { BomDocType } from './filename-classifier'
 
@@ -93,9 +93,28 @@ function isSeparatorRow(row: unknown[]): boolean {
   return row.some(c => /^-{3,}/.test(String(c ?? '').trim()))
 }
 
-// Strip Tekla contract number prefix: "0X181TH-2CO1" → "TH-2CO1"
-function stripContractPrefix(mark: string): string {
-  return mark.replace(/^[A-Z0-9]+?(?=[A-Z]{2,}-)/, '').trim()
+// Extract Tekla contract number from preamble rows before the data header.
+// Tekla files embed e.g. "ContactNo.00X220-2Date:28.04.2026" in row 2.
+export function extractContractNo(preambleRows: unknown[][]): string {
+  for (const row of preambleRows) {
+    for (const cell of row) {
+      const s = String(cell ?? '').trim()
+      const m = s.match(/ContactNo\.?\s*([0-9X][0-9X\-]*?)(?=Date)/i)
+      if (m?.[1]) return m[1].trim()
+    }
+  }
+  return ''
+}
+
+// Strip Tekla contract number prefix from a mark.
+// Primary: startsWith(contractNo) — handles multi-segment prefixes like "00X220-2".
+// Fallback: regex heuristic for simple prefixes like "0X181" when header parse fails.
+export function stripContractPrefix(mark: string, contractNo?: string): string {
+  if (contractNo && mark.startsWith(contractNo)) {
+    return mark.slice(contractNo.length).trim()
+  }
+  const stripped = mark.replace(/^[A-Z0-9]+?(?=[A-Z]{2,}-)/, '').trim()
+  return stripped !== mark ? stripped : mark
 }
 
 function cellNum(row: unknown[], idx: number): number | undefined {
@@ -118,6 +137,8 @@ function filterDataRows(rows: unknown[][]): unknown[][] {
 
 @Injectable()
 export class XlsxParserService {
+  private readonly logger = new Logger(XlsxParserService.name)
+
   parse(buffer: Buffer, docType: BomDocType): ParsedBomFile {
     const workbook = XLSX.read(buffer, { type: 'buffer' })
     if (!workbook.SheetNames.length) {
@@ -252,6 +273,11 @@ export class XlsxParserService {
     headerIdx: number,
     header: string[],
   ): ParsedBomFile {
+    const contractNo = extractContractNo(rows.slice(0, headerIdx))
+    if (!contractNo) {
+      this.logger.warn('BOM parse: contract number not found in preamble; falling back to regex prefix strip')
+    }
+
     const markCol = header.findIndex(h => h === 'assemblypart')
     const qtyCol = findCol(header, QTY_COLS)
 
@@ -273,13 +299,13 @@ export class XlsxParserService {
       if (!markVal) { lastWasSeparator = false; continue }
 
       if (lastWasSeparator) {
-        currentAssemblyMark = stripContractPrefix(markVal)
+        currentAssemblyMark = stripContractPrefix(markVal, contractNo)
         lastWasSeparator = false
       } else if (currentAssemblyMark) {
         sequence++
         assemblyParts.push({
           assembly_mark: currentAssemblyMark,
-          part_mark: markVal,
+          part_mark: stripContractPrefix(markVal, contractNo),
           qty: cellNum(r, qtyCol),
           sequence,
         })
