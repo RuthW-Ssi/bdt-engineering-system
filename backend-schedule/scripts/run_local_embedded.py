@@ -1,5 +1,5 @@
 from datetime import datetime, date, timedelta
-import collections
+import collections, os
 
 def P(s): return datetime.strptime(s, "%Y-%m-%d %H:%M")
 NOW = P("2026-06-25 08:30")            # earliest schedulable (after morning overhead)
@@ -148,5 +148,6 @@ sql=("delete from prod_schedule where prod_schedule_version_id in (select id fro
  "insert into prod_schedule_version (version_code,description,is_active,scheduler_source) values "
  "('EVENTBASED-V1','event-based fwd EDD',false,'heuristic-eventbased'),('BACKWARD-V1','backward ALAP EDD',false,'heuristic-backward');\n"
  + emit('EVENTBASED-V1','ev',ev)+"\n"+emit('BACKWARD-V1','bk',bk)+"\n")
-open('/sessions/gallant-peaceful-meitner/mnt/outputs/aps_sched.sql','w').write(sql)
-print("sql bytes:",len(sql),"-> aps_sched.sql")
+out=os.path.join(os.path.dirname(__file__),'..','sql','aps_sched.sql')
+open(out,'w').write(sql)
+print("sql bytes:",len(sql),"->",os.path.relpath(out))

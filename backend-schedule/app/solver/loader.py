@@ -17,7 +17,7 @@ def load_work_orders(conn) -> list[WorkOrder]:
                    w.expected_duration_min dur, w.target_end_at, w.earliest_start_at
             from work_order w
             join mrp_workcenter mw on mw.id = w.work_center_id and mw.active
-            where w.status = any(%s) and w.expected_duration_min > 0
+            where w.status::text = any(%s) and w.expected_duration_min > 0
               and w.target_end_at is not null and w.earliest_start_at is not null
             order by w.mo_id, w.sequence
         """, (list(WO_STATUSES_SCHEDULABLE),))
