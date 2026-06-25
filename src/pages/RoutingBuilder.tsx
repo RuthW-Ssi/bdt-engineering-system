@@ -181,18 +181,43 @@ function isOpReady(d: OperationData): boolean {
   return true
 }
 
-// Realistic qty defaults for a typical structural steel job (H-Beam ~6 m)
-// Sample job: H-beam/rafter 6m, 50kg, 16 holes, 8m perimeter, 12m² surface
+// Realistic qty defaults for a typical structural steel job (H-Beam ~6 m, 50 kg)
 const SAMPLE_JOB_QTY: Record<string, number> = {
-  mm:     6000,  // 6000 mm cut / weld / edge length
-  holes:    16,  // 16 bolt holes per member
-  points:   12,  // 12 tack / weld points
-  pass:      4,  // 4 weld passes
-  m:         8,  // 8 m perimeter (painting / blasting)
-  m2:       12,  // 12 m² surface area
-  kg:       50,  // 50 kg (SAW weld / build-up weight)
-  pcs:       1,  // 1 piece (setup default)
-  ea:        8,  // 8 ea (assembly / fit-up points)
+  // English keys
+  mm: 6000, holes: 16, points: 12, pass: 4,
+  m: 8, m2: 12, kg: 50, pcs: 1, ea: 8,
+  // Thai measure keys used in activities_snapshot
+  'setup':        1,   // 1 setup per operation
+  'แนวตัด':      8,   // 8 m cutting line
+  'ชิ้น':        3,   // 3 pieces
+  'ตัว':         1,   // 1 H-beam unit
+  'รู':          16,  // 16 bolt holes
+  'จุด':         12,  // 12 tack/weld points
+  'per unit':    1,   // 1 per unit (QC, record)
+  'แนวเชื่อม':   6,  // 6 m weld length
+  'ตร.ม.':       12,  // 12 m² surface area
+  'ท่อน':        4,   // 4 pipe sections
+  'weld m':      6,   // 6 m weld (SAW)
+  'rod':         4,   // 4 rods (anchor bolt)
+  'จุดพับ':      3,   // 3 bend points
+  'meter':       6,
+  'kilogram':    50,
+  'miliimeter':  8,
+  'point':       12,
+  'piece':       3,
+  'unit':        1,
+  // product dimension keys (from routing formula params)
+  'product_length':         6,
+  'product_area':           12,
+  'product_perimeter':      8,
+  'product_welding_length': 6,
+  'buildup_weight':         50,
+  'buildup_perimeter':      6,
+  'buildup_weldingsize':    8,
+  'buildup_weldingpoint':   12,
+  'assembly_point':         8,
+  'part_quan':              5,
+  'square meter':           12,
 }
 
 function estimateOpMin(d: OperationData, inputs: Record<string, number>): number | null {
