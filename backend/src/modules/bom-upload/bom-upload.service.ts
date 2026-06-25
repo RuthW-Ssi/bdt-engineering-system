@@ -152,13 +152,22 @@ export class BomUploadService {
 
         // bom_assembly_part junctions — batch insert
         if (asmPartList?.assemblyParts.length) {
+          this.logger.log(`junction build: asmMap=${assemblyIdByMark.size} partMap=${partIdByMark.size} asmPartRows=${asmPartList.assemblyParts.length}`)
+          if (assemblyIdByMark.size === 0 || partIdByMark.size === 0) {
+            this.logger.warn(`junction build: map empty — asmMap=${assemblyIdByMark.size} partMap=${partIdByMark.size}; first asmPart=${JSON.stringify(asmPartList.assemblyParts[0])}`)
+          }
           const junctions = asmPartList.assemblyParts.flatMap(ap => {
             const assembly_id = assemblyIdByMark.get(ap.assembly_mark)
             const part_id = partIdByMark.get(ap.part_mark)
             if (!assembly_id || !part_id) return []
             return [{ assembly_id, part_id, qty: ap.qty ?? 1, sequence: ap.sequence, create_uid: uid }]
           })
+          this.logger.log(`junction build: junctions=${junctions.length}`)
           if (junctions.length) await tx.bom_assembly_part.createMany({ data: junctions })
+          else {
+            const sample = asmPartList.assemblyParts[0]
+            this.logger.warn(`junction build: 0 junctions — sample assembly_mark=${sample?.assembly_mark} (mapHit=${assemblyIdByMark.get(sample?.assembly_mark ?? '')}) part_mark=${sample?.part_mark} (mapHit=${partIdByMark.get(sample?.part_mark ?? '')})`)
+          }
         }
 
         // Determine initial status based on file presence (matching runs after commit)
