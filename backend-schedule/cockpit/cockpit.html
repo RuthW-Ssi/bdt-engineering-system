@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SSI APS — Scheduling Cockpit</title>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#171e2e; --panel2:#1e2740; --line:#2a3450; --ink:#e6ebf5;
+    --muted:#8b97b3; --internal:#3b82f6; --sub:#a855f7; --late:#ef4444; --ok:#22c55e;
+    --warn:#f59e0b; --grid:#222c46;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:12px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+  header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.2px}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{background:transparent;color:var(--muted);border:0;padding:7px 14px;cursor:pointer;font-weight:600}
+  .seg button.on{background:var(--panel2);color:var(--ink)}
+  .spacer{flex:1}
+  button.ghost{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer}
+  .wrap{padding:16px 18px;max-width:1500px;margin:0 auto}
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .kpi .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+  .kpi .v{font-size:21px;font-weight:700;margin-top:3px}
+  .kpi .v small{font-size:12px;color:var(--muted);font-weight:500}
+  h2{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .legend{display:flex;gap:14px;align-items:center;color:var(--muted);font-size:12px;margin:6px 2px 10px}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  .gantt-scroll{overflow:auto;max-height:62vh;border-radius:8px}
+  svg{display:block}
+  .lbl{fill:var(--ink);font-size:11px}
+  .lbl.muted{fill:var(--muted)}
+  .wcgrp{fill:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.5px}
+  .bar{rx:3;cursor:pointer}
+  .gl{stroke:var(--grid);stroke-width:1}
+  .daylbl{fill:var(--muted);font-size:10px}
+  .caprow{display:grid;grid-template-columns:150px 1fr 120px;gap:10px;align-items:center;margin:5px 0}
+  .capbar{height:16px;background:var(--panel2);border-radius:5px;overflow:hidden;position:relative}
+  .capfill{height:100%;border-radius:5px}
+  .capnum{color:var(--muted);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+  .tip{position:fixed;pointer-events:none;background:#0b0f1a;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;z-index:20;display:none;max-width:280px;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+  .tip b{color:#fff}
+  .muted{color:var(--muted)}
+  #status{padding:40px;text-align:center;color:var(--muted)}
+  .pill{font-size:10px;padding:1px 6px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>SSI APS · Scheduling Cockpit</h1>
+  <div class="seg" id="verSeg">
+    <button data-v="EVENTBASED-V1" class="on">Event-based (forward)</button>
+    <button data-v="BACKWARD-V1">Backward (ALAP)</button>
+  </div>
+  <span class="pill" id="srcPill"></span>
+  <div class="spacer"></div>
+  <span class="muted" id="gen"></span>
+  <button class="ghost" id="reload">↻ Reload</button>
+</header>
+
+<div class="wrap">
+  <div id="status">กำลังโหลดข้อมูลจาก Supabase…</div>
+  <div id="app" style="display:none">
+    <div class="kpis" id="kpis"></div>
+
+    <h2>Schedule — by Work-Center Line</h2>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--internal)"></span>internal</span>
+      <span><span class="sw" style="background:var(--sub)"></span>subcontract</span>
+      <span><span class="sw" style="background:var(--late)"></span>late (&gt; due)</span>
+      <span class="muted">• hover a bar for detail • rows = lines (idle lines shown for capacity)</span>
+    </div>
+    <div class="card gantt-scroll"><div id="gantt"></div></div>
+
+    <h2>Capacity / Load — by Work Center <span class="muted" style="text-transform:none;letter-spacing:0"> (busy real-duration vs available over horizon)</span></h2>
+    <div class="card" id="cap"></div>
+  </div>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const SUPA="https://eebubyfkzeqhzwzqrqfz.supabase.co/rest/v1";
+const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYnVieWZremVxaHp3enFycWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxODE4MjUsImV4cCI6MjA5NDc1NzgyNX0.6kZUOq3w5CrXk7ceafw3yB1v9vhan07jZerg5NbuW5U";
+const H={apikey:ANON,Authorization:"Bearer "+ANON};
+const PROD_MIN_PER_DAY=705; // 08:30-12:00 + 13:00-17:30 + 18:00-21:45 (OT), minus overheads
+let DATA=null, VER="EVENTBASED-V1";
+
+const q=(t,sel,extra="")=>fetch(`${SUPA}/${t}?select=${sel}${extra}`,{headers:H}).then(r=>{if(!r.ok)throw new Error(t+" "+r.status);return r.json()});
+const bkk=d=>new Date(d).toLocaleString('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
+const bkkDay=d=>new Date(d).toLocaleDateString('en-GB',{timeZone:'Asia/Bangkok',weekday:'short',day:'2-digit',month:'short'});
+
+async function load(){
+  document.getElementById('status').style.display='';
+  document.getElementById('app').style.display='none';
+  try{
+    const [vers,ps,wo,mo,wc,ln]=await Promise.all([
+      q('prod_schedule_version','id,version_code,description,scheduler_source','&version_code=in.(EVENTBASED-V1,BACKWARD-V1)'),
+      q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=2000'),
+      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at','&limit=2000'),
+      q('manufacturing_order','id,mo_code,due_date'),
+      q('mrp_workcenter','id,code,name,active'),
+      q('mrp_workcenter_line','id,workcenter_id,line_no,labor_mode,crew_size,active','&limit=500'),
+    ]);
+    const vById=Object.fromEntries(vers.map(v=>[v.id,v]));
+    const woById=Object.fromEntries(wo.map(w=>[w.id,w]));
+    const moById=Object.fromEntries(mo.map(m=>[m.id,m]));
+    const wcById=Object.fromEntries(wc.map(w=>[w.id,w]));
+    const lnById=Object.fromEntries(ln.map(l=>[l.id,l]));
+    DATA={vers,vById,ps,woById,moById,wcById,lnById,ln};
+    document.getElementById('status').style.display='none';
+    document.getElementById('app').style.display='';
+    document.getElementById('gen').textContent='loaded '+new Date().toLocaleTimeString();
+    render();
+  }catch(e){
+    document.getElementById('status').innerHTML='โหลดไม่สำเร็จ: '+e.message+'<br><span class=muted>ตรวจ network / anon grant</span>';
+  }
+}
+
+function rowsForVersion(){
+  const vid=DATA.vers.find(v=>v.version_code===VER)?.id;
+  return DATA.ps.filter(p=>p.prod_schedule_version_id===vid).map(p=>{
+    const w=DATA.woById[p.work_order_id]||{}, l=DATA.lnById[p.workcenter_line_id]||{};
+    const wcc=DATA.wcById[l.workcenter_id]||{};
+    const due=w.target_end_at, late=due&&new Date(p.end_datetime)>new Date(due);
+    return {...p, wo:w, mo:DATA.moById[w.mo_id]||{}, line:l, wc:wcc, due, late,
+            dur:+w.expected_duration_min||0, s:new Date(p.start_datetime), e:new Date(p.end_datetime)};
+  });
+}
+function workdaysBetween(a,b){let n=0,d=new Date(a);d.setHours(0,0,0,0);const end=new Date(b);
+  while(d<=end){const wd=d.getDay();if(wd!==0)n++;d.setDate(d.getDate()+1);}return Math.max(n,1);}
+
+function render(){
+  const rows=rowsForVersion();
+  const src=DATA.vers.find(v=>v.version_code===VER);
+  document.getElementById('srcPill').textContent=src?src.scheduler_source:'';
+  document.querySelectorAll('#verSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===VER));
+  renderKPIs(rows); renderGantt(rows); renderCap(rows);
+}
+
+function renderKPIs(rows){
+  const span0=new Date(Math.min(...rows.map(r=>+r.s))), span1=new Date(Math.max(...rows.map(r=>+r.e)));
+  const now=new Date(); now.setHours(8,30,0,0);
+  const late=rows.filter(r=>r.late).length;
+  const sub=rows.filter(r=>r.line.labor_mode==='subcontract').length;
+  // feasibility: overlaps per line
+  const byLine={}; rows.forEach(r=>{(byLine[r.workcenter_line_id]=byLine[r.workcenter_line_id]||[]).push(r)});
+  let ov=0; Object.values(byLine).forEach(a=>{a.sort((x,y)=>x.s-y.s);for(let i=1;i<a.length;i++)if(a[i].s<a[i-1].e)ov++;});
+  const makespan=((span1-now)/86400000);
+  const cards=[
+    ['Work Orders',rows.length,''],
+    ['Span',bkk(span0).split(',')[0]+' → '+bkk(span1).split(',')[0],''],
+    ['Makespan',makespan.toFixed(1),'days'],
+    ['Late (&gt; due)',late,'/ '+rows.length],
+    ['Subcontract jobs',sub,''],
+    ['Feasible',ov===0?'✓':'✗ '+ov,ov===0?'no overlap':'overlaps'],
+  ];
+  document.getElementById('kpis').innerHTML=cards.map(([l,v,s])=>
+    `<div class="kpi"><div class="l">${l}</div><div class="v">${v} <small>${s}</small></div></div>`).join('');
+}
+
+function renderGantt(rows){
+  // group active lines by WC (show all, even idle)
+  const lines=DATA.ln.filter(l=>l.active && DATA.wcById[l.workcenter_id]?.active)
+    .sort((a,b)=>{const A=DATA.wcById[a.workcenter_id].code,B=DATA.wcById[b.workcenter_id].code;return A<B?-1:A>B?1:a.line_no-b.line_no});
+  const t0=Math.min(...rows.map(r=>+r.s)), t1=Math.max(...rows.map(r=>+r.e));
+  const padL=190, padT=26, rowH=22, W=Math.max(900, (t1-t0)/3600000*26), H=padT+lines.length*rowH+16;
+  const x=t=>padL+(t-t0)/(t1-t0)*(W-padL-20);
+  let svg=`<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
+  // day gridlines
+  let d=new Date(t0); d.setHours(0,0,0,0);
+  for(;+d<=t1;d.setDate(d.getDate()+1)){const gx=x(+d); if(gx>padL){svg+=`<line class="gl" x1="${gx}" y1="${padT-14}" x2="${gx}" y2="${H}"/>`;svg+=`<text class="daylbl" x="${gx+3}" y="${padT-4}">${bkkDay(+d)}</text>`;}}
+  // rows
+  let curWC=null,y=padT;
+  const rowsByLine={}; rows.forEach(r=>{(rowsByLine[r.workcenter_line_id]=rowsByLine[r.workcenter_line_id]||[]).push(r)});
+  lines.forEach(l=>{
+    const wcc=DATA.wcById[l.workcenter_id];
+    if(wcc.code!==curWC){curWC=wcc.code; svg+=`<text class="wcgrp" x="6" y="${y+14}">${wcc.code.replace('WC-','')}</text>`;}
+    svg+=`<text class="lbl muted" x="78" y="${y+15}">L${l.line_no} ${l.labor_mode==='subcontract'?'·sub':''} <tspan fill="#5b678a">(${l.crew_size}p)</tspan></text>`;
+    svg+=`<line class="gl" x1="${padL}" y1="${y+rowH}" x2="${W}" y2="${y+rowH}"/>`;
+    (rowsByLine[l.id]||[]).forEach(r=>{
+      const bx=x(+r.s), bw=Math.max(2,x(+r.e)-x(+r.s));
+      const col=r.late?'var(--late)':(l.labor_mode==='subcontract'?'var(--sub)':'var(--internal)');
+      svg+=`<rect class="bar" x="${bx}" y="${y+3}" width="${bw}" height="${rowH-7}" rx="3" fill="${col}" opacity=".9"
+        data-t="${esc(r.wo.wo_code||'')}|${esc(r.mo.mo_code||'')}|${bkk(r.s)}|${bkk(r.e)}|${r.dur}|${r.due?bkk(r.due):'-'}|${r.late?'LATE':'on-time'}|${r.wc.code}"/>`;
+    });
+    y+=rowH;
+  });
+  svg+=`</svg>`;
+  document.getElementById('gantt').innerHTML=svg;
+  bindTips();
+}
+function esc(s){return String(s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]))}
+
+function renderCap(rows){
+  // per WC: busy (sum real dur) vs available = #lines * prodMin/day * workdays(span)
+  const t0=Math.min(...rows.map(r=>+r.s)), t1=Math.max(...rows.map(r=>+r.e));
+  const wd=workdaysBetween(t0,t1);
+  const byWC={};
+  rows.forEach(r=>{const c=r.wc.code||'?';(byWC[c]=byWC[c]||{busy:0,jobs:0,lines:new Set(),name:r.wc.name})  ;byWC[c].busy+=r.dur;byWC[c].jobs++;byWC[c].lines.add(r.workcenter_line_id);});
+  // add line counts from master (idle WCs included? only those with jobs shown)
+  DATA.ln.filter(l=>l.active && DATA.wcById[l.workcenter_id]?.active).forEach(l=>{const c=DATA.wcById[l.workcenter_id].code; if(byWC[c])byWC[c].linesAll=(byWC[c].linesAll||0)+1;});
+  const arr=Object.entries(byWC).map(([c,o])=>{const cap=(o.linesAll||o.lines.size)*PROD_MIN_PER_DAY*wd;return{c,...o,cap,util:o.busy/cap}}).sort((a,b)=>b.util-a.util);
+  document.getElementById('cap').innerHTML=`<div class="muted" style="margin-bottom:8px;font-size:12px">horizon ≈ ${wd} working day(s) · per-line ${PROD_MIN_PER_DAY} min/day (with OT)</div>`+
+    arr.map(o=>{
+      const pct=Math.min(100,o.util*100), col=o.util>0.85?'var(--late)':o.util>0.6?'var(--warn)':'var(--ok)';
+      return `<div class="caprow"><div>${o.c.replace('WC-','')} <span class="muted">${o.jobs}j/${o.linesAll||o.lines.size}L</span></div>
+        <div class="capbar"><div class="capfill" style="width:${pct}%;background:${col}"></div></div>
+        <div class="capnum">${(o.util*100).toFixed(0)}% · ${Math.round(o.busy)}m</div></div>`;
+    }).join('');
+}
+
+function bindTips(){
+  const tip=document.getElementById('tip');
+  document.querySelectorAll('.bar').forEach(b=>{
+    b.onmousemove=ev=>{const[wo,mo,s,e,dur,due,st,wc]=b.dataset.t.split('|');
+      tip.innerHTML=`<b>${wo}</b> · ${wc}<br>MO ${mo}<br>${s} → ${e}<br><span class=muted>dur ${dur}m · due ${due} · </span><b style="color:${st==='LATE'?'#ef4444':'#22c55e'}">${st}</b>`;
+      tip.style.display='block';tip.style.left=Math.min(ev.clientX+14,innerWidth-290)+'px';tip.style.top=(ev.clientY+14)+'px';};
+    b.onmouseleave=()=>tip.style.display='none';
+  });
+}
+document.getElementById('verSeg').onclick=e=>{if(e.target.dataset.v){VER=e.target.dataset.v;render();}};
+document.getElementById('reload').onclick=load;
+load();
+</script>
+</body>
+</html>

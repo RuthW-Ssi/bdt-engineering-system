@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+psycopg2-binary>=2.9
+python-dateutil>=2.9
+# v2 (optimization) — future:
+# ortools>=9.10
