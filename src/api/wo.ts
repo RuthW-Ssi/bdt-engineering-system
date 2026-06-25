@@ -33,6 +33,28 @@ export interface WoListItem {
   is_outdated: boolean
 }
 
+export interface EnrichedActivity {
+  name: string
+  measure: string | null
+  per_minute: number | null
+  formula_code: string | null
+  machine: { id: number; code: string; name: string } | null
+  tools: { id: number; code: string; name: string; qty: number }[]
+  consumables: { resource_id: number; code: string; name: string; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
+  labors: { skill: string; qty: number; level?: string | null }[] | null
+}
+
+export interface SourceRoutingOp {
+  id: number
+  op_code: string
+  name: string
+  time_mode: string
+  time_cycle: string | number | null
+  time_cycle_manual: string | number | null
+  formula_expr: string | null
+  activities: EnrichedActivity[]
+}
+
 export interface WoDetail {
   id: number
   wo_code: string
@@ -62,9 +84,10 @@ export interface WoDetail {
   updated_by: string | null
   manufacturing_order: { id: number; mo_code: string; status: string; primary_mark_prefix_code: string; primary_mark_prefix: MarkPrefix }
   mrp_workcenter: { id: number; code: string; name: string }
-  bom_assembly: { id: number; assembly_mark: string; name: string | null; dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } }
+  bom_assembly: { id: number; assembly_mark: string; name: string | null; length_mm: number | null; surface_area_m2: number | null; weight_kg: number | null; width_mm: number | null; height_mm: number | null; dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } }
   mark_prefix: MarkPrefix
   snapshot_dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } | null
+  source_routing_op: SourceRoutingOp | null
 }
 
 export interface WoEvent {

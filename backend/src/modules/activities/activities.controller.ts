@@ -18,6 +18,12 @@ import { QueryActivityDto } from './dto/query-activity.dto'
 export class ActivitiesController {
   constructor(private readonly svc: ActivitiesService) {}
 
+  @Get('routing-formula-params')
+  @ApiOperation({ summary: 'List routing_formula_param entries for duration formula picker' })
+  listRoutingFormulaParams() {
+    return this.svc.listRoutingFormulaParams()
+  }
+
   @Get()
   @ApiOperation({ summary: 'List activities with optional filters' })
   findAll(@Query() query: QueryActivityDto) {

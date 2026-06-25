@@ -8,6 +8,7 @@ import {
   getMo,
   getMoAssemblies,
   getMoHistory,
+  getMoParts,
   getMos,
   getRoutingSuggestions,
   getRoutingTemplateDetail,
@@ -30,6 +31,10 @@ export function useMoAssemblies(id: number) {
 
 export function useMoHistory(id: number) {
   return useQuery({ queryKey: ['mo', 'history', id], queryFn: () => getMoHistory(id), enabled: !!id })
+}
+
+export function useMoParts(id: number) {
+  return useQuery({ queryKey: ['mo', 'parts', id], queryFn: () => getMoParts(id), enabled: !!id })
 }
 
 export function useCreateMo() {

@@ -59,6 +59,12 @@ export class ManufacturingOrderController {
     return this.svc.getAssemblies(id)
   }
 
+  @Get(':id/parts')
+  @ApiOperation({ summary: 'Aggregated parts (bom_part) across all assemblies in the MO' })
+  getParts(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.getParts(id)
+  }
+
   @Get(':id/history')
   @ApiOperation({ summary: 'MO-level status history' })
   getHistory(@Param('id', ParseIntPipe) id: number) {

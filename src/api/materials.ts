@@ -3,6 +3,7 @@ import type { MaterialDTO, MaterialListResponse, CreateMaterialPayload } from '.
 
 export const materialsApi = {
   list(params?: {
+    type?: string
     state?: string
     categ_id?: number
     q?: string
@@ -34,6 +35,10 @@ export const materialsApi = {
 
   actionAssignRunno(default_code: string): Promise<MaterialDTO> {
     return apiClient.post(`/materials/${default_code}/action_assign_runno`).then(r => r.data)
+  },
+
+  doAction(default_code: string, action: string): Promise<MaterialDTO> {
+    return apiClient.post(`/materials/${default_code}/${action}`).then(r => r.data)
   },
 
   getMessages(default_code: string) {
