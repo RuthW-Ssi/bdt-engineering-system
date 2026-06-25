@@ -51,11 +51,11 @@
 <body>
 <header>
   <h1>SSI APS · Scheduling Cockpit</h1>
-  <div class="seg" id="verSeg">
-    <button data-v="EVENTBASED-V1" class="on">Event-based (forward)</button>
-    <button data-v="BACKWARD-V1">Backward (ALAP)</button>
-  </div>
+  <div class="seg" id="verSeg"></div>
   <span class="pill" id="srcPill"></span>
+  <label class="muted" style="display:flex;align-items:center;gap:6px;font-size:12px">compare vs
+    <select id="cmpSel" class="ghost" style="padding:6px 8px"><option value="">—</option></select>
+  </label>
   <div class="spacer"></div>
   <span class="muted" id="gen"></span>
   <button class="ghost" id="reload">↻ Reload</button>
@@ -65,6 +65,7 @@
   <div id="status">กำลังโหลดข้อมูลจาก Supabase…</div>
   <div id="app" style="display:none">
     <div class="kpis" id="kpis"></div>
+    <div id="cmpPanel" style="display:none"></div>
 
     <h2>Schedule — by Work-Center Line</h2>
     <div class="legend">
@@ -86,7 +87,7 @@ const SUPA="https://eebubyfkzeqhzwzqrqfz.supabase.co/rest/v1";
 const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYnVieWZremVxaHp3enFycWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxODE4MjUsImV4cCI6MjA5NDc1NzgyNX0.6kZUOq3w5CrXk7ceafw3yB1v9vhan07jZerg5NbuW5U";
 const H={apikey:ANON,Authorization:"Bearer "+ANON};
 const PROD_MIN_PER_DAY=705; // 08:30-12:00 + 13:00-17:30 + 18:00-21:45 (OT), minus overheads
-let DATA=null, VER="EVENTBASED-V1";
+let DATA=null, VER="EVENTBASED-V1", CMP="";
 
 const q=(t,sel,extra="")=>fetch(`${SUPA}/${t}?select=${sel}${extra}`,{headers:H}).then(r=>{if(!r.ok)throw new Error(t+" "+r.status);return r.json()});
 const bkk=d=>new Date(d).toLocaleString('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
@@ -96,31 +97,50 @@ async function load(){
   document.getElementById('status').style.display='';
   document.getElementById('app').style.display='none';
   try{
-    const [vers,ps,wo,mo,wc,ln]=await Promise.all([
-      q('prod_schedule_version','id,version_code,description,scheduler_source','&version_code=in.(EVENTBASED-V1,BACKWARD-V1)'),
-      q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=2000'),
-      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at','&limit=2000'),
+    const [vers,ps,wo,mo,wc,ln,hol]=await Promise.all([
+      q('prod_schedule_version','id,version_code,description,scheduler_source','&order=id.asc'),
+      q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=5000'),
+      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at','&limit=5000'),
       q('manufacturing_order','id,mo_code,due_date'),
       q('mrp_workcenter','id,code,name,active'),
       q('mrp_workcenter_line','id,workcenter_id,line_no,labor_mode,crew_size,active','&limit=500'),
+      q('calendar_exception','date,is_working','&is_working=eq.false'),
     ]);
     const vById=Object.fromEntries(vers.map(v=>[v.id,v]));
     const woById=Object.fromEntries(wo.map(w=>[w.id,w]));
     const moById=Object.fromEntries(mo.map(m=>[m.id,m]));
     const wcById=Object.fromEntries(wc.map(w=>[w.id,w]));
     const lnById=Object.fromEntries(ln.map(l=>[l.id,l]));
-    DATA={vers,vById,ps,woById,moById,wcById,lnById,ln};
+    const holidays=new Set((hol||[]).map(h=>h.date));
+    // only versions that actually have schedule rows
+    const withRows=new Set(ps.map(p=>p.prod_schedule_version_id));
+    const usable=vers.filter(v=>withRows.has(v.id));
+    DATA={vers:usable,vById,ps,woById,moById,wcById,lnById,ln,holidays};
+    if(!usable.some(v=>v.version_code===VER)) VER=usable[0]?.version_code||VER;
+    buildVerSeg();
     document.getElementById('status').style.display='none';
     document.getElementById('app').style.display='';
-    document.getElementById('gen').textContent='loaded '+new Date().toLocaleTimeString();
+    document.getElementById('gen').textContent='loaded '+new Date().toLocaleTimeString()+' · '+holidays.size+' holidays';
     render();
   }catch(e){
     document.getElementById('status').innerHTML='โหลดไม่สำเร็จ: '+e.message+'<br><span class=muted>ตรวจ network / anon grant</span>';
   }
 }
 
-function rowsForVersion(){
-  const vid=DATA.vers.find(v=>v.version_code===VER)?.id;
+function verLabel(v){
+  const map={'EVENTBASED-V1':'Event-based (forward)','BACKWARD-V1':'Backward (ALAP)'};
+  return map[v.version_code]||v.version_code;
+}
+function buildVerSeg(){
+  // dynamic version selector — lists every saved schedule version (each encodes direction + dispatch rule)
+  document.getElementById('verSeg').innerHTML=DATA.vers.map(v=>
+    `<button data-v="${esc(v.version_code)}" class="${v.version_code===VER?'on':''}" title="${esc(v.description||'')}">${esc(verLabel(v))}</button>`).join('');
+  // compare dropdown options
+  document.getElementById('cmpSel').innerHTML='<option value="">—</option>'+DATA.vers.map(v=>
+    `<option value="${esc(v.version_code)}"${v.version_code===CMP?' selected':''}>${esc(verLabel(v))}</option>`).join('');
+}
+function rowsForVersion(ver=VER){
+  const vid=DATA.vers.find(v=>v.version_code===ver)?.id;
   return DATA.ps.filter(p=>p.prod_schedule_version_id===vid).map(p=>{
     const w=DATA.woById[p.work_order_id]||{}, l=DATA.lnById[p.workcenter_line_id]||{};
     const wcc=DATA.wcById[l.workcenter_id]||{};
@@ -129,36 +149,75 @@ function rowsForVersion(){
             dur:+w.expected_duration_min||0, s:new Date(p.start_datetime), e:new Date(p.end_datetime)};
   });
 }
+const isoBKK=d=>new Date(d).toLocaleDateString('en-CA',{timeZone:'Asia/Bangkok'}); // YYYY-MM-DD
 function workdaysBetween(a,b){let n=0,d=new Date(a);d.setHours(0,0,0,0);const end=new Date(b);
-  while(d<=end){const wd=d.getDay();if(wd!==0)n++;d.setDate(d.getDate()+1);}return Math.max(n,1);}
+  const hols=DATA&&DATA.holidays;
+  while(d<=end){const wd=d.getDay(); const isHol=hols&&hols.has(isoBKK(d));
+    if(wd!==0 && !isHol)n++; d.setDate(d.getDate()+1);}return Math.max(n,1);}
 
 function render(){
   const rows=rowsForVersion();
   const src=DATA.vers.find(v=>v.version_code===VER);
   document.getElementById('srcPill').textContent=src?src.scheduler_source:'';
   document.querySelectorAll('#verSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===VER));
-  renderKPIs(rows); renderGantt(rows); renderCap(rows);
+  renderKPIs(rows); renderCompare(); renderGantt(rows); renderCap(rows);
 }
 
-function renderKPIs(rows){
+function kpiObj(rows){
+  if(!rows.length) return null;
   const span0=new Date(Math.min(...rows.map(r=>+r.s))), span1=new Date(Math.max(...rows.map(r=>+r.e)));
   const now=new Date(); now.setHours(8,30,0,0);
   const late=rows.filter(r=>r.late).length;
   const sub=rows.filter(r=>r.line.labor_mode==='subcontract').length;
-  // feasibility: overlaps per line
   const byLine={}; rows.forEach(r=>{(byLine[r.workcenter_line_id]=byLine[r.workcenter_line_id]||[]).push(r)});
   let ov=0; Object.values(byLine).forEach(a=>{a.sort((x,y)=>x.s-y.s);for(let i=1;i<a.length;i++)if(a[i].s<a[i-1].e)ov++;});
-  const makespan=((span1-now)/86400000);
+  return {n:rows.length, span0, span1, makespan:(span1-now)/86400000, late, sub, ov};
+}
+
+function renderKPIs(rows){
+  const k=kpiObj(rows); if(!k){document.getElementById('kpis').innerHTML='';return;}
   const cards=[
-    ['Work Orders',rows.length,''],
-    ['Span',bkk(span0).split(',')[0]+' → '+bkk(span1).split(',')[0],''],
-    ['Makespan',makespan.toFixed(1),'days'],
-    ['Late (&gt; due)',late,'/ '+rows.length],
-    ['Subcontract jobs',sub,''],
-    ['Feasible',ov===0?'✓':'✗ '+ov,ov===0?'no overlap':'overlaps'],
+    ['Work Orders',k.n,''],
+    ['Span',bkk(k.span0).split(',')[0]+' → '+bkk(k.span1).split(',')[0],''],
+    ['Makespan',k.makespan.toFixed(1),'days'],
+    ['Late (&gt; due)',k.late,'/ '+k.n],
+    ['Subcontract jobs',k.sub,''],
+    ['Feasible',k.ov===0?'✓':'✗ '+k.ov,k.ov===0?'no overlap':'overlaps'],
   ];
   document.getElementById('kpis').innerHTML=cards.map(([l,v,s])=>
     `<div class="kpi"><div class="l">${l}</div><div class="v">${v} <small>${s}</small></div></div>`).join('');
+}
+
+function renderCompare(){
+  const panel=document.getElementById('cmpPanel');
+  if(!CMP||CMP===VER){panel.style.display='none';return;}
+  const A=kpiObj(rowsForVersion(VER)), B=kpiObj(rowsForVersion(CMP));
+  if(!A||!B){panel.style.display='none';return;}
+  panel.style.display='';
+  // metric, A-value, B-value, delta(B-A), lowerIsBetter
+  const dnum=(a,b,lower)=>{const d=b-a; if(!d)return '<span class="muted">0</span>';
+    const good=lower?d<0:d>0; const col=good?'var(--ok)':'var(--late)';
+    return `<span style="color:${col}">${d>0?'+':''}${(+d.toFixed(2))}</span>`;};
+  const rows=[
+    ['Work Orders',A.n,B.n,dnum(A.n,B.n,false)],
+    ['Makespan (d)',A.makespan.toFixed(2),B.makespan.toFixed(2),dnum(A.makespan,B.makespan,true)],
+    ['Late (&gt; due)',A.late,B.late,dnum(A.late,B.late,true)],
+    ['Subcontract jobs',A.sub,B.sub,dnum(A.sub,B.sub,false)],
+    ['Overlaps',A.ov,B.ov,dnum(A.ov,B.ov,true)],
+  ];
+  panel.innerHTML=`<div class="card" style="margin-bottom:16px">
+    <h2 style="margin-top:0">Scenario compare</h2>
+    <table style="width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums">
+      <tr style="color:var(--muted);text-align:right">
+        <th style="text-align:left;font-weight:600;padding:4px 8px">metric</th>
+        <th style="padding:4px 8px">${esc(verLabel(DATA.vById[DATA.vers.find(v=>v.version_code===VER).id]))}</th>
+        <th style="padding:4px 8px">${esc(verLabel(DATA.vById[DATA.vers.find(v=>v.version_code===CMP).id]))}</th>
+        <th style="padding:4px 8px">Δ</th></tr>
+      ${rows.map(([m,a,b,d])=>`<tr style="text-align:right;border-top:1px solid var(--line)">
+        <td style="text-align:left;padding:5px 8px">${m}</td>
+        <td style="padding:5px 8px">${a}</td><td style="padding:5px 8px">${b}</td>
+        <td style="padding:5px 8px">${d}</td></tr>`).join('')}
+    </table></div>`;
 }
 
 function renderGantt(rows){
@@ -222,6 +281,7 @@ function bindTips(){
   });
 }
 document.getElementById('verSeg').onclick=e=>{if(e.target.dataset.v){VER=e.target.dataset.v;render();}};
+document.getElementById('cmpSel').onchange=e=>{CMP=e.target.value;renderCompare();};
 document.getElementById('reload').onclick=load;
 load();
 </script>
