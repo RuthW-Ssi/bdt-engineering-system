@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, Send, ArrowDownLeft, Package, Clock } from 'lucide-react'
 import { useMaterial, useMaterialAction, useMaterialMessages } from '../hooks/useMaterials'
-import type { MaterialDTO } from '../api/types'
 
 // ── State display ─────────────────────────────────────────────────
 const STATE_META: Record<string, { label: string; bg: string; text: string }> = {
@@ -38,17 +37,6 @@ function Field({ label, value }: { label: string; value?: React.ReactNode }) {
   )
 }
 
-// ── Card wrapper ──────────────────────────────────────────────────
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
-      <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F', marginBottom: 16 }}>{title}</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 24px' }}>
-        {children}
-      </div>
-    </div>
-  )
-}
 
 function fmt(n: number | null | undefined, digits = 2) {
   if (n == null) return undefined

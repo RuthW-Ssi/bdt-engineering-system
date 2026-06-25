@@ -1022,7 +1022,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                     const pm = Number(act.per_minute)
                     const estMin = pm > 0 ? pm : null
                     const machineName = machines.find(m => m.id === act.machine_id)?.name ?? '—'
-                    const COL = '1fr 64px 1fr 24px'
                     const COL_LIB = '1fr 64px 1fr 20px 20px'
                     return (
                       <div key={act.localId} style={{ border: `1px solid ${isEditing ? '#FFD54F' : '#BBDEFB'}`, borderRadius: 6, overflow: 'visible' }}>

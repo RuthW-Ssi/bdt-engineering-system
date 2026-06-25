@@ -13,7 +13,7 @@ export interface ActivityMaterialDto {
 }
 
 export interface ActivityConsumeDto {
-  resource: { id: number; code: string; name: string }
+  material: { id: number; default_code: string; name: string }
   formula:  { id: number; name: string; expr: string; result_unit: string | null; variables: string[] } | null
 }
 
@@ -47,7 +47,7 @@ export interface CreateActivityPayload {
   name: string
   machine_id?: number
   duration_min: number
-  consumes?: { resource_id: number; formula_id?: number }[]
+  consumes?: { material_id: number; formula_id?: number }[]
   labors?: { skill: string; qty: number; level?: string }[]
   tools?: { resource_id: number; qty: number }[]
 }
