@@ -142,7 +142,6 @@ export class XlsxParserService {
   private readonly logger = new Logger(XlsxParserService.name)
 
   parse(buffer: Buffer, docType: BomDocType): ParsedBomFile {
-    console.log(`[XlsxParser] parse called: docType=${docType} bufferSize=${buffer.length}`)
     const workbook = XLSX.read(buffer, { type: 'buffer' })
     if (!workbook.SheetNames.length) {
       throw new BadRequestException('File has no sheets')
@@ -150,7 +149,6 @@ export class XlsxParserService {
 
     const sheet = workbook.Sheets[workbook.SheetNames[0]]
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' }) as unknown[][]
-    console.log(`[XlsxParser] docType=${docType} rows=${rows.length} sheetRef=${sheet['!ref'] ?? 'none'}`)
 
     if (rows.length < 2) {
       throw new BadRequestException('Sheet has no data rows')
@@ -239,7 +237,6 @@ export class XlsxParserService {
     if (!found) throw new BadRequestException('Assembly Part List: cannot find header row')
 
     const { headerIdx, header } = found
-    console.log(`[XlsxParser] APL header[${headerIdx}]=${JSON.stringify(header)} hasTekla=${header.some(h => h === 'assemblypart')}`)
 
     // Tekla nested format: combined "assemblypart" column, assembly header rows
     // interleaved with part rows, separated by "---" lines
@@ -285,12 +282,6 @@ export class XlsxParserService {
 
     const markCol = header.findIndex(h => h === 'assemblypart')
     const qtyCol = findCol(header, QTY_COLS)
-
-    // Diagnostic: dump first 8 rows after header to diagnose Cloud Run vs local differences
-    this.logger.log(`APL-DIAG headerIdx=${headerIdx} rows=${rows.length} markCol=${markCol} contractNo="${contractNo}"`)
-    for (let di = headerIdx + 1; di < Math.min(headerIdx + 9, rows.length); di++) {
-      this.logger.log(`APL-DIAG row[${di}]=${JSON.stringify(rows[di])}`)
-    }
 
     const assemblyParts: ParsedAssemblyPart[] = []
     let currentAssemblyMark: string | null = null

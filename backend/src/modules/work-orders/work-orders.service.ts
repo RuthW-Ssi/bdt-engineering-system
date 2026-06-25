@@ -133,18 +133,22 @@ export class WorkOrdersService {
         },
       })
       if (op) {
+        type RawTool = { id: number; qty: number } | number
         type RawAct = {
           name: string; measure: string | null; per_minute: number | null
           formula_code: string | null; machine_id: number | null
-          tool_ids: { id: number; qty: number }[] | null
+          tool_ids: RawTool[] | null
           labors: { skill: string; qty: number; level?: string | null }[] | null
           consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
         }
         const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
 
+        const toolIdOf = (t: RawTool): number | null => typeof t === 'number' ? t : (t.id ?? null)
+        const toolQtyOf = (t: RawTool): number => typeof t === 'number' ? 1 : (t.qty ?? 1)
+
         // Collect all equipment_resource IDs needed (machines + tools)
         const machineIds = [...new Set(acts.map(a => a.machine_id).filter((x): x is number => x != null))]
-        const toolIds    = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(t => t.id).filter((x): x is number => x != null)))]
+        const toolIds    = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(toolIdOf).filter((x): x is number => x != null)))]
         const allIds     = [...new Set([...machineIds, ...toolIds])]
 
         const resources = allIds.length > 0
@@ -158,7 +162,11 @@ export class WorkOrdersService {
         const activities = acts.map(a => ({
           ...a,
           machine: a.machine_id != null ? (resMap.get(a.machine_id) ?? null) : null,
-          tools: (a.tool_ids ?? []).map(t => ({ ...(resMap.get(t.id) ?? { id: t.id, code: '', name: '', type: 'tool' }), qty: t.qty })),
+          tools: (a.tool_ids ?? []).flatMap(t => {
+            const id = toolIdOf(t)
+            if (id == null) return []
+            return [{ ...(resMap.get(id) ?? { id, code: '', name: '', type: 'tool' }), qty: toolQtyOf(t) }]
+          }),
         }))
 
         source_routing_op = {
