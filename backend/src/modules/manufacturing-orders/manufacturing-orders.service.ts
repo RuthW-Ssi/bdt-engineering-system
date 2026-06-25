@@ -162,7 +162,7 @@ export class ManufacturingOrderService {
       const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
       for (const a of acts) {
         if (a.machine_id != null) allResIds.add(a.machine_id)
-        for (const t of a.tool_ids ?? []) allResIds.add(t.id)
+        for (const t of a.tool_ids ?? []) if (t.id != null) allResIds.add(t.id)
         if (a.source_activity_id != null) activityIds.add(a.source_activity_id)
         else if (a.name) unlinkedNames.add(a.name)
       }
