@@ -55,6 +55,20 @@ const WO_DETAIL_INCLUDE = {
   },
 } satisfies Prisma.work_orderInclude
 
+export interface EnrichedActivity {
+  name: string; measure: string | null; per_minute: number | null; formula_code: string | null
+  machine: { id: number; code: string; name: string; type: string } | null
+  tools: { id: number; code: string; name: string; type: string; qty: number }[]
+  consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
+  labors: { skill: string; qty: number; level?: string | null }[] | null
+}
+
+export interface SourceRoutingOp {
+  id: number; op_code: string; name: string; time_mode: string
+  time_cycle: unknown; time_cycle_manual: unknown; formula_expr: string | null
+  activities: EnrichedActivity[]
+}
+
 @Injectable()
 export class WorkOrdersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -93,7 +107,7 @@ export class WorkOrdersService {
     })
   }
 
-  // ── Detail (+ snapshot dispatch · soft ref resolved separately) ─────────────
+  // ── Detail (+ snapshot dispatch + routing op activities · soft refs) ──────
   async findOne(id: number) {
     const wo = await this.prisma.work_order.findUnique({
       where: { id },
@@ -107,10 +121,62 @@ export class WorkOrdersService {
       include: { project: true, zone: true, sub_zone: true },
     })
 
+    // source_routing_op_id is a soft ref — fetch activities_snapshot + resolve machine/tool names.
+    let source_routing_op: SourceRoutingOp | null = null
+    if (wo.source_routing_op_id) {
+      const op = await this.prisma.mrp_routing_workcenter.findUnique({
+        where: { id: wo.source_routing_op_id },
+        select: {
+          id: true, op_code: true, name: true,
+          time_mode: true, time_cycle: true, time_cycle_manual: true, formula_expr: true,
+          activities_snapshot: true,
+        },
+      })
+      if (op) {
+        type RawAct = {
+          name: string; measure: string | null; per_minute: number | null
+          formula_code: string | null; machine_id: number | null
+          tool_ids: { id: number; qty: number }[] | null
+          labors: { skill: string; qty: number; level?: string | null }[] | null
+          consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
+        }
+        const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
+
+        // Collect all equipment_resource IDs needed (machines + tools)
+        const machineIds = [...new Set(acts.map(a => a.machine_id).filter((x): x is number => x != null))]
+        const toolIds    = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(t => t.id)))]
+        const allIds     = [...new Set([...machineIds, ...toolIds])]
+
+        const resources = allIds.length > 0
+          ? await this.prisma.equipment_resource.findMany({
+              where: { id: { in: allIds } },
+              select: { id: true, code: true, name: true, type: true },
+            })
+          : []
+        const resMap = new Map(resources.map(r => [r.id, r]))
+
+        const activities = acts.map(a => ({
+          ...a,
+          machine: a.machine_id != null ? (resMap.get(a.machine_id) ?? null) : null,
+          tools: (a.tool_ids ?? []).map(t => ({ ...(resMap.get(t.id) ?? { id: t.id, code: '', name: '', type: 'tool' }), qty: t.qty })),
+        }))
+
+        source_routing_op = {
+          id: op.id, op_code: op.op_code, name: op.name,
+          time_mode: op.time_mode,
+          time_cycle: op.time_cycle,
+          time_cycle_manual: op.time_cycle_manual,
+          formula_expr: op.formula_expr,
+          activities,
+        }
+      }
+    }
+
     return {
       ...wo,
       mark_prefix: wo.manufacturing_order.primary_mark_prefix,
       snapshot_dispatch: snapshotDispatch,
+      source_routing_op,
     }
   }
 

@@ -3,9 +3,10 @@ export interface MaterialDTO {
   id: number
   default_code: string
   name: string
-  description_sale: string
+  description_sale: string | null
   categ_id: number
   uom_id: number
+  uom_po_id: number | null
   type: string
   state: 'draft' | 'to_approve' | 'confirmed' | 'cancel' | 'blocked'
   active: boolean
@@ -19,8 +20,23 @@ export interface MaterialDTO {
   write_uid: number
   create_date: string
   write_date: string
+  // Steel-specific physical dimensions
+  grade: string | null
+  thickness_mm: number | null
+  width_ft: number | null
+  width_mm: number | null
+  length_mm: number | null
+  sales_price: number | null
+  cost: number | null
+  // Audit trail
+  audit_status: string | null
+  audited_date: string | null
+  audited_by: string | null
+  activity_exception_decoration: string | null
   category?: { id: number; name: string; prefix_5: string | null; group_no: string | null }
   uom?: { id: number; name: string }
+  uom_po?: { id: number; name: string } | null
+  create_user?: { id: number; name: string }
   write_user?: { id: number; name: string }
 }
 

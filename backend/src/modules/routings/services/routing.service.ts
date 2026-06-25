@@ -167,15 +167,19 @@ export class RoutingService {
       },
     })
 
-    // Collect all machine/tool IDs from activities_snapshot to resolve names in one query
+    // Collect all machine/tool IDs, source_activity_ids, and unlinked activity names
     const machineIds = new Set<number>()
     const toolIds = new Set<number>()
+    const activityIds = new Set<number>()
+    const unlinkedNames = new Set<string>()
     for (const op of template.operations) {
       const snap = op.activities_snapshot as any[]
       if (!Array.isArray(snap)) continue
       for (const act of snap) {
         if (act.machine_id != null) machineIds.add(act.machine_id)
-        if (Array.isArray(act.tool_ids)) act.tool_ids.forEach((tid: number) => toolIds.add(tid))
+        if (Array.isArray(act.tool_ids)) act.tool_ids.forEach((t: number | { id: number }) => toolIds.add(typeof t === 'object' && t !== null ? t.id : t))
+        if (act.source_activity_id != null) activityIds.add(act.source_activity_id)
+        else if (act.name) unlinkedNames.add(act.name)
       }
     }
 
@@ -188,6 +192,30 @@ export class RoutingService {
       : []
     const resourceMap = new Map(resources.map(r => [r.id, r]))
 
+    // Fetch current skills from activity_skill so labors are always up-to-date
+    const skillRows = activityIds.size
+      ? await this.prisma.activity_skill.findMany({
+          where: { activity_id: { in: [...activityIds] } },
+          select: { activity_id: true, skill: true, qty: true, level: true },
+        })
+      : []
+    const skillMap = new Map<number, { skill: string; qty: number; level: string | null }[]>()
+    for (const row of skillRows) {
+      const list = skillMap.get(row.activity_id) ?? []
+      list.push({ skill: row.skill, qty: row.qty, level: row.level })
+      skillMap.set(row.activity_id, list)
+    }
+
+    // Name-match unlinked activities to Activity Library for skills
+    const nameSkillMap = new Map<string, { skill: string; qty: number; level: string | null }[]>()
+    if (unlinkedNames.size) {
+      const matched = await this.prisma.activity.findMany({
+        where: { name: { in: [...unlinkedNames] } },
+        select: { name: true, skills: { select: { skill: true, qty: true, level: true } } },
+      })
+      for (const m of matched) if (m.skills.length) nameSkillMap.set(m.name, m.skills)
+    }
+
     const operations = template.operations.map(op => {
       const snap = op.activities_snapshot as any[]
       const activities_snapshot = Array.isArray(snap)
@@ -195,8 +223,14 @@ export class RoutingService {
             ...act,
             machine_name: act.machine_id != null ? (resourceMap.get(act.machine_id)?.name ?? null) : null,
             tool_names: Array.isArray(act.tool_ids)
-              ? act.tool_ids.map((tid: number) => resourceMap.get(tid)?.name ?? `#${tid}`)
+              ? act.tool_ids.map((t: number | { id: number }) => {
+                  const tid = typeof t === 'object' && t !== null ? t.id : t
+                  return resourceMap.get(tid)?.name ?? `#${tid}`
+                })
               : [],
+            labors: act.source_activity_id != null && skillMap.has(act.source_activity_id)
+              ? skillMap.get(act.source_activity_id)
+              : (act.name && nameSkillMap.has(act.name) ? nameSkillMap.get(act.name) : (act.labors ?? [])),
           }))
         : snap
       return { ...op, activities_snapshot }
@@ -240,6 +274,40 @@ export class RoutingService {
     if (!template) throw new NotFoundException(`Template ${templateId} not found`)
     if (template.state === 'obsolete') throw new BadRequestException('Cannot edit an obsolete template')
 
+    // Pre-fetch skills for all source activities and name-match unlinked ones
+    const sourceActivityIds = new Set<number>()
+    const unlinkedNames = new Set<string>()
+    for (const op of dto.operations) {
+      for (const act of (op.activities ?? []) as any[]) {
+        if (act.source_activity_id != null) sourceActivityIds.add(act.source_activity_id)
+        else if (act.name) unlinkedNames.add(act.name)
+      }
+    }
+
+    // Resolve linked activities by ID
+    const saveSkillRows = sourceActivityIds.size
+      ? await this.prisma.activity_skill.findMany({
+          where: { activity_id: { in: [...sourceActivityIds] } },
+          select: { activity_id: true, skill: true, qty: true, level: true },
+        })
+      : []
+    const saveSkillMap = new Map<number, { skill: string; qty: number; level: string | null }[]>()
+    for (const row of saveSkillRows) {
+      const list = saveSkillMap.get(row.activity_id) ?? []
+      list.push({ skill: row.skill, qty: row.qty, level: row.level })
+      saveSkillMap.set(row.activity_id, list)
+    }
+
+    // Name-match unlinked activities to Activity Library for skills + auto-link
+    const nameMatchMap = new Map<string, { id: number; skills: { skill: string; qty: number; level: string | null }[] }>()
+    if (unlinkedNames.size) {
+      const matched = await this.prisma.activity.findMany({
+        where: { name: { in: [...unlinkedNames] } },
+        select: { id: true, name: true, skills: { select: { skill: true, qty: true, level: true } } },
+      })
+      for (const m of matched) nameMatchMap.set(m.name, { id: m.id, skills: m.skills })
+    }
+
     return this.prisma.$transaction(async (tx) => {
       const incomingIds = dto.operations.filter(o => o.id != null).map(o => o.id!)
 
@@ -260,7 +328,17 @@ export class RoutingService {
       // 3. Upsert each op in sequence order; build client_ref → 'op-{realId}' map for edge translation
       const refMap = new Map<string, string>([['start', 'start'], ['end', 'end']])
       for (const op of dto.operations) {
-        const activitiesSnap = op.activities != null ? (op.activities as object[]) : []
+        const rawActs = (op.activities ?? []) as any[]
+        const activitiesSnap = rawActs.map(act => {
+          if (act.source_activity_id != null && saveSkillMap.has(act.source_activity_id)) {
+            return { ...act, labors: saveSkillMap.get(act.source_activity_id) }
+          }
+          const nameMatch = act.name ? nameMatchMap.get(act.name) : undefined
+          if (nameMatch) {
+            return { ...act, source_activity_id: nameMatch.id, labors: nameMatch.skills }
+          }
+          return { ...act, labors: act.labors ?? [] }
+        })
         if (op.id != null) {
           await tx.mrp_routing_workcenter.update({
             where: { id: op.id },
