@@ -167,8 +167,16 @@ describe('stripContractPrefix', () => {
     expect(stripContractPrefix('0X181TH-2CO1', '0X181')).toBe('TH-2CO1')
   })
 
-  it('falls back to regex when contractNo is empty (THEPHA pattern)', () => {
+  it('falls back to regex when contractNo is empty (THEPHA 5-char, no hyphen)', () => {
     expect(stripContractPrefix('0X181TH-2CO1', '')).toBe('TH-2CO1')
+  })
+
+  it('falls back to regex when contractNo is empty (Tennis Court 8-char with hyphen)', () => {
+    expect(stripContractPrefix('00X220-2TC-CO2', '')).toBe('TC-CO2')
+  })
+
+  it('falls back to regex for part mark with hyphen prefix (00X220-2TC-w9)', () => {
+    expect(stripContractPrefix('00X220-2TC-w9', '')).toBe('TC-w9')
   })
 
   it('returns mark unchanged when neither method strips it', () => {

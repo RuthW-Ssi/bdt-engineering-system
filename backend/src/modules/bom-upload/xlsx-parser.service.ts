@@ -113,7 +113,9 @@ export function stripContractPrefix(mark: string, contractNo?: string): string {
   if (contractNo && mark.startsWith(contractNo)) {
     return mark.slice(contractNo.length).trim()
   }
-  const stripped = mark.replace(/^[A-Z0-9]+?(?=[A-Z]{2,}-)/, '').trim()
+  // Fallback: match prefix that may contain hyphens (e.g. "00X220-2", "0X181")
+  // stopping before the first run of 2+ uppercase letters followed by "-"
+  const stripped = mark.replace(/^[A-Z0-9][A-Z0-9\-]*?(?=[A-Z]{2,}-)/, '').trim()
   return stripped !== mark ? stripped : mark
 }
 
