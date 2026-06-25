@@ -160,6 +160,20 @@ model materials {
   bom_lines         product_bom_line[]     @relation("BomLineMaterial")
   assembly_paint    mbom_assembly_paint[]  @relation("PaintMaterial")
   activity_consumes activity_consume[]     @relation("activity_consume_material")
+  stock_quants      stock_quant[] // drift-capture: on-hand inventory (Supabase)
+}
+
+// ── 🟥 Custom: stock_quant (Odoo on-hand inventory; added on Supabase) ──
+model stock_quant {
+  id                  Int       @id @default(autoincrement())
+  material_id         Int
+  material            materials @relation(fields: [material_id], references: [id])
+  location            String    @default("WH/Stock") @db.VarChar
+  quantity            Decimal   @default(0) @db.Decimal
+  reserved_quantity   Decimal   @default(0) @db.Decimal
+  forecasted_quantity Decimal?  @db.Decimal
+  create_date         DateTime? @default(now()) @db.Timestamptz
+  write_date          DateTime? @default(now()) @db.Timestamptz
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -1483,12 +1497,14 @@ model consume_formula {
 // ═══════════════════════════════════════════════════════════════
 
 model calendar {
-  id         Int      @id @default(autoincrement())
-  code       String   @unique @db.VarChar(40)
-  name       String   @db.VarChar(120)
-  active     Boolean  @default(true)
-  note       String?  @db.Text
-  created_at DateTime @default(now()) @db.Timestamptz
+  id                     Int      @id @default(autoincrement())
+  code                   String   @unique @db.VarChar(40)
+  name                   String   @db.VarChar(120)
+  active                 Boolean  @default(true)
+  note                   String?  @db.Text
+  created_at             DateTime @default(now()) @db.Timestamptz
+  day_start_overhead_min Int      @default(30) // drift-capture: morning overhead (Supabase)
+  day_end_overhead_min   Int      @default(15) // drift-capture: shutdown overhead (Supabase)
 
   blocks            calendar_block[]
   exceptions        calendar_exception[]
@@ -1531,12 +1547,16 @@ model work_center_calendar {
 }
 
 model mrp_workcenter_line {
-  id            Int            @id @default(autoincrement())
-  workcenter_id Int
-  workcenter    mrp_workcenter @relation(fields: [workcenter_id], references: [id], onDelete: Cascade)
-  line_no       Int            @db.SmallInt
-  name          String?        @db.VarChar(80)
-  active        Boolean        @default(true)
+  id               Int            @id @default(autoincrement())
+  workcenter_id    Int
+  workcenter       mrp_workcenter @relation(fields: [workcenter_id], references: [id], onDelete: Cascade)
+  line_no          Int            @db.SmallInt
+  name             String?        @db.VarChar(80)
+  active           Boolean        @default(true)
+  crew_size        Int            @default(1) // drift-capture: headcount per line (Supabase)
+  labor_mode       String         @default("internal") @db.Text // drift-capture: internal | subcontract
+  subcontractor_id Int? // drift-capture: set when labor_mode=subcontract
+  subcontractor    subcontractor? @relation(fields: [subcontractor_id], references: [id])
 
   operator_workcenters operator_workcenter[]
 
@@ -1611,13 +1631,18 @@ model wip_storage_io {
 }
 
 model subcontractor {
-  id          Int          @id @default(autoincrement())
-  code        String       @unique @db.Text
-  name        String       @db.Text
-  skills      String[]     @default([])
-  active      Boolean      @default(true)
-  created_at  DateTime?    @default(now()) @db.Timestamptz
-  work_orders work_order[]
+  id                Int          @id @default(autoincrement())
+  code              String       @unique @db.Text
+  name              String       @db.Text
+  skills            String[]     @default([])
+  active            Boolean      @default(true)
+  created_at        DateTime?    @default(now()) @db.Timestamptz
+  default_headcount Int? // drift-capture: default crew size (Supabase)
+  rate              Decimal?     @db.Decimal // drift-capture: numeric rate
+  rate_unit         String?      @db.VarChar // drift-capture: rate unit
+
+  work_orders      work_order[]
+  workcenter_lines mrp_workcenter_line[]
 }
 
 model formula_code_seq {
