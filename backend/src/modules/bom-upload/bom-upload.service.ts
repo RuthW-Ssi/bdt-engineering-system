@@ -151,6 +151,7 @@ export class BomUploadService {
         }
 
         // bom_assembly_part junctions — batch insert
+        this.logger.log(`junction pre: asmPartList exists=${!!asmPartList} assemblyParts.length=${asmPartList?.assemblyParts?.length ?? 'N/A'}`)
         if (asmPartList?.assemblyParts.length) {
           this.logger.log(`junction build: asmMap=${assemblyIdByMark.size} partMap=${partIdByMark.size} asmPartRows=${asmPartList.assemblyParts.length}`)
           if (assemblyIdByMark.size === 0 || partIdByMark.size === 0) {

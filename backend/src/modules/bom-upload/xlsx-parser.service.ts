@@ -283,6 +283,12 @@ export class XlsxParserService {
     const markCol = header.findIndex(h => h === 'assemblypart')
     const qtyCol = findCol(header, QTY_COLS)
 
+    // Diagnostic: dump first 8 rows after header to diagnose Cloud Run vs local differences
+    this.logger.log(`APL-DIAG headerIdx=${headerIdx} rows=${rows.length} markCol=${markCol} contractNo="${contractNo}"`)
+    for (let di = headerIdx + 1; di < Math.min(headerIdx + 9, rows.length); di++) {
+      this.logger.log(`APL-DIAG row[${di}]=${JSON.stringify(rows[di])}`)
+    }
+
     const assemblyParts: ParsedAssemblyPart[] = []
     let currentAssemblyMark: string | null = null
     let lastWasSeparator = true // first data row after preamble is treated as assembly header
