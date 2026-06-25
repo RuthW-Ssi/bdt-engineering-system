@@ -46,3 +46,23 @@ export function useActionSubmit(default_code: string) {
     },
   })
 }
+
+export function useMaterialAction(default_code: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (action: string) => materialsApi.doAction(default_code, action),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['materials'] })
+      qc.invalidateQueries({ queryKey: ['material', default_code] })
+      qc.invalidateQueries({ queryKey: ['material-messages', default_code] })
+    },
+  })
+}
+
+export function useMaterialMessages(default_code: string) {
+  return useQuery({
+    queryKey: ['material-messages', default_code],
+    queryFn: () => materialsApi.getMessages(default_code),
+    enabled: !!default_code,
+  })
+}

@@ -89,7 +89,7 @@ export function ActivityLibraryList() {
               <div style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{act.name}</div>
               <div style={{ fontSize: 12, color: '#555' }}>{act.machine?.code ?? <span style={{ color: '#BDBDBD' }}>—</span>}</div>
               <div style={{ fontSize: 11, color: '#8E8E8E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {act.consumes.length > 0 ? act.consumes.map((c) => c.resource.name).join(', ') : <span style={{ color: '#BDBDBD' }}>—</span>}
+                {act.consumes.length > 0 ? act.consumes.map((c) => c.material.name).join(', ') : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
               <div style={{ fontSize: 11, color: '#1B5E20', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {act.skills && act.skills.length > 0

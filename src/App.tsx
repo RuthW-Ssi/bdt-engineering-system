@@ -13,6 +13,7 @@ import { WorkcenterMaster } from './pages/WorkcenterMaster'
 import { ProductList } from './pages/ProductList'
 import { ProductDetail } from './pages/ProductDetail'
 import { MaterialList } from './pages/MaterialList'
+import { MaterialDetail } from './pages/MaterialDetail'
 import { BomList } from './pages/BomList'
 import { BomUpload } from './pages/BomUpload'
 import { BomDispatchDetail } from './pages/BomDispatchDetail'
@@ -67,7 +68,7 @@ export default function App() {
             <Route path="/engineer-products" element={<ProductList />} />
             <Route path="/engineer-products/:code" element={<ProductDetail />} />
             <Route path="/materials" element={<MaterialList />} />
-            <Route path="/materials/:code" element={<ProductDetail />} />
+            <Route path="/materials/:code" element={<MaterialDetail />} />
             <Route path="/bom" element={<BomList />} />
             <Route path="/bom/upload" element={<BomUpload />} />
             <Route path="/bom/dispatch/:id/paint" element={<BomPaintConfig />} />

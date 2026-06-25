@@ -51,10 +51,17 @@ export function RoutingDetailModal({ id, onClose }: { id: number; onClose: () =>
   )
 }
 
+const TIME_MODE_LABEL: Record<string, string> = {
+  by_activities: 'By Activities',
+  formula: 'Formula',
+  manual: 'Manual',
+}
+
 function OpRow({ op, defaultOpen }: { op: RoutingOpDetail; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen ?? false)
   const activities = op.activities_snapshot ?? []
   const color = op.op_type?.color ?? '#9CA3AF'
+  const timeModeLabel = TIME_MODE_LABEL[op.time_mode] ?? op.time_mode
 
   return (
     <div style={{ borderRadius: 10, overflow: 'hidden', border: '1px solid #EEEEEE' }}>
@@ -70,13 +77,20 @@ function OpRow({ op, defaultOpen }: { op: RoutingOpDetail; defaultOpen?: boolean
 
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{op.name}</div>
-          <div style={{ fontSize: 11, color: '#AAA', marginTop: 1 }}>{op.op_code}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#AAA' }}>{op.op_code}</span>
+            <span style={{ fontSize: 10, color: '#999' }}>·</span>
+            <span style={{ fontSize: 11, color: '#666' }}>{op.workcenter.code} · {op.workcenter.name}</span>
+            <span style={{ fontSize: 10, color: '#999' }}>·</span>
+            <span style={{ fontSize: 10, color: '#888', background: '#F0F0F0', borderRadius: 4, padding: '1px 5px' }}>{timeModeLabel}</span>
+            {op.time_mode === 'formula' && op.formula_expr && (
+              <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace', background: '#F5F5F5', border: '1px solid #E8E8E8', borderRadius: 4, padding: '1px 6px' }}>{op.formula_expr}</span>
+            )}
+            {op.time_mode === 'manual' && (
+              <span style={{ fontSize: 10, color: '#555' }}>{Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0))} min</span>
+            )}
+          </div>
         </div>
-
-        {/* Workcenter badge */}
-        <span style={{ fontSize: 11, fontWeight: 500, color: '#555', background: '#EFEFEF', borderRadius: 6, padding: '2px 8px', flexShrink: 0 }}>
-          {op.workcenter.name}
-        </span>
 
         {/* Activity count */}
         {activities.length > 0 && (
@@ -123,7 +137,7 @@ function ActivityCard({ a }: { a: RoutingActivitySnap }) {
       {hasResources && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {hasMachine && (
-            <Chip icon={<Cpu size={10} />} text={a.machine_name ?? `#${a.machine_id}`} bg="#F3F4F6" color="#374151" border="#E5E7EB" />
+            <Chip icon={<Cpu size={10} />} text={a.machine_name ?? `#${a.machine_id}`} bg="#EBF2FF" color="#1565C0" border="#BBDEFB" />
           )}
           {toolNames.map((name, i) => (
             <Chip key={i} icon={<Wrench size={10} />} text={name} bg="#FFFBEB" color="#92400E" border="#FDE68A" />

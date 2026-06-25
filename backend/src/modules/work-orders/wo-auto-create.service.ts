@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { Parser } from 'expr-eval'
 import { WoCodeGenerator } from './wo-code.generator'
 
 /**
@@ -12,9 +13,16 @@ import { WoCodeGenerator } from './wo-code.generator'
  * Idempotent: if any WO already exists for the MO, it no-ops (re-confirm safe).
  * Each WO snapshots the operation fields + the assembly's dispatch id at confirm
  * time (bom_dispatch_id_snapshot · soft ref · drives the BOM Version Alert).
+ *
+ * Duration logic (Phase 1):
+ *   If activities_snapshot has entries with formula_code + per_minute,
+ *   evaluate each formula against BOM dimensions and sum the durations.
+ *   Falls back to time_cycle_manual ?? time_cycle when formula data is absent.
  */
 @Injectable()
 export class WorkOrderAutoCreateService {
+  private readonly parser = new Parser()
+
   constructor(private readonly codeGen: WoCodeGenerator) {}
 
   /** Returns the number of WOs created (0 if already present). */
@@ -26,8 +34,6 @@ export class WorkOrderAutoCreateService {
     const existing = await tx.work_order.count({ where: { mo_id: moId } })
     if (existing > 0) return 0 // idempotent — re-confirm does not duplicate
 
-    // Routing ops are the snapshot source (mo_operation dropped · the WO header carries
-    // the full op snapshot, so we read structure live from the routing template at confirm).
     const mo = await tx.manufacturing_order.findUnique({
       where: { id: moId },
       select: {
@@ -41,6 +47,7 @@ export class WorkOrderAutoCreateService {
                 workcenter_id: true,
                 time_cycle: true,
                 time_cycle_manual: true,
+                activities_snapshot: true,
               },
             },
           },
@@ -50,27 +57,68 @@ export class WorkOrderAutoCreateService {
     const ops = mo?.routing_template?.operations ?? []
     const lines = await tx.mo_assembly_line.findMany({
       where: { mo_id: moId },
-      include: { bom_assembly: { select: { dispatch_id: true } } },
+      include: {
+        bom_assembly: {
+          select: {
+            dispatch_id: true,
+            length_mm: true,
+            surface_area_m2: true,
+            weight_kg: true,
+            width_mm: true,
+            height_mm: true,
+          },
+        },
+      },
       orderBy: { line_seq: 'asc' },
     })
 
+    // Load formula param expressions once (small table, ~27 rows)
+    const formulaRows = await tx.$queryRaw<Array<{ code: string; formula_expression: string }>>`
+      SELECT code, formula_expression FROM routing_formula_param
+    `
+    const formulaMap = new Map(formulaRows.map(r => [r.code, r.formula_expression]))
+
     let created = 0
     for (const line of lines) {
-      const dispatchId = line.bom_assembly.dispatch_id // assembly's dispatch = snapshot anchor
+      const bom = line.bom_assembly
+      const dispatchId = bom.dispatch_id
+
+      // BOM dimension variables available in Phase 1
+      // Phase 2 will add weld_length_mm, hole_count, bend_count, tack_points from separate tables
+      const vars: Record<string, number> = {
+        cut_length_mm:       Number(bom.length_mm      ?? 0),
+        weld_length_mm:      Number(bom.length_mm      ?? 0),
+        edge_length_mm:      Number(bom.length_mm      ?? 0),
+        bevel_length_mm:     Number(bom.length_mm      ?? 0),
+        Length:              Number(bom.length_mm      ?? 0),
+        Width:               Number(bom.width_mm       ?? 0),
+        Hight:               Number(bom.height_mm      ?? 0),
+        sumNet_surface_area: Number(bom.surface_area_m2 ?? 0),
+        product_area:        Number(bom.surface_area_m2 ?? 0),
+        sumWeight:           Number(bom.weight_kg      ?? 0),
+        count_part:  1,
+        cut_count:   1,
+        bend_count:  1,
+        hole_count:  1,
+        tack_points: 1,
+        part:        1,
+        pipe_perimeter: Number(bom.width_mm ?? 0),
+      }
+
       for (const op of ops) {
+        const expected_duration_min = this.computeDuration(op, vars, formulaMap)
         const wo_code = await this.codeGen.generate(tx)
         await tx.work_order.create({
           data: {
             wo_code,
             mo_id: moId,
-            source_routing_op_id: op.id, // soft ref → mrp_routing_workcenter.id (breadcrumb)
+            source_routing_op_id: op.id,
             sequence: op.sequence,
             work_center_id: op.workcenter_id,
-            expected_duration_min: Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0)),
+            expected_duration_min,
             setup_time_min: 0,
-            // op_attributes omitted → DB default '{}' (no source on routing op)
             bom_assembly_id: line.bom_assembly_id,
-            bom_dispatch_id_snapshot: dispatchId, // soft ref
+            bom_dispatch_id_snapshot: dispatchId,
             status: 'NOT_STARTED',
             created_by: userName,
           },
@@ -79,5 +127,39 @@ export class WorkOrderAutoCreateService {
       }
     }
     return created
+  }
+
+  private computeDuration(
+    op: { time_cycle: unknown; time_cycle_manual: unknown; activities_snapshot: unknown },
+    vars: Record<string, number>,
+    formulaMap: Map<string, string>,
+  ): number {
+    type SnapAct = { formula_code?: string | null; per_minute?: number | string | null }
+    const snapshot = Array.isArray(op.activities_snapshot)
+      ? (op.activities_snapshot as SnapAct[])
+      : null
+
+    if (snapshot && snapshot.length > 0) {
+      let totalMin = 0
+      let hasFormula = false
+      for (const act of snapshot) {
+        const rate = Number(act.per_minute ?? 0)
+        if (!act.formula_code || rate <= 0) continue
+        const expr = formulaMap.get(act.formula_code)
+        if (!expr) continue
+        try {
+          const qty = this.parser.evaluate(expr, vars)
+          if (qty > 0) {
+            totalMin += qty / rate
+            hasFormula = true
+          }
+        } catch {
+          // Formula eval failed (missing variable) — skip this activity
+        }
+      }
+      if (hasFormula && totalMin > 0) return Math.round(totalMin)
+    }
+
+    return Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0))
   }
 }
