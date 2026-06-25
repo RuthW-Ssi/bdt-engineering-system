@@ -1,11 +1,23 @@
 import { BadRequestException } from '@nestjs/common'
 import * as XLSX from 'xlsx'
-import { XlsxParserService } from './xlsx-parser.service'
+import { XlsxParserService, extractContractNo, stripContractPrefix } from './xlsx-parser.service'
 
 const svc = new XlsxParserService()
 
 function makeBuffer(headers: string[], rows: (string | number)[][]): Buffer {
   const ws = XLSX.utils.aoa_to_sheet([headers, ...rows])
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+  return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+}
+
+// Build a Tekla-style Assembly Part List buffer with preamble rows before the header
+function makeTeklaAsmPartBuffer(
+  preamble: (string | number)[][],
+  dataRows: (string | number)[][],
+): Buffer {
+  const allRows = [...preamble, ['AssemblyPart', 'Qty'], ...dataRows]
+  const ws = XLSX.utils.aoa_to_sheet(allRows)
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
   return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
@@ -124,6 +136,90 @@ describe('XlsxParserService — ASSEMBLY_PART_LIST', () => {
   it('throws BadRequestException when assembly_mark or part_mark column missing', () => {
     const buf = makeBuffer(['Assembly Mark', 'Qty'], [['WH-CO-001', 1]])
     expect(() => svc.parse(buf, 'ASSEMBLY_PART_LIST')).toThrow(BadRequestException)
+  })
+})
+
+// ─── Contract prefix stripping ────────────────────────────────────────────────
+
+describe('extractContractNo', () => {
+  it('extracts 5-char prefix from THEPHA header (0X181)', () => {
+    const rows = [['ASSEMBLY PART LIST'], ['ContactNo.0X181Date:01.01.2026']]
+    expect(extractContractNo(rows)).toBe('0X181')
+  })
+
+  it('extracts 8-char multi-segment prefix from Tennis Court header (00X220-2)', () => {
+    const rows = [['ASSEMBLY PART LIST'], ['ContactNo.00X220-2Date:28.04.2026']]
+    expect(extractContractNo(rows)).toBe('00X220-2')
+  })
+
+  it('returns empty string when no ContactNo row found', () => {
+    const rows = [['ASSEMBLY PART LIST'], ['Some other row']]
+    expect(extractContractNo(rows)).toBe('')
+  })
+})
+
+describe('stripContractPrefix', () => {
+  it('strips via contractNo when provided (Tennis Court 8-char)', () => {
+    expect(stripContractPrefix('00X220-2TC-CO2', '00X220-2')).toBe('TC-CO2')
+  })
+
+  it('strips via contractNo when provided (THEPHA 5-char)', () => {
+    expect(stripContractPrefix('0X181TH-2CO1', '0X181')).toBe('TH-2CO1')
+  })
+
+  it('falls back to regex when contractNo is empty (THEPHA pattern)', () => {
+    expect(stripContractPrefix('0X181TH-2CO1', '')).toBe('TH-2CO1')
+  })
+
+  it('returns mark unchanged when neither method strips it', () => {
+    expect(stripContractPrefix('TC-CO2', '')).toBe('TC-CO2')
+  })
+})
+
+describe('XlsxParserService — Tekla Assembly Part List contract prefix', () => {
+  it('strips 5-char prefix (THEPHA: 0X181TH-2CO1 → TH-2CO1)', () => {
+    const buf = makeTeklaAsmPartBuffer(
+      [['ASSEMBLY PART LIST'], ['ContactNo.0X181Date:01.01.2026']],
+      [
+        ['0X181TH-2CO1', ''],
+        ['0X181TH-2CO1-P01', 2],
+      ],
+    )
+    const result = svc.parse(buf, 'ASSEMBLY_PART_LIST')
+    expect(result.assemblyParts).toHaveLength(1)
+    expect(result.assemblyParts[0].assembly_mark).toBe('TH-2CO1')
+  })
+
+  it('strips 8-char prefix from BOTH assembly_mark and part_mark (Tennis Court)', () => {
+    const buf = makeTeklaAsmPartBuffer(
+      [['ASSEMBLY PART LIST'], ['ContactNo.00X220-2Date:28.04.2026']],
+      [
+        ['00X220-2TC-FB1', ''],        // assembly header row
+        ['00X220-2TC-FB1', 1],         // part row (same mark in this file format)
+        ['---', ''],
+        ['00X220-2TC-FB2', ''],
+        ['00X220-2TC-FB2', 1],
+      ],
+    )
+    const result = svc.parse(buf, 'ASSEMBLY_PART_LIST')
+    expect(result.assemblyParts).toHaveLength(2)
+    expect(result.assemblyParts[0].assembly_mark).toBe('TC-FB1')
+    expect(result.assemblyParts[0].part_mark).toBe('TC-FB1')  // part_mark also stripped
+    expect(result.assemblyParts[1].assembly_mark).toBe('TC-FB2')
+    expect(result.assemblyParts[1].part_mark).toBe('TC-FB2')
+  })
+
+  it('falls back to regex when ContactNo not in preamble', () => {
+    const buf = makeTeklaAsmPartBuffer(
+      [['ASSEMBLY PART LIST']],
+      [
+        ['0X181TH-2CO1', ''],
+        ['0X181TH-2CO1-P01', 2],
+      ],
+    )
+    const result = svc.parse(buf, 'ASSEMBLY_PART_LIST')
+    expect(result.assemblyParts).toHaveLength(1)
+    expect(result.assemblyParts[0].assembly_mark).toBe('TH-2CO1')
   })
 })
 
