@@ -144,7 +144,7 @@ export class WorkOrdersService {
 
         // Collect all equipment_resource IDs needed (machines + tools)
         const machineIds = [...new Set(acts.map(a => a.machine_id).filter((x): x is number => x != null))]
-        const toolIds    = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(t => t.id)))]
+        const toolIds    = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(t => t.id).filter((x): x is number => x != null)))]
         const allIds     = [...new Set([...machineIds, ...toolIds])]
 
         const resources = allIds.length > 0
