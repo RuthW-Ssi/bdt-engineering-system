@@ -4,7 +4,7 @@ import { Type } from 'class-transformer'
 
 export class ConsumeEntryDto {
   @IsInt() @Min(1)
-  resource_id: number
+  material_id: number
 
   @IsOptional() @IsInt() @Min(1)
   formula_id?: number
@@ -73,4 +73,37 @@ export class CreateActivityDto {
   @Min(0)
   @Type(() => Number)
   duration_min: number
+
+  @ApiPropertyOptional({ description: 'Production rate (units/min) — legacy, kept for fallback', example: 500 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  per_minute?: number
+
+  @ApiPropertyOptional({ description: 'routing_formula_param.code for dynamic duration calc', example: 'cut_length_mm' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  formula_code?: string
+
+  @ApiPropertyOptional({ description: 'Batch size — every N units takes per_time min', example: 1000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  ratio?: number
+
+  @ApiPropertyOptional({ description: 'Unit of ratio', example: 'mm' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  ratio_unit?: string
+
+  @ApiPropertyOptional({ description: 'Minutes per ratio batch', example: 5 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Type(() => Number)
+  per_time?: number
 }

@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeft, Check, Pencil, Save, Trash2, X } from 'lucide-react'
 import { apiClient } from '../api/client'
 import ActivityLibraryPanel from '../components/operations/ActivityLibraryPanel'
-import { useOperationTemplate } from '../hooks/useOperationTemplates'
+import { useOperationTemplate, useUpdateFromLibrary } from '../hooks/useOperationTemplates'
 import { ActivityBuilderModal } from './ActivityBuilder'
 
 // ── Types ──────────────────────────────────────────────────────
@@ -12,10 +12,10 @@ import { ActivityBuilderModal } from './ActivityBuilder'
 interface WorkcenterItem { id: number; code: string; name: string }
 interface OpTypeItem { id: number; key: string; label: string; color: string; default_wc_id: number | null; default_wc: { id: number; code: string; name: string } | null }
 
-interface ConsumableFormItem { resource_id: number; qty: string; unit: string }
+interface ConsumableFormItem { resource_id: number; qty: string; unit: string; name?: string; formula_name?: string | null }
 
 interface FormActivityLabor { skill: string; qty: number; level?: string }
-interface FormActivityMaterial { material_id: number; name: string; code: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null }
+interface FormActivityMaterial { material_id: number; name: string; code: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null; formula_expr?: string | null }
 
 interface FormActivityTool { id: number; qty: number }
 
@@ -26,11 +26,16 @@ interface FormActivity {
   source_activity_id: number | null
   source_activity_code: string | null
   snapshot_at: string | null
+  is_stale: boolean
   machine_id: number | null
   tools: FormActivityTool[]
   consumables: ConsumableFormItem[]
   labors: FormActivityLabor[]
   op_materials: FormActivityMaterial[]
+  ratio: number | null
+  ratio_unit: string | null
+  per_time: number | null
+  formula_code: string | null
 }
 
 interface EquipmentResource { id: number; code: string; name: string; type: string; rate: number | null; rate_unit: string | null }
@@ -76,34 +81,43 @@ export default function OperationBuilder() {
   const isEdit = Boolean(paramId)
   const templateId = paramId ? Number(paramId) : null
 
-  const [editingActivityId, setEditingActivityId] = useState<number | null>(null)
+  const [editingActivity, setEditingActivity] = useState<{ sourceId: number; opActId: number } | null>(null)
   const [form, setForm] = useState<FormState>({
     op_code: '', name: '', op_type_id: '', workcenter_id: '', method: '', activities: [] as FormActivity[],
   })
   const queryClient = useQueryClient()
   const patch = (p: Partial<FormState>) => setForm(f => ({ ...f, ...p }))
   const initializedRef = useRef(false)
+  const updateFromLibMut = useUpdateFromLibrary(templateId ?? 0)
 
   // Load existing template in edit mode
   const { data: templateDetail, isLoading: loadingTpl } = useOperationTemplate(templateId, true)
 
   const mapActivities = (acts: typeof templateDetail extends undefined ? never : NonNullable<typeof templateDetail>['activities']) =>
-    acts.map((a) => ({
-      id: a.id,
-      localId: uid(),
-      name: a.name,
-      measure: a.measure,
-      unit: a.unit ?? '',
-      per_minute: a.per_minute ? String(a.per_minute) : '',
-      source_activity_id: a.source_activity_id ?? null,
-      source_activity_code: a.source_activity_code ?? null,
-      snapshot_at: a.snapshot_at ?? null,
-      machine_id: a.machine_id ?? null,
-      tools: a.tools?.map((t) => ({ id: t.resource.id, qty: t.qty ?? 1 })) ?? [],
-      consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '' })) ?? [],
-      labors: a.skills?.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })) ?? [],
-      op_materials: a.op_materials?.map(m => ({ material_id: m.resource.id, name: m.resource.name, code: m.resource.code, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null })) ?? [],
-    }))
+    acts.map((a) => {
+      const src = (a as any).source_activity
+      return {
+        id: a.id,
+        localId: uid(),
+        name: a.name,
+        measure: a.measure,
+        unit: a.unit ?? '',
+        per_minute: a.per_minute ? String(a.per_minute) : '',
+        source_activity_id: a.source_activity_id ?? null,
+        source_activity_code: a.source_activity_code ?? null,
+        snapshot_at: a.snapshot_at ?? null,
+        is_stale: (a as any).is_stale ?? false,
+        machine_id: a.machine_id ?? null,
+        tools: a.tools?.map((t) => ({ id: t.resource.id, qty: t.qty ?? 1 })) ?? [],
+        consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, name: c.resource.name, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '', formula_name: (c as any).formula_name ?? null })) ?? [],
+        labors: a.skills?.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })) ?? [],
+        op_materials: a.op_materials?.map(m => ({ material_id: m.resource.id, name: m.resource.name, code: m.resource.code, formula_id: m.formula?.id ?? null, formula_name: m.formula?.name ?? null, formula_unit: m.formula?.result_unit ?? null, formula_expr: m.formula?.expr ?? null })) ?? [],
+        ratio:        src?.ratio     ? Number(src.ratio)    : null,
+        ratio_unit:   src?.ratio_unit ?? null,
+        per_time:     src?.per_time  ? Number(src.per_time) : null,
+        formula_code: src?.formula_code ?? null,
+      }
+    })
 
   useEffect(() => {
     if (!templateDetail) return
@@ -157,7 +171,8 @@ export default function OperationBuilder() {
       machine_id: a.machine_id ?? null,
       tool_ids: a.tools,
       consumables: [
-        ...a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
+        // Library-linked activity consumables are read-only (from source_activity.consumes) — never re-save them
+        ...(a.source_activity_id ? [] : a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null }))),
         ...a.op_materials.map(m => ({ resource_id: m.material_id, formula_id: m.formula_id ?? null })),
       ],
       skills: a.labors.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
@@ -361,13 +376,21 @@ export default function OperationBuilder() {
 
                         {/* Main row */}
                         {isLib ? (
-                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 8, alignItems: 'center', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
-                            <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 8, alignItems: 'start', background: '#fff', padding: '8px 8px', borderLeft: '3px solid #BBDEFB' }}>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
+                              {act.ratio != null && act.per_time != null && (
+                                <div style={{ marginTop: 2, fontSize: 10, fontFamily: 'monospace', color: '#1565C0' }}>
+                                  ทุก {act.ratio} {act.ratio_unit ?? ''} → {act.per_time} min
+                                </div>
+                              )}
+                            </div>
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
                             <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
-                            <button type="button" onClick={() => setEditingActivityId(act.source_activity_id)}
+                            <button type="button"
+                              onClick={() => act.source_activity_id && act.id !== undefined && setEditingActivity({ sourceId: act.source_activity_id, opActId: act.id })}
                               title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
                               onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#1976D2' }}
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}>
@@ -426,19 +449,27 @@ export default function OperationBuilder() {
                                 <div style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Consumes</div>
                                 <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                   {act.op_materials.map(m => (
-                                    <span key={m.material_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>
-                                      {m.name}
+                                    <span key={m.material_id} title={m.name} style={{ ...chip, whiteSpace: 'normal', background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00', display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 260, overflow: 'hidden' }}>
+                                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{m.name}</span>
                                       {m.formula_name && (
-                                        <span style={{ marginLeft: 4, fontSize: 10, color: '#9E6B00', fontStyle: 'italic' }}>
-                                          [{m.formula_name}{m.formula_unit ? ` · ${m.formula_unit}` : ''}]
+                                        <span style={{ flexShrink: 0, background: '#E0F2F1', border: '1px solid #80CBC4', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#00695C', fontWeight: 600 }}>
+                                          {m.formula_name}
                                         </span>
                                       )}
                                     </span>
                                   ))}
-                                  {act.consumables.map(c => {
-                                    const eq = equipmentList.find(e => e.id === c.resource_id)
-                                    return eq ? <span key={c.resource_id} style={{ ...chip, background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00' }}>{eq.name}</span> : null
-                                  })}
+                                  {act.consumables.map(c =>
+                                    c.name ? (
+                                      <span key={c.resource_id} title={c.name} style={{ ...chip, whiteSpace: 'normal', background: '#FFF8E1', borderColor: '#FFE082', color: '#7B4F00', display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: 260, overflow: 'hidden' }}>
+                                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{c.name}</span>
+                                        {c.formula_name && (
+                                          <span style={{ flexShrink: 0, background: '#E0F2F1', border: '1px solid #80CBC4', borderRadius: 3, padding: '1px 6px', fontSize: 10, color: '#00695C', fontWeight: 600 }}>
+                                            {c.formula_name}
+                                          </span>
+                                        )}
+                                      </span>
+                                    ) : null
+                                  )}
                                 </div>
                               </div>
                             )}
@@ -472,7 +503,7 @@ export default function OperationBuilder() {
           <ActivityLibraryPanel
             templateId={templateId}
             existingSourceIds={new Set(
-              form.activities
+              (templateDetail?.activities ?? [])
                 .map(a => a.source_activity_id)
                 .filter((id): id is number => id !== null)
             )}
@@ -480,11 +511,15 @@ export default function OperationBuilder() {
         </div>
       </div>
 
-      {editingActivityId !== null && (
+      {editingActivity !== null && (
         <ActivityBuilderModal
-          activityId={editingActivityId}
-          onSaved={() => queryClient.invalidateQueries({ queryKey: ['op-template-detail', templateId] })}
-          onClose={() => setEditingActivityId(null)}
+          activityId={editingActivity.sourceId}
+          onSaved={() => {
+            updateFromLibMut.mutate(editingActivity.opActId, {
+              onSettled: () => queryClient.invalidateQueries({ queryKey: ['op-template-detail', templateId] }),
+            })
+          }}
+          onClose={() => setEditingActivity(null)}
         />
       )}
 

@@ -11,12 +11,20 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
+let _redirecting = false
+
 apiClient.interceptors.response.use(
   res => res,
   err => {
-    if (err.response?.status === 401) {
+    if (
+      err.response?.status === 401 &&
+      !_redirecting &&
+      window.location.pathname !== '/login'
+    ) {
+      _redirecting = true
       localStorage.removeItem('bdt_token')
-      window.location.href = '/login'
+      localStorage.removeItem('bdt_user')
+      window.location.replace('/login')
     }
     return Promise.reject(err)
   },

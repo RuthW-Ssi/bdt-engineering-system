@@ -1,8 +1,13 @@
 import { ApiPropertyOptional } from '@nestjs/swagger'
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator'
+import { IsOptional, IsString, IsInt, IsIn, Min, Max } from 'class-validator'
 import { Type } from 'class-transformer'
 
 export class QueryMaterialDto {
+  @ApiPropertyOptional({ description: 'Filter by type: product|consu|service' })
+  @IsOptional()
+  @IsIn(['product', 'consu', 'service'])
+  type?: string
+
   @ApiPropertyOptional({ description: 'Filter by state', example: 'draft' })
   @IsOptional()
   @IsString()
@@ -31,6 +36,6 @@ export class QueryMaterialDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(500)
   limit?: number = 20
 }

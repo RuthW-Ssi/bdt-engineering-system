@@ -5,6 +5,7 @@ import { AlertCircle, X, Search } from 'lucide-react'
 import { useActivity, useCreateActivity, useUpdateActivity } from '../hooks/useActivities'
 import { apiClient } from '../api/client'
 import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
+import { routingFormulaParamsApi, type RoutingFormulaParam } from '../api/routingFormulas'
 
 interface MachineOption {
   id: number
@@ -36,6 +37,11 @@ interface LaborEntry {
 interface FormValues {
   name: string
   duration_min: number
+  per_minute: number | ''
+  formula_code: string
+  ratio: number | ''
+  ratio_unit: string
+  per_time: number | ''
 }
 
 const inputStyle: React.CSSProperties = {
@@ -162,7 +168,7 @@ function MachinePicker({
   )
 }
 
-// ── Consumable Picker ─────────────────────────────────────────────────────────
+// ── Consumable Picker (materials type=consu) ──────────────────────────────────
 
 function ConsumablePicker({ value, onChange, formulas }: {
   value: ConsumableEntry[]
@@ -175,8 +181,8 @@ function ConsumablePicker({ value, onChange, formulas }: {
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    apiClient.get('/equipment-resources').then((r) => {
-      setAll((r.data as any[]).filter((m) => m.type === 'consumable').map((m) => ({ id: m.id, code: m.code, name: m.name })))
+    apiClient.get('/materials', { params: { type: 'consu', limit: 500 } }).then((r) => {
+      setAll((r.data.items as any[]).map((m) => ({ id: m.id, code: m.default_code, name: m.name })))
     })
   }, [])
 
@@ -190,7 +196,10 @@ function ConsumablePicker({ value, onChange, formulas }: {
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase()
-    return q ? all.filter((m) => m.code.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)) : all
+    return (q
+      ? all.filter((m) => m.code.toLowerCase().includes(q) || m.name.toLowerCase().includes(q))
+      : all
+    ).slice(0, 20)
   }, [query, all])
 
   function setFormula(id: number, formula_id: number | undefined) {
@@ -209,7 +218,7 @@ function ConsumablePicker({ value, onChange, formulas }: {
                 borderRadius: 4, padding: '3px 8px', fontSize: 12, color: '#7B4F00',
               }}>
                 <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{m.code}</span>
-                <span style={{ color: '#555', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+                <span style={{ color: '#555', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
               </span>
               <select
                 value={m.formula_id ?? ''}
@@ -232,13 +241,13 @@ function ConsumablePicker({ value, onChange, formulas }: {
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9E9E9E', pointerEvents: 'none' }} />
         <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
-          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา consumable…" />
+          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา material (consumable)…" />
       </div>
       {open && filtered.length > 0 && (
         <div style={{
           position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
           background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.10)', marginTop: 2, maxHeight: 200, overflowY: 'auto',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.10)', marginTop: 2, maxHeight: 220, overflowY: 'auto',
         }}>
           {filtered.map((item) => {
             const already = value.some((v) => v.id === item.id)
@@ -249,8 +258,8 @@ function ConsumablePicker({ value, onChange, formulas }: {
                 onMouseLeave={(e) => { if (!already) (e.currentTarget as HTMLDivElement).style.background = '' }}
               >
                 <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#E65100', flexShrink: 0 }}>{item.code}</span>
-                <span style={{ fontSize: 13, color: '#1F1F1F' }}>{item.name}</span>
-                {already && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#9E9E9E' }}>added</span>}
+                <span style={{ fontSize: 13, color: '#1F1F1F', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
+                {already && <span style={{ fontSize: 10, color: '#9E9E9E', flexShrink: 0 }}>added</span>}
               </div>
             )
           })}
@@ -464,20 +473,32 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   const [selectedSkills, setSelectedSkills] = useState<LaborEntry[]>([])
 
   const { data: formulas = [] } = useQuery({ queryKey: ['consume-formulas'], queryFn: consumeFormulasApi.list, staleTime: 10 * 60 * 1000 })
+  const { data: routingFormulas = [] } = useQuery<RoutingFormulaParam[]>({ queryKey: ['routing-formula-params'], queryFn: routingFormulaParamsApi.list, staleTime: 10 * 60 * 1000 })
 
   const { data: existing, isLoading: isLoadingExisting } = useActivity(activityId)
   const createMutation = useCreateActivity()
   const updateMutation = useUpdateActivity(activityId ?? 0)
 
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<FormValues>({
-    defaultValues: { name: '', duration_min: 0 },
+  const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<FormValues>({
+    defaultValues: { name: '', duration_min: 0, per_minute: '', formula_code: '', ratio: '', ratio_unit: '', per_time: '' },
   })
+  const watchedFormulaCode = watch('formula_code')
+  const watchedRatio       = watch('ratio')
+  const watchedPerTime     = watch('per_time')
 
   useEffect(() => {
     if (existing) {
-      reset({ name: existing.name, duration_min: Number(existing.duration_min) })
+      reset({
+        name: existing.name,
+        duration_min: Number(existing.duration_min),
+        per_minute: (existing as any).per_minute != null ? Number((existing as any).per_minute) : '',
+        formula_code: (existing as any).formula_code ?? '',
+        ratio:      (existing as any).ratio      != null ? Number((existing as any).ratio)      : '',
+        ratio_unit: (existing as any).ratio_unit ?? '',
+        per_time:   (existing as any).per_time   != null ? Number((existing as any).per_time)   : '',
+      })
       setSelectedMachine(existing.machine ? { id: existing.machine.id, code: existing.machine.code, name: existing.machine.name, type: '' } : null)
-      setSelectedConsumables(existing.consumes.map((c) => ({ id: c.resource.id, code: c.resource.code, name: c.resource.name, formula_id: c.formula?.id ?? undefined })))
+      setSelectedConsumables(existing.consumes.map((c) => ({ id: c.material.id, code: c.material.default_code, name: c.material.name, formula_id: c.formula?.id ?? undefined })))
       setSelectedTools((existing.tools ?? []).map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name, qty: t.qty ?? 1 })))
       setSelectedSkills(existing.skills.map((l) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })))
     }
@@ -488,7 +509,12 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
       name: values.name,
       machine_id: selectedMachine?.id,
       duration_min: Number(values.duration_min),
-      consumes: selectedConsumables.map((c) => ({ resource_id: c.id, formula_id: c.formula_id })),
+      per_minute:   values.per_minute !== '' ? Number(values.per_minute) : undefined,
+      formula_code: values.formula_code || undefined,
+      ratio:        values.ratio      !== '' ? Number(values.ratio)      : undefined,
+      ratio_unit:   values.ratio_unit || undefined,
+      per_time:     values.per_time   !== '' ? Number(values.per_time)   : undefined,
+      consumes: selectedConsumables.map((c) => ({ material_id: c.id, formula_id: c.formula_id })),
       tools: selectedTools.map((t) => ({ resource_id: t.id, qty: t.qty })),
       labors: selectedSkills.map((l) => ({ skill: l.skill, qty: l.qty, level: l.level || undefined })),
     }
@@ -510,7 +536,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', zIndex: 900 }}>
       <div className="bg-white rounded-xl shadow-xl flex flex-col" style={{ width: 560, maxHeight: '90vh', overflow: 'hidden' }}>
 
         {/* Header */}
@@ -559,6 +585,76 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                       <AlertCircle size={11} />{errors.duration_min.message}
                     </div>
                   )}
+                </div>
+
+                {/* Formula-based duration */}
+                <div style={{ borderTop: '1px solid #EEEEEE', marginTop: 4, paddingTop: 16 }}>
+                  <label style={{ ...labelStyle, marginBottom: 8 }}>
+                    Duration Formula <span style={{ color: '#9E9E9E', fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(optional — for MO/WO calc)</span>
+                  </label>
+                  {/* Formula selector */}
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ ...labelStyle, fontSize: 9 }}>Formula (routing param)</label>
+                    <select
+                      {...register('formula_code')}
+                      style={{ ...inputStyle, color: watchedFormulaCode ? '#1F1F1F' : '#9E9E9E', fontSize: 12 }}
+                    >
+                      <option value="">— ไม่ใช้ formula —</option>
+                      {routingFormulas.map(f => (
+                        <option key={f.code} value={f.code}>
+                          {f.name || f.description} [{f.return_unit}]
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* ratio + per_time — show only when formula selected */}
+                  {watchedFormulaCode && (() => {
+                    const f = routingFormulas.find(x => x.code === watchedFormulaCode)
+                    const unit = f?.return_unit ?? 'unit'
+                    const preview = watchedRatio !== '' && watchedPerTime !== ''
+                      ? `ทุก ${watchedRatio} ${unit} ใช้เวลา ${watchedPerTime} นาที`
+                      : null
+                    return (
+                      <div style={{ background: '#F0F7FF', border: '1px solid #BBDEFB', borderRadius: 8, padding: 12 }}>
+                        <div style={{ display: 'flex', gap: 8, marginBottom: preview ? 8 : 0 }}>
+                          {/* ratio */}
+                          <div style={{ flex: 2 }}>
+                            <label style={{ ...labelStyle, fontSize: 9 }}>Ratio (ทุกกี่ {unit})</label>
+                            <input
+                              {...register('ratio', { min: { value: 0, message: '≥ 0' } })}
+                              type="number" step="0.0001"
+                              style={{ ...inputStyle, borderColor: errors.ratio ? '#FFCDD2' : '#BBDEFB', background: '#fff' }}
+                              placeholder={`e.g. 1000`}
+                            />
+                          </div>
+                          {/* ratio_unit */}
+                          <div style={{ flex: 1 }}>
+                            <label style={{ ...labelStyle, fontSize: 9 }}>Unit</label>
+                            <input
+                              {...register('ratio_unit')}
+                              style={{ ...inputStyle, borderColor: '#BBDEFB', background: '#fff' }}
+                              placeholder={unit}
+                            />
+                          </div>
+                          {/* per_time */}
+                          <div style={{ flex: 1.5 }}>
+                            <label style={{ ...labelStyle, fontSize: 9 }}>Per Time (min)</label>
+                            <input
+                              {...register('per_time', { min: { value: 0, message: '≥ 0' } })}
+                              type="number" step="0.01"
+                              style={{ ...inputStyle, borderColor: errors.per_time ? '#FFCDD2' : '#BBDEFB', background: '#fff' }}
+                              placeholder="e.g. 5"
+                            />
+                          </div>
+                        </div>
+                        {preview && (
+                          <div style={{ fontSize: 11, color: '#1565C0', fontWeight: 500 }}>
+                            → {preview}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
 

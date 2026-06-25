@@ -105,17 +105,18 @@ model product_category {
   active            Boolean            @default(true)
   odoo_ref_id       String?            @db.VarChar(40)
 
-  materials         materials[]
-  products          products[]
-  routing_templates routing_template[]
+  materials              materials[]
+  products               products[]
+  routing_templates      routing_template[]
+  activity_consumables   activity_required_consumable[]
 }
 
 // ── 🟦/🟨/🟥 materials ────────────────────────────────────────
 model materials {
   id               Int              @id @default(autoincrement())
-  default_code     String           @unique @db.Char(10)
+  default_code     String           @unique @db.VarChar(40)
   name             String           @db.VarChar(200)
-  description_sale String           @db.VarChar(200)
+  description_sale String?          @default("") @db.VarChar(200)
   categ_id         Int
   category         product_category @relation(fields: [categ_id], references: [id])
   uom_id           Int
@@ -136,6 +137,19 @@ model materials {
   bim_object_id    String?          @db.VarChar(80)
   total_weight_kg  Decimal?         @db.Decimal(12, 3)
   odoo_ref_id      String?          @db.VarChar(40)
+  // Steel-specific physical dimensions & pricing (added directly on Supabase)
+  grade            String?
+  thickness_mm     Decimal?
+  width_ft         Decimal?
+  width_mm         Decimal?
+  length_mm        Decimal?
+  sales_price      Decimal?
+  cost             Decimal?
+  // Audit trail
+  audit_status                  String?
+  audited_date                  DateTime? @db.Timestamptz
+  audited_by                    String?
+  activity_exception_decoration String?
   create_uid       Int
   create_user      res_users        @relation("create_user", fields: [create_uid], references: [id])
   create_date      DateTime         @default(now()) @db.Timestamptz
@@ -143,8 +157,9 @@ model materials {
   write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
   write_date       DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines      product_bom_line[]     @relation("BomLineMaterial")
-  assembly_paint mbom_assembly_paint[]  @relation("PaintMaterial")
+  bom_lines         product_bom_line[]     @relation("BomLineMaterial")
+  assembly_paint    mbom_assembly_paint[]  @relation("PaintMaterial")
+  activity_consumes activity_consume[]     @relation("activity_consume_material")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -598,7 +613,12 @@ model mrp_workcenter {
   routing_workcenters mrp_routing_workcenter[]
   op_types            mrp_op_type[]
   operation_templates operation_template[]
-  work_orders         work_order[]             @relation("wo_workcenter") // Sprint 14: WO op snapshot
+  work_orders           work_order[]             @relation("wo_workcenter") // Sprint 14: WO op snapshot
+  workcenter_lines      mrp_workcenter_line[]
+  work_center_calendars work_center_calendar[]
+  managed_wip_storages  wip_storage[]            @relation("WcManagerWip")
+  wip_storage_ios       wip_storage_io[]         @relation("WcWipIO")
+  operator_workcenters  operator_workcenter[]    @relation("WcOperatorWC")
 }
 
 // ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — Sprint 4.2: bound to template) ──
@@ -1029,7 +1049,6 @@ model equipment_resource {
   op_act_tools            op_act_tool[]
   // Sprint 11: Activity Library
   activities              activity[]                    @relation("activity_machine")
-  activity_consumes       activity_consume[]            @relation("activity_consume_resource")
   activity_tools          activity_tool[]               @relation("activity_tool_resource")
   op_act_materials        op_act_material[]             @relation("op_act_material_resource")
   // T-MACH.01: Machine Tracker relations
@@ -1093,6 +1112,12 @@ model activity {
   machine_id                    Int?
   machine                       equipment_resource?           @relation("activity_machine", fields: [machine_id], references: [id], onDelete: SetNull)
   duration_min                  Decimal                       @db.Decimal(10, 2)
+  per_minute                    Decimal?                      @db.Decimal(10, 4)
+  formula_code                  String?                       @db.VarChar(40)
+  ratio                         Decimal?                      @db.Decimal(10, 4)
+  ratio_unit                    String?                       @db.VarChar(20)
+  per_time                      Decimal?                      @db.Decimal(10, 4)
+  kind                          String                        @default("run") @db.Text
   create_uid                    Int
   create_user                   res_users                     @relation("activity_create_user", fields: [create_uid], references: [id])
   create_date                   DateTime                      @default(now()) @db.Timestamptz
@@ -1103,6 +1128,7 @@ model activity {
   skills                        activity_skill[]
   tools                         activity_tool[]
   operation_template_activities operation_template_activity[] @relation("OpActSourceActivity")
+  required_consumables          activity_required_consumable[]
 
   @@index([machine_id])
   @@index([name])
@@ -1110,14 +1136,14 @@ model activity {
 
 model activity_consume {
   activity_id Int
-  resource_id Int
+  material_id Int
   formula_id  Int?
-  activity    activity           @relation(fields: [activity_id], references: [id], onDelete: Cascade)
-  resource    equipment_resource @relation("activity_consume_resource", fields: [resource_id], references: [id], onDelete: Cascade)
-  formula     consume_formula?   @relation("activity_consume_formula", fields: [formula_id], references: [id], onDelete: SetNull)
+  activity    activity         @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  material    materials        @relation("activity_consume_material", fields: [material_id], references: [id], onDelete: Cascade)
+  formula     consume_formula? @relation("activity_consume_formula", fields: [formula_id], references: [id], onDelete: SetNull)
 
-  @@id([activity_id, resource_id])
-  @@index([resource_id])
+  @@id([activity_id, material_id])
+  @@index([material_id])
   @@index([formula_id])
 }
 
@@ -1159,7 +1185,8 @@ model operator {
   active       Boolean          @default(true)
   created_at   DateTime         @default(now()) @db.Timestamptz
 
-  skills operator_skill[]
+  skills                 operator_skill[]
+  workcenter_assignments operator_workcenter[]
 }
 
 model skill {
@@ -1347,10 +1374,14 @@ model work_order {
   updated_at               DateTime  @updatedAt @db.Timestamptz
   created_by               String    @db.VarChar(120)
   updated_by               String?   @db.VarChar(120)
+  is_pinned                Boolean   @default(false)
+  operator_mode            String    @default("internal") @db.Text
+  subcontractor_id         Int?
 
-  manufacturing_order manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
-  mrp_workcenter      mrp_workcenter      @relation("wo_workcenter", fields: [work_center_id], references: [id])
-  bom_assembly        bom_assembly        @relation(fields: [bom_assembly_id], references: [id])
+  manufacturing_order manufacturing_order  @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  mrp_workcenter      mrp_workcenter       @relation("wo_workcenter", fields: [work_center_id], references: [id])
+  bom_assembly        bom_assembly         @relation(fields: [bom_assembly_id], references: [id])
+  subcontractor       subcontractor?       @relation(fields: [subcontractor_id], references: [id])
   events              work_order_event[]
   schedules           prod_schedule[]
 
@@ -1388,7 +1419,8 @@ model prod_schedule_version {
   created_at       DateTime @default(now()) @db.Timestamptz
   created_by       String   @db.VarChar(120)
 
-  schedules prod_schedule[]
+  schedules        prod_schedule[]
+  scheduler_config scheduler_config?
 
   @@index([is_active])
 }
@@ -1444,4 +1476,163 @@ model consume_formula {
   op_act_materials  op_act_material[]   @relation("op_act_material_formula")
 
   @@index([category])
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Calendar / Scheduling infrastructure (synced from Supabase 2026-06-23)
+// ═══════════════════════════════════════════════════════════════
+
+model calendar {
+  id         Int      @id @default(autoincrement())
+  code       String   @unique @db.VarChar(40)
+  name       String   @db.VarChar(120)
+  active     Boolean  @default(true)
+  note       String?  @db.Text
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  blocks            calendar_block[]
+  exceptions        calendar_exception[]
+  work_center_links work_center_calendar[]
+}
+
+model calendar_block {
+  id          Int      @id @default(autoincrement())
+  calendar_id Int
+  calendar    calendar @relation(fields: [calendar_id], references: [id], onDelete: Cascade)
+  dow         Int      @db.SmallInt
+  start_time  DateTime @db.Time(6)
+  end_time    DateTime @db.Time(6)
+  kind        String   @default("normal") @db.VarChar(10)
+}
+
+model calendar_exception {
+  id          Int       @id @default(autoincrement())
+  calendar_id Int?
+  calendar    calendar? @relation(fields: [calendar_id], references: [id], onDelete: Cascade)
+  date        DateTime  @db.Date
+  type        String    @db.VarChar(16)
+  start_time  DateTime? @db.Time(6)
+  end_time    DateTime? @db.Time(6)
+  is_working  Boolean   @default(false)
+  note        String?   @db.Text
+  created_at  DateTime  @default(now()) @db.Timestamptz
+}
+
+model work_center_calendar {
+  id             Int            @id @default(autoincrement())
+  work_center_id Int
+  workcenter     mrp_workcenter @relation(fields: [work_center_id], references: [id], onDelete: Cascade)
+  calendar_id    Int
+  calendar       calendar       @relation(fields: [calendar_id], references: [id], onDelete: Cascade)
+  effective_from DateTime?      @db.Date
+  effective_to   DateTime?      @db.Date
+
+  @@unique([work_center_id, calendar_id])
+}
+
+model mrp_workcenter_line {
+  id            Int            @id @default(autoincrement())
+  workcenter_id Int
+  workcenter    mrp_workcenter @relation(fields: [workcenter_id], references: [id], onDelete: Cascade)
+  line_no       Int            @db.SmallInt
+  name          String?        @db.VarChar(80)
+  active        Boolean        @default(true)
+
+  operator_workcenters operator_workcenter[]
+
+  @@unique([workcenter_id, line_no])
+}
+
+model operator_workcenter {
+  id                 Int                  @id @default(autoincrement())
+  operator_id        Int
+  operator           operator             @relation(fields: [operator_id], references: [id])
+  work_center_id     Int
+  workcenter         mrp_workcenter       @relation("WcOperatorWC", fields: [work_center_id], references: [id])
+  is_primary         Boolean              @default(false)
+  source             String?              @default("derived:skill-usage") @db.Text
+  created_at         DateTime?            @default(now()) @db.Timestamptz
+  workcenter_line_id Int?
+  workcenter_line    mrp_workcenter_line? @relation(fields: [workcenter_line_id], references: [id])
+
+  @@unique([operator_id, work_center_id])
+}
+
+model scheduler_config {
+  id                       Int                    @id @default(autoincrement())
+  prod_schedule_version_id Int?                   @unique
+  prod_schedule_version    prod_schedule_version? @relation(fields: [prod_schedule_version_id], references: [id])
+  objective_tardiness      Decimal                @default(0.6)
+  objective_makespan       Decimal                @default(0.2)
+  objective_setup          Decimal                @default(0.1)
+  objective_wip            Decimal                @default(0.1)
+  horizon_days             Int                    @default(14)
+  granularity_min          Int                    @default(15)
+  direction                String                 @default("backward") @db.Text
+  dispatch_rule            String                 @default("EDD") @db.Text
+  allow_ot                 Boolean                @default(true)
+  ot_weight                Decimal                @default(1.0)
+  reschedule_mode          String                 @default("regenerative") @db.Text
+  solver_time_limit_s      Int                    @default(60)
+  created_at               DateTime?              @default(now()) @db.Timestamptz
+  updated_at               DateTime?              @default(now()) @db.Timestamptz
+  operator_constraint_mode String                 @default("soft") @db.Text
+}
+
+model wip_storage {
+  id            Int             @id @default(autoincrement())
+  code          String          @unique @db.VarChar(40)
+  name          String          @db.VarChar(120)
+  bay           String?         @db.VarChar(10)
+  col_from      Int?            @db.SmallInt
+  col_to        Int?            @db.SmallInt
+  width_m       Decimal?
+  depth_m       Decimal?
+  area_cap_m2   Decimal?
+  weight_cap_kg Decimal?
+  manager_wc_id Int?
+  manager_wc    mrp_workcenter? @relation("WcManagerWip", fields: [manager_wc_id], references: [id])
+  active        Boolean         @default(true)
+  created_at    DateTime        @default(now()) @db.Timestamptz
+  buffer_mode   String          @default("buffered") @db.VarChar(10)
+
+  io_links wip_storage_io[]
+}
+
+model wip_storage_io {
+  id         Int            @id @default(autoincrement())
+  storage_id Int
+  storage    wip_storage    @relation(fields: [storage_id], references: [id], onDelete: Cascade)
+  wc_id      Int
+  workcenter mrp_workcenter @relation("WcWipIO", fields: [wc_id], references: [id])
+  direction  String         @db.VarChar(3)
+
+  @@unique([storage_id, wc_id, direction])
+}
+
+model subcontractor {
+  id          Int          @id @default(autoincrement())
+  code        String       @unique @db.Text
+  name        String       @db.Text
+  skills      String[]     @default([])
+  active      Boolean      @default(true)
+  created_at  DateTime?    @default(now()) @db.Timestamptz
+  work_orders work_order[]
+}
+
+model formula_code_seq {
+  id       Int @id
+  next_val Int @default(100)
+}
+
+model activity_required_consumable {
+  id          Int              @id @default(autoincrement())
+  activity_id Int
+  activity    activity         @relation(fields: [activity_id], references: [id], onDelete: Cascade)
+  category_id Int
+  category    product_category @relation(fields: [category_id], references: [id])
+  required    Boolean          @default(true)
+  notes       String?          @db.Text
+
+  @@unique([activity_id, category_id])
 }
