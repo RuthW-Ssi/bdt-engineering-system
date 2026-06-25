@@ -124,14 +124,24 @@ export const paintApi = {
 
   getPaintMaterials(paintType?: PaintType): Promise<PaintMaterialDto[]> {
     return apiClient
-      .get('/materials', { params: { state: 'confirmed', limit: 100 } })
-      .then(r =>
-        (r.data.items as PaintMaterialDto[]).filter(m => {
+      .get('/materials', { params: { state: 'confirmed', categ_id: 31, limit: 200 } })
+      .then(r => {
+        const items = r.data.items as PaintMaterialDto[]
+        if (!paintType) return items
+        return items.filter(m => {
           const attrs = m.attributes as Record<string, unknown>
-          if (attrs?.['material_type'] !== 'paint') return false
-          if (paintType && attrs?.['paint_type'] !== paintType) return false
-          return true
-        }),
-      )
+          // Use attributes when available (future-proof for data migration)
+          if (attrs?.['paint_type']) return attrs['paint_type'] === paintType
+          // Fallback: classify by name keywords
+          const n = m.name.toLowerCase()
+          switch (paintType) {
+            case 'primer':       return /primer|red oxide|grey oxide|reddish/.test(n)
+            case 'topcoat':     return /topcoat|top coat|finish|enamel|gloss/.test(n)
+            case 'fireproof':   return /fireproof|intumescent|fire/.test(n)
+            case 'intermediate': return /intermediate|mid coat/.test(n)
+            default:            return false
+          }
+        })
+      })
   },
 }
