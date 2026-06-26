@@ -106,9 +106,9 @@ async function load(){
     const [vers,ps,wo,mo,wc,ln,hol,routWC,opTypes]=await Promise.all([
       q('prod_schedule_version','id,version_code,description,scheduler_source','&order=id.asc'),
       q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=5000'),
-      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at,source_routing_op_id,status','&limit=5000'),
+      q('work_order','id,wo_code,mo_id,sequence,expected_duration_min,target_end_at,earliest_start_at,source_routing_op_id,status','&limit=5000'),
       q('manufacturing_order','id,mo_code,due_date'),
-      q('mrp_workcenter','id,code,name,active'),
+      q('mrp_workcenter','id,code,name,active,availability,performance,quality,oee_target'),
       q('mrp_workcenter_line','id,workcenter_id,line_no,labor_mode,crew_size,active','&limit=500'),
       q('calendar_exception','date,is_working','&is_working=eq.false'),
       q('mrp_routing_workcenter','id,op_type_id'),
@@ -157,7 +157,7 @@ function render(){
   const OPS=ops(); const L=lines();
   $('badge').textContent=DATA.vers.find(v=>v.version_code===VER)?.scheduler_source||'LIVE';
   document.querySelectorAll('#verSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===VER));
-  if(!OPS.length){$('tlbody').innerHTML='';$('resCells').innerHTML='';kpis(OPS);return;}
+  if(!OPS.length){$('tlbody').innerHTML='';$('resCells').innerHTML='';$('duelane').innerHTML='';$('tlhead').innerHTML='';kpis(OPS);renderBacklog(OPS);renderHeat(OPS);foot(OPS);return;}
   const t0=Math.min(...OPS.map(o=>o.s)), t1=Math.max(...OPS.map(o=>o.e));
   buildSeg(t0,t1);
   // resource column
@@ -182,7 +182,39 @@ function render(){
   const dl=$('duelane');dl.style.width=totalW+'px';
   const moDue={};OPS.forEach(o=>{if(o.mo&&o.mo.due_date){const dms=Date.parse(o.mo.due_date+'T17:30:00+07:00');(moDue[o.mo.id]=moDue[o.mo.id]||{ms:dms,code:o.mo.mo_code,late:false});if(o.late)moDue[o.mo.id].late=true;}});
   dl.innerHTML=Object.values(moDue).map(m=>`<div class="due ${m.late?'late':''}" style="left:${X(m.ms)}px"><span class="dia"></span>${esc(m.code||'')}</div>`).join('');
-  legend(OPS);kpis(OPS);detail();foot(OPS);
+  legend(OPS);kpis(OPS);renderBacklog(OPS);renderHeat(OPS);detail();foot(OPS);
+}
+
+const WORK_MIN=705;  // productive min / line / day (3 shifts − overheads, matches scheduler)
+function oeeOf(wc){const a=+wc.availability||100,p=+wc.performance||100,qy=+wc.quality||100;const apq=(a/100)*(p/100)*(qy/100);if(apq<0.999)return apq;const t=+wc.oee_target;return t>0?t/100:1;}
+function linesOfWC(wcId){return DATA.ln.filter(l=>l.active&&l.workcenter_id===wcId).length;}
+function heatBand(u){return u<=0?'var(--heat-0)':u<.4?'var(--heat-1)':u<.7?'var(--heat-2)':u<.92?'var(--heat-3)':u<1.0?'var(--heat-4)':'var(--heat-over)';}
+
+function renderHeat(OPS){
+  const box=$('heat');
+  if(!OPS.length){box.innerHTML='<div class="stub">ไม่มีตาราง (prod_schedule ว่าง)</div>';return;}
+  const days=[...new Set(OPS.map(o=>bkkDay(o.s)))].filter(isWork).sort();
+  const wcs=[...new Map(OPS.map(o=>[o.wc.id,o.wc])).values()].sort((a,b)=>(a.code||'')<(b.code||'')?-1:1);
+  let h='<table class="hm"><tr><th>Work Center</th>'+days.map(d=>`<th>${new Date(d+'T00:00:00Z').toLocaleDateString('th-TH',{weekday:'short',day:'2-digit',timeZone:'UTC'})}</th>`).join('')+'<th>OEE</th></tr>';
+  wcs.forEach(wc=>{const oee=oeeOf(wc),ln=linesOfWC(wc.id)||1;
+    h+=`<tr><td>${esc((wc.code||'').replace('WC-',''))}</td>`+days.map(d=>{const ds=winMs(d,0),de=winMs(d,1440);let busy=0;OPS.forEach(o=>{if(o.wc.id===wc.id&&o.s>=ds&&o.s<de)busy+=o.dur;});const avail=ln*WORK_MIN*oee;const u=avail?busy/avail:0;return `<td><div class="hc" title="${esc(wc.code)} ${d}: ${Math.round(busy)}m ÷ ${Math.round(avail)}m" style="background:${heatBand(u)};${u<.4?'color:#5a6470':''}">${u>0?Math.round(u*100)+'%':''}</div></td>`;}).join('')+`<td style="color:var(--muted);font-size:10px">${Math.round(oee*100)}%</td></tr>`;});
+  box.innerHTML=h+'</table>'+`<div style="color:var(--muted);font-size:10px;margin-top:6px">available = lines × ${WORK_MIN} min/day × OEE · OEE = A×P×Q (fallback oee_target)</div>`;
+}
+
+function renderBacklog(OPS){
+  const box=$('blList');
+  const schedIds=new Set(OPS.map(o=>o.uid));
+  const ok=w=>['NOT_STARTED','RELEASED'].includes(String(w.status))&&(+w.expected_duration_min>0)&&w.target_end_at&&w.earliest_start_at;
+  const blWO=Object.values(DATA.woById).filter(w=>ok(w)&&!schedIds.has(w.id));
+  const byMO={};blWO.forEach(w=>{(byMO[w.mo_id]=byMO[w.mo_id]||[]).push(w);});
+  const cards=Object.entries(byMO).map(([moId,ws])=>{const mo=DATA.moById[moId]||{};ws.sort((a,b)=>(a.sequence||0)-(b.sequence||0));
+    const sumH=ws.reduce((s,w)=>s+(+w.expected_duration_min||0),0)/60;
+    const route=ws.map(w=>{const lbl=DATA.opTypeOfWO[w.id];const c=opColor(lbl,'');return `<span class="rseg" style="background:var(--${c})" title="${esc(lbl||'')}">${esc((lbl||'?').slice(0,1))}</span>`;}).join('');
+    const due=mo.due_date?new Date(mo.due_date+'T00:00:00Z').toLocaleDateString('th-TH',{day:'2-digit',month:'short',timeZone:'UTC'}):'—';
+    return {mo,moId,n:ws.length,sumH,route,due};}).sort((a,b)=>String(a.mo.due_date||'').localeCompare(String(b.mo.due_date||'')));
+  $('blCount').textContent=cards.length+' รอจัด';
+  if(!cards.length){box.innerHTML=`<div class="stub">${OPS.length?'ทุกงานถูกจัดแล้ว ✓':'ไม่มีงานรอจัด (work_order ว่าง)'}</div>`;return;}
+  box.innerHTML=cards.map(c=>`<div class="wo-card"><div class="wo-top"><b>${esc(c.mo.mo_code||('MO '+c.moId))}</b><span>${c.n} ops</span></div><div class="wo-chips"><span class="c due">⏱ ${c.due}</span><span class="c">Σ ${c.sumH.toFixed(1)}h</span></div><div class="wo-route">${c.route}</div></div>`).join('');
 }
 
 function legend(OPS){const present=[...new Set(OPS.map(o=>o.color))];const NM={cut:'ตัด',fit:'ประกอบ',weld:'เชื่อม',blast:'พ่นทราย',paint:'พ่นสี',assy:'ประกอบรวม'};
