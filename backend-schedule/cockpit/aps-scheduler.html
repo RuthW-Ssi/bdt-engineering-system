@@ -125,6 +125,15 @@ function opColor(label,wccode){const c=(label||'').toUpperCase();
   if(c.includes('FIT'))return 'fit'; if(c.includes('CUT'))return 'cut';
   if(c.includes('ASSEMBL')||c.includes('FINAL'))return 'assy';
   return wcColor(wccode);}
+// process-family order (top→bottom): CUT · Machining · Build/Straighten · Gab(Grind)/Fit/Weld · Paint
+function familyRank(code){const c=(code||'').toUpperCase();
+  if(c.includes('CUT')||c.includes('SAW'))return 1;
+  if(c.includes('DRILL')||c.includes('PRESS')||c.includes('PUNCH')||c.includes('THREAD')||c.includes('TAP')||c.includes('BEND'))return 2;
+  if(c.includes('HBEAM')||c.includes('H-BEAM')||c.includes('BUILD')||c.includes('STRAIGHT'))return 3;
+  if(c.includes('FIT')||c.includes('WELD')||c.includes('GRIND')||c.includes('GAB')||c.includes('GAP'))return 4;
+  if(c.includes('SURFACE')||c.includes('BLAST')||c.includes('PAINT')||c.includes('PRIMER')||c.includes('COAT'))return 5;
+  return 9;}
+const byFamily=(A,B)=>familyRank(A)-familyRank(B) || (A<B?-1:A>B?1:0);
 
 async function load(){
   $('status').style.display='';$('app').style.display='none';
@@ -279,7 +288,7 @@ function ops(){
   });
 }
 function lines(){return DATA.ln.filter(l=>l.active&&DATA.wcById[l.workcenter_id]?.active)
-  .sort((a,b)=>{const A=DATA.wcById[a.workcenter_id].code,B=DATA.wcById[b.workcenter_id].code;return A<B?-1:A>B?1:a.line_no-b.line_no;});}
+  .sort((a,b)=>{const A=DATA.wcById[a.workcenter_id].code,B=DATA.wcById[b.workcenter_id].code;return byFamily(A,B)||a.line_no-b.line_no;});}
 
 function isWork(day){const wd=new Date(day+'T00:00:00Z').getUTCDay();return wd!==0 && !HOL.has(day);}
 function workWindows(t0,t1){const out=[];eachDay(bkkDay(t0),bkkDay(t1)).forEach(day=>{if(!isWork(day))return;SHIFTS.forEach(([s,e])=>out.push({s:winMs(day,s),e:winMs(day,e)}));});return out.filter(w=>w.e>=t0&&w.s<=t1).sort((a,b)=>a.s-b.s);}
@@ -334,7 +343,7 @@ function renderHeat(OPS){
   const box=$('heat');
   if(!OPS.length){box.innerHTML='<div class="stub">ไม่มีตาราง (prod_schedule ว่าง)</div>';return;}
   const days=[...new Set(OPS.map(o=>bkkDay(o.s)))].filter(isWork).sort();
-  const wcs=[...new Map(OPS.map(o=>[o.wc.id,o.wc])).values()].sort((a,b)=>(a.code||'')<(b.code||'')?-1:1);
+  const wcs=[...new Map(OPS.map(o=>[o.wc.id,o.wc])).values()].sort((a,b)=>byFamily(a.code||'',b.code||''));
   let h='<table class="hm"><tr><th>Work Center</th>'+days.map(d=>`<th>${new Date(d+'T00:00:00Z').toLocaleDateString('th-TH',{weekday:'short',day:'2-digit',timeZone:'UTC'})}</th>`).join('')+'<th>OEE</th></tr>';
   wcs.forEach(wc=>{const oee=oeeOf(wc),ln=linesOfWC(wc.id)||1;
     h+=`<tr><td>${esc((wc.code||'').replace('WC-',''))}</td>`+days.map(d=>{const ds=winMs(d,0),de=winMs(d,1440);let busy=0;OPS.forEach(o=>{if(o.wc.id===wc.id&&o.s>=ds&&o.s<de)busy+=o.dur;});const avail=ln*WORK_MIN*oee;const u=avail?busy/avail:0;return `<td><div class="hc" title="${esc(wc.code)} ${d}: ${Math.round(busy)}m ÷ ${Math.round(avail)}m" style="background:${heatBand(u)};${u<.4?'color:#5a6470':''}">${u>0?Math.round(u*100)+'%':''}</div></td>`;}).join('')+`<td style="color:var(--muted);font-size:10px">${Math.round(oee*100)}%</td></tr>`;});
