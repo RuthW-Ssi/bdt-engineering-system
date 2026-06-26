@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Upload } from 'lucide-react'
 
-const ACCEPTED_FORMATS = ['.xls', '.xlsx', '.csv']
+const DEFAULT_FORMATS = ['.xls', '.xlsx', '.csv']
 const MAX_SIZE_BYTES = 20_000_000
 
 export interface FileRejection {
@@ -14,17 +14,20 @@ interface Props {
   onFilesAdded: (accepted: File[], rejected: FileRejection[]) => void
   disabled?: boolean
   currentCount?: number
+  acceptedFormats?: string[]
+  hint?: string
 }
 
-function validateFile(file: File, currentCount: number, maxFiles: number): string | null {
+function validateFile(file: File, currentCount: number, maxFiles: number, formats: string[]): string | null {
   const ext = '.' + file.name.split('.').pop()?.toLowerCase()
-  if (!ACCEPTED_FORMATS.includes(ext)) return `Unsupported format ${ext} (only .xls, .xlsx, .csv accepted)`
+  if (!formats.includes(ext)) return `Unsupported format ${ext} (only ${formats.join(', ')} accepted)`
   if (file.size > MAX_SIZE_BYTES) return `File exceeds 20 MB (${(file.size / 1024 / 1024).toFixed(1)} MB)`
   if (currentCount >= maxFiles) return `Maximum ${maxFiles} files allowed`
   return null
 }
 
-export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, currentCount = 0 }: Props) {
+export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, currentCount = 0, acceptedFormats = DEFAULT_FORMATS, hint }: Props) {
+  const formats = acceptedFormats
   const [dragOver, setDragOver] = useState(false)
 
   const processFiles = (fileList: FileList) => {
@@ -33,7 +36,7 @@ export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, cur
     let runningCount = currentCount
 
     Array.from(fileList).forEach(file => {
-      const reason = validateFile(file, runningCount, maxFiles)
+      const reason = validateFile(file, runningCount, maxFiles, formats)
       if (reason) {
         rejected.push({ file, reason })
       } else {
@@ -87,14 +90,14 @@ export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, cur
         {dragOver ? 'Drop files here' : 'Drag files here, or click to select'}
       </div>
       <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-        .xls, .xlsx, .csv · max 20 MB / file · up to {maxFiles} files
+        {hint ?? `${formats.join(', ')} · max 20 MB / file · up to ${maxFiles} files`}
       </div>
 
       {/* Input คลุมทั้ง dropzone — คลิกที่ไหนก็เปิด file picker */}
       {!disabled && (
         <input
           type="file"
-          accept=".xls,.xlsx,.csv"
+          accept={formats.join(',')}
           multiple
           onChange={onInputChange}
           style={{

@@ -11,6 +11,9 @@ import { classifyFilename } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
 
+const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
+const NC_FORMATS = ['.nc1']
+
 interface FileEntry {
   file: File
   detectedType: DocType | null
@@ -24,6 +27,7 @@ export function BomUpload() {
   const [zoneId, setZoneId] = useState('')
   const [subZoneId, setSubZoneId] = useState('')
   const [files, setFiles] = useState<FileEntry[]>([])
+  const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
@@ -75,7 +79,9 @@ export function BomUpload() {
   }
 
   const validFiles = files.filter(e => !e.error && e.detectedType !== null)
-  const canSubmit = !!zoneId && validFiles.length >= 1 && !uploadMutation.isPending
+  const detectedTypes = validFiles.map(e => e.detectedType)
+  const hasAllBomTypes = REQUIRED_BOM_TYPES.every(t => detectedTypes.includes(t))
+  const canSubmit = !!zoneId && hasAllBomTypes && ncFiles.length >= 1 && !uploadMutation.isPending
 
   const handleSubmit = async () => {
     if (!activeProject || !canSubmit) return
@@ -87,9 +93,10 @@ export function BomUpload() {
     formData.append('zone_id', zoneId)
     if (subZoneId) formData.append('sub_zone_id', subZoneId)
     validFiles.forEach(e => {
-      formData.append('files', e.file)
+      formData.append('bom_files', e.file)
       formData.append('doc_types', e.detectedType!)
     })
+    ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
       const res = await uploadMutation.mutateAsync({
@@ -182,12 +189,12 @@ export function BomUpload() {
           </select>
         </div>
 
-        {/* Dropzone */}
+        {/* BOM Dropzone */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
             BOM Files <span style={{ color: '#C8202A' }}>*</span>
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              Assembly List, Assembly Part List, Part List
+              Assembly List, Assembly Part List, Part List (ครบ 3 ไฟล์)
             </span>
           </label>
           <FileDropzone
@@ -198,7 +205,7 @@ export function BomUpload() {
           />
         </div>
 
-        {/* File previews */}
+        {/* BOM File previews */}
         {files.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {files.map((entry, i) => (
@@ -210,6 +217,51 @@ export function BomUpload() {
                 onRemove={() => removeFile(i)}
                 onTypeChange={type => updateType(i, type)}
               />
+            ))}
+          </div>
+        )}
+
+        {/* NC Dropzone */}
+        <div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+            NC Files <span style={{ color: '#C8202A' }}>*</span>
+            <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
+              ไฟล์ .nc1 จาก Tekla (ใช้เป็น canonical source สำหรับ qty + dimensions)
+            </span>
+          </label>
+          <FileDropzone
+            maxFiles={200}
+            currentCount={ncFiles.length}
+            acceptedFormats={NC_FORMATS}
+            hint=".nc1 · max 20 MB / file · up to 200 files"
+            onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
+            disabled={false}
+          />
+        </div>
+
+        {/* NC File list */}
+        {ncFiles.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 2 }}>
+              NC FILES ({ncFiles.length})
+            </div>
+            {ncFiles.map((f, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '6px 10px', background: '#F5F5F5', borderRadius: 6,
+                  border: '1px solid #E0E0E0', fontSize: 12,
+                }}
+              >
+                <span style={{ color: '#333', fontFamily: 'monospace' }}>{f.name}</span>
+                <button
+                  onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))}
+                  style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -250,7 +302,7 @@ export function BomUpload() {
           >
             {uploadMutation.isPending
               ? <><Loader2 size={14} className="animate-spin" />Uploading...</>
-              : <><Upload size={14} />Upload ({validFiles.length})</>}
+              : <><Upload size={14} />Upload ({validFiles.length} BOM + {ncFiles.length} NC)</>}
           </button>
         </div>
       </div>
