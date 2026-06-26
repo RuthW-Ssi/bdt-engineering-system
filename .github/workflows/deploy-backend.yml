@@ -64,6 +64,13 @@ jobs:
             --cpu 1 \
             --allow-unauthenticated
 
+      - name: Route traffic to new revision
+        run: |
+          gcloud run services update-traffic ${{ env.SERVICE }} \
+            --to-latest \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }}
+
       - name: Show service URL
         run: |
           gcloud run services describe ${{ env.SERVICE }} \

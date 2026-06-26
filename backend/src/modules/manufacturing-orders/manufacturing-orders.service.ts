@@ -148,13 +148,17 @@ export class ManufacturingOrderService {
     }
 
     // Enrich operation activities with machine/tool names and current skills from Activity Library
+    type RawTool = { id: number; qty: number } | number
     type RawAct = {
       name: string; measure?: string | null; per_minute?: number | string | null
       source_activity_id?: number | null
-      machine_id?: number | null; tool_ids?: { id: number; qty: number }[] | null
+      machine_id?: number | null; tool_ids?: RawTool[] | null
       labors?: { skill: string; qty: number; level?: string | null }[] | null
       consumables?: { resource_id: number; code: string; name: string }[] | null
     }
+    const toolIdOf = (t: RawTool): number | null => typeof t === 'number' ? t : (t.id ?? null)
+    const toolQtyOf = (t: RawTool): number => typeof t === 'number' ? 1 : (t.qty ?? 1)
+
     const allResIds = new Set<number>()
     const activityIds = new Set<number>()
     const unlinkedNames = new Set<string>()
@@ -162,7 +166,7 @@ export class ManufacturingOrderService {
       const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
       for (const a of acts) {
         if (a.machine_id != null) allResIds.add(a.machine_id)
-        for (const t of a.tool_ids ?? []) allResIds.add(t.id)
+        for (const t of a.tool_ids ?? []) { const id = toolIdOf(t); if (id != null) allResIds.add(id) }
         if (a.source_activity_id != null) activityIds.add(a.source_activity_id)
         else if (a.name) unlinkedNames.add(a.name)
       }
@@ -206,7 +210,7 @@ export class ManufacturingOrderService {
           measure: a.measure ?? null,
           per_minute: a.per_minute != null ? Number(a.per_minute) : null,
           machine: a.machine_id != null ? (resMap.get(a.machine_id) ?? null) : null,
-          tools: (a.tool_ids ?? []).map(t => ({ ...(resMap.get(t.id) ?? { id: t.id, code: '', name: '' }), qty: t.qty })),
+          tools: (a.tool_ids ?? []).map(t => { const id = toolIdOf(t); const qty = toolQtyOf(t); return { ...(id != null ? (resMap.get(id) ?? { id, code: '', name: '' }) : { id: null, code: '', name: '' }), qty } }),
           labors: a.source_activity_id != null && skillMap.has(a.source_activity_id)
             ? skillMap.get(a.source_activity_id)!
             : (a.name && nameSkillMap.has(a.name) ? nameSkillMap.get(a.name)! : (a.labors ?? null)),
