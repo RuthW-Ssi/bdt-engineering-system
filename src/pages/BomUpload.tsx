@@ -241,28 +241,35 @@ export function BomUpload() {
 
         {/* NC File list */}
         {ncFiles.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 2 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>
               NC FILES ({ncFiles.length})
             </div>
-            {ncFiles.map((f, i) => (
-              <div
-                key={i}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '6px 10px', background: '#F5F5F5', borderRadius: 6,
-                  border: '1px solid #E0E0E0', fontSize: 12,
-                }}
-              >
-                <span style={{ color: '#333', fontFamily: 'monospace' }}>{f.name}</span>
-                <button
-                  onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))}
-                  style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer' }}
+            <div style={{
+              maxHeight: 180, overflowY: 'auto',
+              display: 'flex', flexDirection: 'column', gap: 4,
+              border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px 6px',
+              background: '#FAFAFA',
+            }}>
+              {ncFiles.map((f, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '4px 8px', background: 'white', borderRadius: 4,
+                    border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0,
+                  }}
                 >
-                  ✕
-                </button>
-              </div>
-            ))}
+                  <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                  <button
+                    onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))}
+                    style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

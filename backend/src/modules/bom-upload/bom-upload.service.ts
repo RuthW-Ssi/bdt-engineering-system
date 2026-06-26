@@ -461,7 +461,6 @@ export class BomUploadService {
       total_parts: parts.length,
       MATCHED_STANDARD: countByStatus(allRows, 'MATCHED_STANDARD'),
       MATCHED_CUSTOM: countByStatus(allRows, 'MATCHED_CUSTOM'),
-      AUTO_CREATED: countByStatus(allRows, 'AUTO_CREATED'),
       UNMATCHED: unmatched(allRows),
     }
 

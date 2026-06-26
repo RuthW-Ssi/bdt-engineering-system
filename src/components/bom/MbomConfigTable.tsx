@@ -183,21 +183,6 @@ function LockedStandardBadge({ productCode }: { productCode: string | null }) {
   )
 }
 
-const PART_STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  MATCHED_STANDARD: { bg: '#EAF3DE', color: '#27500A', label: 'Std' },
-  MATCHED_CUSTOM:   { bg: '#E6F1FB', color: '#0C447C', label: 'Cust' },
-  AUTO_CREATED:     { bg: '#F5F5F5', color: '#555',    label: 'Auto' },
-}
-
-function PartStatusBadge({ status }: { status: string | null }) {
-  const s = status ? PART_STATUS_STYLE[status] : null
-  if (!s) return <span style={{ color: '#AAA', fontSize: 9 }}>—</span>
-  return (
-    <span style={{ padding: '1px 5px', borderRadius: 3, fontSize: 9, fontWeight: 600, background: s.bg, color: s.color }}>
-      {s.label}
-    </span>
-  )
-}
 
 function PartRows({ parts }: { parts: AssemblyPartDto[] }) {
   const TOTAL_COLS = 9  // checkbox | mark | area | type | primer | inter | fireproof | topcoat | wire
@@ -227,7 +212,6 @@ function PartRows({ parts }: { parts: AssemblyPartDto[] }) {
                 {partPathTotal != null && (
                   <span style={{ color: '#4B9CD3' }}>{partPathTotal} m weld</span>
                 )}
-                <PartStatusBadge status={p.match_status} />
               </div>
             </td>
           </tr>

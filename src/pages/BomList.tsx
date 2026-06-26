@@ -9,8 +9,7 @@ import { useSubZones } from '../hooks/useSubZones'
 import { useActiveProject } from '../context/ProjectContext'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
-import { MatchStatusBadge } from '../components/bom/MatchStatusBadge'
-import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto, MatchStatus } from '../api/dispatches'
+import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto } from '../api/dispatches'
 
 type ContentTab = 'tree' | 'assemblies' | 'parts' | 'paint'
 
@@ -187,7 +186,6 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
               <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.total_weight_kg != null ? asm.total_weight_kg.toFixed(1) : '—'}</td>
               <td style={{ ...TD, textAlign: 'right', color: '#185FA5' }}>{asm.parts.length}</td>
               <td style={TD}>
-                {asm.match_status && <MatchStatusBadge status={asm.match_status as MatchStatus} size="xs" />}
               </td>
               <td style={{ ...TD, fontSize: 10, color: '#27500A', fontWeight: 600 }}>{asm.product?.product_code ?? '—'}</td>
             </tr>
@@ -298,7 +296,6 @@ function PartsTable({ assemblies, orphanParts }: { assemblies: AssemblyDto[]; or
                 {p.unit_weight_kg != null ? (p.unit_weight_kg * p.total_qty).toFixed(1) : '—'}
               </td>
               <td style={TD}>
-                {p.match_status && <MatchStatusBadge status={p.match_status as MatchStatus} size="xs" />}
               </td>
             </tr>
           ))}

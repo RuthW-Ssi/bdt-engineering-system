@@ -2,32 +2,16 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, ExternalLink } from 'lucide-react'
 import { useDispatchMapping } from '../../hooks/useBomDispatches'
-import { MatchStatusBadge } from './MatchStatusBadge'
-import type { MappedRowDto, MatchStatus } from '../../api/dispatches'
+import type { MappedRowDto } from '../../api/dispatches'
 
 // ── Summary Card ─────────────────────────────────────────────────────────────
 
-function SummaryCard({ summary }: { summary: { total_assemblies: number; total_parts: number; MATCHED_STANDARD: number; MATCHED_CUSTOM: number; AUTO_CREATED: number; UNMATCHED: number } }) {
-  const chips: { label: string; count: number; status: MatchStatus | null }[] = [
-    { label: 'Standard',  count: summary.MATCHED_STANDARD, status: 'MATCHED_STANDARD' },
-    { label: 'Custom',    count: summary.MATCHED_CUSTOM,   status: 'MATCHED_CUSTOM' },
-    { label: 'Auto',      count: summary.AUTO_CREATED,     status: 'AUTO_CREATED' },
-    { label: 'Unmatched', count: summary.UNMATCHED,        status: null },
-  ]
-
+function SummaryCard({ summary }: { summary: { total_assemblies: number; total_parts: number } }) {
   return (
-    <div style={{ padding: '12px 20px', borderBottom: '1px solid #E8E8E8', background: '#FAFAFA', display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+    <div style={{ padding: '12px 20px', borderBottom: '1px solid #E8E8E8', background: '#FAFAFA', display: 'flex', alignItems: 'center', gap: 24 }}>
       <span style={{ fontSize: 12, color: '#555', fontWeight: 600 }}>
         Assemblies {summary.total_assemblies} · Parts {summary.total_parts}
       </span>
-      <div style={{ display: 'flex', gap: 8 }}>
-        {chips.map(c => (
-          <div key={c.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <MatchStatusBadge status={c.status} size="xs" />
-            <span style={{ fontSize: 11, color: '#555', fontWeight: 600 }}>{c.count}</span>
-          </div>
-        ))}
-      </div>
     </div>
   )
 }
@@ -42,7 +26,6 @@ function MappingTable({ rows, markKey }: { rows: MappedRowDto[]; markKey: 'assem
       <thead>
         <tr style={{ background: '#F5F5F5', borderBottom: '1px solid #E8E8E8' }}>
           <th style={{ textAlign: 'left', padding: '6px 12px', color: '#555', fontWeight: 600 }}>Mark</th>
-          <th style={{ textAlign: 'left', padding: '6px 12px', color: '#555', fontWeight: 600 }}>Status</th>
           <th style={{ textAlign: 'left', padding: '6px 12px', color: '#555', fontWeight: 600 }}>Product</th>
         </tr>
       </thead>
@@ -52,9 +35,6 @@ function MappingTable({ rows, markKey }: { rows: MappedRowDto[]; markKey: 'assem
           return (
             <tr key={row.id} style={{ borderBottom: '1px solid #F0F0F0' }}>
               <td style={{ padding: '5px 12px', fontFamily: 'monospace', color: '#1F1F1F' }}>{mark}</td>
-              <td style={{ padding: '5px 12px' }}>
-                <MatchStatusBadge status={row.match_status} size="xs" />
-              </td>
               <td style={{ padding: '5px 12px' }}>
                 {row.product_code ? (
                   <button

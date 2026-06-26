@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
 import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
-import { MatchStatusBadge } from './MatchStatusBadge'
-import type { MatchStatus } from '../../api/dispatches'
 
 interface Props {
   assemblies: AssemblyDto[]
@@ -72,7 +70,6 @@ function AssemblyRow({
       </span>
 
       {/* Match status */}
-      {asm.match_status && <MatchStatusBadge status={asm.match_status as MatchStatus} size="xs" />}
 
       {/* Name */}
       {asm.name && (
@@ -167,7 +164,6 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
       </span>
 
       {/* Match status */}
-      {part.match_status && <MatchStatusBadge status={part.match_status as MatchStatus} size="xs" />}
 
       {/* Description */}
       <span className="flex-1 truncate" style={{ fontSize: 12, color: '#555' }}>

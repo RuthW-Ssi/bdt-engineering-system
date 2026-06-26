@@ -4,7 +4,7 @@ import { ProductCodeGenerator } from '../products/product-code.generator'
 
 type Tx = Omit<PrismaService, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
-export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM' | 'AUTO_CREATED'
+export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM'
 
 export interface MatchResult {
   product_id: number
@@ -186,7 +186,7 @@ export class BomMatchingService {
 
       await this.prisma.bom_assembly.update({
         where: { id: asm.id },
-        data: { product_id: product.id, match_status: 'AUTO_CREATED', write_uid: uid },
+        data: { product_id: product.id, match_status: 'MATCHED_CUSTOM', write_uid: uid },
       })
 
       this.logger.log(`autoCreate: ${asm.assembly_mark} → ${product.product_code} (lib: ${libEntry.name})`)
