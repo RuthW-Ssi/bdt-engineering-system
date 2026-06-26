@@ -9,7 +9,13 @@
   .sched-center{display:flex;flex-direction:column;gap:12px}
   .stub{padding:24px;color:var(--muted);text-align:center;font-size:12px;line-height:1.6}
   #status{padding:40px;text-align:center;color:var(--muted)}
-  .wc-grp{height:21px;line-height:18px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:0 12px;background:#f3f5f8;border-bottom:1px solid #eef1f4;font-family:var(--font-head);overflow:hidden}
+  .wc-hd{display:flex;align-items:center;gap:6px;padding:0 8px;font-family:var(--font-head);font-size:11px;font-weight:600;color:var(--ink);background:#f3f5f8;border-bottom:1px solid #eef1f4;cursor:pointer;text-transform:uppercase;letter-spacing:.3px;white-space:nowrap;overflow:hidden}
+  .wc-hd:hover{background:#eaeff5}
+  .wc-hd .arr{width:10px;flex:0 0 10px;color:var(--muted);font-size:10px}
+  .wc-hd .wc-n{margin-left:auto;font-family:var(--font-mono);font-size:9px;color:var(--muted);font-weight:400;text-transform:none}
+  .res-col .res-cell.ln{padding-left:24px;font-size:12px;white-space:nowrap;overflow:hidden}
+  .res-col .res-cell.ln small{color:var(--muted)}
+  .res-col .res-cell.ln .sub-t{color:var(--accent);font-weight:600}
   #fourm{display:flex;flex-direction:column;gap:10px}
   .fmrow{padding:12px}
   .fmrow h4{margin:0 0 8px;font-family:var(--font-head);font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px}
@@ -104,7 +110,7 @@ const esc=s=>String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','
 function winMs(day,mins){return Date.parse(`${day}T${pad(Math.floor(mins/60))}:${pad(mins%60)}:00+07:00`);}
 function eachDay(d0,d1){const out=[];let d=new Date(d0+'T00:00:00Z'),end=new Date(d1+'T00:00:00Z'),g=0;while(d<=end&&g<400){out.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1);g++;}return out;}
 
-let DATA=null, VER="EVENTBASED-V1", pxh=22, selUid=null;
+let DATA=null, VER="EVENTBASED-V1", pxh=22, selUid=null, collapsed=new Set();
 let SEG=[], totalW=0, HOL=new Set();
 
 function wcColor(code){const c=(code||'').toUpperCase();
@@ -123,26 +129,29 @@ function opColor(label,wccode){const c=(label||'').toUpperCase();
 async function load(){
   $('status').style.display='';$('app').style.display='none';
   try{
-    const [vers,ps,wo,mo,wc,ln,hol,routWC,opTypes]=await Promise.all([
+    const [vers,ps,wo,mo,wc,ln,hol,routWC,opTypes,ba]=await Promise.all([
       q('prod_schedule_version','id,version_code,description,scheduler_source','&order=id.asc'),
       q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=5000'),
-      q('work_order','id,wo_code,mo_id,sequence,expected_duration_min,target_end_at,earliest_start_at,source_routing_op_id,status','&limit=5000'),
+      q('work_order','id,wo_code,mo_id,sequence,expected_duration_min,target_end_at,earliest_start_at,source_routing_op_id,status,bom_assembly_id','&limit=5000'),
       q('manufacturing_order','id,mo_code,due_date'),
       q('mrp_workcenter','id,code,name,active,availability,performance,quality,oee_target'),
       q('mrp_workcenter_line','id,workcenter_id,line_no,labor_mode,crew_size,active','&limit=500'),
       q('calendar_exception','date,is_working','&is_working=eq.false'),
       q('mrp_routing_workcenter','id,op_type_id'),
       q('mrp_op_type','id,key,label'),
+      q('bom_assembly','id,assembly_mark,name','&limit=5000'),
     ]);
     const woById=Object.fromEntries(wo.map(w=>[w.id,w]));
     const opLabel=Object.fromEntries(opTypes.map(o=>[o.id,o.label||o.key]));
     const opOfRout=Object.fromEntries(routWC.map(r=>[r.id,opLabel[r.op_type_id]||null]));
     const opTypeOfWO={}; wo.forEach(w=>opTypeOfWO[w.id]=opOfRout[w.source_routing_op_id]||null);
+    const baById=Object.fromEntries((ba||[]).map(a=>[a.id,a]));
+    const markOfWO={}; wo.forEach(w=>{const a=baById[w.bom_assembly_id];markOfWO[w.id]=a?a.assembly_mark:null;});
     HOL=new Set((hol||[]).map(h=>h.date));
     const withRows=new Set(ps.map(p=>p.prod_schedule_version_id));
     const usable=vers.filter(v=>withRows.has(v.id));
     DATA={vers:usable,ps,woById,moById:Object.fromEntries(mo.map(m=>[m.id,m])),
-          wcById:Object.fromEntries(wc.map(w=>[w.id,w])),lnById:Object.fromEntries(ln.map(l=>[l.id,l])),ln,opTypeOfWO};
+          wcById:Object.fromEntries(wc.map(w=>[w.id,w])),lnById:Object.fromEntries(ln.map(l=>[l.id,l])),ln,opTypeOfWO,markOfWO,baById};
     if(!usable.some(v=>v.version_code===VER)) VER=usable[0]?.version_code||VER;
     buildVerSeg();
     $('status').style.display='none';$('app').style.display='';
@@ -266,7 +275,7 @@ function ops(){
     const due=w.target_end_at?Date.parse(w.target_end_at):null, late=due&&e>due;
     const opLabel=DATA.opTypeOfWO[p.work_order_id];
     return {uid:p.work_order_id, wo:w, mo:DATA.moById[w.mo_id]||{}, line:l, wc:wcc, s, e, due, late,
-            dur:+w.expected_duration_min||0, opLabel, color:opColor(opLabel,wcc.code)};
+            mark:DATA.markOfWO[p.work_order_id]||w.wo_code, dur:+w.expected_duration_min||0, opLabel, color:opColor(opLabel,wcc.code)};
   });
 }
 function lines(){return DATA.ln.filter(l=>l.active&&DATA.wcById[l.workcenter_id]?.active)
@@ -285,21 +294,27 @@ function render(){
   if(!OPS.length){$('tlbody').innerHTML='';$('resCells').innerHTML='';$('duelane').innerHTML='';$('tlhead').innerHTML='';kpis(OPS);renderBacklog(OPS);renderHeat(OPS);render4M();foot(OPS);return;}
   const t0=Math.min(...OPS.map(o=>o.s)), t1=Math.max(...OPS.map(o=>o.e));
   buildSeg(t0,t1);
-  // resource column
-  let curWC=null;
-  $('resCells').innerHTML=L.map(l=>{const wcc=DATA.wcById[l.workcenter_id];let head='';if(wcc.code!==curWC){curWC=wcc.code;head=`<div class="wc-grp">${esc(wcc.code.replace('WC-',''))}</div>`;}
-    return head+`<div class="res-cell"><span class="res-dot" style="background:var(--${wcColor(wcc.code)})"></span><div>L${l.line_no}${l.labor_mode==='subcontract'?' ·sub':''}<br><small>${esc(wcc.name||'')}</small></div></div>`;}).join('');
-  // align: res cells include group headers, so row offset must match body. We render body rows aligned to res-cells excluding headers -> use a row index over L only, and add the same group-header spacers in body.
+  // ---- tree layout: WC header (collapsible) + visible line rows ----
+  const HG=24, HR=40;
+  const wcOrder=[], wcLines={};
+  L.forEach(l=>{if(!wcLines[l.workcenter_id]){wcLines[l.workcenter_id]=[];wcOrder.push(l.workcenter_id);}wcLines[l.workcenter_id].push(l);});
+  let y=0; const rowY={}; let resHtml='', bodyBg='', li=0;
+  wcOrder.forEach(wid=>{const wcc=DATA.wcById[wid], col=wcColor(wcc.code), isC=collapsed.has(wid), lns=wcLines[wid];
+    resHtml+=`<div class="wc-hd" data-wc="${wid}" style="height:${HG}px"><span class="arr">${isC?'▸':'▾'}</span><span class="res-dot" style="background:var(--${col})"></span>${esc(wcc.code.replace('WC-',''))}<span class="wc-n">${lns.length}L</span></div>`;
+    bodyBg+=`<div class="row-bg" style="top:${y}px;height:${HG}px;background:#f3f5f8"></div>`; y+=HG;
+    if(!isC) lns.forEach(l=>{rowY[l.id]=y;
+      resHtml+=`<div class="res-cell ln" style="height:${HR}px">L${l.line_no}${l.labor_mode==='subcontract'?' <span class="sub-t">·sub</span>':''} <small>(${l.crew_size||1}p)</small></div>`;
+      bodyBg+=`<div class="row-bg ${li++%2?'alt':''}" style="top:${y}px"></div>`; y+=HR;});
+  });
+  $('resCells').innerHTML=resHtml;
+  $('resCells').querySelectorAll('.wc-hd').forEach(h=>h.onclick=()=>{const id=+h.dataset.wc;collapsed.has(id)?collapsed.delete(id):collapsed.add(id);render();});
   $('tlhead').innerHTML=dayGroups().map(([d,g])=>{const dd=new Date(d+'T00:00:00Z');return `<div class="tl-day" style="left:${g.x0}px;width:${g.x1-g.x0}px"><b>${dd.toLocaleDateString('th-TH',{weekday:'short',timeZone:'UTC'})}</b> ${dd.toLocaleDateString('th-TH',{day:'2-digit',month:'short',timeZone:'UTC'})}</div>`;}).join('');
   $('tlhead').style.width=totalW+'px';
-  const body=$('tlbody');body.style.width=totalW+'px';
-  // build row y-map matching res-col (which has group headers ~22px + cells 40px)
-  let y=0; const rowY={}; curWC=null; let html='';
-  L.forEach(l=>{const wcc=DATA.wcById[l.workcenter_id];if(wcc.code!==curWC){curWC=wcc.code;html+=`<div style="position:absolute;left:0;right:0;height:21px;top:${y}px;border-bottom:1px solid #eef1f4;background:#f3f5f8"></div>`;y+=21;}rowY[l.id]=y;html+=`<div class="row-bg ${Object.keys(rowY).length%2?'':'alt'}" style="top:${y}px"></div>`;y+=40;});
-  body.style.height=y+'px';
+  const body=$('tlbody');body.style.width=totalW+'px';body.style.height=y+'px';
+  let html=bodyBg;
   SEG.filter(s=>s.t==='o').forEach(s=>{html+=`<div class="offband" style="left:${s.x0}px;width:${s.x1-s.x0}px"></div>`;});
   const lateOnly=$('lateOnly').checked;
-  OPS.forEach(o=>{if(rowY[o.line.id]==null)return;const x0=X(o.s),x1=X(o.e),w=Math.max(7,x1-x0);const dim=lateOnly&&!o.late?' dim':'';const sel=o.uid===selUid?' sel':'';const lbl=w>40?`<span>${esc(o.wo.wo_code||'')} · ${esc(o.opLabel||'')}</span>`:'';
+  OPS.forEach(o=>{if(rowY[o.line.id]==null)return;const x0=X(o.s),x1=X(o.e),w=Math.max(7,x1-x0);const dim=lateOnly&&!o.late?' dim':'';const sel=o.uid===selUid?' sel':'';const lbl=w>40?`<span>${esc(o.mark||'')}${o.opLabel?' · '+esc(o.opLabel):''}</span>`:'';
     html+=`<div class="bar${o.late?' late':''}${sel}${dim}" data-uid="${o.uid}" style="left:${x0}px;top:${rowY[o.line.id]+8}px;width:${w}px;background:var(--${o.color})">${lbl}</div>`;});
   body.innerHTML=html;
   body.querySelectorAll('.bar').forEach(b=>{b.onclick=()=>{selUid=b.dataset.uid;render();};b.onmousemove=e=>tip(e,b.dataset.uid);b.onmouseleave=hideTip;});
@@ -358,19 +373,21 @@ function kpis(OPS){
 function detail(){
   const p=$('panel');const o=ops().find(x=>x.uid===selUid);
   if(!o){p.innerHTML='<div class="empty">คลิกแท่งงานเพื่อดูรายละเอียด</div>';return;}
-  p.innerHTML=`<div style="font-family:var(--font-head);font-size:16px;font-weight:600">${esc(o.wo.wo_code||'')} <span style="color:var(--muted);font-weight:400">${esc(o.mo.mo_code||'')}</span></div>
+  const aname=(DATA.baById[o.wo.bom_assembly_id]||{}).name||'';
+  p.innerHTML=`<div style="font-family:var(--font-head);font-size:16px;font-weight:600">${esc(o.mark||'')} <span style="color:var(--muted);font-weight:400">${esc(aname)}</span></div>
     <span class="pill ${o.late?'late':'ok'}">${o.late?'สาย (LATE)':'ตรงเวลา'}</span>
-    <dl class="dl"><dt>Operation</dt><dd>${esc(o.opLabel||'—')}</dd><dt>Work Center</dt><dd>${esc(o.wc.name||'')}</dd>
-    <dt>Line</dt><dd>L${o.line.line_no} (${o.line.crew_size||1}p${o.line.labor_mode==='subcontract'?' ·sub':''})</dd>
+    <dl class="dl"><dt>Assembly mark</dt><dd>${esc(o.mark||'—')}</dd><dt>Operation</dt><dd>${esc(o.opLabel||'—')}</dd>
+    <dt>Work Center</dt><dd>${esc(o.wc.name||'')}</dd><dt>Line</dt><dd>L${o.line.line_no} (${o.line.crew_size||1}p${o.line.labor_mode==='subcontract'?' ·sub':''})</dd>
     <dt>เริ่ม</dt><dd class="mono">${fmt(o.s)}</dd><dt>เสร็จ</dt><dd class="mono">${fmt(o.e)}</dd>
-    <dt>ระยะเวลา</dt><dd>${o.dur} นาที</dd><dt>กำหนดส่ง</dt><dd class="mono">${o.due?fmt(o.due,{day:'2-digit',month:'short'}):'—'}</dd></dl>`;
+    <dt>ระยะเวลา</dt><dd>${o.dur} นาที</dd><dt>กำหนดส่ง</dt><dd class="mono">${o.due?fmt(o.due,{day:'2-digit',month:'short'}):'—'}</dd>
+    <dt>WO / MO</dt><dd>${esc(o.wo.wo_code||'')} · ${esc(o.mo.mo_code||'')}</dd></dl>`;
 }
 
 const tipEl=$('tip');
-function tip(e,uid){const o=ops().find(x=>x.uid===uid);if(!o)return;tipEl.innerHTML=`<b>${esc(o.wo.wo_code||'')}</b> · ${esc(o.opLabel||'')}<br>${esc(o.wc.name||'')} · L${o.line.line_no}<br>${fmtH(o.s)}–${fmtH(o.e)} (${(o.dur)}m)${o.late?'<br><span style="color:#fca5a5">⚠ งานสาย</span>':''}`;tipEl.style.opacity=1;tipEl.style.left=Math.min(window.innerWidth-250,e.clientX+14)+'px';tipEl.style.top=(e.clientY+14)+'px';}
+function tip(e,uid){const o=ops().find(x=>x.uid===uid);if(!o)return;tipEl.innerHTML=`<b>${esc(o.mark||'')}</b> · ${esc(o.opLabel||'')}<br>${esc(o.wc.name||'')} · L${o.line.line_no}<br>${fmtH(o.s)}–${fmtH(o.e)} (${(o.dur)}m)${o.late?'<br><span style="color:#fca5a5">⚠ งานสาย</span>':''}`;tipEl.style.opacity=1;tipEl.style.left=Math.min(window.innerWidth-250,e.clientX+14)+'px';tipEl.style.top=(e.clientY+14)+'px';}
 function hideTip(){tipEl.style.opacity=0;}
 
-function foot(OPS){const late=OPS.filter(o=>o.late).map(o=>o.wo.wo_code);$('foot').innerHTML=`Version: <b>${esc(VER)}</b> · operations: ${OPS.length} · งานสาย: ${late.length?esc(late.slice(0,8).join(', '))+(late.length>8?` +${late.length-8}`:''):'ไม่มี'}<br>read-only view · SP2 (Resource Gantt) · Backlog + Heatmap = SP3 · drag-drop edit = SP4`;}
+function foot(OPS){const late=[...new Set(OPS.filter(o=>o.late).map(o=>o.mark))];$('foot').innerHTML=`Version: <b>${esc(VER)}</b> · operations: ${OPS.length} · assembly สาย: ${late.length?esc(late.slice(0,8).join(', '))+(late.length>8?` +${late.length-8}`:''):'ไม่มี'}<br>read-only view · คลิก ▾ ที่ Work Center เพื่อย่อ/ขยาย · drag-drop edit = SP4`;}
 
 $('verSeg').onclick=e=>{if(e.target.dataset.v){VER=e.target.dataset.v;selUid=null;render();}};
 $('lateOnly').onchange=render;
