@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Parser } from 'expr-eval'
-import { WoCodeGenerator } from './wo-code.generator'
 
 /**
  * T-WO.03 · Auto-create Work Orders when an MO becomes CONFIRMED.
@@ -23,7 +22,7 @@ import { WoCodeGenerator } from './wo-code.generator'
 export class WorkOrderAutoCreateService {
   private readonly parser = new Parser()
 
-  constructor(private readonly codeGen: WoCodeGenerator) {}
+  constructor() {}
 
   /** Returns the number of WOs created (0 if already present). */
   async createForMo(
@@ -78,13 +77,26 @@ export class WorkOrderAutoCreateService {
     `
     const formulaMap = new Map(formulaRows.map(r => [r.code, r.formula_expression]))
 
-    let created = 0
+    const woCount = lines.length * ops.length
+    if (woCount === 0) return 0
+
+    // Batch-allocate all WO codes in one SELECT FOR UPDATE + UPDATE round-trip
+    // (avoids N×M sequential lock acquisitions that timeout on large MOs)
+    const seq = await tx.$queryRaw<{ next_val: number }[]>`
+      SELECT next_val FROM work_order_code_seq WHERE id = 1 FOR UPDATE
+    `
+    const firstCode = seq[0].next_val
+    await tx.$executeRaw`
+      UPDATE work_order_code_seq SET next_val = ${firstCode + woCount} WHERE id = 1
+    `
+
+    let codeIdx = 0
+    const woData: Prisma.work_orderCreateManyInput[] = []
+
     for (const line of lines) {
       const bom = line.bom_assembly
       const dispatchId = bom.dispatch_id
 
-      // BOM dimension variables available in Phase 1
-      // Phase 2 will add weld_length_mm, hole_count, bend_count, tack_points from separate tables
       const vars: Record<string, number> = {
         cut_length_mm:       Number(bom.length_mm      ?? 0),
         weld_length_mm:      Number(bom.length_mm      ?? 0),
@@ -107,26 +119,26 @@ export class WorkOrderAutoCreateService {
 
       for (const op of ops) {
         const expected_duration_min = this.computeDuration(op, vars, formulaMap)
-        const wo_code = await this.codeGen.generate(tx)
-        await tx.work_order.create({
-          data: {
-            wo_code,
-            mo_id: moId,
-            source_routing_op_id: op.id,
-            sequence: op.sequence,
-            work_center_id: op.workcenter_id,
-            expected_duration_min,
-            setup_time_min: 0,
-            bom_assembly_id: line.bom_assembly_id,
-            bom_dispatch_id_snapshot: dispatchId,
-            status: 'NOT_STARTED',
-            created_by: userName,
-          },
+        const wo_code = `WO-${(firstCode + codeIdx).toString().padStart(8, '0')}`
+        codeIdx++
+        woData.push({
+          wo_code,
+          mo_id: moId,
+          source_routing_op_id: op.id,
+          sequence: op.sequence,
+          work_center_id: op.workcenter_id,
+          expected_duration_min,
+          setup_time_min: 0,
+          bom_assembly_id: line.bom_assembly_id,
+          bom_dispatch_id_snapshot: dispatchId,
+          status: 'NOT_STARTED',
+          created_by: userName,
         })
-        created++
       }
     }
-    return created
+
+    await tx.work_order.createMany({ data: woData })
+    return woCount
   }
 
   private computeDuration(
