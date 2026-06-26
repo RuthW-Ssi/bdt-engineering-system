@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { BomUploadService, FileInput } from './bom-upload.service'
+import { BomUploadService, FileInput, NcFileInput } from './bom-upload.service'
 import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -25,6 +25,7 @@ function buildPrisma() {
       count: jest.fn().mockResolvedValue(1),
       findMany: jest.fn().mockResolvedValue([makeDispatchRow()]),
       findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     bom_doc_revision: {
       findMany: jest.fn().mockResolvedValue([makeRevisionRow()]),
@@ -131,6 +132,29 @@ function makeFileInput(overrides: Partial<FileInput> = {}): FileInput {
   }
 }
 
+function makeNcInput(partMark: string, qty = 1): NcFileInput {
+  const content = [
+    'ST',
+    `** ${partMark}.nc1`,
+    '  CONTRACT',
+    `  ${partMark}`,
+    '  1',
+    `  ${partMark}`,
+    '  S275',
+    `  ${qty}`,
+    '  PL10',
+    'B',
+    '    1000.00',
+    '     100.00',
+    '      10.00',
+    '       0.00',
+    '       0.00',
+    '       0.00',
+    '      78.50',
+  ].join('\n')
+  return { buffer: Buffer.from(content), originalname: `${partMark}.nc1` }
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('BomUploadService.upload()', () => {
@@ -140,7 +164,7 @@ describe('BomUploadService.upload()', () => {
     const parser = makeParser()
     const svc = new BomUploadService(prisma as any, storage as any, parser as any, makeMatching() as any)
 
-    await svc.upload([makeFileInput()], 1, 2, null, 99)
+    await svc.upload([makeFileInput()], [], 1, 2, null, 99)
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(fs.writeFileSync).toHaveBeenCalledTimes(1)
@@ -157,7 +181,7 @@ describe('BomUploadService.upload()', () => {
 
     const prisma = {
       $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
-      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDetailRow()) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDetailRow()), findFirst: jest.fn().mockResolvedValue(null) },
       bom_doc_revision: { findMany: jest.fn() },
       bom_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
@@ -172,6 +196,7 @@ describe('BomUploadService.upload()', () => {
     const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any)
     await svc.upload(
       [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' })],
+      [makeNcInput('P1', 1)],
       1, 2, null, 1,
     )
 
@@ -188,14 +213,14 @@ describe('BomUploadService.upload()', () => {
 
     const prisma = {
       $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
-      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDetailRow()) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDetailRow()), findFirst: jest.fn().mockResolvedValue(null) },
       bom_doc_revision: { findMany: jest.fn() },
       bom_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
 
     const parser = makeParser({ assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] })
     const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any)
-    await svc.upload([makeFileInput()], 1, 2, null, 1)
+    await svc.upload([makeFileInput()], [], 1, 2, null, 1)
 
     expect(capturedStatus).toBe('partial')
   })
@@ -206,19 +231,19 @@ describe('BomUploadService.upload()', () => {
     }
     const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
 
-    await expect(svc.upload([makeFileInput()], 1, 2, null, 1)).rejects.toThrow('DB down')
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1)).rejects.toThrow('DB down')
     expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
   })
 
   it('throws BadRequestException when no files provided', async () => {
     const svc = makeSvc()
-    await expect(svc.upload([], 1, 2, null, 1)).rejects.toThrow(BadRequestException)
+    await expect(svc.upload([], [], 1, 2, null, 1)).rejects.toThrow(BadRequestException)
   })
 
   it('throws BadRequestException when file exceeds 50 MB', async () => {
     const svc = makeSvc()
     const big: FileInput = makeFileInput({ size: 51 * 1024 * 1024 })
-    await expect(svc.upload([big], 1, 2, null, 1)).rejects.toThrow(BadRequestException)
+    await expect(svc.upload([big], [], 1, 2, null, 1)).rejects.toThrow(BadRequestException)
   })
 
   it('throws BadRequestException when duplicate doc_type provided', async () => {
@@ -226,7 +251,7 @@ describe('BomUploadService.upload()', () => {
     await expect(
       svc.upload(
         [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'ASSEMBLY_LIST', originalname: 'assembly_list2.xlsx' })],
-        1, 2, null, 1,
+        [], 1, 2, null, 1,
       ),
     ).rejects.toThrow(BadRequestException)
   })
@@ -237,7 +262,7 @@ describe('BomUploadService.upload()', () => {
     const f = makeFileInput({ mimetype: 'application/octet-stream', originalname: 'assembly_list.xlsx' })
 
     // Should NOT throw — extension override
-    await expect(svc.upload([f], 1, 2, null, 1)).resolves.toBeDefined()
+    await expect(svc.upload([f], [], 1, 2, null, 1)).resolves.toBeDefined()
   })
 })
 

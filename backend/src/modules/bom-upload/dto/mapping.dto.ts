@@ -21,7 +21,6 @@ export interface MappingSummaryDto {
   total_parts: number
   MATCHED_STANDARD: number
   MATCHED_CUSTOM: number
-  AUTO_CREATED: number
   UNMATCHED: number
 }
 

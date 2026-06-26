@@ -10,6 +10,8 @@ import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
 import type { BomDocType } from './filename-classifier'
+import { parseNcFile } from './nc-parser'
+import type { NcFileParsed } from './nc-parser'
 import type { QueryDispatchDto } from './dto/dispatch.dto'
 import type { DispatchMappingDto } from './dto/mapping.dto'
 
@@ -29,6 +31,11 @@ export interface FileInput {
   docType: BomDocType
 }
 
+export interface NcFileInput {
+  buffer: Buffer
+  originalname: string
+}
+
 @Injectable()
 export class BomUploadService {
   private readonly logger = new Logger(BomUploadService.name)
@@ -44,6 +51,7 @@ export class BomUploadService {
 
   async upload(
     files: FileInput[],
+    ncFiles: NcFileInput[],
     projectId: number,
     zoneId: number,
     subZoneId: number | null,
@@ -57,6 +65,28 @@ export class BomUploadService {
     for (const f of files) {
       parsed.set(f.docType, this.parser.parse(f.buffer, f.docType))
     }
+
+    // 3. Parse NC files → build canonical map (part_mark → NC data)
+    const ncMap = new Map<string, NcFileParsed>()
+    for (const nc of ncFiles) {
+      const data = parseNcFile(nc.originalname, nc.buffer.toString('utf-8'))
+      ncMap.set(data.partMark, data)
+    }
+
+    // 4. Validate: every unique part_mark in Part List must have a matching NC file
+    const rawPartList = parsed.get('PART_LIST')
+    if (rawPartList?.parts.length) {
+      const uniqueMarks = [...new Set(rawPartList.parts.map(p => p.part_mark))]
+      const missing = uniqueMarks.filter(m => !ncMap.has(m))
+      if (missing.length > 0) {
+        throw new BadRequestException(
+          `Missing NC files for part marks: ${missing.join(', ')}`,
+        )
+      }
+    }
+
+    // 5. Deduplicate Part List by part_mark; use NC data as canonical source
+    const dedupedParts = this.buildDedupedParts(rawPartList?.parts ?? [], ncMap)
 
     // 3. Save files to storage (outside transaction — I/O first)
     const now = new Date()
@@ -72,11 +102,10 @@ export class BomUploadService {
       savedKeys.push({ docType: f.docType, key, sha256 })
     }
 
-    // 4. Atomic transaction: dispatch + doc_revisions + assemblies + parts + junctions only
+    // 6. Atomic transaction: dispatch + doc_revisions + assemblies + parts + junctions only
     //    Matching runs after commit to avoid long-running transaction timeouts over high-latency DBs.
     try {
       const asmList = parsed.get('ASSEMBLY_LIST')
-      const partList = parsed.get('PART_LIST')
       const asmPartList = parsed.get('ASSEMBLY_PART_LIST')
 
       const { dispatchId, assemblyIdByMark, partIdByMark } = await this.prisma.$transaction(async tx => {
@@ -130,11 +159,11 @@ export class BomUploadService {
           for (const row of rows) assemblyIdByMark.set(row.assembly_mark, row.id)
         }
 
-        // bom_part rows — batch insert, get IDs back in one round-trip
+        // bom_part rows — batch insert, get IDs back in one round-trip (deduplicated via NC)
         const partIdByMark = new Map<string, number>()
-        if (partList?.parts.length) {
+        if (dedupedParts.length) {
           const rows = await tx.bom_part.createManyAndReturn({
-            data: partList.parts.map(p => ({
+            data: dedupedParts.map(p => ({
               dispatch_id: d.id,
               part_mark: p.part_mark,
               description: p.description,
@@ -170,7 +199,7 @@ export class BomUploadService {
 
         // Determine initial status based on file presence (matching runs after commit)
         const hasAssembly = (asmList?.assemblies.length ?? 0) > 0
-        const hasPart = (partList?.parts.length ?? 0) > 0
+        const hasPart = dedupedParts.length > 0
         const status = hasAssembly && hasPart ? 'complete' : hasAssembly || hasPart ? 'partial' : 'pending'
 
         await tx.bom_dispatch.update({
@@ -178,7 +207,7 @@ export class BomUploadService {
           data: {
             status,
             assembly_total: asmList?.assemblies.length ?? null,
-            part_total: partList?.parts.length ?? null,
+            part_total: dedupedParts.length || null,
             write_uid: uid,
           },
         })
@@ -198,8 +227,8 @@ export class BomUploadService {
         await this.matching.matchAssemblies(this.prisma, asmRows, projectId, uid)
       }
 
-      if (partList?.parts.length) {
-        const partRows = partList.parts.map(p => ({
+      if (dedupedParts.length) {
+        const partRows = dedupedParts.map(p => ({
           id: partIdByMark.get(p.part_mark)!,
           part_mark: p.part_mark,
           profile: p.profile ?? null,
@@ -432,7 +461,6 @@ export class BomUploadService {
       total_parts: parts.length,
       MATCHED_STANDARD: countByStatus(allRows, 'MATCHED_STANDARD'),
       MATCHED_CUSTOM: countByStatus(allRows, 'MATCHED_CUSTOM'),
-      AUTO_CREATED: countByStatus(allRows, 'AUTO_CREATED'),
       UNMATCHED: unmatched(allRows),
     }
 
@@ -533,6 +561,53 @@ export class BomUploadService {
       FROM (VALUES ${Prisma.join(rows)}) AS v(aid, ms, pid)
       WHERE ba.id = v.aid::int
     `)
+  }
+
+  private buildDedupedParts(
+    parts: ParsedBomFile['parts'],
+    ncMap: Map<string, NcFileParsed>,
+  ): ParsedBomFile['parts'] {
+    const seen = new Set<string>()
+    const result: ParsedBomFile['parts'] = []
+
+    for (const p of parts) {
+      if (seen.has(p.part_mark)) continue
+      seen.add(p.part_mark)
+
+      const nc = ncMap.get(p.part_mark)
+      if (!nc) {
+        result.push(p)
+        continue
+      }
+
+      // Warn on qty mismatch (NC is canonical)
+      const xlsQtySum = parts
+        .filter(x => x.part_mark === p.part_mark)
+        .reduce((s, x) => s + (x.qty ?? 0), 0)
+      if (nc.qty !== xlsQtySum) {
+        this.logger.warn(
+          `part_mark=${p.part_mark}: NC qty=${nc.qty} ≠ Part List sum=${xlsQtySum} — using NC qty`,
+        )
+      }
+
+      // Warn on grade mismatch
+      if (nc.grade && p.grade && nc.grade !== p.grade) {
+        this.logger.warn(
+          `part_mark=${p.part_mark}: grade mismatch NC="${nc.grade}" vs BOM="${p.grade}" — using NC`,
+        )
+      }
+
+      result.push({
+        ...p,
+        qty: nc.qty,
+        grade: nc.grade ?? p.grade,
+        profile: nc.profileBase ?? p.profile,
+        length_mm: nc.lengthMm ?? p.length_mm,
+        weight_kg: nc.weightKg ?? p.weight_kg,
+      })
+    }
+
+    return result
   }
 
   private validateFiles(files: FileInput[]) {

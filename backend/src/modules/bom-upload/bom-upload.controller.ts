@@ -4,11 +4,11 @@ import {
   ParseIntPipe, UseGuards, BadRequestException,
   Res, HttpStatus, HttpCode,
 } from '@nestjs/common'
-import { FilesInterceptor } from '@nestjs/platform-express'
+import { FileFieldsInterceptor } from '@nestjs/platform-express'
 import { ApiTags, ApiOperation, ApiConsumes, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
 import { memoryStorage } from 'multer'
 import type { Response } from 'express'
-import { BomUploadService, FileInput } from './bom-upload.service'
+import { BomUploadService, FileInput, NcFileInput } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { classifyFilename } from './filename-classifier'
@@ -39,28 +39,36 @@ export class BomUploadController {
   ) {}
 
   @Post('bom/upload')
-  @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List)' })
+  @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List) + NC files' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['project_id', 'zone_id', 'files', 'doc_types'],
+      required: ['project_id', 'zone_id', 'bom_files', 'doc_types', 'nc_files'],
       properties: {
         project_id: { type: 'integer' },
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
-        files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         doc_types: { type: 'array', items: { type: 'string', enum: ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST'] } },
       },
     },
   })
-  @UseInterceptors(FilesInterceptor('files', 3, { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }))
+  @UseInterceptors(FileFieldsInterceptor(
+    [{ name: 'bom_files', maxCount: 3 }, { name: 'nc_files', maxCount: 200 }],
+    { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
+  ))
   async upload(
-    @UploadedFiles() files: MulterFile[],
+    @UploadedFiles() uploadedFiles: { bom_files?: MulterFile[]; nc_files?: MulterFile[] },
     @Body() body: Record<string, string | string[]>,
     @CurrentUser() user: JwtPayload,
   ) {
-    if (!files?.length) throw new BadRequestException('No files uploaded')
+    const bomFiles = uploadedFiles?.bom_files ?? []
+    const ncRaw = uploadedFiles?.nc_files ?? []
+
+    if (!bomFiles.length) throw new BadRequestException('No BOM files uploaded')
+    if (!ncRaw.length) throw new BadRequestException('NC files are required — upload at least one .nc1 file')
 
     const projectId = parseInt(String(body['project_id']), 10)
     const zoneId = parseInt(String(body['zone_id']), 10)
@@ -74,7 +82,7 @@ export class BomUploadController {
     // doc_types may arrive as a single string or array
     const rawDocTypes = Array.isArray(body['doc_types']) ? body['doc_types'] : [body['doc_types']]
 
-    const fileInputs: FileInput[] = files.map((f, i) => {
+    const fileInputs: FileInput[] = bomFiles.map((f, i) => {
       const docType: BomDocType = (rawDocTypes[i] as BomDocType) ?? classifyFilename(f.originalname)
       if (!docType) {
         throw new BadRequestException(
@@ -90,7 +98,12 @@ export class BomUploadController {
       }
     })
 
-    return this.svc.upload(fileInputs, projectId, zoneId, subZoneId, user.sub)
+    const ncInputs: NcFileInput[] = ncRaw.map(f => ({
+      buffer: f.buffer,
+      originalname: f.originalname,
+    }))
+
+    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub)
   }
 
   @Get('dispatches')
