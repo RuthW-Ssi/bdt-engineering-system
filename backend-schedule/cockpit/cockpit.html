@@ -46,6 +46,20 @@
   .muted{color:var(--muted)}
   #status{padding:40px;text-align:center;color:var(--muted)}
   .pill{font-size:10px;padding:1px 6px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+  .fm{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+  .fmh{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px}
+  .fmh b{font-weight:650}.fmh .sub{color:var(--muted);font-size:11px;font-weight:400}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+  .chip{font-size:11px;padding:2px 8px;border-radius:6px;background:var(--panel2);color:var(--muted)}
+  .chip.ok{background:rgba(34,197,94,.16);color:#22c55e}.chip.warn{background:rgba(245,158,11,.16);color:#f59e0b}.chip.bad{background:rgba(239,68,68,.16);color:#ef4444}
+  .sc{display:flex;align-items:flex-end;gap:12px;height:92px;overflow-x:auto;padding-top:6px}
+  .scd{display:flex;flex-direction:column;align-items:center;gap:3px;flex:0 0 auto}
+  .scbars{display:flex;align-items:flex-end;gap:2px;height:72px}
+  .scb{width:10px;border-radius:2px 2px 0 0;background:var(--internal)}
+  .scl2{color:var(--muted);font-size:10px}
+  .fmleg{display:flex;flex-wrap:wrap;gap:12px;color:var(--muted);font-size:11px;margin-top:8px}
+  .fmleg i{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px}
+  .fmnote{color:var(--muted);font-size:11px;margin-top:6px}
 </style>
 </head>
 <body>
@@ -78,6 +92,9 @@
 
     <h2>Capacity / Load — by Work Center <span class="muted" style="text-transform:none;letter-spacing:0"> (busy real-duration vs available over horizon)</span></h2>
     <div class="card" id="cap"></div>
+
+    <h2>4M + WIP analysis <span class="muted" style="text-transform:none;letter-spacing:0"> (per shift เช้า/บ่าย/โอที · follows selected version)</span></h2>
+    <div id="fourm"></div>
   </div>
 </div>
 <div class="tip" id="tip"></div>
@@ -90,6 +107,8 @@ const PROD_MIN_PER_DAY=705; // 08:30-12:00 + 13:00-17:30 + 18:00-21:45 (OT), min
 let DATA=null, VER="EVENTBASED-V1", CMP="";
 
 const q=(t,sel,extra="")=>fetch(`${SUPA}/${t}?select=${sel}${extra}`,{headers:H}).then(r=>{if(!r.ok)throw new Error(t+" "+r.status);return r.json()});
+const qSafe=(t,sel,extra="")=>q(t,sel,extra).catch(()=>null);  // null = not granted / failed → degrade
+const qCount=(t,extra="")=>fetch(`${SUPA}/${t}?select=id${extra}&limit=1`,{headers:{...H,Prefer:'count=exact'}}).then(r=>{const cr=r.headers.get('content-range');return cr?+cr.split('/')[1]:0;}).catch(()=>0);
 const bkk=d=>new Date(d).toLocaleString('en-GB',{timeZone:'Asia/Bangkok',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',hour12:false});
 const bkkDay=d=>new Date(d).toLocaleDateString('en-GB',{timeZone:'Asia/Bangkok',weekday:'short',day:'2-digit',month:'short'});
 
@@ -100,7 +119,7 @@ async function load(){
     const [vers,ps,wo,mo,wc,ln,hol]=await Promise.all([
       q('prod_schedule_version','id,version_code,description,scheduler_source','&order=id.asc'),
       q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=5000'),
-      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at','&limit=5000'),
+      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at,source_routing_op_id','&limit=5000'),
       q('manufacturing_order','id,mo_code,due_date'),
       q('mrp_workcenter','id,code,name,active'),
       q('mrp_workcenter_line','id,workcenter_id,line_no,labor_mode,crew_size,active','&limit=500'),
@@ -121,6 +140,7 @@ async function load(){
     document.getElementById('status').style.display='none';
     document.getElementById('app').style.display='';
     document.getElementById('gen').textContent='loaded '+new Date().toLocaleTimeString()+' · '+holidays.size+' holidays';
+    await load4M();
     render();
   }catch(e){
     document.getElementById('status').innerHTML='โหลดไม่สำเร็จ: '+e.message+'<br><span class=muted>ตรวจ network / anon grant</span>';
@@ -160,7 +180,7 @@ function render(){
   const src=DATA.vers.find(v=>v.version_code===VER);
   document.getElementById('srcPill').textContent=src?src.scheduler_source:'';
   document.querySelectorAll('#verSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===VER));
-  renderKPIs(rows); renderCompare(); renderGantt(rows); renderCap(rows);
+  renderKPIs(rows); renderCompare(); renderGantt(rows); renderCap(rows); render4M();
 }
 
 function kpiObj(rows){
@@ -269,6 +289,140 @@ function renderCap(rows){
         <div class="capbar"><div class="capfill" style="width:${pct}%;background:${col}"></div></div>
         <div class="capnum">${(o.util*100).toFixed(0)}% · ${Math.round(o.busy)}m</div></div>`;
     }).join('');
+}
+
+/* ===== 4M + WIP analysis (per shift) ===== */
+async function load4M(){
+  const [wipBal,wipEvent,actCons,stockQ,routWC,opTypes,matCount]=await Promise.all([
+    qSafe('wip_balance','storage_code,ver,t,area_pct','&limit=20000'),
+    qSafe('wip_event','storage_code,ver,weight,area,in_time','&limit=20000'),
+    qSafe('activity_consume','id'),
+    qSafe('stock_quant','material_id,quantity,reserved_quantity','&limit=5000'),
+    qSafe('mrp_routing_workcenter','id,op_type_id'),
+    qSafe('mrp_op_type','id,key,label'),
+    qCount('materials'),
+  ]);
+  DATA.wipBal=wipBal||[]; DATA.wipEvent=wipEvent||[]; DATA.actCons=actCons||[]; DATA.stockQ=stockQ||[]; DATA.matCount=matCount||0;
+  DATA.granted={wip:!!wipBal, wipEv:!!wipEvent};
+  const opLabel=Object.fromEntries((opTypes||[]).map(o=>[o.id,o.label||o.key]));
+  const opOfRoutOp=Object.fromEntries((routWC||[]).map(r=>[r.id,opLabel[r.op_type_id]||null]));
+  DATA.opTypeOfWO={}; Object.values(DATA.woById).forEach(w=>{DATA.opTypeOfWO[w.id]=opOfRoutOp[w.source_routing_op_id]||'?';});
+}
+
+const SHIFTS=[{k:'M',label:'เช้า',s:480,e:720,ot:false},{k:'A',label:'บ่าย',s:780,e:1050,ot:false},{k:'O',label:'โอที',s:1080,e:1320,ot:true}];
+function bkkDM(d){const x=new Date(d);
+  const day=x.toLocaleDateString('en-CA',{timeZone:'Asia/Bangkok'});
+  const t=x.toLocaleTimeString('en-GB',{timeZone:'Asia/Bangkok',hour12:false,hour:'2-digit',minute:'2-digit'}).split(':');
+  return {day,min:(+t[0])*60+(+t[1])};}
+function shiftK(m){return m<720?'M':m<1050?'A':'O';}
+function bucketKeyOf(t){const d=bkkDM(t);return d.day+'|'+shiftK(d.min);}
+function eachDay(d0,d1){const out=[];let d=new Date(d0+'T00:00:00Z'),end=new Date(d1+'T00:00:00Z'),g=0;
+  while(d<=end&&g<400){out.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1);g++;}return out;}
+function intervalBuckets(start,end){const a=bkkDM(start),b=bkkDM(end),res={};
+  eachDay(a.day,b.day).forEach(day=>{const ds=day===a.day?a.min:0,de=day===b.day?b.min:1440;
+    SHIFTS.forEach(sh=>{const ov=Math.max(0,Math.min(de,sh.e)-Math.max(ds,sh.s));if(ov>0)res[day+'|'+sh.k]=(res[day+'|'+sh.k]||0)+ov;});});
+  return res;}
+function isWorkDay(day){const wd=new Date(day+'T00:00:00Z').getUTCDay();return wd!==0&&!(DATA.holidays&&DATA.holidays.has(day));}
+function bucketAxis(t0,t1){const out=[];eachDay(bkkDM(t0).day,bkkDM(t1).day).forEach(day=>{if(isWorkDay(day))SHIFTS.forEach(sh=>out.push({day,k:sh.k,sh}));});return out;}
+function byDay(bars){const m=new Map();bars.forEach(b=>{if(!m.has(b.day))m.set(b.day,[]);m.get(b.day).push(b);});return [...m.entries()];}
+function dayShort(day){return new Date(day+'T00:00:00Z').toLocaleDateString('en-GB',{timeZone:'UTC',weekday:'short',day:'2-digit'});}
+function verId(ver){return DATA.vers.find(v=>v.version_code===ver)?.id;}
+const PAL=['#3b82f6','#22c55e','#a855f7','#f59e0b','#ef4444','#14b8a6','#8b97b3'];
+
+function card4(name,sub,chips,body,leg){return `<div class="fm"><div class="fmh"><b>${name}</b><span class="sub">${esc(sub)}</span></div><div class="chips">${chips}</div>${body}${leg||''}</div>`;}
+function chip(t,cls){return `<span class="chip ${cls||''}">${esc(String(t))}</span>`;}
+
+function render4M(){
+  const box=document.getElementById('fourm'); if(!box) return;
+  const rows=rowsForVersion(VER);
+  if(!rows.length){box.innerHTML='<div class="fmnote">ไม่มีตารางสำหรับ version นี้</div>';return;}
+  const t0=Math.min(...rows.map(r=>+r.s)),t1=Math.max(...rows.map(r=>+r.e));
+  const axis=bucketAxis(t0,t1);
+  box.innerHTML=fmMan(rows,axis)+fmMachine(rows,axis)+fmMaterial(axis)+fmMethod(rows,axis)+fmWip(axis);
+}
+
+function chartPct(bars){return `<div class="sc">`+byDay(bars).map(([day,bs])=>`<div class="scd"><div class="scbars">`+
+  bs.map(b=>{const h=Math.max(1,Math.min(72,b.pct*0.72));const col=b.pct>100?'var(--late)':(b.sh.ot?'var(--warn)':'var(--internal)');
+    return `<div class="scb" title="${dayShort(day)} ${b.sh.label}: ${Math.round(b.pct)}%" style="height:${h}px;background:${col}"></div>`;}).join('')+
+  `</div><div class="scl2">${dayShort(day)}</div></div>`).join('')+`</div>`;}
+function chartStack(bars,max,colorOf){return `<div class="sc">`+byDay(bars).map(([day,bs])=>`<div class="scd"><div class="scbars">`+
+  bs.map(b=>{const hTot=Math.max(1,Math.min(72,b.total/max*72));
+    return `<div class="scb" title="${dayShort(day)} ${b.sh.label}: ${Math.round(b.total)}m" style="background:none;height:${hTot}px;display:flex;flex-direction:column-reverse">`+
+      b.segs.map(s=>{const h=b.total?s.v/b.total*hTot:0;return h>0.5?`<div style="height:${h}px;background:${colorOf(s.label)}"></div>`:'';}).join('')+`</div>`;}).join('')+
+  `</div><div class="scl2">${dayShort(day)}</div></div>`).join('')+`</div>`;}
+
+function fmMan(rows,axis){
+  const busy={};rows.forEach(r=>{const bm=intervalBuckets(r.s,r.e),cs=r.line.crew_size||1;for(const k in bm)busy[k]=(busy[k]||0)+bm[k]*cs;});
+  const lines=DATA.ln.filter(l=>l.active&&DATA.wcById[l.workcenter_id]?.active);
+  const totalCrew=lines.reduce((s,l)=>s+(l.crew_size||1),0)||1;
+  const internal=lines.filter(l=>l.labor_mode!=='subcontract').length;
+  const bars=axis.map(a=>{const avail=(a.sh.e-a.sh.s)*totalCrew,b=busy[a.day+'|'+a.k]||0;return{...a,pct:avail?b/avail*100:0};});
+  const chips=chip(lines.length+' active lines')+chip(internal+' internal · '+(lines.length-internal)+' sub')+chip(totalCrew+' crew total','ok');
+  const leg=`<div class="fmleg"><span><i style="background:var(--internal)"></i>เช้า/บ่าย</span><span><i style="background:var(--warn)"></i>โอที</span><span><i style="background:var(--late)"></i>&gt;100%</span><span style="margin-left:auto">crew utilization %</span></div>`;
+  return card4('Man','crew utilization % ต่อ shift',chips,chartPct(bars),leg);
+}
+function fmMachine(rows,axis){
+  const byb={};rows.forEach(r=>{const bm=intervalBuckets(r.s,r.e),wc=(r.wc.code||'?');for(const k in bm){(byb[k]=byb[k]||{})[wc]=(byb[k][wc]||0)+bm[k];}});
+  const tot={};Object.values(byb).forEach(o=>{for(const wc in o)tot[wc]=(tot[wc]||0)+o[wc];});
+  const top=Object.entries(tot).sort((a,b)=>b[1]-a[1]).slice(0,5).map(x=>x[0]);
+  const colors={};top.forEach((wc,i)=>colors[wc.replace('WC-','')]=PAL[i%PAL.length]);colors['อื่นๆ']='#5f6b85';
+  const colorOf=l=>colors[l]||'#5f6b85';
+  const max=Math.max(1,...axis.map(a=>{const o=byb[a.day+'|'+a.k]||{};return Object.values(o).reduce((s,v)=>s+v,0);}));
+  const bars=axis.map(a=>{const o=byb[a.day+'|'+a.k]||{};const segs=top.filter(wc=>o[wc]).map(wc=>({label:wc.replace('WC-',''),v:o[wc]}));
+    const other=Object.entries(o).filter(([wc])=>!top.includes(wc)).reduce((s,[,v])=>s+v,0);if(other)segs.push({label:'อื่นๆ',v:other});
+    return{...a,segs,total:Object.values(o).reduce((s,v)=>s+v,0)};});
+  const activeWC=new Set(DATA.ln.filter(l=>l.active&&DATA.wcById[l.workcenter_id]?.active).map(l=>l.workcenter_id)).size;
+  const bott=Object.entries(tot).sort((a,b)=>b[1]-a[1])[0];
+  const chips=chip(activeWC+' active WC')+chip(DATA.ln.filter(l=>l.active).length+' lines')+(bott?chip('peak '+bott[0].replace('WC-','')+' '+Math.round(bott[1])+'m','warn'):'');
+  const leg=`<div class="fmleg">`+top.map(wc=>`<span><i style="background:${colorOf(wc.replace('WC-',''))}"></i>${esc(wc.replace('WC-',''))}</span>`).join('')+`<span style="margin-left:auto">busy-min ต่อ shift (stacked by WC)</span></div>`;
+  return card4('Machine','WC utilization ต่อ shift',chips,chartStack(bars,max,colorOf),leg);
+}
+function fmMaterial(axis){
+  if(!DATA.granted||!DATA.granted.wipEv) return card4('Material','throughput ต่อ shift',chip('ต้อง grant anon SELECT: wip_event','bad'),'<div class="fmnote">ยังอ่าน wip_event ไม่ได้ — รัน grant แล้ว Reload</div>');
+  const ev=DATA.wipEvent.filter(e=>e.ver===verId(VER)&&e.in_time);
+  const byb={};ev.forEach(e=>{const k=bucketKeyOf(e.in_time);(byb[k]=byb[k]||{kg:0,n:0});byb[k].kg+=+e.weight||0;byb[k].n++;});
+  const max=Math.max(1,...axis.map(a=>(byb[a.day+'|'+a.k]||{}).kg||0));
+  const bars=axis.map(a=>{const o=byb[a.day+'|'+a.k]||{kg:0,n:0};return{...a,kg:o.kg,n:o.n};});
+  const withStock=new Set(DATA.stockQ.map(s=>s.material_id)).size;
+  const short=DATA.stockQ.filter(s=>(+s.reserved_quantity||0)>(+s.quantity||0)).length;
+  const chips=chip((DATA.matCount||0).toLocaleString()+' materials')+chip(withStock+' with stock',withStock?'':'warn')+chip(DATA.actCons.length+' consumable links')+(short?chip(short+' stock short','bad'):chip('0 short','ok'));
+  const body=`<div class="sc">`+byDay(bars).map(([day,bs])=>`<div class="scd"><div class="scbars">`+
+    bs.map(b=>{const h=Math.max(1,Math.min(72,b.kg/max*72));const col=b.sh.ot?'var(--warn)':'#14b8a6';
+      return `<div class="scb" title="${dayShort(day)} ${b.sh.label}: ${Math.round(b.kg).toLocaleString()} kg · ${b.n}p" style="height:${h}px;background:${col}"></div>`;}).join('')+
+    `</div><div class="scl2">${dayShort(day)}</div></div>`).join('')+`</div>`;
+  const leg=`<div class="fmleg"><span><i style="background:#14b8a6"></i>เช้า/บ่าย</span><span><i style="background:var(--warn)"></i>โอที</span><span style="margin-left:auto">material throughput (kg) ต่อ shift · consumable links sparse</span></div>`;
+  return card4('Material','throughput kg ต่อ shift',chips,body,leg);
+}
+function fmMethod(rows,axis){
+  const byb={};rows.forEach(r=>{const op=(DATA.opTypeOfWO&&DATA.opTypeOfWO[r.work_order_id])||'?';const bm=intervalBuckets(r.s,r.e);for(const k in bm){(byb[k]=byb[k]||{})[op]=(byb[k][op]||0)+bm[k];}});
+  const tot={};Object.values(byb).forEach(o=>{for(const op in o)tot[op]=(tot[op]||0)+o[op];});
+  const top=Object.entries(tot).sort((a,b)=>b[1]-a[1]).slice(0,6).map(x=>x[0]);
+  const colors={};top.forEach((op,i)=>colors[op]=PAL[i%PAL.length]);colors['อื่นๆ']='#5f6b85';
+  const colorOf=l=>colors[l]||'#5f6b85';
+  const max=Math.max(1,...axis.map(a=>{const o=byb[a.day+'|'+a.k]||{};return Object.values(o).reduce((s,v)=>s+v,0);}));
+  const bars=axis.map(a=>{const o=byb[a.day+'|'+a.k]||{};const segs=top.filter(op=>o[op]).map(op=>({label:op,v:o[op]}));
+    const other=Object.entries(o).filter(([op])=>!top.includes(op)).reduce((s,[,v])=>s+v,0);if(other)segs.push({label:'อื่นๆ',v:other});
+    return{...a,segs,total:Object.values(o).reduce((s,v)=>s+v,0)};});
+  const cov=rows.filter(r=>DATA.opTypeOfWO&&DATA.opTypeOfWO[r.work_order_id]&&DATA.opTypeOfWO[r.work_order_id]!=='?').length;
+  const chips=chip(top.length+' op-types (top)')+chip('coverage '+Math.round(cov/rows.length*100)+'%',cov===rows.length?'ok':'warn');
+  const leg=`<div class="fmleg">`+top.map(op=>`<span><i style="background:${colorOf(op)}"></i>${esc(op)}</span>`).join('')+`<span style="margin-left:auto">op-type minutes ต่อ shift</span></div>`;
+  return card4('Method','op-type mix ต่อ shift',chips,chartStack(bars,max,colorOf),leg);
+}
+function fmWip(axis){
+  if(!DATA.granted||!DATA.granted.wip) return card4('WIP / Storage','buffer occupancy ต่อ shift',chip('ต้อง grant anon SELECT: wip_balance','bad'),'<div class="fmnote">ยังอ่าน wip_balance ไม่ได้ — รัน grant แล้ว Reload</div>');
+  const bal=DATA.wipBal.filter(b=>b.ver===verId(VER));
+  const byb={};bal.forEach(b=>{const k=bucketKeyOf(b.t),p=+b.area_pct||0;if(!byb[k]||p>byb[k].pct)byb[k]={pct:p,bf:b.storage_code};});
+  const peak={};bal.forEach(b=>{const p=+b.area_pct||0;if(!peak[b.storage_code]||p>peak[b.storage_code])peak[b.storage_code]=p;});
+  const bars=axis.map(a=>{const o=byb[a.day+'|'+a.k]||{pct:0,bf:''};return{...a,pct:o.pct,bf:o.bf};});
+  const maxPct=Math.max(120,...bars.map(b=>b.pct));
+  const overflowBuf=Object.entries(peak).filter(([,p])=>p>100).map(([b])=>b.replace('STG-',''));
+  const chips=chip(Object.keys(peak).length+' buffers active')+(overflowBuf.length?chip(overflowBuf.length+' overflow: '+overflowBuf.join(', '),'bad'):chip('no overflow','ok'));
+  const body=`<div class="sc">`+byDay(bars).map(([day,bs])=>`<div class="scd"><div class="scbars">`+
+    bs.map(b=>{const h=Math.max(1,Math.min(72,b.pct/maxPct*72));const col=b.pct>100?'var(--late)':'var(--warn)';
+      return `<div class="scb" title="${dayShort(day)} ${b.sh.label}: ${Math.round(b.pct)}% (${esc((b.bf||'').replace('STG-',''))})" style="height:${h}px;background:${col}"></div>`;}).join('')+
+    `</div><div class="scl2">${dayShort(day)}</div></div>`).join('')+`</div>`;
+  const leg=`<div class="fmleg"><span><i style="background:var(--warn)"></i>≤100%</span><span><i style="background:var(--late)"></i>overflow &gt;100%</span><span style="margin-left:auto">worst-buffer area% ต่อ shift · scale 0–${Math.round(maxPct)}%</span></div>`;
+  return card4('WIP / Storage','buffer occupancy % ต่อ shift (worst buffer)',chips,body,leg);
 }
 
 function bindTips(){
