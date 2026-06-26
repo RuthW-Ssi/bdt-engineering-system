@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APS Sequencer — Schedule</title>
+<link rel="stylesheet" href="aps-design-system.css">
+<style>
+  .sched-center{display:flex;flex-direction:column;gap:12px}
+  .stub{padding:24px;color:var(--muted);text-align:center;font-size:12px;line-height:1.6}
+  #status{padding:40px;text-align:center;color:var(--muted)}
+  .wc-grp{height:21px;line-height:18px;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;padding:0 12px;background:#f3f5f8;border-bottom:1px solid #eef1f4;font-family:var(--font-head);overflow:hidden}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div><h1>APS Sequencer — Schedule</h1><div class="sub" id="sub">finite-capacity · live จาก Supabase</div></div>
+    <span class="badge" id="badge">LIVE</span>
+  </div>
+
+  <div id="status">กำลังโหลดข้อมูลจาก Supabase…</div>
+
+  <div id="app" style="display:none">
+    <div class="kpis" id="kpis"></div>
+
+    <div class="controls">
+      <span class="ctl-label">Version</span>
+      <div class="seg" id="verSeg"></div>
+      <label class="chk"><input type="checkbox" id="lateOnly"> <span>เน้นงานสาย</span></label>
+      <span class="ctl-label" style="margin-left:6px">Zoom</span>
+      <span class="zoom"><button id="zout">−</button> <button id="zin">+</button></span>
+      <button class="editbtn" id="reload" style="margin-left:6px">↻ Reload</button>
+      <div class="legend" id="legend"></div>
+    </div>
+
+    <div class="grid">
+      <div class="card" style="display:flex;flex-direction:column">
+        <h3>📥 Backlog <span class="tag" id="blCount"></span></h3>
+        <div class="bl-list" id="blList"><div class="stub">— SP3 —</div></div>
+      </div>
+
+      <div class="sched-center">
+        <div class="card">
+          <h3>🏭 Resource Gantt <span class="tag">rows = line · bars = scheduled op</span></h3>
+          <div class="gantt">
+            <div class="res-col"><div class="res-head">Work Center · Line</div><div id="resCells"></div></div>
+            <div class="tl-wrap" id="tlwrap">
+              <div class="tl-head" id="tlhead"></div>
+              <div class="tl-body" id="tlbody"></div>
+              <div class="duelane" id="duelane"></div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>🔥 Utilization Heatmap <span class="tag">load ÷ (available × OEE)</span></h3>
+          <div class="heat" id="heat"><div class="stub">— SP3 —</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="align-self:start">
+        <h3>📋 รายละเอียด</h3>
+        <div class="panel" id="panel"><div class="empty">คลิกแท่งงานเพื่อดูรายละเอียด</div></div>
+      </div>
+    </div>
+    <div class="foot" id="foot"></div>
+  </div>
+</div>
+<div id="tip"></div>
+
+<script>
+const SUPA="https://eebubyfkzeqhzwzqrqfz.supabase.co/rest/v1";
+const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlYnVieWZremVxaHp3enFycWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkxODE4MjUsImV4cCI6MjA5NDc1NzgyNX0.6kZUOq3w5CrXk7ceafw3yB1v9vhan07jZerg5NbuW5U";
+const H={apikey:ANON,Authorization:"Bearer "+ANON};
+const HOUR=3600000;
+const SHIFTS=[[480,720],[780,1050],[1080,1320]];  // เช้า 08-12 · บ่าย 13-17:30 · โอที 18-22 (calendar_block)
+const $=id=>document.getElementById(id);
+const pad=n=>String(n).padStart(2,'0');
+const q=(t,sel,extra="")=>fetch(`${SUPA}/${t}?select=${sel}${extra}`,{headers:H}).then(r=>{if(!r.ok)throw new Error(t+" "+r.status);return r.json()});
+const bkkDay=ms=>new Date(ms).toLocaleDateString('en-CA',{timeZone:'Asia/Bangkok'});
+const fmt=(ms,o)=>new Date(ms).toLocaleString('th-TH',Object.assign({timeZone:'Asia/Bangkok'},o||{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}));
+const fmtH=ms=>new Date(ms).toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit'});
+const esc=s=>String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+function winMs(day,mins){return Date.parse(`${day}T${pad(Math.floor(mins/60))}:${pad(mins%60)}:00+07:00`);}
+function eachDay(d0,d1){const out=[];let d=new Date(d0+'T00:00:00Z'),end=new Date(d1+'T00:00:00Z'),g=0;while(d<=end&&g<400){out.push(d.toISOString().slice(0,10));d.setUTCDate(d.getUTCDate()+1);g++;}return out;}
+
+let DATA=null, VER="EVENTBASED-V1", pxh=22, selUid=null;
+let SEG=[], totalW=0, HOL=new Set();
+
+function wcColor(code){const c=(code||'').toUpperCase();
+  if(c.includes('PAINT'))return 'paint'; if(c.includes('BLAST'))return 'blast';
+  if(c.includes('FIT'))return 'fit'; if(c.includes('WELD'))return 'weld';
+  if(c.includes('CUT')||c.includes('CNC')||c.includes('SAW')||c.includes('PLASMA')||c.includes('BAND'))return 'cut';
+  if(c.includes('ASSEMBL')||c==='WC-AS')return 'assy';
+  return 'blast';}
+function opColor(label,wccode){const c=(label||'').toUpperCase();
+  if(c.includes('PAINT')||c.includes('PRIMER')||c.includes('TOP')||c.includes('COAT'))return 'paint';
+  if(c.includes('BLAST'))return 'blast'; if(c.includes('WELD'))return 'weld';
+  if(c.includes('FIT'))return 'fit'; if(c.includes('CUT'))return 'cut';
+  if(c.includes('ASSEMBL')||c.includes('FINAL'))return 'assy';
+  return wcColor(wccode);}
+
+async function load(){
+  $('status').style.display='';$('app').style.display='none';
+  try{
+    const [vers,ps,wo,mo,wc,ln,hol,routWC,opTypes]=await Promise.all([
+      q('prod_schedule_version','id,version_code,description,scheduler_source','&order=id.asc'),
+      q('prod_schedule','prod_schedule_version_id,work_order_id,start_datetime,end_datetime,workcenter_line_id','&limit=5000'),
+      q('work_order','id,wo_code,mo_id,expected_duration_min,target_end_at,source_routing_op_id,status','&limit=5000'),
+      q('manufacturing_order','id,mo_code,due_date'),
+      q('mrp_workcenter','id,code,name,active'),
+      q('mrp_workcenter_line','id,workcenter_id,line_no,labor_mode,crew_size,active','&limit=500'),
+      q('calendar_exception','date,is_working','&is_working=eq.false'),
+      q('mrp_routing_workcenter','id,op_type_id'),
+      q('mrp_op_type','id,key,label'),
+    ]);
+    const woById=Object.fromEntries(wo.map(w=>[w.id,w]));
+    const opLabel=Object.fromEntries(opTypes.map(o=>[o.id,o.label||o.key]));
+    const opOfRout=Object.fromEntries(routWC.map(r=>[r.id,opLabel[r.op_type_id]||null]));
+    const opTypeOfWO={}; wo.forEach(w=>opTypeOfWO[w.id]=opOfRout[w.source_routing_op_id]||null);
+    HOL=new Set((hol||[]).map(h=>h.date));
+    const withRows=new Set(ps.map(p=>p.prod_schedule_version_id));
+    const usable=vers.filter(v=>withRows.has(v.id));
+    DATA={vers:usable,ps,woById,moById:Object.fromEntries(mo.map(m=>[m.id,m])),
+          wcById:Object.fromEntries(wc.map(w=>[w.id,w])),lnById:Object.fromEntries(ln.map(l=>[l.id,l])),ln,opTypeOfWO};
+    if(!usable.some(v=>v.version_code===VER)) VER=usable[0]?.version_code||VER;
+    buildVerSeg();
+    $('status').style.display='none';$('app').style.display='';
+    render();
+  }catch(e){ $('status').innerHTML='โหลดไม่สำเร็จ: '+esc(e.message)+'<br><span style="font-size:11px">ตรวจ network / anon grant</span>'; }
+}
+
+function verLabel(v){const m={'EVENTBASED-V1':'Event-based (forward)','BACKWARD-V1':'Backward (ALAP)'};return m[v.version_code]||v.version_code;}
+function buildVerSeg(){$('verSeg').innerHTML=DATA.vers.map(v=>`<button data-v="${esc(v.version_code)}" class="${v.version_code===VER?'on':''}" title="${esc(v.description||'')}">${esc(verLabel(v))}</button>`).join('');}
+
+function ops(){
+  const vid=DATA.vers.find(v=>v.version_code===VER)?.id;
+  return DATA.ps.filter(p=>p.prod_schedule_version_id===vid).map(p=>{
+    const w=DATA.woById[p.work_order_id]||{}, l=DATA.lnById[p.workcenter_line_id]||{}, wcc=DATA.wcById[l.workcenter_id]||{};
+    const s=Date.parse(p.start_datetime), e=Date.parse(p.end_datetime);
+    const due=w.target_end_at?Date.parse(w.target_end_at):null, late=due&&e>due;
+    const opLabel=DATA.opTypeOfWO[p.work_order_id];
+    return {uid:p.work_order_id, wo:w, mo:DATA.moById[w.mo_id]||{}, line:l, wc:wcc, s, e, due, late,
+            dur:+w.expected_duration_min||0, opLabel, color:opColor(opLabel,wcc.code)};
+  });
+}
+function lines(){return DATA.ln.filter(l=>l.active&&DATA.wcById[l.workcenter_id]?.active)
+  .sort((a,b)=>{const A=DATA.wcById[a.workcenter_id].code,B=DATA.wcById[b.workcenter_id].code;return A<B?-1:A>B?1:a.line_no-b.line_no;});}
+
+function isWork(day){const wd=new Date(day+'T00:00:00Z').getUTCDay();return wd!==0 && !HOL.has(day);}
+function workWindows(t0,t1){const out=[];eachDay(bkkDay(t0),bkkDay(t1)).forEach(day=>{if(!isWork(day))return;SHIFTS.forEach(([s,e])=>out.push({s:winMs(day,s),e:winMs(day,e)}));});return out.filter(w=>w.e>=t0&&w.s<=t1).sort((a,b)=>a.s-b.s);}
+function buildSeg(t0,t1){SEG=[];const W=workWindows(t0,t1);let cx=0;for(let i=0;i<W.length;i++){const w=W[i],wpx=(w.e-w.s)/HOUR*pxh;SEG.push({t:'w',s:w.s,e:w.e,x0:cx,x1:cx+wpx});cx+=wpx;if(i<W.length-1){const gap=(W[i+1].s-w.e)/HOUR,opx=gap>12?22:12;SEG.push({t:'o',s:w.e,e:W[i+1].s,x0:cx,x1:cx+opx});cx+=opx;}}totalW=cx;}
+function X(ms){if(!SEG.length)return 0;if(ms<=SEG[0].s)return 0;for(const g of SEG){if(ms>=g.s&&ms<g.e)return g.t==='w'?g.x0+(ms-g.s)/HOUR*pxh:g.x0+(ms-g.s)/(g.e-g.s)*(g.x1-g.x0);}return totalW;}
+function dayGroups(){const m=new Map();SEG.filter(s=>s.t==='w').forEach(s=>{const d=bkkDay(s.s);if(!m.has(d))m.set(d,{x0:s.x0,x1:s.x1});else m.get(d).x1=s.x1;});return [...m.entries()];}
+
+function render(){
+  const OPS=ops(); const L=lines();
+  $('badge').textContent=DATA.vers.find(v=>v.version_code===VER)?.scheduler_source||'LIVE';
+  document.querySelectorAll('#verSeg button').forEach(b=>b.classList.toggle('on',b.dataset.v===VER));
+  if(!OPS.length){$('tlbody').innerHTML='';$('resCells').innerHTML='';kpis(OPS);return;}
+  const t0=Math.min(...OPS.map(o=>o.s)), t1=Math.max(...OPS.map(o=>o.e));
+  buildSeg(t0,t1);
+  // resource column
+  let curWC=null;
+  $('resCells').innerHTML=L.map(l=>{const wcc=DATA.wcById[l.workcenter_id];let head='';if(wcc.code!==curWC){curWC=wcc.code;head=`<div class="wc-grp">${esc(wcc.code.replace('WC-',''))}</div>`;}
+    return head+`<div class="res-cell"><span class="res-dot" style="background:var(--${wcColor(wcc.code)})"></span><div>L${l.line_no}${l.labor_mode==='subcontract'?' ·sub':''}<br><small>${esc(wcc.name||'')}</small></div></div>`;}).join('');
+  // align: res cells include group headers, so row offset must match body. We render body rows aligned to res-cells excluding headers -> use a row index over L only, and add the same group-header spacers in body.
+  $('tlhead').innerHTML=dayGroups().map(([d,g])=>{const dd=new Date(d+'T00:00:00Z');return `<div class="tl-day" style="left:${g.x0}px;width:${g.x1-g.x0}px"><b>${dd.toLocaleDateString('th-TH',{weekday:'short',timeZone:'UTC'})}</b> ${dd.toLocaleDateString('th-TH',{day:'2-digit',month:'short',timeZone:'UTC'})}</div>`;}).join('');
+  $('tlhead').style.width=totalW+'px';
+  const body=$('tlbody');body.style.width=totalW+'px';
+  // build row y-map matching res-col (which has group headers ~22px + cells 40px)
+  let y=0; const rowY={}; curWC=null; let html='';
+  L.forEach(l=>{const wcc=DATA.wcById[l.workcenter_id];if(wcc.code!==curWC){curWC=wcc.code;html+=`<div style="position:absolute;left:0;right:0;height:21px;top:${y}px;border-bottom:1px solid #eef1f4;background:#f3f5f8"></div>`;y+=21;}rowY[l.id]=y;html+=`<div class="row-bg ${Object.keys(rowY).length%2?'':'alt'}" style="top:${y}px"></div>`;y+=40;});
+  body.style.height=y+'px';
+  SEG.filter(s=>s.t==='o').forEach(s=>{html+=`<div class="offband" style="left:${s.x0}px;width:${s.x1-s.x0}px"></div>`;});
+  const lateOnly=$('lateOnly').checked;
+  OPS.forEach(o=>{if(rowY[o.line.id]==null)return;const x0=X(o.s),x1=X(o.e),w=Math.max(7,x1-x0);const dim=lateOnly&&!o.late?' dim':'';const sel=o.uid===selUid?' sel':'';const lbl=w>40?`<span>${esc(o.wo.wo_code||'')} · ${esc(o.opLabel||'')}</span>`:'';
+    html+=`<div class="bar${o.late?' late':''}${sel}${dim}" data-uid="${o.uid}" style="left:${x0}px;top:${rowY[o.line.id]+8}px;width:${w}px;background:var(--${o.color})">${lbl}</div>`;});
+  body.innerHTML=html;
+  body.querySelectorAll('.bar').forEach(b=>{b.onclick=()=>{selUid=b.dataset.uid;render();};b.onmousemove=e=>tip(e,b.dataset.uid);b.onmouseleave=hideTip;});
+  // due lane: one diamond per MO at its due date
+  const dl=$('duelane');dl.style.width=totalW+'px';
+  const moDue={};OPS.forEach(o=>{if(o.mo&&o.mo.due_date){const dms=Date.parse(o.mo.due_date+'T17:30:00+07:00');(moDue[o.mo.id]=moDue[o.mo.id]||{ms:dms,code:o.mo.mo_code,late:false});if(o.late)moDue[o.mo.id].late=true;}});
+  dl.innerHTML=Object.values(moDue).map(m=>`<div class="due ${m.late?'late':''}" style="left:${X(m.ms)}px"><span class="dia"></span>${esc(m.code||'')}</div>`).join('');
+  legend(OPS);kpis(OPS);detail();foot(OPS);
+}
+
+function legend(OPS){const present=[...new Set(OPS.map(o=>o.color))];const NM={cut:'ตัด',fit:'ประกอบ',weld:'เชื่อม',blast:'พ่นทราย',paint:'พ่นสี',assy:'ประกอบรวม'};
+  $('legend').innerHTML=present.map(c=>`<span class="lg"><span class="sw" style="background:var(--${c})"></span>${NM[c]||c}</span>`).join('')+`<span class="lg"><span class="sw" style="background:var(--late-fill);outline:2px solid var(--late-bd);outline-offset:-2px"></span>งานสาย</span>`;}
+
+function kpis(OPS){
+  const byLine={};OPS.forEach(o=>{(byLine[o.line.id]=byLine[o.line.id]||[]).push(o);});
+  let ov=0;Object.values(byLine).forEach(a=>{a.sort((x,y)=>x.s-y.s);for(let i=1;i<a.length;i++)if(a[i].s<a[i-1].e)ov++;});
+  const late=OPS.filter(o=>o.late).length;
+  const maxEnd=OPS.length?Math.max(...OPS.map(o=>o.e)):null;
+  const ot=OPS.length?Math.round((OPS.length-late)/OPS.length*100):0;
+  const k=[['accent',ot+'%','ส่งทันกำหนด'],[late?'bad':'good',late,'งานสาย'],['',OPS.length,'Operations'],['',maxEnd?fmt(maxEnd,{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'—','เสร็จทั้งหมด']];
+  $('kpis').innerHTML=k.map(([c,v,l])=>`<div class="kpi ${c}"><div class="v">${esc(v)}</div><div class="l">${esc(l)}</div></div>`).join('');
+}
+
+function detail(){
+  const p=$('panel');const o=ops().find(x=>x.uid===selUid);
+  if(!o){p.innerHTML='<div class="empty">คลิกแท่งงานเพื่อดูรายละเอียด</div>';return;}
+  p.innerHTML=`<div style="font-family:var(--font-head);font-size:16px;font-weight:600">${esc(o.wo.wo_code||'')} <span style="color:var(--muted);font-weight:400">${esc(o.mo.mo_code||'')}</span></div>
+    <span class="pill ${o.late?'late':'ok'}">${o.late?'สาย (LATE)':'ตรงเวลา'}</span>
+    <dl class="dl"><dt>Operation</dt><dd>${esc(o.opLabel||'—')}</dd><dt>Work Center</dt><dd>${esc(o.wc.name||'')}</dd>
+    <dt>Line</dt><dd>L${o.line.line_no} (${o.line.crew_size||1}p${o.line.labor_mode==='subcontract'?' ·sub':''})</dd>
+    <dt>เริ่ม</dt><dd class="mono">${fmt(o.s)}</dd><dt>เสร็จ</dt><dd class="mono">${fmt(o.e)}</dd>
+    <dt>ระยะเวลา</dt><dd>${o.dur} นาที</dd><dt>กำหนดส่ง</dt><dd class="mono">${o.due?fmt(o.due,{day:'2-digit',month:'short'}):'—'}</dd></dl>`;
+}
+
+const tipEl=$('tip');
+function tip(e,uid){const o=ops().find(x=>x.uid===uid);if(!o)return;tipEl.innerHTML=`<b>${esc(o.wo.wo_code||'')}</b> · ${esc(o.opLabel||'')}<br>${esc(o.wc.name||'')} · L${o.line.line_no}<br>${fmtH(o.s)}–${fmtH(o.e)} (${(o.dur)}m)${o.late?'<br><span style="color:#fca5a5">⚠ งานสาย</span>':''}`;tipEl.style.opacity=1;tipEl.style.left=Math.min(window.innerWidth-250,e.clientX+14)+'px';tipEl.style.top=(e.clientY+14)+'px';}
+function hideTip(){tipEl.style.opacity=0;}
+
+function foot(OPS){const late=OPS.filter(o=>o.late).map(o=>o.wo.wo_code);$('foot').innerHTML=`Version: <b>${esc(VER)}</b> · operations: ${OPS.length} · งานสาย: ${late.length?esc(late.slice(0,8).join(', '))+(late.length>8?` +${late.length-8}`:''):'ไม่มี'}<br>read-only view · SP2 (Resource Gantt) · Backlog + Heatmap = SP3 · drag-drop edit = SP4`;}
+
+$('verSeg').onclick=e=>{if(e.target.dataset.v){VER=e.target.dataset.v;selUid=null;render();}};
+$('lateOnly').onchange=render;
+$('zin').onclick=()=>{pxh=Math.min(60,pxh+6);render();};
+$('zout').onclick=()=>{pxh=Math.max(10,pxh-6);render();};
+$('reload').onclick=load;
+load();
+</script>
+</body>
+</html>
