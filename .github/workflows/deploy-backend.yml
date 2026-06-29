@@ -9,9 +9,9 @@ on:
 
 env:
   PROJECT_ID: building-technology-493907
-  REGION: asia-southeast1
+  REGION: asia-northeast1
   SERVICE: staging-bdt-engineering-service
-  IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/staging-bdt-engineering-service
+  IMAGE: asia-northeast1-docker.pkg.dev/building-technology-493907/bdt-backend/staging-bdt-engineering-service
 
 jobs:
   deploy:
