@@ -15,7 +15,6 @@ import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, Che
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
-import type { ActivityDto } from '../api/activities'
 import { ActivityBuilderModal } from './ActivityBuilder'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
@@ -769,7 +768,7 @@ interface InspModalForm {
 
 interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null; opLibrary?: LibraryOpItem[] }
 
-const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh, opLibrary = [] }: InspectorDrawerProps) {
+const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
