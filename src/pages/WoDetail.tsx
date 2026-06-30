@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, AlertTriangle, Cpu, Wrench, Package, Users } from 'lucide-react'
+import { ArrowLeft, Loader2, AlertTriangle, Cpu, Wrench, FlaskConical, Users, Clock } from 'lucide-react'
 import {
   useWo, useWoEvents, useWoSchedule, useBomVersionStatus,
   useWoTransition, useAcceptNewVersion,
@@ -222,19 +222,11 @@ function fmtDuration(min: number) {
   return h > 0 ? `${h}h ${m}m` : `${m} min`
 }
 
-function ResourceRow({ label, color, children }: { label: string; color: string; children: React.ReactNode }) {
+function Chip({ icon, text, bg, color, border }: { icon: React.ReactNode; text: string; bg: string; color: string; border: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
-      <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color, width: 96, flexShrink: 0, paddingTop: 3 }}>{label}</span>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{children}</div>
-    </div>
-  )
-}
-
-function RChip({ color, bg, children }: { color: string; bg: string; children: React.ReactNode }) {
-  return (
-    <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, borderRadius: 5, padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-      {children}
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 500, color, background: bg, border: `1px solid ${border}`, borderRadius: 6, padding: '2px 8px' }}>
+      <span style={{ display: 'flex', opacity: 0.8 }}>{icon}</span>
+      {text}
     </span>
   )
 }
@@ -243,169 +235,156 @@ type ConsumeEntry = { resource_id: number; code: string; name: string; formula_n
 
 function RoutingSnapshotCard({ rop, wo }: { rop: SourceRoutingOp; wo: WoDetailT }) {
   const bom = wo.bom_assembly
-  // BOM dimension variables (Phase 1 — length proxies weld/cut for now)
-  const BOM_VARS: Record<string, number> = {
-    cut_length_mm:       Number(bom.length_mm      ?? 0),
-    weld_length_mm:      Number(bom.length_mm      ?? 0),
-    edge_length_mm:      Number(bom.length_mm      ?? 0),
-    bevel_length_mm:     Number(bom.length_mm      ?? 0),
-    sumNet_surface_area: Number(bom.surface_area_m2 ?? 0),
-    product_area:        Number(bom.surface_area_m2 ?? 0),
-    sumWeight:           Number(bom.weight_kg       ?? 0),
-  }
+  const color = rop.op_type?.color ?? '#9CA3AF'
+  const timeModeLabel = rop.time_mode === 'formula' ? 'Formula' : rop.time_mode === 'manual' ? 'Manual' : rop.time_mode === 'by_activities' ? 'By Activities' : rop.time_mode
 
+  const BOM_VARS: Record<string, number> = {
+    cut_length_mm: Number(bom.length_mm ?? 0), weld_length_mm: Number(bom.length_mm ?? 0),
+    edge_length_mm: Number(bom.length_mm ?? 0), bevel_length_mm: Number(bom.length_mm ?? 0),
+    sumNet_surface_area: Number(bom.surface_area_m2 ?? 0), product_area: Number(bom.surface_area_m2 ?? 0),
+    sumWeight: Number(bom.weight_kg ?? 0),
+  }
   function calcQty(c: ConsumeEntry): string | null {
     if (!c.consume_rate || !c.formula_name) return null
     const driver = BOM_VARS[c.formula_name]
-    if (driver == null || driver === 0) return null
+    if (!driver) return null
     const qty = driver * c.consume_rate
     const rounded = qty < 1 ? parseFloat(qty.toFixed(3)) : parseFloat(qty.toFixed(2))
     return `${rounded} ${c.consume_unit ?? ''}`
   }
 
-  const machineMap = new Map<number, { id: number; code: string; name: string }>()
-  const toolMap = new Map<number, { id: number; code: string; name: string; qty: number }>()
-  const consumeMap = new Map<number, ConsumeEntry>()
-  const laborMap = new Map<string, { skill: string; qty: number; level?: string | null }>()
-
-  for (const act of rop.activities) {
-    if (act.machine) machineMap.set(act.machine.id, act.machine)
-    for (const t of act.tools) if (!toolMap.has(t.id)) toolMap.set(t.id, t)
-    for (const c of act.consumables ?? []) if (!consumeMap.has(c.resource_id)) consumeMap.set(c.resource_id, c)
-    for (const l of act.labors ?? []) if (!laborMap.has(l.skill)) laborMap.set(l.skill, l)
-  }
-
-  const machines = [...machineMap.values()]
-  const tools = [...toolMap.values()]
-  const consumables = [...consumeMap.values()]
-  const labors = [...laborMap.values()]
-  const hasResources = machines.length + tools.length + consumables.length + labors.length > 0
-  const timeModeLabel = rop.time_mode === 'formula' ? 'Formula' : rop.time_mode === 'manual' ? 'Manual' : rop.time_mode === 'activities' ? 'Activities' : rop.time_mode
-
   return (
-    <Card title="Routing Snapshot">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-        <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#C8202A' }}>{rop.op_code}</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{rop.name}</span>
-        <div style={{ flex: 1 }} />
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', background: '#F0F0F0', borderRadius: 6, padding: '3px 12px' }}>
+    <Card title="Operation">
+      {/* Op header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <span style={{ width: 28, height: 28, borderRadius: 8, background: color, fontSize: 12, fontWeight: 800, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          {String(wo.sequence).padStart(2, '0')}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A' }}>{rop.name}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: '#666' }}>{wo.mrp_workcenter.name}</span>
+            {wo.mrp_workcenter.machine && (
+              <>
+                <span style={{ fontSize: 10, color: '#DDD' }}>·</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#1565C0' }}>
+                  <Cpu size={10} />{wo.mrp_workcenter.machine}
+                </span>
+              </>
+            )}
+            <span style={{ fontSize: 10, color: '#DDD' }}>·</span>
+            <span style={{ fontSize: 10, color: '#888', background: '#F0F0F0', borderRadius: 4, padding: '1px 5px' }}>{timeModeLabel}</span>
+            {rop.time_mode === 'formula' && rop.formula_expr && (
+              <span style={{ fontFamily: 'monospace', fontSize: 10, color: '#555', background: '#F5F5F5', borderRadius: 3, padding: '0 5px' }}>{rop.formula_expr}</span>
+            )}
+            {rop.time_mode === 'manual' && (
+              <span style={{ fontSize: 10, color: '#555' }}>{rop.time_cycle_manual ?? rop.time_cycle ?? 0} min</span>
+            )}
+          </div>
+        </div>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1A1A', background: '#F0F0F0', borderRadius: 6, padding: '3px 12px', flexShrink: 0 }}>
           {fmtDuration(wo.expected_duration_min)}
         </span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14, fontSize: 11, color: '#888' }}>
-        <span>Seq {String(wo.sequence).padStart(3, '0')}</span>
-        <span style={{ color: '#DDD' }}>·</span>
-        <span>{wo.mrp_workcenter.code} · {wo.mrp_workcenter.name}</span>
-        <span style={{ color: '#DDD' }}>·</span>
-        <span>{timeModeLabel} mode</span>
-        {rop.time_mode === 'formula' && rop.formula_expr && (
-          <>
-            <span style={{ color: '#DDD' }}>·</span>
-            <span style={{ fontFamily: 'monospace', color: '#555', background: '#F5F5F5', borderRadius: 3, padding: '0 5px' }}>{rop.formula_expr}</span>
-          </>
-        )}
-        {rop.time_mode === 'manual' && (
-          <>
-            <span style={{ color: '#DDD' }}>·</span>
-            <span>Cycle {rop.time_cycle_manual ?? rop.time_cycle ?? 0} min</span>
-          </>
-        )}
-        <span style={{ color: '#DDD' }}>·</span>
-        <span>{rop.activities.length} activities</span>
-        <span style={{ color: '#DDD' }}>·</span>
-        <span>Setup {wo.setup_time_min} min</span>
-      </div>
 
-      {/* Resource summary */}
-      {hasResources && (
-        <div style={{ background: '#F7F9FF', border: '1px solid #E3ECF8', borderRadius: 8, padding: '10px 14px', marginBottom: 14 }}>
-          {machines.length > 0 && (
-            <ResourceRow label="Machines" color="#1565C0">
-              {machines.map(m => (
-                <RChip key={m.id} color="#1565C0" bg="#DDEEFF">
-                  <Cpu size={10} />{m.name}
-                  <span style={{ opacity: 0.55, fontFamily: 'monospace', fontWeight: 400 }}>{m.code}</span>
-                </RChip>
-              ))}
-            </ResourceRow>
-          )}
-          {tools.length > 0 && (
-            <ResourceRow label="Tools" color="#6A1B9A">
-              {tools.map(t => (
-                <RChip key={t.id} color="#6A1B9A" bg="#F3E5F5">
-                  <Wrench size={10} />{t.name} ×{t.qty}
-                </RChip>
-              ))}
-            </ResourceRow>
-          )}
-          {consumables.length > 0 && (
-            <ResourceRow label="Consumables" color="#E65100">
-              {consumables.map((c, i) => {
-                const qty = calcQty(c)
-                return (
-                  <RChip key={i} color="#E65100" bg="#FBE9E7">
-                    <Package size={10} />{c.name}
-                    {qty
-                      ? <span style={{ fontWeight: 700, marginLeft: 2 }}>= {qty}</span>
-                      : c.formula_name
-                        ? <span style={{ opacity: 0.7 }}> / {c.formula_name}</span>
-                        : null
-                    }
-                  </RChip>
-                )
-              })}
-            </ResourceRow>
-          )}
-          {labors.length > 0 && (
-            <ResourceRow label="Labor" color="#2E7D32">
-              {labors.map((l, i) => (
-                <RChip key={i} color="#2E7D32" bg="#E8F5E9">
-                  <Users size={10} />{l.skill} ×{l.qty}{l.level ? ` (${l.level})` : ''}
-                </RChip>
-              ))}
-            </ResourceRow>
-          )}
+      {/* Activities */}
+      {rop.activities.length > 0 && (
+        <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {rop.activities.map((act, i) => {
+            const labors = act.labors ?? []
+            const tools = act.tools ?? []
+            const consumables = act.consumables ?? []
+            const hasResources = labors.length + tools.length + consumables.length > 0
+            return (
+              <div key={i} style={{ background: '#F8F8F8', borderRadius: 8, padding: '9px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: hasResources ? 7 : 0 }}>
+                  <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#ECECEC', fontSize: 9, fontWeight: 700, color: '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#2A2A2A' }}>{act.name}</span>
+                  {act.measure && <span style={{ fontSize: 10, color: '#888', background: '#ECECEC', borderRadius: 5, padding: '1px 6px' }}>{act.measure}</span>}
+                  {act.per_minute != null && act.per_minute > 0 && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: '#2E7D32', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 5, padding: '1px 6px', marginLeft: 'auto' }}>
+                      {act.per_minute}/min
+                    </span>
+                  )}
+                </div>
+                {hasResources && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {labors.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#166534', background: '#DCFCE7', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>SKILL</span>
+                        {labors.map((l, li) => <Chip key={li} icon={<Users size={10} />} text={`${l.skill}${l.level ? ` (${l.level})` : ''} ×${l.qty}`} bg="#F0FDF4" color="#166534" border="#BBF7D0" />)}
+                      </div>
+                    )}
+                    {tools.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#1E40AF', background: '#DBEAFE', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>TOOL</span>
+                        {tools.map((t, ti) => <Chip key={ti} icon={<Wrench size={10} />} text={`${t.name} ×${t.qty}`} bg="#EFF6FF" color="#1E40AF" border="#BFDBFE" />)}
+                      </div>
+                    )}
+                    {consumables.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#92400E', background: '#FEF3C7', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>USE</span>
+                        {consumables.map((c, ci) => {
+                          const qty = calcQty(c)
+                          return <Chip key={ci} icon={<FlaskConical size={10} />} text={`${c.name}${c.formula_expr ? ` · ${c.formula_expr} ${c.result_unit ?? ''}`.trim() : (qty ? ` = ${qty}` : '')}`} bg="#FFFBEB" color="#92400E" border="#FDE68A" />
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
-
-      {/* Step-by-step activity rows */}
-      {rop.activities.length > 0 && (
+      {/* Duration breakdown */}
+      {rop.duration_breakdown?.length > 0 && (
         <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 10 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#AAAAAA', marginBottom: 8 }}>
-            Step-by-step
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 8 }}>
+            <Clock size={11} style={{ color: '#888' }} />
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#888', letterSpacing: '0.06em' }}>DURATION BREAKDOWN</span>
           </div>
-          {rop.activities.map((act, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 0', borderBottom: i < rop.activities.length - 1 ? '1px solid #F4F4F4' : 'none', flexWrap: 'wrap' }}>
-              <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#EEEEEE', fontSize: 11, fontWeight: 700, color: '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A', minWidth: 110, flex: '0 0 auto' }}>{act.name}</span>
-              {act.measure && <span style={{ fontSize: 11, color: '#BBB', flex: '0 0 auto' }}>{act.measure}</span>}
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
-                {act.machine && <RChip color="#1565C0" bg="#EBF2FF"><Cpu size={9} />{act.machine.name}</RChip>}
-                {act.tools.map(t => <RChip key={t.id} color="#6A1B9A" bg="#F3E5F5"><Wrench size={9} />{t.name} ×{t.qty}</RChip>)}
-                {(act.consumables ?? []).map((c, ci) => {
-                  const qty = calcQty(c)
-                  return (
-                    <RChip key={ci} color="#E65100" bg="#FBE9E7">
-                      <Package size={9} />{c.name}
-                      {qty && <span style={{ fontWeight: 700, marginLeft: 1 }}>= {qty}</span>}
-                    </RChip>
-                  )
-                })}
-                {(act.labors ?? []).map((l, li) => <RChip key={li} color="#2E7D32" bg="#E8F5E9"><Users size={9} />{l.skill} ×{l.qty}</RChip>)}
-              </div>
-              {act.per_minute != null && act.per_minute > 0 && (
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#2E7D32', background: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 6, padding: '1px 7px', flexShrink: 0 }}>
-                  {act.per_minute}/min
-                </span>
-              )}
-              {act.formula_code && (
-                <span style={{ fontSize: 10, color: '#777', fontFamily: 'monospace', background: '#F5F5F5', borderRadius: 4, padding: '1px 6px', flexShrink: 0 }}>
-                  {act.formula_code}
-                </span>
-              )}
-            </div>
-          ))}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #F0F0F0' }}>
+                <th style={{ textAlign: 'left', padding: '3px 6px 4px 0', color: '#999', fontWeight: 600, fontSize: 10 }}>Activity</th>
+                <th style={{ textAlign: 'left', padding: '3px 6px 4px', color: '#999', fontWeight: 600, fontSize: 10 }}>Dimension</th>
+                <th style={{ textAlign: 'right', padding: '3px 6px 4px', color: '#999', fontWeight: 600, fontSize: 10 }}>Rate</th>
+                <th style={{ textAlign: 'right', padding: '3px 0 4px 6px', color: '#999', fontWeight: 600, fontSize: 10 }}>min</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rop.duration_breakdown.map((row, i) => (
+                <tr key={i} style={{ borderBottom: i < rop.duration_breakdown.length - 1 ? '1px solid #FAFAFA' : 'none', background: row.is_setup ? '#FAFAFA' : 'transparent' }}>
+                  <td style={{ padding: '4px 6px 4px 0', color: row.is_setup ? '#888' : '#1A1A1A' }}>
+                    {row.is_setup && <span style={{ fontSize: 9, color: '#999', background: '#F0F0F0', borderRadius: 3, padding: '1px 4px', marginRight: 4 }}>SETUP</span>}
+                    {row.name}
+                  </td>
+                  <td style={{ padding: '4px 6px', color: '#555', fontSize: 10 }}>
+                    {row.formula_code && row.formula_code !== 'fixed' && (
+                      <span style={{ fontFamily: 'monospace', fontSize: 9, color: '#999', background: '#F4F4F4', border: '1px solid #E8E8E8', borderRadius: 3, padding: '1px 4px', marginRight: 5, display: 'inline-block' }}>{row.formula_code}</span>
+                    )}
+                    <span style={{ fontFamily: 'monospace' }}>{row.dimension_label}</span>
+                  </td>
+                  <td style={{ padding: '4px 6px', color: '#555', textAlign: 'right', fontFamily: 'monospace', fontSize: 10 }}>
+                    {row.per_minute != null && row.per_minute > 0 && !row.is_setup ? `${row.per_minute}/min` : '—'}
+                  </td>
+                  <td style={{ padding: '4px 0 4px 6px', fontWeight: 700, textAlign: 'right', color: row.is_setup ? '#888' : '#1A1A1A' }}>
+                    {row.minutes}
+                  </td>
+                </tr>
+              ))}
+              <tr style={{ borderTop: '2px solid #E8E8E8' }}>
+                <td colSpan={2} style={{ padding: '5px 6px 2px 0', fontSize: 10, color: '#666' }}>
+                  setup {wo.setup_time_min} min · run {wo.expected_duration_min} min
+                </td>
+                <td style={{ padding: '5px 6px 2px', textAlign: 'right', fontSize: 10, color: '#666' }}>total</td>
+                <td style={{ padding: '5px 0 2px 6px', fontWeight: 800, textAlign: 'right', color: '#1A1A1A' }}>
+                  {(wo.setup_time_min ?? 0) + wo.expected_duration_min}
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       )}
     </Card>
@@ -417,21 +396,22 @@ function OverviewTab({ wo, bomOutdated, onMo }: { wo: WoDetailT; bomOutdated: bo
   const rop = wo.source_routing_op
   return (
     <>
-      {rop
-        ? <RoutingSnapshotCard rop={rop} wo={wo} />
-        : (
-          <Card title="Routing Snapshot">
-            <span style={{ fontSize: 13, color: '#AAA' }}>No routing operation linked.</span>
-          </Card>
-        )
-      }
-
       <Card title="MO Context">
         <Row k="Manufacturing Order" v={<button onClick={onMo} style={{ color: '#0C447C', fontFamily: 'monospace', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>{wo.manufacturing_order.mo_code}</button>} />
         <Row k="Assembly" v={<span style={{ fontFamily: 'monospace' }}>{wo.bom_assembly.assembly_mark}{wo.bom_assembly.name ? ` · ${wo.bom_assembly.name}` : ''}</span>} />
         <Row k="Project / Zone" v={[d?.project?.name, d?.zone?.label, d?.sub_zone?.name].filter(Boolean).join(' · ') || '—'} />
         <Row k="BOM Version (snapshot)" v={<>dispatch #{wo.bom_dispatch_id_snapshot}{bomOutdated && <span style={{ background: '#FFEBEE', color: '#C62828', borderRadius: 999, padding: '1px 8px', fontSize: 11, fontWeight: 700, marginLeft: 6 }}>⚠ newer</span>}</>} />
       </Card>
+
+      {rop
+        ? <RoutingSnapshotCard rop={rop} wo={wo} />
+        : (
+          <Card title="Operation">
+            <span style={{ fontSize: 13, color: '#AAA' }}>No routing operation linked.</span>
+          </Card>
+        )
+      }
+
       <Card title="Execution">
         <Row k="Released" v={wo.released_at ? `${fmtDateTime(wo.released_at)} · ${wo.released_by ?? ''}` : '—'} />
         <Row k="Actual Start" v={fmtDateTime(wo.actual_start_at)} />

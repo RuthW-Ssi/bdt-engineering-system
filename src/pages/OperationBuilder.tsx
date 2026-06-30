@@ -9,7 +9,7 @@ import { ActivityBuilderModal } from './ActivityBuilder'
 
 // ── Types ──────────────────────────────────────────────────────
 
-interface WorkcenterItem { id: number; code: string; name: string }
+interface WorkcenterItem { id: number; code: string; name: string; machine?: string | null }
 interface OpTypeItem { id: number; key: string; label: string; color: string; default_wc_id: number | null; default_wc: { id: number; code: string; name: string } | null }
 
 interface ConsumableFormItem { resource_id: number; qty: string; unit: string; name?: string; formula_name?: string | null }
@@ -27,7 +27,6 @@ interface FormActivity {
   source_activity_code: string | null
   snapshot_at: string | null
   is_stale: boolean
-  machine_id: number | null
   tools: FormActivityTool[]
   consumables: ConsumableFormItem[]
   labors: FormActivityLabor[]
@@ -107,7 +106,6 @@ export default function OperationBuilder() {
         source_activity_code: a.source_activity_code ?? null,
         snapshot_at: a.snapshot_at ?? null,
         is_stale: (a as any).is_stale ?? false,
-        machine_id: a.machine_id ?? null,
         tools: a.tools?.map((t) => ({ id: t.resource.id, qty: t.qty ?? 1 })) ?? [],
         consumables: a.consumables?.map((c) => ({ resource_id: c.resource.id, name: c.resource.name, qty: c.qty != null ? String(c.qty) : '', unit: c.unit ?? '', formula_name: (c as any).formula_name ?? null })) ?? [],
         labors: a.skills?.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })) ?? [],
@@ -168,7 +166,6 @@ export default function OperationBuilder() {
     activities:   form.activities.map((a, i) => ({
       name: a.name, measure: a.measure, unit: a.unit || null,
       per_minute: a.per_minute ? Number(a.per_minute) : null,
-      machine_id: a.machine_id ?? null,
       tool_ids: a.tools,
       consumables: [
         // Library-linked activity consumables are read-only (from source_activity.consumes) — never re-save them
@@ -328,6 +325,15 @@ export default function OperationBuilder() {
                   <option value="">— Select —</option>
                   {workcenters.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
                 </select>
+                {(() => {
+                  const wc = workcenters.find(w => w.id === Number(form.workcenter_id))
+                  return wc?.machine ? (
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Machine:</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#185FA5' }}>{wc.machine}</span>
+                    </div>
+                  ) : null
+                })()}
               </div>
               <div>
                 <div style={label}>Method</div>
@@ -354,14 +360,13 @@ export default function OperationBuilder() {
                 if (!pm || pm <= 0) { opTotalOk = false; break }
                 opTotal += pm
               }
-              const machines = equipmentList.filter(e => ['machine', 'handling'].includes(e.type))
               const chip: React.CSSProperties = { fontSize: 11, padding: '2px 9px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
-              const COL = '1fr 64px 1fr 24px'
-              const COL_LIB = '1fr 64px 1fr 20px 20px'
+              const COL = '1fr 64px 24px'
+              const COL_LIB = '1fr 64px 20px 20px'
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: COL, gap: 8, padding: '0 8px', marginBottom: 2 }}>
-                    {['Name', 'min', 'Machine', ''].map(h => (
+                    {['Name', 'min', ''].map(h => (
                       <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                     ))}
                   </div>
@@ -370,7 +375,6 @@ export default function OperationBuilder() {
                     const pm = Number(act.per_minute)
                     const estMin = pm > 0 ? pm : null
                     const isLib = act.source_activity_id !== null
-                    const machineName = machines.find(m => m.id === act.machine_id)?.name ?? '—'
                     return (
                       <div key={act.localId} style={{ border: `1px solid ${isLib ? '#BBDEFB' : '#E8E8E8'}`, borderRadius: 6 }}>
 
@@ -388,7 +392,6 @@ export default function OperationBuilder() {
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
-                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{machineName}</div>
                             <button type="button"
                               onClick={() => act.source_activity_id && act.id !== undefined && setEditingActivity({ sourceId: act.source_activity_id, opActId: act.id })}
                               title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
@@ -407,11 +410,6 @@ export default function OperationBuilder() {
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '5px 8px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
                             <input type="number" min={0} value={act.per_minute} onChange={e => patchActivity(act.localId, { per_minute: e.target.value })}
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '5px 6px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="0" />
-                            <select value={act.machine_id ?? ''} onChange={e => patchActivity(act.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
-                              style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 6px', background: '#fff', outline: 'none', fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
-                              <option value="">— Select machine —</option>
-                              {machines.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-                            </select>
                             <button onClick={() => removeActivity(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
                               <X size={13} />
                             </button>

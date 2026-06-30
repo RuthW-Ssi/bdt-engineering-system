@@ -14,6 +14,22 @@ import { CreateMoDto, MoAssemblyLineInputDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
 
+/** Safely evaluate a formula expression with known numeric variables.
+ *  Substitutes variable names → decimal strings, then asserts the resulting
+ *  string contains only digits / operators / parens before evaluating.
+ */
+function evalFormulaExpr(expr: string, vars: Record<string, number>): number {
+  const KNOWN = ['length', 'area', 'weight', 'thickness']
+  let safe = expr
+  for (const k of KNOWN) {
+    safe = safe.replace(new RegExp(`\\b${k}\\b`, 'g'), String(vars[k] ?? 0))
+  }
+  // After substitution only numbers, operators, parentheses and whitespace are allowed
+  if (!/^[\d\s+\-*/().]+$/.test(safe)) return 0
+  // eslint-disable-next-line no-new-func
+  return Number(new Function(`return ${safe}`)())
+}
+
 /** P3 status state machine: allowed forward transitions. */
 const ALLOWED_TRANSITIONS: Record<MoStatus, MoStatus[]> = {
   DRAFT: ['CONFIRMED', 'CANCELLED'],
@@ -42,8 +58,22 @@ const DETAIL_INCLUDE = {
           name: true,
           time_cycle: true,
           time_cycle_manual: true,
-          workcenter: { select: { id: true, code: true, name: true } },
+          workcenter: { select: { id: true, code: true, name: true, machine: true } },
+          op_type: { select: { id: true, key: true, label: true, color: true } },
           activities_snapshot: true,
+          operation_template: {
+            select: {
+              id: true,
+              activities: {
+                orderBy: { sequence: 'asc' as const },
+                select: {
+                  id: true, name: true, measure: true, per_minute: true, source_activity_id: true,
+                  skills: { select: { skill: true, qty: true, level: true } },
+                  tools: { include: { resource: { select: { id: true, name: true } } } },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -147,76 +177,69 @@ export class ManufacturingOrderService {
       if (dispatch.sub_zone) subZonesMap.set(dispatch.sub_zone.id, { id: dispatch.sub_zone.id, name: dispatch.sub_zone.name })
     }
 
-    // Enrich operation activities with machine/tool names and current skills from Activity Library
-    type RawTool = { id: number; qty: number } | number
-    type RawAct = {
-      name: string; measure?: string | null; per_minute?: number | string | null
-      source_activity_id?: number | null
-      machine_id?: number | null; tool_ids?: RawTool[] | null
-      labors?: { skill: string; qty: number; level?: string | null }[] | null
-      consumables?: { resource_id: number; code: string; name: string }[] | null
-    }
-    const toolIdOf = (t: RawTool): number | null => typeof t === 'number' ? t : (t.id ?? null)
-    const toolQtyOf = (t: RawTool): number => typeof t === 'number' ? 1 : (t.qty ?? 1)
-
-    const allResIds = new Set<number>()
-    const activityIds = new Set<number>()
-    const unlinkedNames = new Set<string>()
+    // Collect source_activity_ids for consumable lookup across all ops
+    const allActivityIds = new Set<number>()
     for (const op of mo.routing_template.operations) {
-      const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
-      for (const a of acts) {
-        if (a.machine_id != null) allResIds.add(a.machine_id)
-        for (const t of a.tool_ids ?? []) { const id = toolIdOf(t); if (id != null) allResIds.add(id) }
-        if (a.source_activity_id != null) activityIds.add(a.source_activity_id)
-        else if (a.name) unlinkedNames.add(a.name)
+      if ((op as any).operation_template?.activities?.length) {
+        for (const a of (op as any).operation_template.activities) {
+          if (a.source_activity_id) allActivityIds.add(a.source_activity_id)
+        }
+      } else {
+        const snap = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : []
+        for (const a of snap) { if (a.source_activity_id) allActivityIds.add(a.source_activity_id) }
       }
     }
-    const resMap = allResIds.size > 0
-      ? new Map((await this.prisma.equipment_resource.findMany({
-          where: { id: { in: [...allResIds] } },
-          select: { id: true, code: true, name: true },
-        })).map(r => [r.id, r]))
-      : new Map<number, { id: number; code: string; name: string }>()
 
-    const skillRows = activityIds.size > 0
-      ? await this.prisma.activity_skill.findMany({
-          where: { activity_id: { in: [...activityIds] } },
-          select: { activity_id: true, skill: true, qty: true, level: true },
+    const consumeRows = allActivityIds.size > 0
+      ? await this.prisma.activity_consume.findMany({
+          where: { activity_id: { in: [...allActivityIds] } },
+          include: {
+            material: { select: { id: true, default_code: true, name: true } },
+            formula: { select: { id: true, name: true, expr: true, result_unit: true } },
+          },
         })
       : []
-    const skillMap = new Map<number, { skill: string; qty: number; level: string | null }[]>()
-    for (const row of skillRows) {
-      const list = skillMap.get(row.activity_id) ?? []
-      list.push({ skill: row.skill, qty: row.qty, level: row.level })
-      skillMap.set(row.activity_id, list)
-    }
-
-    // Name-match unlinked activities to Activity Library for skills
-    const nameSkillMap = new Map<string, { skill: string; qty: number; level: string | null }[]>()
-    if (unlinkedNames.size > 0) {
-      const matched = await this.prisma.activity.findMany({
-        where: { name: { in: [...unlinkedNames] } },
-        select: { name: true, skills: { select: { skill: true, qty: true, level: true } } },
+    const consumeMap = new Map<number, { resource_id: number; code: string; name: string; formula_id: number | null; formula_name: string | null; formula_expr: string | null; result_unit: string | null }[]>()
+    for (const row of consumeRows) {
+      const list = consumeMap.get(row.activity_id) ?? []
+      list.push({
+        resource_id: row.material_id,
+        code: row.material.default_code,
+        name: row.material.name,
+        formula_id: row.formula?.id ?? null,
+        formula_name: row.formula?.name ?? null,
+        formula_expr: row.formula?.expr ?? null,
+        result_unit: row.formula?.result_unit ?? null,
       })
-      for (const m of matched) if (m.skills.length) nameSkillMap.set(m.name, m.skills)
+      consumeMap.set(row.activity_id, list)
     }
 
     const enrichedOperations = mo.routing_template.operations.map(op => {
-      const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
-      return {
-        ...op,
-        activities: acts.map(a => ({
+      const opAny = op as any
+      let activities: { name: string; measure: string | null; labors: { skill: string; qty: number; level?: string | null }[]; consumables: { resource_id: number; code: string; name: string }[] }[]
+
+      if (opAny.operation_template?.activities?.length) {
+        // Live path: from Operation Library FK
+        activities = opAny.operation_template.activities.map((a: any) => ({
           name: a.name,
           measure: a.measure ?? null,
-          per_minute: a.per_minute != null ? Number(a.per_minute) : null,
-          machine: a.machine_id != null ? (resMap.get(a.machine_id) ?? null) : null,
-          tools: (a.tool_ids ?? []).map(t => { const id = toolIdOf(t); const qty = toolQtyOf(t); return { ...(id != null ? (resMap.get(id) ?? { id, code: '', name: '' }) : { id: null, code: '', name: '' }), qty } }),
-          labors: a.source_activity_id != null && skillMap.has(a.source_activity_id)
-            ? skillMap.get(a.source_activity_id)!
-            : (a.name && nameSkillMap.has(a.name) ? nameSkillMap.get(a.name)! : (a.labors ?? null)),
-          consumables: a.consumables ?? null,
-        })),
+          labors: (a.skills ?? []).map((s: any) => ({ skill: s.skill, qty: s.qty, level: s.level })),
+          tools: (a.tools ?? []).map((t: any) => ({ id: t.resource_id, name: t.resource.name, qty: t.qty })),
+          consumables: a.source_activity_id ? (consumeMap.get(a.source_activity_id) ?? []) : [],
+        }))
+      } else {
+        // Fallback: snapshot path
+        const snap = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : []
+        activities = snap.map(a => ({
+          name: a.name,
+          measure: a.measure ?? null,
+          labors: a.labors ?? [],
+          tools: [],
+          consumables: a.source_activity_id ? (consumeMap.get(a.source_activity_id) ?? (a.consumables ?? [])) : (a.consumables ?? []),
+        }))
       }
+
+      return { ...op, activities }
     })
 
     return {
@@ -227,6 +250,96 @@ export class ManufacturingOrderService {
       sub_zones_involved: [...subZonesMap.values()],
       routing_template: { ...mo.routing_template, operations: enrichedOperations },
     }
+  }
+
+  // ── Consume Summary: planned material totals across all WOs ─────────────────
+  async getConsumeSummary(moId: number) {
+    await this.requireMo(moId)
+
+    // 1. Fetch all WOs with assembly dimensions (bom_assembly is a Prisma relation)
+    const wos = await this.prisma.work_order.findMany({
+      where: { mo_id: moId },
+      select: {
+        source_routing_op_id: true,
+        bom_assembly: { select: { length_mm: true, surface_area_m2: true, weight_kg: true } },
+      },
+    })
+
+    // 2. Fetch snapshots for the unique routing ops referenced (soft ref, no Prisma relation)
+    const opIds = [...new Set(wos.map(w => w.source_routing_op_id).filter((x): x is number => x != null))]
+    const routingOps = opIds.length > 0
+      ? await this.prisma.mrp_routing_workcenter.findMany({
+          where: { id: { in: opIds } },
+          select: { id: true, activities_snapshot: true },
+        })
+      : []
+    const snapshotMap = new Map(routingOps.map(r => [r.id, r.activities_snapshot]))
+
+    // 3. Collect all source_activity_ids across all snapshots
+    const allActivityIds = new Set<number>()
+    for (const op of routingOps) {
+      const snap = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : []
+      for (const a of snap) { if (a.source_activity_id) allActivityIds.add(a.source_activity_id) }
+    }
+
+    const consumeRows = allActivityIds.size > 0
+      ? await this.prisma.activity_consume.findMany({
+          where: { activity_id: { in: [...allActivityIds] } },
+          include: {
+            material: { select: { id: true, default_code: true, name: true } },
+            formula: { select: { id: true, name: true, expr: true, result_unit: true } },
+          },
+        })
+      : []
+
+    type ConsumeEntry = { material_id: number; code: string; mat_name: string; expr: string | null; unit: string | null }
+    const consumeMap = new Map<number, ConsumeEntry[]>()
+    for (const row of consumeRows) {
+      const list = consumeMap.get(row.activity_id) ?? []
+      list.push({
+        material_id: row.material.id,
+        code: row.material.default_code,
+        mat_name: row.material.name,
+        expr: row.formula?.expr ?? null,
+        unit: row.formula?.result_unit ?? null,
+      })
+      consumeMap.set(row.activity_id, list)
+    }
+
+    // 4. For each WO, evaluate formulas using that assembly's dimensions
+    const totals = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }>()
+
+    for (const wo of wos) {
+      if (!wo.source_routing_op_id) continue
+      const snap = Array.isArray(snapshotMap.get(wo.source_routing_op_id))
+        ? (snapshotMap.get(wo.source_routing_op_id) as any[])
+        : []
+      const ba = wo.bom_assembly
+      const vars = {
+        length: ba.length_mm ? Number(ba.length_mm) / 1000 : 0,
+        area: ba.surface_area_m2 ? Number(ba.surface_area_m2) : 0,
+        weight: ba.weight_kg ? Number(ba.weight_kg) : 0,
+        thickness: 0,
+      }
+
+      for (const act of snap) {
+        if (!act.source_activity_id) continue
+        for (const c of consumeMap.get(act.source_activity_id) ?? []) {
+          let qty = 0
+          if (c.expr) {
+            try { qty = evalFormulaExpr(c.expr, vars) } catch { qty = 0 }
+          }
+          if (!(qty > 0)) continue
+          const existing = totals.get(c.material_id)
+          if (existing) { existing.qty += qty }
+          else { totals.set(c.material_id, { material_id: c.material_id, code: c.code, name: c.mat_name, qty, unit: c.unit }) }
+        }
+      }
+    }
+
+    return [...totals.values()]
+      .sort((a, b) => b.qty - a.qty)
+      .map(r => ({ ...r, qty: Math.round(r.qty * 100) / 100 }))
   }
 
   // ── Assemblies tab: lines + total + remaining + allocation breakdown ────────

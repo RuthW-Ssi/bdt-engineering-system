@@ -21,7 +21,6 @@ export interface CreateOpTemplateActivityDto {
   measure: string
   unit?: string
   per_minute?: number
-  machine_id?: number | null
   tool_ids?: { id: number; qty: number }[]
   consumables?: ConsumableInput[]
   skills?: LaborInput[]
@@ -72,7 +71,6 @@ const FULL_INCLUDE = {
 }
 
 const OP_ACT_INCLUDE = {
-  machine:         { select: { id: true, code: true, name: true, type: true } },
   tools:           { include: { resource: RESOURCE_SELECT } },
   skills:          true,
   op_materials:    { include: { resource: { select: { id: true, code: true, name: true } }, formula: { select: { id: true, name: true, expr: true, result_unit: true, variables: true } } } },
@@ -185,7 +183,6 @@ export class OperationTemplateService {
               measure:            a.measure,
               unit:               a.unit               ?? null,
               per_minute:         a.per_minute         ?? null,
-              machine_id:         a.machine_id         ?? null,
               source_activity_id: a.source_activity_id ?? null,
               snapshot_at:        a.snapshot_at ? new Date(a.snapshot_at) : null,
               sequence: a.sequence ?? (i + 1) * 10,
@@ -224,7 +221,6 @@ export class OperationTemplateService {
               measure:            a.measure,
               unit:               a.unit               ?? null,
               per_minute:         a.per_minute         ?? null,
-              machine_id:         a.machine_id         ?? null,
               source_activity_id: a.source_activity_id ?? null,
               snapshot_at:        a.snapshot_at ? new Date(a.snapshot_at) : null,
               sequence: a.sequence ?? (i + 1) * 10,
@@ -301,7 +297,6 @@ export class OperationTemplateService {
           name:                  src.name,
           measure:               src.activity_code,   // NOT NULL constraint — use activity_code
           per_minute:            src.duration_min,
-          machine_id:            src.machine_id,
           source_activity_id:    src.id,
           snapshot_at:           new Date(),
         },
@@ -358,7 +353,6 @@ export class OperationTemplateService {
           name:        src.name,
           measure:     src.activity_code,
           per_minute:  src.duration_min,
-          machine_id:  src.machine_id,
           snapshot_at: new Date(),
         },
       })

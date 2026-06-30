@@ -7,13 +7,6 @@ import { apiClient } from '../api/client'
 import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
 import { routingFormulaParamsApi, type RoutingFormulaParam } from '../api/routingFormulas'
 
-interface MachineOption {
-  id: number
-  code: string
-  name: string
-  type: string
-}
-
 interface ConsumableEntry {
   id: number
   code: string
@@ -63,109 +56,6 @@ const labelStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: '0.06em',
   marginBottom: 4,
-}
-
-// ── Machine Picker ────────────────────────────────────────────────────────────
-
-function MachinePicker({
-  value,
-  onChange,
-  hasError,
-}: {
-  value: MachineOption | null
-  onChange: (m: MachineOption | null) => void
-  hasError?: boolean
-}) {
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const [all, setAll] = useState<MachineOption[]>([])
-  const wrapperRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    apiClient.get('/equipment-resources').then((r) => {
-      setAll(
-        (r.data as any[])
-          .filter((m) => m.type === 'machine')
-          .map((m) => ({ id: m.id, code: m.code, name: m.name, type: m.type }))
-      )
-    })
-  }, [])
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase()
-    if (!q) return all.slice(0, 10)
-    return all.filter((m) => m.code.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)).slice(0, 10)
-  }, [query, all])
-
-  if (value) {
-    return (
-      <div ref={wrapperRef}>
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          background: '#FFF3F3', border: '1px solid #FFCDD2',
-          borderRadius: 4, padding: '5px 10px', fontSize: 12, color: '#C8202A',
-        }}>
-          <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{value.code}</span>
-          <span style={{ color: '#555' }}>{value.name}</span>
-          <button
-            type="button"
-            onClick={() => { onChange(null); setQuery('') }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', color: '#C8202A', opacity: 0.6 }}
-          >
-            <X size={12} />
-          </button>
-        </span>
-      </div>
-    )
-  }
-
-  return (
-    <div ref={wrapperRef} style={{ position: 'relative' }}>
-      <div style={{ position: 'relative' }}>
-        <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9E9E9E', pointerEvents: 'none' }} />
-        <input
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
-          onFocus={() => setOpen(true)}
-          style={{ ...inputStyle, paddingLeft: 30, borderColor: hasError ? '#FFCDD2' : '#E0E0E0' }}
-          placeholder="พิมชื่อ หรือ รหัส machine…"
-        />
-      </div>
-      {open && filtered.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-          background: '#fff', border: '1px solid #E0E0E0', borderRadius: 6,
-          boxShadow: '0 4px 16px rgba(0,0,0,0.10)', marginTop: 2, maxHeight: 240, overflowY: 'auto',
-        }}>
-          {filtered.map((item) => (
-            <div
-              key={item.id}
-              onMouseDown={() => { onChange(item); setOpen(false); setQuery('') }}
-              style={{
-                padding: '8px 12px', cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 10,
-                borderBottom: '1px solid #F5F5F5',
-              }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = '#FFF8F8' }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = '' }}
-            >
-              <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#C8202A', flexShrink: 0 }}>{item.code}</span>
-              <span style={{ fontSize: 13, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</span>
-              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#BDBDBD', flexShrink: 0 }}>{item.type}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ── Consumable Picker (materials type=consu) ──────────────────────────────────
@@ -467,7 +357,6 @@ interface Props {
 export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   const isEdit = activityId !== undefined
 
-  const [selectedMachine, setSelectedMachine] = useState<MachineOption | null>(null)
   const [selectedConsumables, setSelectedConsumables] = useState<ConsumableEntry[]>([])
   const [selectedTools, setSelectedTools] = useState<ToolOption[]>([])
   const [selectedSkills, setSelectedSkills] = useState<LaborEntry[]>([])
@@ -497,7 +386,6 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
         ratio_unit: (existing as any).ratio_unit ?? '',
         per_time:   (existing as any).per_time   != null ? Number((existing as any).per_time)   : '',
       })
-      setSelectedMachine(existing.machine ? { id: existing.machine.id, code: existing.machine.code, name: existing.machine.name, type: '' } : null)
       setSelectedConsumables(existing.consumes.map((c) => ({ id: c.material.id, code: c.material.default_code, name: c.material.name, formula_id: c.formula?.id ?? undefined })))
       setSelectedTools((existing.tools ?? []).map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name, qty: t.qty ?? 1 })))
       setSelectedSkills(existing.skills.map((l) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })))
@@ -507,7 +395,6 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   async function onSubmit(values: FormValues) {
     const payload = {
       name: values.name,
-      machine_id: selectedMachine?.id,
       duration_min: Number(values.duration_min),
       per_minute:   values.per_minute !== '' ? Number(values.per_minute) : undefined,
       formula_code: values.formula_code || undefined,
@@ -661,11 +548,6 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
               {/* Resources */}
               <div style={{ background: '#F8F9FA', border: '1px solid #E8E8E8', borderRadius: 10, padding: 20 }}>
                 <div style={sectionLabel}>Resources</div>
-                <div style={{ marginBottom: 20 }}>
-                  <label style={labelStyle}>Machine <span style={{ color: '#9E9E9E', fontWeight: 400 }}>(optional)</span></label>
-                  <MachinePicker value={selectedMachine} onChange={setSelectedMachine} hasError={false} />
-                </div>
-                <div style={{ borderTop: '1px solid #EEEEEE', marginBottom: 20 }} />
                 <div style={{ marginBottom: 20 }}>
                   <label style={labelStyle}>Consumed Materials (optional)</label>
                   <ConsumablePicker value={selectedConsumables} onChange={setSelectedConsumables} formulas={formulas} />

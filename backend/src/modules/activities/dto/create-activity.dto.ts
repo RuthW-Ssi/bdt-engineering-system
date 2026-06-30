@@ -41,12 +41,6 @@ export class CreateActivityDto {
   @MaxLength(120)
   name: string
 
-  @ApiPropertyOptional({ description: 'FK → equipment_resource.id', example: 5 })
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  machine_id?: number
-
   @ApiPropertyOptional({ description: 'Consumed materials with optional formula', example: [{ resource_id: 12, formula_id: 3 }] })
   @IsOptional()
   @IsArray()

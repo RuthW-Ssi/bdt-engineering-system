@@ -71,6 +71,12 @@ export class ManufacturingOrderController {
     return this.svc.getHistory(id)
   }
 
+  @Get(':id/consume-summary')
+  @ApiOperation({ summary: 'Planned material totals for all WOs in this MO' })
+  getConsumeSummary(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.getConsumeSummary(id)
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create DRAFT MO · snapshot routing ops · validate qty (P13)' })
   create(@Body() dto: CreateMoDto, @CurrentUser() user: JwtPayload) {

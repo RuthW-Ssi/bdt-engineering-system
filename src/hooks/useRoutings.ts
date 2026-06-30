@@ -97,11 +97,11 @@ export function useStdCost(productCode: string | undefined) {
 
 // ── Workcenter hooks ───────────────────────────────────────────
 
-export function useWorkcenters() {
+export function useWorkcenters(active?: boolean) {
   const qc = useQueryClient()
   const query = useQuery({
-    queryKey: ['workcenters'],
-    queryFn: getWorkcenters,
+    queryKey: ['workcenters', active],
+    queryFn: () => getWorkcenters(active),
     staleTime: 10 * 60 * 1000,
   })
   const create = useMutation({

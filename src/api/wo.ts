@@ -38,10 +38,20 @@ export interface EnrichedActivity {
   measure: string | null
   per_minute: number | null
   formula_code: string | null
-  machine: { id: number; code: string; name: string } | null
   tools: { id: number; code: string; name: string; qty: number }[]
-  consumables: { resource_id: number; code: string; name: string; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
+  consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_expr?: string | null; result_unit?: string | null }[] | null
   labors: { skill: string; qty: number; level?: string | null }[] | null
+}
+
+export interface DurationBreakdownRow {
+  name: string
+  kind: string
+  formula_code: string | null
+  dimension_label: string
+  dimension_value: number | null
+  per_minute: number | null
+  minutes: number
+  is_setup: boolean
 }
 
 export interface SourceRoutingOp {
@@ -52,7 +62,9 @@ export interface SourceRoutingOp {
   time_cycle: string | number | null
   time_cycle_manual: string | number | null
   formula_expr: string | null
+  op_type: { id: number; key: string; label: string; color: string } | null
   activities: EnrichedActivity[]
+  duration_breakdown: DurationBreakdownRow[]
 }
 
 export interface WoDetail {
@@ -83,7 +95,7 @@ export interface WoDetail {
   created_by: string
   updated_by: string | null
   manufacturing_order: { id: number; mo_code: string; status: string; primary_mark_prefix_code: string; primary_mark_prefix: MarkPrefix }
-  mrp_workcenter: { id: number; code: string; name: string }
+  mrp_workcenter: { id: number; code: string; name: string; machine: string | null }
   bom_assembly: { id: number; assembly_mark: string; name: string | null; length_mm: number | null; surface_area_m2: number | null; weight_kg: number | null; width_mm: number | null; height_mm: number | null; dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } }
   mark_prefix: MarkPrefix
   snapshot_dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } | null

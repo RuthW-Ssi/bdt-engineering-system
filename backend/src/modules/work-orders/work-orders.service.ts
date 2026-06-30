@@ -49,7 +49,7 @@ const WO_DETAIL_INCLUDE = {
       primary_mark_prefix: true,
     },
   },
-  mrp_workcenter: { select: { id: true, code: true, name: true } },
+  mrp_workcenter: { select: { id: true, code: true, name: true, machine: true } },
   bom_assembly: {
     include: { dispatch: { include: { project: true, zone: true, sub_zone: true } } },
   },
@@ -57,16 +57,23 @@ const WO_DETAIL_INCLUDE = {
 
 export interface EnrichedActivity {
   name: string; measure: string | null; per_minute: number | null; formula_code: string | null
-  machine: { id: number; code: string; name: string; type: string } | null
-  tools: { id: number; code: string; name: string; type: string; qty: number }[]
+  tools: { id: number; code: string; name: string; qty: number }[]
   consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
   labors: { skill: string; qty: number; level?: string | null }[] | null
+}
+
+export interface DurationBreakdownRow {
+  name: string; kind: string; formula_code: string | null
+  dimension_label: string; dimension_value: number | null
+  per_minute: number | null; minutes: number; is_setup: boolean
 }
 
 export interface SourceRoutingOp {
   id: number; op_code: string; name: string; time_mode: string
   time_cycle: unknown; time_cycle_manual: unknown; formula_expr: string | null
+  op_type: { id: number; key: string; label: string; color: string } | null
   activities: EnrichedActivity[]
+  duration_breakdown: DurationBreakdownRow[]
 }
 
 @Injectable()
@@ -130,44 +137,109 @@ export class WorkOrdersService {
           id: true, op_code: true, name: true,
           time_mode: true, time_cycle: true, time_cycle_manual: true, formula_expr: true,
           activities_snapshot: true,
+          op_type: { select: { id: true, key: true, label: true, color: true } },
         },
       })
       if (op) {
         type RawTool = { id: number; qty: number } | number
         type RawAct = {
           name: string; measure: string | null; per_minute: number | null
-          formula_code: string | null; machine_id: number | null
+          formula_code: string | null; source_activity_id?: number | null
           tool_ids: RawTool[] | null
           labors: { skill: string; qty: number; level?: string | null }[] | null
-          consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null; consume_rate?: number | null; consume_unit?: string | null }[] | null
+          consumables: { resource_id: number; code: string; name: string }[] | null
         }
         const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
 
         const toolIdOf = (t: RawTool): number | null => typeof t === 'number' ? t : (t.id ?? null)
         const toolQtyOf = (t: RawTool): number => typeof t === 'number' ? 1 : (t.qty ?? 1)
 
-        // Collect all equipment_resource IDs needed (machines + tools)
-        const machineIds = [...new Set(acts.map(a => a.machine_id).filter((x): x is number => x != null))]
-        const toolIds    = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(toolIdOf).filter((x): x is number => x != null)))]
-        const allIds     = [...new Set([...machineIds, ...toolIds])]
-
-        const resources = allIds.length > 0
+        const toolIds = [...new Set(acts.flatMap(a => (a.tool_ids ?? []).map(toolIdOf).filter((x): x is number => x != null)))]
+        const resources = toolIds.length > 0
           ? await this.prisma.equipment_resource.findMany({
-              where: { id: { in: allIds } },
-              select: { id: true, code: true, name: true, type: true },
+              where: { id: { in: toolIds } },
+              select: { id: true, code: true, name: true },
             })
           : []
         const resMap = new Map(resources.map(r => [r.id, r]))
 
+        // Fetch activity time data for duration breakdown
+        const sourceActivityIds = [...new Set(acts.map(a => a.source_activity_id).filter((x): x is number => x != null))]
+        const activityRows = sourceActivityIds.length > 0
+          ? await this.prisma.activity.findMany({
+              where: { id: { in: sourceActivityIds } },
+              select: { id: true, formula_code: true, per_minute: true, duration_min: true, kind: true },
+            })
+          : []
+        const actMap = new Map(activityRows.map(a => [a.id, a]))
+
+        // Fetch live consumables from activity_consume (snapshot may have been saved with empty consumables)
+        const consumeRows = sourceActivityIds.length > 0
+          ? await this.prisma.activity_consume.findMany({
+              where: { activity_id: { in: sourceActivityIds } },
+              include: {
+                material: { select: { id: true, default_code: true, name: true } },
+                formula: { select: { id: true, name: true, expr: true, result_unit: true } },
+              },
+            })
+          : []
+        const consumeMap = new Map<number, { resource_id: number; code: string; name: string; formula_id: number | null; formula_name: string | null; formula_expr: string | null; result_unit: string | null }[]>()
+        for (const row of consumeRows) {
+          const list = consumeMap.get(row.activity_id) ?? []
+          list.push({
+            resource_id: row.material_id,
+            code: row.material.default_code,
+            name: row.material.name,
+            formula_id: row.formula?.id ?? null,
+            formula_name: row.formula?.name ?? null,
+            formula_expr: row.formula?.expr ?? null,
+            result_unit: row.formula?.result_unit ?? null,
+          })
+          consumeMap.set(row.activity_id, list)
+        }
+
         const activities = acts.map(a => ({
-          ...a,
-          machine: a.machine_id != null ? (resMap.get(a.machine_id) ?? null) : null,
+          name: a.name, measure: a.measure, per_minute: a.per_minute, formula_code: a.formula_code,
           tools: (a.tool_ids ?? []).flatMap(t => {
             const id = toolIdOf(t)
             if (id == null) return []
-            return [{ ...(resMap.get(id) ?? { id, code: '', name: '', type: 'tool' }), qty: toolQtyOf(t) }]
+            return [{ ...(resMap.get(id) ?? { id, code: '', name: '' }), qty: toolQtyOf(t) }]
           }),
+          consumables: a.source_activity_id ? (consumeMap.get(a.source_activity_id) ?? []) : (a.consumables ?? []),
+          labors: a.labors ?? null,
         }))
+
+        // Duration breakdown — one row per activity showing how minutes were calculated
+        const bom = wo.bom_assembly
+        const lengthMm  = Number(bom.length_mm       ?? 0)
+        const areaSqM   = Number(bom.surface_area_m2  ?? 0)
+        const widthMm   = Number(bom.width_mm         ?? 0)
+
+        const duration_breakdown = acts.map(a => {
+          const srcId = a.source_activity_id
+          const act   = srcId ? actMap.get(srcId) : null
+          const formulaCode = act?.formula_code ?? null
+          const rate        = Number(act?.per_minute ?? 0)
+          const fixedMin    = Number(act?.duration_min ?? 0)
+          const kind        = act?.kind ?? 'run'
+
+          if (kind === 'setup') {
+            return { name: a.name, kind, formula_code: formulaCode, dimension_label: 'fixed', dimension_value: null, per_minute: rate, minutes: fixedMin, is_setup: true }
+          }
+
+          switch (formulaCode) {
+            case 'weld_length_mm': case 'cut_length_mm': case 'edge_length_mm': case 'bevel_length_mm':
+              return { name: a.name, kind, formula_code: formulaCode, dimension_label: `length = ${lengthMm} mm`, dimension_value: lengthMm, per_minute: rate, minutes: rate > 0 ? Math.round(lengthMm / rate * 10) / 10 : fixedMin, is_setup: false }
+            case 'product_area': case 'sumNet_surface_area':
+              return { name: a.name, kind, formula_code: formulaCode, dimension_label: `area = ${areaSqM} m²`, dimension_value: areaSqM, per_minute: rate, minutes: rate > 0 ? Math.round(areaSqM / rate * 10) / 10 : fixedMin, is_setup: false }
+            case 'product_perimeter': {
+              const perimM = (2 * lengthMm + 2 * widthMm) / 1000
+              return { name: a.name, kind, formula_code: formulaCode, dimension_label: `perimeter = ${Math.round(perimM * 10) / 10} m`, dimension_value: perimM, per_minute: rate, minutes: rate > 0 ? Math.round(perimM / rate * 10) / 10 : fixedMin, is_setup: false }
+            }
+            default:
+              return { name: a.name, kind, formula_code: formulaCode, dimension_label: 'fixed', dimension_value: null, per_minute: rate, minutes: fixedMin, is_setup: false }
+          }
+        })
 
         source_routing_op = {
           id: op.id, op_code: op.op_code, name: op.name,
@@ -175,7 +247,9 @@ export class WorkOrdersService {
           time_cycle: op.time_cycle,
           time_cycle_manual: op.time_cycle_manual,
           formula_expr: op.formula_expr,
+          op_type: op.op_type ?? null,
           activities,
+          duration_breakdown,
         }
       }
     }

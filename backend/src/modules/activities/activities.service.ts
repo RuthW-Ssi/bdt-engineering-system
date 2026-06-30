@@ -6,7 +6,6 @@ import { UpdateActivityDto } from './dto/update-activity.dto'
 import { QueryActivityDto } from './dto/query-activity.dto'
 
 const INCLUDE = {
-  machine: { select: { id: true, code: true, name: true } },
   consumes: {
     include: {
       material: { select: { id: true, default_code: true, name: true } },
@@ -38,11 +37,10 @@ export class ActivitiesService {
   ) {}
 
   async findAll(query: QueryActivityDto) {
-    const { q, machine_id, material_id } = query
+    const { q, material_id } = query
     return this.prisma.activity.findMany({
       where: {
         ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
-        ...(machine_id ? { machine_id } : {}),
         ...(material_id ? { consumes: { some: { material_id } } } : {}),
       },
       orderBy: { activity_code: 'asc' },
@@ -66,7 +64,6 @@ export class ActivitiesService {
   }
 
   async create(dto: CreateActivityDto, userId: number) {
-    if (dto.machine_id) await this.validateMachine(dto.machine_id)
     const consumeIds = await this.resolveConsumes(dto.consumes)
     const laborEntries = this.resolveLabors(dto.labors)
     const toolIds = await this.resolveTools(dto.tools)
@@ -77,7 +74,6 @@ export class ActivitiesService {
         data: {
           activity_code,
           name: dto.name,
-          machine_id: dto.machine_id ?? null,
           duration_min: dto.duration_min,
           per_minute:   dto.per_minute   ?? null,
           formula_code: dto.formula_code ?? null,
@@ -107,7 +103,6 @@ export class ActivitiesService {
 
   async update(id: number, dto: UpdateActivityDto, userId: number) {
     await this.findOne(id)
-    if (dto.machine_id) await this.validateMachine(dto.machine_id)
     const consumeIds =
       dto.consumes !== undefined ? await this.resolveConsumes(dto.consumes) : undefined
     const laborEntries =
@@ -118,7 +113,6 @@ export class ActivitiesService {
       where: { id },
       data: {
         ...(dto.name         !== undefined && { name:         dto.name }),
-        ...(dto.machine_id   !== undefined && { machine_id:   dto.machine_id }),
         ...(dto.duration_min !== undefined && { duration_min: dto.duration_min }),
         ...(dto.per_minute   !== undefined && { per_minute:   dto.per_minute }),
         ...(dto.formula_code !== undefined && { formula_code: dto.formula_code }),
@@ -159,11 +153,6 @@ export class ActivitiesService {
   async remove(id: number) {
     await this.findOne(id)
     await this.prisma.activity.delete({ where: { id } })
-  }
-
-  private async validateMachine(machine_id: number) {
-    const machine = await this.prisma.equipment_resource.findUnique({ where: { id: machine_id } })
-    if (!machine) throw new BadRequestException(`Machine ${machine_id} not found`)
   }
 
   private async resolveTools(entries: ToolEntryDto[] | undefined): Promise<ToolEntryDto[]> {

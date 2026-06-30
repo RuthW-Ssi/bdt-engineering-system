@@ -44,9 +44,9 @@ export class WorkcenterService {
     return wc
   }
 
-  async findAll() {
+  async findAll(active = true) {
     return this.prisma.mrp_workcenter.findMany({
-      where: { active: true },
+      where: { active },
       orderBy: { sequence: 'asc' },
     })
   }

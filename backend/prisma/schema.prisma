@@ -573,6 +573,7 @@ model mrp_workcenter {
   id                       Int              @id @default(autoincrement())
   code                     String           @unique @db.VarChar(20)
   name                     String           @db.VarChar(60)
+  machine                  String?          @db.VarChar(120)
   sequence                 Int              @default(10)
   active                   Boolean          @default(true)
   // Capacity & calendar
@@ -648,6 +649,9 @@ model mrp_routing_workcenter {
   // Canvas position (RoutingBuilder)
   canvas_x            Float?
   canvas_y            Float?
+  // Operation template FK — links this routing op to the Operation Library
+  operation_template_id Int?
+  operation_template    operation_template? @relation(fields: [operation_template_id], references: [id], onDelete: SetNull)
   // Activities snapshot (JSON array saved by RoutingBuilder canvas)
   activities_snapshot Json?
   // Dependencies (Sprint 5+)
@@ -973,7 +977,8 @@ model operation_template {
   write_uid     Int             @default(1)
   write_date    DateTime        @default(now()) @db.Timestamptz
 
-  activities operation_template_activity[]
+  activities       operation_template_activity[]
+  routing_ops      mrp_routing_workcenter[]
 }
 
 model operation_template_activity {
@@ -985,8 +990,6 @@ model operation_template_activity {
   measure               String              @db.VarChar(40)
   unit                  String?             @db.VarChar(20)
   per_minute            Decimal?            @db.Decimal(10, 4)
-  machine_id            Int?
-  machine               equipment_resource? @relation("OpActMachine", fields: [machine_id], references: [id], onDelete: SetNull)
   source_activity_id    Int?
   source_activity       activity?           @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
   snapshot_at           DateTime?           @db.Timestamptz
@@ -1045,10 +1048,8 @@ model equipment_resource {
   // Machine/Tool fields
   qty                 Int?            // stock quantity — used when type='machine'|'handling'|'tool'
 
-  operation_template_acts operation_template_activity[] @relation("OpActMachine")
   op_act_tools            op_act_tool[]
   // Sprint 11: Activity Library
-  activities              activity[]                    @relation("activity_machine")
   activity_tools          activity_tool[]               @relation("activity_tool_resource")
   op_act_materials        op_act_material[]             @relation("op_act_material_resource")
   // T-MACH.01: Machine Tracker relations
@@ -1109,8 +1110,6 @@ model activity {
   id                            Int                           @id @default(autoincrement())
   activity_code                 String                        @unique @db.VarChar(20)
   name                          String                        @db.VarChar(120)
-  machine_id                    Int?
-  machine                       equipment_resource?           @relation("activity_machine", fields: [machine_id], references: [id], onDelete: SetNull)
   duration_min                  Decimal                       @db.Decimal(10, 2)
   per_minute                    Decimal?                      @db.Decimal(10, 4)
   formula_code                  String?                       @db.VarChar(40)
@@ -1130,7 +1129,6 @@ model activity {
   operation_template_activities operation_template_activity[] @relation("OpActSourceActivity")
   required_consumables          activity_required_consumable[]
 
-  @@index([machine_id])
   @@index([name])
 }
 

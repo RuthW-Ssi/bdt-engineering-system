@@ -19,8 +19,7 @@ export function RoutingDetailModal({ id, onClose }: { id: number; onClose: () =>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A', lineHeight: 1.3 }}>{data?.name ?? '—'}</div>
               {data && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 5 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: '#0C447C', background: '#E3EEF8', borderRadius: 999, padding: '1px 8px' }}>{data.code}</span>
+                <div style={{ marginTop: 4 }}>
                   <span style={{ fontSize: 11, color: '#AAA' }}>{data.operations.length} operations</span>
                 </div>
               )}
@@ -78,14 +77,17 @@ function OpRow({ op, defaultOpen }: { op: RoutingOpDetail; defaultOpen?: boolean
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{op.name}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: '#AAA' }}>{op.op_code}</span>
-            <span style={{ fontSize: 10, color: '#999' }}>·</span>
-            <span style={{ fontSize: 11, color: '#666' }}>{op.workcenter.code} · {op.workcenter.name}</span>
-            <span style={{ fontSize: 10, color: '#999' }}>·</span>
-            <span style={{ fontSize: 10, color: '#888', background: '#F0F0F0', borderRadius: 4, padding: '1px 5px' }}>{timeModeLabel}</span>
-            {op.time_mode === 'formula' && op.formula_expr && (
-              <span style={{ fontSize: 10, color: '#555', fontFamily: 'monospace', background: '#F5F5F5', border: '1px solid #E8E8E8', borderRadius: 4, padding: '1px 6px' }}>{op.formula_expr}</span>
+            <span style={{ fontSize: 11, color: '#666' }}>{op.workcenter.name}</span>
+            {op.workcenter.machine && (
+              <>
+                <span style={{ fontSize: 10, color: '#CCC' }}>·</span>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#1565C0' }}>
+                  <Cpu size={10} />{op.workcenter.machine}
+                </span>
+              </>
             )}
+            <span style={{ fontSize: 10, color: '#CCC' }}>·</span>
+            <span style={{ fontSize: 10, color: '#888', background: '#F0F0F0', borderRadius: 4, padding: '1px 5px' }}>{timeModeLabel}</span>
             {op.time_mode === 'manual' && (
               <span style={{ fontSize: 10, color: '#555' }}>{Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0))} min</span>
             )}
@@ -117,37 +119,35 @@ function ActivityCard({ a }: { a: RoutingActivitySnap }) {
   const labors      = a.labors      ?? []
   const consumables = a.consumables ?? []
   const toolNames   = a.tool_names  ?? []
-  const hasMachine  = !!a.machine_id
-  const hasResources = hasMachine || toolNames.length > 0 || labors.length > 0 || consumables.length > 0
+  const hasResources = toolNames.length > 0 || labors.length > 0 || consumables.length > 0
 
   return (
     <div style={{ background: '#F8F8F8', borderRadius: 8, padding: '9px 12px' }}>
-      {/* Activity name row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: hasResources ? 8 : 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: hasResources ? 7 : 0 }}>
         <span style={{ fontSize: 12, fontWeight: 600, color: '#2A2A2A' }}>{a.name}</span>
-        {a.measure && (
-          <span style={{ fontSize: 10, color: '#888', background: '#ECECEC', borderRadius: 5, padding: '1px 6px' }}>{a.measure}</span>
-        )}
-        {a.per_minute != null && (
-          <span style={{ fontSize: 10, color: '#AAA' }}>{a.per_minute}/min</span>
-        )}
+        {a.measure && <span style={{ fontSize: 10, color: '#888', background: '#ECECEC', borderRadius: 5, padding: '1px 6px' }}>{a.measure}</span>}
       </div>
 
-      {/* Resource chips */}
       {hasResources && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {hasMachine && (
-            <Chip icon={<Cpu size={10} />} text={a.machine_name ?? `#${a.machine_id}`} bg="#EBF2FF" color="#1565C0" border="#BBDEFB" />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {labors.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#166534', background: '#DCFCE7', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>SKILL</span>
+              {labors.map((l, i) => <Chip key={i} icon={<Users size={10} />} text={`${l.skill}${l.level ? ` (${l.level})` : ''} ×${l.qty}`} bg="#F0FDF4" color="#166534" border="#BBF7D0" />)}
+            </div>
           )}
-          {toolNames.map((name, i) => (
-            <Chip key={i} icon={<Wrench size={10} />} text={name} bg="#FFFBEB" color="#92400E" border="#FDE68A" />
-          ))}
-          {labors.map((l, i) => (
-            <Chip key={i} icon={<Users size={10} />} text={`${l.skill}${l.level ? ` (${l.level})` : ''} ×${l.qty}`} bg="#F0FDF4" color="#166534" border="#BBF7D0" />
-          ))}
-          {consumables.map((c, i) => (
-            <Chip key={i} icon={<FlaskConical size={10} />} text={`${c.code} ${c.name}`} bg="#EFF6FF" color="#1E40AF" border="#BFDBFE" />
-          ))}
+          {toolNames.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#1E40AF', background: '#DBEAFE', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>TOOL</span>
+              {toolNames.map((name, i) => <Chip key={i} icon={<Wrench size={10} />} text={name} bg="#EFF6FF" color="#1E40AF" border="#BFDBFE" />)}
+            </div>
+          )}
+          {consumables.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#92400E', background: '#FEF3C7', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>USE</span>
+              {consumables.map((c, i) => <Chip key={i} icon={<FlaskConical size={10} />} text={c.name} bg="#FFFBEB" color="#92400E" border="#FDE68A" />)}
+            </div>
+          )}
         </div>
       )}
     </div>

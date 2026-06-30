@@ -6,6 +6,7 @@ export interface WorkcenterDTO {
   id: number
   code: string
   name: string
+  machine: string | null
   sequence: number
   active: boolean
   oee_target: number
@@ -172,8 +173,8 @@ export const recomputeStdCost = (productCode: string): Promise<StdCostResult> =>
 
 // ── Workcenters API ────────────────────────────────────────────
 
-export const getWorkcenters = (): Promise<WorkcenterDTO[]> =>
-  apiClient.get('/workcenters').then(r => r.data)
+export const getWorkcenters = (active?: boolean): Promise<WorkcenterDTO[]> =>
+  apiClient.get('/workcenters', { params: active === undefined ? {} : { active } }).then(r => r.data)
 
 export const getWorkcenter = (id: number): Promise<WorkcenterDTO> =>
   apiClient.get(`/workcenters/${id}`).then(r => r.data)

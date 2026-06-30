@@ -8,13 +8,6 @@ export class QueryActivityDto {
   @IsString()
   q?: string
 
-  @ApiPropertyOptional({ description: 'Filter by machine (equipment_resource.id)', example: 5 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  machine_id?: number
-
   @ApiPropertyOptional({ description: 'Filter by consumed material (materials.id)', example: 12 })
   @IsOptional()
   @Type(() => Number)

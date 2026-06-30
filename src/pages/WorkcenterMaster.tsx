@@ -1,26 +1,37 @@
 import { useState } from 'react'
-import { ArrowLeft, Edit2, X, Save, Loader2, AlertCircle, Plus } from 'lucide-react'
+import { ArrowLeft, Edit2, X, Save, Loader2, AlertCircle, Plus, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkcenters, useWorkcenter } from '../hooks/useRoutings'
 import type { WorkcenterDTO } from '../api/routings'
 
-// ── OEE gauge ─────────────────────────────────────────────────
+// ── Station color by name ──────────────────────────────────────
 
-function OeeGauge({ value, label, color }: { value: number; label: string; color: string }) {
-  const pct = Math.min(100, Math.max(0, value))
-  return (
-    <div className="flex flex-col items-center" style={{ gap: 4 }}>
-      <div style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 600, textTransform: 'uppercase' }}>{label}</div>
-      <div style={{ width: 48, height: 48, borderRadius: '50%', position: 'relative', background: `conic-gradient(${color} ${pct}%, #E0E0E0 ${pct}%)` }}>
-        <div style={{ position: 'absolute', inset: 6, borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#1F1F1F' }}>
-          {Math.round(pct)}%
-        </div>
-      </div>
-    </div>
-  )
+const STATION_COLOR: Record<string, string> = {
+  'Cutting':              '#185FA5',
+  'Press & Forming':      '#BA7517',
+  'Drilling & Threading': '#14B8A6',
+  'H-beam Fabrication':   '#3A3A3A',
+  'Welding':              '#C8202A',
+  'Surface & Finishing':  '#639922',
+  'Assembly':             '#555555',
+  'Material Preparation': '#8E8E8E',
+  'Subcontract':          '#8E8E8E',
 }
 
-// ── Slider input ───────────────────────────────────────────────
+function stationColor(name: string) {
+  const base = name.replace(' (manual)', '').trim()
+  return STATION_COLOR[base] ?? '#185FA5'
+}
+
+const STATION_ORDER = [
+  'Cutting', 'Press & Forming', 'Drilling & Threading',
+  'H-beam Fabrication', 'Welding', 'Welding (manual)',
+  'Surface & Finishing', 'Surface & Finishing (manual)',
+  'Assembly', 'Assembly (manual)', 'Material Preparation (manual)',
+  'Subcontract',
+]
+
+// ── Slider field ───────────────────────────────────────────────
 
 function SliderField({ label, value, onChange, color }: { label: string; value: number; onChange: (v: number) => void; color: string }) {
   return (
@@ -29,11 +40,19 @@ function SliderField({ label, value, onChange, color }: { label: string; value: 
         <span style={{ fontSize: 12, color: '#555' }}>{label}</span>
         <span className="font-mono" style={{ fontSize: 12, fontWeight: 600, color }}>{value}%</span>
       </div>
-      <input
-        type="range" min={0} max={100} step={1} value={value}
+      <input type="range" min={0} max={100} step={1} value={value}
         onChange={e => onChange(Number(e.target.value))}
-        style={{ width: '100%', accentColor: color }}
-      />
+        style={{ width: '100%', accentColor: color }} />
+    </div>
+  )
+}
+
+// ── Section label ──────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{ fontSize: 11, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+      {children}
     </div>
   )
 }
@@ -42,6 +61,8 @@ function SliderField({ label, value, onChange, color }: { label: string; value: 
 
 function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) {
   const { update } = useWorkcenter(wc.id)
+  const [machine, setMachine] = useState(wc.machine ?? '')
+  const [active, setActive] = useState(wc.active)
   const [availability, setAvailability] = useState(Number(wc.availability))
   const [performance, setPerformance] = useState(Number(wc.performance))
   const [quality, setQuality] = useState(Number(wc.quality))
@@ -53,8 +74,6 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
   const [overheadCost, setOverheadCost] = useState(Number(wc.overhead_cost_per_min))
   const [error, setError] = useState<string | null>(null)
 
-  const oeeActual = (availability * performance * quality) / 10000
-
   const laborSum = laborMix.operator + laborMix.skilled + laborMix.group_head
   const laborValid = Math.abs(laborSum - 100) <= 0.5
 
@@ -63,122 +82,152 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
     setError(null)
     try {
       await update.mutateAsync({
+        machine: machine.trim() || null,
+        active,
         availability, performance, quality, oee_target: oeeTarget,
-        labor_mix: laborMix,
-        labor_cost_per_min: laborCost,
+        labor_mix: laborMix, labor_cost_per_min: laborCost,
         electricity_cost_per_min: electricityCost,
         consumable_cost_per_min: consumableCost,
         overhead_cost_per_min: overheadCost,
-      })
+      } as any)
       onClose()
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Save failed')
     }
   }
 
+  const totalCost = laborCost + electricityCost + consumableCost + overheadCost
+
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', zIndex: 100 }}>
-      <div style={{ background: 'white', borderRadius: 12, width: 520, maxHeight: '90vh', overflowY: 'auto', padding: 24 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>{wc.code} — {wc.name}</div>
-          <button onClick={onClose}><X size={18} style={{ color: '#8E8E8E' }} /></button>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', zIndex: 100 }}>
+      <div className="bg-white rounded-xl shadow-xl flex flex-col" style={{ width: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-chrome-100 flex-shrink-0" style={{ padding: '16px 20px' }}>
+          <div>
+            <div className="font-mono" style={{ fontSize: 15, fontWeight: 700, color: '#1F1F1F' }}>{wc.code}</div>
+            <div style={{ fontSize: 12, color: '#9E9E9E', marginTop: 1 }}>{wc.name}</div>
+          </div>
+          <button onClick={onClose} className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, border: 'none', background: 'none', cursor: 'pointer' }}>
+            <X size={15} style={{ color: '#9E9E9E' }} />
+          </button>
         </div>
 
-        {/* OEE live preview */}
-        <div style={{ background: '#F8F8F8', borderRadius: 8, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', marginBottom: 12, textTransform: 'uppercase' }}>OEE Preview</div>
-          <div className="flex items-center gap-6 justify-center">
-            <OeeGauge value={availability} label="A" color="#1565C0" />
-            <OeeGauge value={performance} label="P" color="#2E7D32" />
-            <OeeGauge value={quality} label="Q" color="#7B1FA2" />
-            <div style={{ borderLeft: '1px solid #E0E0E0', paddingLeft: 16 }}>
-              <div style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 600 }}>OEE</div>
-              <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: oeeActual >= 70 ? '#2E7D32' : oeeActual >= 50 ? '#F57F17' : '#C8202A' }}>
-                {oeeActual.toFixed(1)}%
+        {/* Body */}
+        <div className="flex flex-col" style={{ padding: 20, gap: 20 }}>
+
+          {/* Machine + Status */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
+            <div className="flex flex-col" style={{ gap: 6 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Machine</label>
+              <input autoFocus
+                value={machine} onChange={e => setMachine(e.target.value)}
+                placeholder="ชื่อเครื่องจักร (เว้นว่างถ้าไม่มี)"
+                className="border rounded-md focus:outline-none"
+                style={{ height: 38, padding: '0 12px', fontSize: 14, borderColor: '#E0E0E0' }} />
+            </div>
+            <div className="flex flex-col" style={{ gap: 6 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Status</label>
+              <div style={{ display: 'flex', background: '#F5F5F5', borderRadius: 6, padding: 2, gap: 2, height: 38, alignItems: 'center' }}>
+                {([{ label: 'Active', value: true }, { label: 'Inactive', value: false }] as const).map(opt => (
+                  <button key={String(opt.value)} onClick={() => setActive(opt.value)}
+                    style={{
+                      height: 30, padding: '0 12px', borderRadius: 4, border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                      background: active === opt.value ? '#fff' : 'transparent',
+                      color: active === opt.value ? (opt.value ? '#2E7D32' : '#C8202A') : '#9E9E9E',
+                      boxShadow: active === opt.value ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    }}>
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
-        </div>
 
-        {/* OEE sliders */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>OEE Components</div>
-          <div className="flex flex-col gap-3">
-            <SliderField label="Availability (A)" value={availability} onChange={setAvailability} color="#1565C0" />
-            <SliderField label="Performance (P)" value={performance} onChange={setPerformance} color="#2E7D32" />
-            <SliderField label="Quality (Q)" value={quality} onChange={setQuality} color="#7B1FA2" />
-            <SliderField label="OEE Target" value={oeeTarget} onChange={setOeeTarget} color="#F57F17" />
+          {/* OEE sliders */}
+          <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 20 }}>
+            <SectionLabel>OEE Components</SectionLabel>
+            <div className="flex flex-col" style={{ gap: 12 }}>
+              <SliderField label="Availability (A)" value={availability} onChange={setAvailability} color="#185FA5" />
+              <SliderField label="Performance (P)" value={performance} onChange={setPerformance} color="#639922" />
+              <SliderField label="Quality (Q)" value={quality} onChange={setQuality} color="#7B1FA2" />
+              <SliderField label="OEE Target" value={oeeTarget} onChange={setOeeTarget} color="#BA7517" />
+            </div>
           </div>
-        </div>
 
-        {/* Labor mix */}
-        <div style={{ marginBottom: 20 }}>
-          <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Operator Mix</span>
-            <span style={{ fontSize: 11, color: laborValid ? '#2E7D32' : '#C8202A' }}>Total {laborSum}%</span>
+          {/* Operator mix */}
+          <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 20 }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+              <SectionLabel>Operator Mix</SectionLabel>
+              <span style={{ fontSize: 11, fontWeight: 600, color: laborValid ? '#2E7D32' : '#C8202A' }}>
+                Total {laborSum}%
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              {(['operator', 'skilled', 'group_head'] as const).map(k => (
+                <div key={k} className="flex flex-col" style={{ gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {k === 'operator' ? 'Operator' : k === 'skilled' ? 'Skilled' : 'Group Head'}
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input type="number" min={0} max={100} value={laborMix[k]}
+                      onChange={e => setLaborMix(prev => ({ ...prev, [k]: Number(e.target.value) }))}
+                      className="border rounded-md font-mono focus:outline-none"
+                      style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }} />
+                    <span style={{ fontSize: 11, color: '#9E9E9E', flexShrink: 0 }}>%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-col gap-2">
-            {(['operator', 'skilled', 'group_head'] as const).map(k => (
-              <div key={k} className="flex items-center gap-3">
-                <span style={{ fontSize: 12, color: '#555', width: 100 }}>{k === 'operator' ? 'Operator' : k === 'skilled' ? 'Skilled' : 'Group Head'}</span>
-                <input
-                  type="number" min={0} max={100} value={laborMix[k]}
-                  onChange={e => setLaborMix(prev => ({ ...prev, [k]: Number(e.target.value) }))}
-                  className="border border-chrome-200 rounded-md font-mono"
-                  style={{ width: 70, height: 30, padding: '0 8px', fontSize: 12 }}
-                />
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>%</span>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Cost components */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>Cost (THB/min)</div>
-          <div className="flex flex-col gap-2">
-            {[
-              { label: 'Operator', value: laborCost, setter: setLaborCost },
-              { label: 'Electricity', value: electricityCost, setter: setElectricityCost },
-              { label: 'Consumable', value: consumableCost, setter: setConsumableCost },
-              { label: 'Overhead', value: overheadCost, setter: setOverheadCost },
-            ].map(({ label, value, setter }) => (
-              <div key={label} className="flex items-center gap-3">
-                <span style={{ fontSize: 12, color: '#555', width: 100 }}>{label}</span>
-                <input
-                  type="number" min={0} step={0.0001} value={value}
-                  onChange={e => setter(Number(e.target.value))}
-                  className="border border-chrome-200 rounded-md font-mono"
-                  style={{ width: 110, height: 30, padding: '0 8px', fontSize: 12 }}
-                />
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>THB/min</span>
-              </div>
-            ))}
+          {/* Cost */}
+          <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 20 }}>
+            <SectionLabel>Cost Rate (THB / min)</SectionLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              {[
+                { label: 'Labor', value: laborCost, setter: setLaborCost },
+                { label: 'Electricity', value: electricityCost, setter: setElectricityCost },
+                { label: 'Consumable', value: consumableCost, setter: setConsumableCost },
+                { label: 'Overhead', value: overheadCost, setter: setOverheadCost },
+              ].map(({ label, value, setter }) => (
+                <div key={label} className="flex flex-col" style={{ gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
+                  <input type="number" min={0} step={0.0001} value={value}
+                    onChange={e => setter(Number(e.target.value))}
+                    className="border rounded-md font-mono focus:outline-none"
+                    style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }} />
+                </div>
+              ))}
+            </div>
+            <div style={{ background: '#F8F8F8', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#9E9E9E', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total</span>
+              <span className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: totalCost > 0 ? '#1F1F1F' : '#BDBDBD' }}>
+                {totalCost.toFixed(4)} THB/min
+              </span>
+            </div>
           </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
-            Total: <span className="font-mono" style={{ fontWeight: 600 }}>
-              {(laborCost + electricityCost + consumableCost + overheadCost).toFixed(4)} THB/min
-            </span>
-          </div>
-        </div>
 
-        {error && (
-          <div className="flex items-center gap-2" style={{ background: '#FFF0F0', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#C8202A' }}>
-            <AlertCircle size={13} />{error}
-          </div>
-        )}
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg" style={{ padding: '10px 12px', background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
+              <AlertCircle size={13} />{error}
+            </div>
+          )}
 
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-md border border-chrome-200 hover:bg-chrome-50" style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Cancel</button>
-          <button
-            onClick={handleSave}
-            disabled={update.isPending}
-            className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
-          >
-            {update.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-            Save
-          </button>
+          {/* Footer */}
+          <div className="flex justify-end gap-2" style={{ borderTop: '1px solid #F0F0F0', paddingTop: 16 }}>
+            <button onClick={onClose} className="rounded-md hover:bg-chrome-50"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, border: '1px solid #E0E0E0', background: 'white', cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={update.isPending}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, background: '#185FA5', border: 'none', cursor: 'pointer', opacity: update.isPending ? 0.7 : 1 }}>
+              {update.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              Save
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -191,6 +240,8 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   const { create } = useWorkcenters()
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
+  const [machine, setMachine] = useState('')
+  const [active, setActive] = useState(true)
   const [availability, setAvailability] = useState(100)
   const [performance, setPerformance] = useState(100)
   const [quality, setQuality] = useState(100)
@@ -202,26 +253,27 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   const [overheadCost, setOverheadCost] = useState(0)
   const [error, setError] = useState<string | null>(null)
 
-  const oeeActual = (availability * performance * quality) / 10000
   const laborSum = laborMix.operator + laborMix.skilled + laborMix.group_head
   const laborValid = Math.abs(laborSum - 100) <= 0.5
+  const totalCost = laborCost + electricityCost + consumableCost + overheadCost
 
   const handleSave = async () => {
     if (!code.trim()) { setError('Code is required'); return }
-    if (!name.trim()) { setError('Name is required'); return }
+    if (!name.trim()) { setError('Name (station) is required'); return }
     if (!laborValid) { setError(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
     setError(null)
     try {
       await create.mutateAsync({
         code: code.trim().toUpperCase(),
         name: name.trim(),
+        machine: machine.trim() || null,
+        active,
         availability, performance, quality, oee_target: oeeTarget,
-        labor_mix: laborMix,
-        labor_cost_per_min: laborCost,
+        labor_mix: laborMix, labor_cost_per_min: laborCost,
         electricity_cost_per_min: electricityCost,
         consumable_cost_per_min: consumableCost,
         overhead_cost_per_min: overheadCost,
-      })
+      } as any)
       onClose()
     } catch (e: any) {
       setError(e.response?.data?.message ?? 'Save failed')
@@ -229,245 +281,342 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)', zIndex: 100 }}>
-      <div style={{ background: 'white', borderRadius: 12, width: 520, maxHeight: '90vh', overflowY: 'auto', padding: 24 }}>
-        <div className="flex items-center justify-between" style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>New Work Center</div>
-          <button onClick={onClose}><X size={18} style={{ color: '#8E8E8E' }} /></button>
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', zIndex: 100 }}>
+      <div className="bg-white rounded-xl shadow-xl flex flex-col" style={{ width: 520, maxHeight: '90vh', overflowY: 'auto' }}>
+
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-chrome-100 flex-shrink-0" style={{ padding: '16px 20px' }}>
+          <span style={{ fontSize: 15, fontWeight: 600, color: '#1F1F1F' }}>New Work Center</span>
+          <button onClick={onClose} className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, border: 'none', background: 'none', cursor: 'pointer' }}>
+            <X size={15} style={{ color: '#9E9E9E' }} />
+          </button>
         </div>
 
-        {/* Identity */}
-        <div className="flex flex-col gap-3" style={{ marginBottom: 20 }}>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Code <span style={{ color: '#C8202A' }}>*</span></label>
-            <input
-              className="border border-chrome-200 rounded-md font-mono focus:outline-none focus:border-steel-600"
-              style={{ width: '100%', height: 34, padding: '0 10px', fontSize: 13 }}
-              placeholder="e.g. WC-CNC"
-              value={code}
-              onChange={e => setCode(e.target.value)}
-            />
-          </div>
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 4 }}>Name <span style={{ color: '#C8202A' }}>*</span></label>
-            <input
-              className="border border-chrome-200 rounded-md focus:outline-none focus:border-steel-600"
-              style={{ width: '100%', height: 34, padding: '0 10px', fontSize: 13 }}
-              placeholder="e.g. CNC Cutting"
-              value={name}
-              onChange={e => setName(e.target.value)}
-            />
-          </div>
-        </div>
+        {/* Body */}
+        <div className="flex flex-col" style={{ padding: 20, gap: 20 }}>
 
-        {/* OEE live preview */}
-        <div style={{ background: '#F8F8F8', borderRadius: 8, padding: 16, marginBottom: 20 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#8E8E8E', marginBottom: 12, textTransform: 'uppercase' }}>OEE Preview</div>
-          <div className="flex items-center gap-6 justify-center">
-            <OeeGauge value={availability} label="A" color="#1565C0" />
-            <OeeGauge value={performance} label="P" color="#2E7D32" />
-            <OeeGauge value={quality} label="Q" color="#7B1FA2" />
-            <div style={{ borderLeft: '1px solid #E0E0E0', paddingLeft: 16 }}>
-              <div style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 600 }}>OEE</div>
-              <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: oeeActual >= 70 ? '#2E7D32' : oeeActual >= 50 ? '#F57F17' : '#C8202A' }}>
-                {oeeActual.toFixed(1)}%
+          {/* Identity */}
+          <div>
+            <SectionLabel>Identity</SectionLabel>
+            <div className="flex flex-col" style={{ gap: 10 }}>
+              <div className="flex flex-col" style={{ gap: 6 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Code <span style={{ color: '#C8202A' }}>*</span>
+                </label>
+                <input autoFocus
+                  value={code} onChange={e => setCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. WC-CNC"
+                  className="border rounded-md focus:outline-none font-mono"
+                  style={{ height: 38, padding: '0 12px', fontSize: 14, borderColor: '#E0E0E0' }} />
+              </div>
+              <div className="flex gap-3">
+                <div className="flex flex-col flex-1" style={{ gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Station (name) <span style={{ color: '#C8202A' }}>*</span>
+                  </label>
+                  <input
+                    value={name} onChange={e => setName(e.target.value)}
+                    placeholder="e.g. Cutting"
+                    className="border rounded-md focus:outline-none"
+                    style={{ height: 38, padding: '0 12px', fontSize: 14, borderColor: '#E0E0E0' }} />
+                </div>
+                <div className="flex flex-col flex-1" style={{ gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Machine</label>
+                  <input
+                    value={machine} onChange={e => setMachine(e.target.value)}
+                    placeholder="e.g. CNC Plasma"
+                    className="border rounded-md focus:outline-none"
+                    style={{ height: 38, padding: '0 12px', fontSize: 14, borderColor: '#E0E0E0' }} />
+                </div>
+              </div>
+              <div className="flex flex-col" style={{ gap: 6 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Status</label>
+                <div style={{ display: 'flex', background: '#F5F5F5', borderRadius: 6, padding: 2, gap: 2, alignSelf: 'flex-start' }}>
+                  {([{ label: 'Active', value: true }, { label: 'Inactive', value: false }] as const).map(opt => (
+                    <button key={String(opt.value)} onClick={() => setActive(opt.value)}
+                      style={{
+                        height: 30, padding: '0 16px', borderRadius: 4, border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                        background: active === opt.value ? '#fff' : 'transparent',
+                        color: active === opt.value ? (opt.value ? '#2E7D32' : '#C8202A') : '#9E9E9E',
+                        boxShadow: active === opt.value ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                      }}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* OEE sliders */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>OEE Components</div>
-          <div className="flex flex-col gap-3">
-            <SliderField label="Availability (A)" value={availability} onChange={setAvailability} color="#1565C0" />
-            <SliderField label="Performance (P)" value={performance} onChange={setPerformance} color="#2E7D32" />
-            <SliderField label="Quality (Q)" value={quality} onChange={setQuality} color="#7B1FA2" />
-            <SliderField label="OEE Target" value={oeeTarget} onChange={setOeeTarget} color="#F57F17" />
+          {/* OEE sliders */}
+          <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 20 }}>
+            <SectionLabel>OEE Components</SectionLabel>
+            <div className="flex flex-col" style={{ gap: 12 }}>
+              <SliderField label="Availability (A)" value={availability} onChange={setAvailability} color="#185FA5" />
+              <SliderField label="Performance (P)" value={performance} onChange={setPerformance} color="#639922" />
+              <SliderField label="Quality (Q)" value={quality} onChange={setQuality} color="#7B1FA2" />
+              <SliderField label="OEE Target" value={oeeTarget} onChange={setOeeTarget} color="#BA7517" />
+            </div>
           </div>
-        </div>
 
-        {/* Labor mix */}
-        <div style={{ marginBottom: 20 }}>
-          <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>Operator Mix</span>
-            <span style={{ fontSize: 11, color: laborValid ? '#2E7D32' : '#C8202A' }}>Total {laborSum}%</span>
+          {/* Operator mix */}
+          <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 20 }}>
+            <div className="flex items-center justify-between" style={{ marginBottom: 10 }}>
+              <SectionLabel>Operator Mix</SectionLabel>
+              <span style={{ fontSize: 11, fontWeight: 600, color: laborValid ? '#2E7D32' : '#C8202A' }}>
+                Total {laborSum}%
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              {(['operator', 'skilled', 'group_head'] as const).map(k => (
+                <div key={k} className="flex flex-col" style={{ gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    {k === 'operator' ? 'Operator' : k === 'skilled' ? 'Skilled' : 'Group Head'}
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <input type="number" min={0} max={100} value={laborMix[k]}
+                      onChange={e => setLaborMix(prev => ({ ...prev, [k]: Number(e.target.value) }))}
+                      className="border rounded-md font-mono focus:outline-none"
+                      style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }} />
+                    <span style={{ fontSize: 11, color: '#9E9E9E', flexShrink: 0 }}>%</span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="flex flex-col gap-2">
-            {(['operator', 'skilled', 'group_head'] as const).map(k => (
-              <div key={k} className="flex items-center gap-3">
-                <span style={{ fontSize: 12, color: '#555', width: 100 }}>{k === 'operator' ? 'Operator' : k === 'skilled' ? 'Skilled' : 'Group Head'}</span>
-                <input
-                  type="number" min={0} max={100} value={laborMix[k]}
-                  onChange={e => setLaborMix(prev => ({ ...prev, [k]: Number(e.target.value) }))}
-                  className="border border-chrome-200 rounded-md font-mono"
-                  style={{ width: 70, height: 30, padding: '0 8px', fontSize: 12 }}
-                />
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>%</span>
-              </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Cost components */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', marginBottom: 12 }}>Cost (THB/min)</div>
-          <div className="flex flex-col gap-2">
-            {[
-              { label: 'Operator', value: laborCost, setter: setLaborCost },
-              { label: 'Electricity', value: electricityCost, setter: setElectricityCost },
-              { label: 'Consumable', value: consumableCost, setter: setConsumableCost },
-              { label: 'Overhead', value: overheadCost, setter: setOverheadCost },
-            ].map(({ label, value, setter }) => (
-              <div key={label} className="flex items-center gap-3">
-                <span style={{ fontSize: 12, color: '#555', width: 100 }}>{label}</span>
-                <input
-                  type="number" min={0} step={0.0001} value={value}
-                  onChange={e => setter(Number(e.target.value))}
-                  className="border border-chrome-200 rounded-md font-mono"
-                  style={{ width: 110, height: 30, padding: '0 8px', fontSize: 12 }}
-                />
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>THB/min</span>
-              </div>
-            ))}
+          {/* Cost */}
+          <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 20 }}>
+            <SectionLabel>Cost Rate (THB / min)</SectionLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              {[
+                { label: 'Labor', value: laborCost, setter: setLaborCost },
+                { label: 'Electricity', value: electricityCost, setter: setElectricityCost },
+                { label: 'Consumable', value: consumableCost, setter: setConsumableCost },
+                { label: 'Overhead', value: overheadCost, setter: setOverheadCost },
+              ].map(({ label, value, setter }) => (
+                <div key={label} className="flex flex-col" style={{ gap: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</label>
+                  <input type="number" min={0} step={0.0001} value={value}
+                    onChange={e => setter(Number(e.target.value))}
+                    className="border rounded-md font-mono focus:outline-none"
+                    style={{ height: 36, padding: '0 10px', fontSize: 13, borderColor: '#E0E0E0' }} />
+                </div>
+              ))}
+            </div>
+            <div style={{ background: '#F8F8F8', borderRadius: 6, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: '#9E9E9E', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total</span>
+              <span className="font-mono" style={{ fontSize: 14, fontWeight: 700, color: totalCost > 0 ? '#1F1F1F' : '#BDBDBD' }}>
+                {totalCost.toFixed(4)} THB/min
+              </span>
+            </div>
           </div>
-          <div style={{ marginTop: 8, fontSize: 12, color: '#555' }}>
-            Total: <span className="font-mono" style={{ fontWeight: 600 }}>
-              {(laborCost + electricityCost + consumableCost + overheadCost).toFixed(4)} THB/min
-            </span>
-          </div>
-        </div>
 
-        {error && (
-          <div className="flex items-center gap-2" style={{ background: '#FFF0F0', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#C8202A' }}>
-            <AlertCircle size={13} />{error}
-          </div>
-        )}
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg" style={{ padding: '10px 12px', background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
+              <AlertCircle size={13} />{error}
+            </div>
+          )}
 
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-md border border-chrome-200 hover:bg-chrome-50" style={{ height: 36, padding: '0 16px', fontSize: 13 }}>Cancel</button>
-          <button
-            onClick={handleSave}
-            disabled={create.isPending}
-            className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
-          >
-            {create.isPending ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-            Create
-          </button>
+          {/* Footer */}
+          <div className="flex justify-end gap-2" style={{ borderTop: '1px solid #F0F0F0', paddingTop: 16 }}>
+            <button onClick={onClose} className="rounded-md hover:bg-chrome-50"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, border: '1px solid #E0E0E0', background: 'white', cursor: 'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={handleSave} disabled={create.isPending}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer', opacity: create.isPending ? 0.7 : 1 }}>
+              {create.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+              Create
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-// ── WC Card ────────────────────────────────────────────────────
-
-const WC_ACCENT: Record<string, string> = {
-  'WC-BU': '#1565C0', 'WC-AS': '#2E7D32', 'WC-PT': '#7B1FA2', 'WC-PR': '#E65100',
-}
-
-function WcCard({ wc, onEdit }: { wc: WorkcenterDTO; onEdit: () => void }) {
-  const a = Number(wc.availability)
-  const p = Number(wc.performance)
-  const q = Number(wc.quality)
-  const oee = (a * p * q) / 10000
-  const accent = WC_ACCENT[wc.code] ?? '#185FA5'
-
-  return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: 20, position: 'relative' }}>
-      <div style={{ borderLeft: `4px solid ${accent}`, paddingLeft: 12, marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: accent }}>{wc.code}</div>
-        <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>{wc.name}</div>
-      </div>
-
-      {/* OEE badges */}
-      <div className="flex items-center gap-3 justify-center" style={{ marginBottom: 16 }}>
-        <OeeGauge value={a} label="A" color="#1565C0" />
-        <OeeGauge value={p} label="P" color="#2E7D32" />
-        <OeeGauge value={q} label="Q" color="#7B1FA2" />
-        <div style={{ borderLeft: '1px solid #E0E0E0', paddingLeft: 12 }}>
-          <div style={{ fontSize: 9, color: '#8E8E8E', fontWeight: 600 }}>OEE</div>
-          <div className="font-mono" style={{ fontSize: 20, fontWeight: 700, color: oee >= 70 ? '#2E7D32' : oee >= 50 ? '#F57F17' : '#C8202A' }}>
-            {oee.toFixed(1)}%
-          </div>
-          <div style={{ fontSize: 9, color: '#8E8E8E' }}>target {wc.oee_target}%</div>
-        </div>
-      </div>
-
-      {/* Labor mix */}
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 10, color: '#8E8E8E', fontWeight: 600, marginBottom: 4 }}>OPERATOR MIX</div>
-        <div className="flex gap-1" style={{ height: 8, borderRadius: 999, overflow: 'hidden' }}>
-          <div style={{ flex: wc.labor_mix.operator, background: '#1565C0' }} />
-          <div style={{ flex: wc.labor_mix.skilled, background: '#2E7D32' }} />
-          <div style={{ flex: wc.labor_mix.group_head, background: '#7B1FA2' }} />
-        </div>
-        <div className="flex gap-3" style={{ marginTop: 4, fontSize: 10, color: '#555' }}>
-          <span>Op {wc.labor_mix.operator}%</span>
-          <span>Skilled {wc.labor_mix.skilled}%</span>
-          <span>GH {wc.labor_mix.group_head}%</span>
-        </div>
-      </div>
-
-      {/* Cost */}
-      <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-        Total cost: <span className="font-mono" style={{ color: '#3A3A3A', fontWeight: 600 }}>
-          {(Number(wc.labor_cost_per_min) + Number(wc.electricity_cost_per_min) + Number(wc.consumable_cost_per_min) + Number(wc.overhead_cost_per_min)).toFixed(4)} THB/min
-        </span>
-      </div>
-
-      <button
-        onClick={onEdit}
-        className="absolute flex items-center gap-1 rounded-md border border-chrome-200 hover:bg-chrome-50"
-        style={{ top: 16, right: 16, height: 28, padding: '0 10px', fontSize: 11, color: '#555' }}
-      >
-        <Edit2 size={11} /> Edit
-      </button>
     </div>
   )
 }
 
 // ── Main page ──────────────────────────────────────────────────
 
+const COLS = '160px 1fr 80px 110px 80px 100px 36px'
+
 export function WorkcenterMaster() {
   const navigate = useNavigate()
-  const { data: wcs = [], isLoading } = useWorkcenters()
   const [editingId, setEditingId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
+  const [search, setSearch] = useState('')
+  const [activeFilter, setActiveFilter] = useState<boolean>(true)
+  const { data: wcs = [], isLoading } = useWorkcenters(activeFilter)
   const editingWc = wcs.find(w => w.id === editingId)
 
+  const q = search.trim().toLowerCase()
+  const filtered = q
+    ? wcs.filter(w => w.code.toLowerCase().includes(q) || w.name.toLowerCase().includes(q) || (w.machine ?? '').toLowerCase().includes(q))
+    : wcs
+
+  const grouped = STATION_ORDER.reduce<Record<string, WorkcenterDTO[]>>((acc, name) => {
+    const machines = filtered.filter(w => w.name === name)
+    if (machines.length) acc[name] = machines
+    return acc
+  }, {})
+  filtered.forEach(w => {
+    if (!grouped[w.name]) grouped[w.name] = [w]
+    else if (!grouped[w.name].find(x => x.id === w.id)) grouped[w.name].push(w)
+  })
+
+  const stationCount = Object.keys(grouped).length
+
   return (
-    <div className="flex flex-col min-h-[calc(100vh-56px)]">
-      <div className="bg-white flex items-center gap-3 sticky top-14 z-40 border-b border-chrome-100 px-6" style={{ height: 56 }}>
-        <button onClick={() => navigate('/routings')} className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 32, height: 32 }}>
-          <ArrowLeft size={18} style={{ color: '#555' }} />
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 'calc(100vh - 56px)', background: '#F8F8F8' }}>
+
+      {/* Header */}
+      <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 56, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, position: 'sticky', top: 56, zIndex: 20 }}>
+        <button onClick={() => navigate('/routings')}
+          style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#555' }}
+          onMouseEnter={e => (e.currentTarget.style.background = '#F5F5F5')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+          <ArrowLeft size={18} />
         </button>
-        <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Work Centers</span>
-        <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-          {wcs.length} WC
-        </span>
-        <span className="flex-1" />
-        <button
-          onClick={() => setCreating(true)}
-          className="rounded-md flex items-center gap-1.5"
-          style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer' }}
-        >
-          <Plus size={13} /> New Work Center
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Work Centers</div>
+          <div style={{ fontSize: 11, color: '#9E9E9E' }}>Stations and machines — OEE and cost parameters</div>
+        </div>
+        <button onClick={() => setCreating(true)}
+          style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Plus size={14} />New Work Center
         </button>
       </div>
 
-      <div style={{ padding: 24 }}>
+      {/* Filter bar */}
+      <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 44, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, position: 'sticky', top: 112, zIndex: 10 }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search code, machine…"
+            style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px 0 28px', height: 30, fontSize: 12, outline: 'none', fontFamily: 'inherit', width: 220 }}
+          />
+        </div>
+        {/* Active / Inactive toggle */}
+        <div style={{ display: 'flex', background: '#F5F5F5', borderRadius: 6, padding: 2, gap: 2 }}>
+          {([{ label: 'Active', value: true }, { label: 'Inactive', value: false }] as const).map(opt => (
+            <button key={String(opt.value)} onClick={() => setActiveFilter(opt.value)}
+              style={{
+                height: 26, padding: '0 12px', borderRadius: 4, border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                background: activeFilter === opt.value ? '#fff' : 'transparent',
+                color: activeFilter === opt.value ? '#1F1F1F' : '#9E9E9E',
+                boxShadow: activeFilter === opt.value ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+              }}>
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: '#9E9E9E' }}>
+          {stationCount} station{stationCount !== 1 ? 's' : ''} · {filtered.length} machine{filtered.length !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+        {/* Column headers */}
+        <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '0 16px', marginBottom: 6 }}>
+          {['Code', 'Machine', 'Status', 'A · P · Q', 'OEE', 'THB / min', ''].map(h => (
+            <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+          ))}
+        </div>
+
         {isLoading ? (
-          <div className="flex items-center justify-center" style={{ height: 200 }}>
-            <Loader2 size={24} className="animate-spin" style={{ color: '#8E8E8E' }} />
-          </div>
+          <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: '#9E9E9E' }}>Loading…</div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: '#9E9E9E' }}>No results</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 16 }}>
-            {wcs.map(wc => (
-              <WcCard key={wc.id} wc={wc} onEdit={() => setEditingId(wc.id)} />
-            ))}
-          </div>
+          Object.entries(grouped).map(([stationName, machines]) => {
+            const color = stationColor(stationName)
+            const isManual = stationName.includes('(manual)')
+            const baseName = stationName.replace(' (manual)', '').trim()
+
+            return (
+              <div key={stationName} style={{ marginBottom: 8 }}>
+                {/* Station header */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 16px 6px', marginBottom: 2 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 2, background: color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#3A3A3A', letterSpacing: '0.03em' }}>{baseName}</span>
+                  {isManual && (
+                    <span style={{ fontSize: 9, fontWeight: 600, color: '#9E9E9E', background: '#EEEEEE', borderRadius: 3, padding: '1px 5px', letterSpacing: '0.05em' }}>MANUAL</span>
+                  )}
+                  <span style={{ fontSize: 11, color: '#BDBDBD' }}>{machines.length}</span>
+                </div>
+
+                {/* Machine rows */}
+                {machines.map(wc => {
+                  const a = Number(wc.availability)
+                  const p = Number(wc.performance)
+                  const q2 = Number(wc.quality)
+                  const oee = (a * p * q2) / 10000
+                  const oeeColor = oee >= 70 ? '#2E7D32' : oee >= 50 ? '#BA7517' : '#C8202A'
+                  const totalCost = Number(wc.labor_cost_per_min) + Number(wc.electricity_cost_per_min)
+                    + Number(wc.consumable_cost_per_min) + Number(wc.overhead_cost_per_min)
+
+                  return (
+                    <div key={wc.id}
+                      style={{ display: 'grid', gridTemplateColumns: COLS, gap: 12, padding: '0 16px', height: 48, alignItems: 'center', background: '#fff', borderRadius: 8, marginBottom: 3, border: '1px solid #E8E8E8', transition: 'box-shadow 0.1s' }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
+
+                      {/* Code */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ width: 3, height: 24, borderRadius: 2, background: color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#1F1F1F', fontFamily: 'monospace' }}>{wc.code}</span>
+                      </div>
+
+                      {/* Machine */}
+                      <div style={{ fontSize: 13, color: wc.machine ? '#1F1F1F' : '#BDBDBD', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {wc.machine ?? '—'}
+                      </div>
+
+                      {/* Status */}
+                      <div>
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '2px 7px',
+                          ...(wc.active
+                            ? { background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7' }
+                            : { background: '#F5F5F5', color: '#9E9E9E', border: '1px solid #E0E0E0' }),
+                        }}>
+                          {wc.active ? 'Active' : 'Inactive'}
+                        </span>
+                      </div>
+
+                      {/* A · P · Q */}
+                      <div style={{ fontSize: 11, color: '#9E9E9E', fontFamily: 'monospace' }}>
+                        {a}·{p}·{q2}
+                      </div>
+
+                      {/* OEE */}
+                      <div style={{ fontSize: 13, fontWeight: 700, color: oeeColor, fontFamily: 'monospace' }}>
+                        {oee.toFixed(1)}%
+                      </div>
+
+                      {/* Cost */}
+                      <div style={{ fontSize: 12, color: totalCost > 0 ? '#555' : '#BDBDBD', fontFamily: 'monospace' }}>
+                        {totalCost > 0 ? totalCost.toFixed(4) : '—'}
+                      </div>
+
+                      {/* Edit */}
+                      <button onClick={() => setEditingId(wc.id)}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#185FA5'; (e.currentTarget as HTMLElement).style.background = '#E6F1FB' }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD'; (e.currentTarget as HTMLElement).style.background = 'none' }}>
+                        <Edit2 size={13} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )
+          })
         )}
       </div>
 

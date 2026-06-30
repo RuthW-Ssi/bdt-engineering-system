@@ -58,8 +58,8 @@ export function ActivityLibraryList() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
 
         {/* Header row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 110px 1fr 80px 90px 90px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
-          {['Code', 'Name', 'Machine', 'Consumes', 'Skill', 'Duration', ''].map((h) => (
+        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr 80px 90px 90px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
+          {['Code', 'Name', 'Consumes', 'Skill', 'Duration', ''].map((h) => (
             <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
           ))}
         </div>
@@ -77,7 +77,7 @@ export function ActivityLibraryList() {
             <div
               key={act.id}
               style={{
-                display: 'grid', gridTemplateColumns: '130px 1fr 110px 1fr 80px 90px 90px', gap: 12,
+                display: 'grid', gridTemplateColumns: '130px 1fr 1fr 80px 90px 90px', gap: 12,
                 padding: '0 16px', height: 52, alignItems: 'center',
                 background: '#fff', borderRadius: 8, marginBottom: 4,
                 border: '1px solid #E8E8E8', transition: 'box-shadow 0.1s',
@@ -87,7 +87,6 @@ export function ActivityLibraryList() {
             >
               <div style={{ fontSize: 12, fontWeight: 700, color: '#1F1F1F', fontFamily: 'monospace' }}>{act.activity_code}</div>
               <div style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{act.name}</div>
-              <div style={{ fontSize: 12, color: '#555' }}>{act.machine?.code ?? <span style={{ color: '#BDBDBD' }}>—</span>}</div>
               <div style={{ fontSize: 11, color: '#8E8E8E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {act.consumes.length > 0 ? act.consumes.map((c) => c.material.name).join(', ') : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>

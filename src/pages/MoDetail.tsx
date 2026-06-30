@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Info, Pencil, Cpu, Wrench, Package, Users } from 'lucide-react'
-import { useMo, useMoAssemblies, useMoHistory, useMoParts, useChangeMoStatus } from '../hooks/useMo'
+import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench } from 'lucide-react'
+import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus } from '../hooks/useMo'
 import { useWos } from '../hooks/useWo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
@@ -166,9 +166,41 @@ function Chips({ items }: { items: string[] }) {
   )
 }
 
+function ConsumeSummaryCard({ moId }: { moId: number }) {
+  const { data, isLoading } = useMoConsumeSummary(moId)
+  return (
+    <Card title="Planned Consume">
+      {isLoading ? (
+        <Loader2 size={16} className="animate-spin" style={{ color: '#C2C2C2' }} />
+      ) : !data?.length ? (
+        <span style={{ color: '#B0B0B0', fontSize: 13 }}>No consumable materials defined.</span>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+          {/* Header row */}
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px', gap: 8, padding: '4px 0 6px', borderBottom: '1px solid #F0F0F0' }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#999', letterSpacing: '0.05em' }}>CODE</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#999', letterSpacing: '0.05em' }}>MATERIAL</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#999', letterSpacing: '0.05em', textAlign: 'right' }}>QTY</span>
+            <span style={{ fontSize: 10, fontWeight: 700, color: '#999', letterSpacing: '0.05em' }}>UNIT</span>
+          </div>
+          {data.map((r, i) => (
+            <div key={r.material_id} style={{ display: 'grid', gridTemplateColumns: '130px 1fr 90px 50px', gap: 8, padding: '6px 0', borderBottom: i < data.length - 1 ? '1px solid #F9F9F9' : 'none', alignItems: 'center' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.code}</span>
+              <span style={{ fontSize: 12, color: '#1A1A1A' }}>{r.name}</span>
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', textAlign: 'right' }}>{r.qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <span style={{ fontSize: 11, color: '#666' }}>{r.unit ?? '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
   return (
     <>
+      {/* Order info */}
       <Card title="Order">
         <Row k="MO Code" v={mo.mo_code} />
         <Row k="Mark Prefix" v={`${mo.mark_prefix?.code} · ${mo.mark_prefix?.label}`} />
@@ -176,72 +208,107 @@ function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
         <Row k="Status" v={<MoStatusPill status={mo.status} />} />
         <Row k="Due Date" v={fmtDay(mo.due_date)} />
       </Card>
-      <Card title="Derived (on-read · P20)">
+
+      {/* Scope */}
+      <Card title="Scope">
         <Row k="Project" v={<Chips items={mo.projects_involved.map(p => p.name)} />} />
         <Row k="Zone" v={<Chips items={mo.zones_involved.map(z => z.label)} />} />
         <Row k="Sub Zone" v={<Chips items={mo.sub_zones_involved.map(s => s.name)} />} />
       </Card>
-      <Card title="Routing Snapshot (live from template)">
+
+      {/* Planned Consume Summary */}
+      <ConsumeSummaryCard moId={mo.id} />
+
+      {/* Routing operations */}
+      <Card title="Routing">
         {!mo.routing_template.operations.length ? (
           <span style={{ color: '#B0B0B0', fontSize: 13 }}>No operations on this routing template.</span>
         ) : (
-          mo.routing_template.operations.map((op, opIdx) => (
-            <div key={op.id} style={{ borderBottom: opIdx < mo.routing_template.operations.length - 1 ? '1px solid #F2F2F2' : 'none', paddingBottom: 10, marginBottom: 10 }}>
-              {/* Op header */}
-              <div className="flex" style={{ fontSize: 13, gap: 10, alignItems: 'center' }}>
-                <span style={{ width: 36, color: '#999', fontFamily: 'monospace', fontSize: 11, flexShrink: 0 }}>{String(op.sequence).padStart(3, '0')}</span>
-                <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#C8202A', flexShrink: 0 }}>{op.op_code}</span>
-                <span style={{ fontWeight: 600, color: '#1A1A1A', flex: 1 }}>{op.name}</span>
-                <span style={{ color: '#888', fontSize: 12 }}>{op.workcenter.code}</span>
-                {(() => { const t = Math.round(Number(op.time_cycle_manual ?? op.time_cycle ?? 0)); return t > 0 ? (
-                  <span style={{ color: '#555', fontSize: 12, fontFamily: 'monospace', background: '#F0F0F0', borderRadius: 5, padding: '1px 8px', flexShrink: 0 }}>{t} min</span>
-                ) : null })()}
-              </div>
-              {/* Activity rows */}
-              {(op.activities?.length ?? 0) > 0 && (
-                <div style={{ marginTop: 6, paddingLeft: 46 }}>
-                  {op.activities!.map((act, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 0', borderTop: '1px solid #F6F6F6', flexWrap: 'wrap' }}>
-                      <span style={{ width: 18, height: 18, borderRadius: '50%', background: '#EEEEEE', fontSize: 10, fontWeight: 700, color: '#888', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', minWidth: 90, flex: '0 0 auto' }}>{act.name}</span>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
-                        {act.machine && (
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#1565C0', background: '#EBF2FF', border: '1px solid #BBDEFB', borderRadius: 999, padding: '1px 7px' }}>
-                            <Cpu size={9} />{act.machine.name}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {mo.routing_template.operations.map(op => {
+              const color = op.op_type?.color ?? '#9CA3AF'
+              return (
+              <div key={op.id} style={{ border: '1px solid #EEEEEE', borderRadius: 10, overflow: 'hidden' }}>
+                {/* Op header */}
+                <div style={{ background: '#FAFAFA', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ width: 26, height: 26, borderRadius: 8, background: color, fontSize: 11, fontWeight: 800, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {op.sequence}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{op.name}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, color: '#666' }}>{op.workcenter.name}</span>
+                      {op.workcenter.machine && (
+                        <>
+                          <span style={{ fontSize: 10, color: '#DDD' }}>·</span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: '#1565C0' }}>
+                            <Cpu size={10} />{op.workcenter.machine}
                           </span>
-                        )}
-                        {act.tools.map(t => (
-                          <span key={t.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#6A1B9A', background: '#F3E5F5', border: '1px solid #E1BEE7', borderRadius: 999, padding: '1px 7px' }}>
-                            <Wrench size={9} />{t.name} ×{t.qty}
-                          </span>
-                        ))}
-                        {(act.consumables ?? []).map((c, ci) => (
-                          <span key={ci} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#E65100', background: '#FBE9E7', border: '1px solid #FFCCBC', borderRadius: 999, padding: '1px 7px' }}>
-                            <Package size={9} />{c.name}
-                          </span>
-                        ))}
-                        {(act.labors ?? []).map((l, li) => (
-                          <span key={li} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#2E7D32', background: '#E8F5E9', border: '1px solid #C8E6C9', borderRadius: 999, padding: '1px 7px' }}>
-                            <Users size={9} />{l.skill} ×{l.qty}
-                          </span>
-                        ))}
-                      </div>
-                      {act.per_minute != null && act.per_minute > 0 && (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#185FA5', background: '#E3F0FF', border: '1px solid #BBDEFB', borderRadius: 6, padding: '1px 7px', flexShrink: 0 }}>
-                          {act.per_minute}/min
-                        </span>
+                        </>
                       )}
                     </div>
-                  ))}
+                  </div>
                 </div>
-              )}
-            </div>
-          ))
+
+                {/* Activities */}
+                {(op.activities?.length ?? 0) > 0 && (
+                  <div style={{ background: '#fff', padding: '8px 14px 10px', borderTop: '1px solid #F0F0F0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {op.activities!.map((act, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <span style={{ marginTop: 3, width: 16, height: 16, borderRadius: '50%', background: '#F0F0F0', fontSize: 9, fontWeight: 700, color: '#999', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A' }}>{act.name}</span>
+                            {act.measure && <span style={{ fontSize: 10, color: '#999', background: '#F5F5F5', borderRadius: 4, padding: '1px 5px' }}>{act.measure}</span>}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
+                            {act.labors.length > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#166534', background: '#DCFCE7', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>SKILL</span>
+                                {act.labors.map((l, li) => (
+                                  <span key={li} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#166534', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 6, padding: '2px 8px' }}>
+                                    <Users size={9} />{l.skill}{l.level ? ` (${l.level})` : ''} ×{l.qty}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {act.tools.length > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#1E40AF', background: '#DBEAFE', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>TOOL</span>
+                                {act.tools.map((t, ti) => (
+                                  <span key={ti} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#1E40AF', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '2px 8px' }}>
+                                    <Wrench size={9} />{t.name} ×{t.qty}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {act.consumables.length > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#92400E', background: '#FEF3C7', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>USE</span>
+                                {act.consumables.map((c, ci) => (
+                                  <span key={ci} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '2px 8px' }}>
+                                    <FlaskConical size={9} />{c.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          )}
+          </div>
         )}
       </Card>
+
+      {/* Audit */}
       <Card title="Audit">
-        <Row k="Created" v={`${fmtDate(mo.create_date)} · ${mo.create_user?.name ?? `uid ${mo.create_uid}`}`} />
-        <Row k="Last write" v={`${fmtDate(mo.write_date)} · ${mo.write_user?.name ?? `uid ${mo.write_uid}`}`} />
+        <Row k="Created" v={`${fmtDate(mo.create_date)} · ${mo.create_user?.name ?? '—'}`} />
+        <Row k="Last write" v={`${fmtDate(mo.write_date)} · ${mo.write_user?.name ?? '—'}`} />
       </Card>
     </>
   )

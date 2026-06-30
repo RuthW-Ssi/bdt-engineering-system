@@ -7,6 +7,7 @@ import {
   getMarkPrefixesWithCount,
   getMo,
   getMoAssemblies,
+  getMoConsumeSummary,
   getMoHistory,
   getMoParts,
   getMos,
@@ -35,6 +36,10 @@ export function useMoHistory(id: number) {
 
 export function useMoParts(id: number) {
   return useQuery({ queryKey: ['mo', 'parts', id], queryFn: () => getMoParts(id), enabled: !!id })
+}
+
+export function useMoConsumeSummary(id: number) {
+  return useQuery({ queryKey: ['mo', 'consume-summary', id], queryFn: () => getMoConsumeSummary(id), enabled: !!id })
 }
 
 export function useCreateMo() {

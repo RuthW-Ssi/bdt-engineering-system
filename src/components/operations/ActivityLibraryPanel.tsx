@@ -12,13 +12,6 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
   const { data: activities = [], isLoading } = useActivities({ q: search || undefined })
   const addMut = useAddFromLibrary(templateId ?? 0)
 
-  // Group by machine
-  const grouped = activities.reduce<Record<string, typeof activities>>((acc, act) => {
-    const key = act.machine?.code ?? 'Unknown'
-    acc[key] = [...(acc[key] ?? []), act]
-    return acc
-  }, {})
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#FAFAFA', borderLeft: '1px solid #E0E0E0' }}>
       {/* Header */}
@@ -33,59 +26,51 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
         />
       </div>
 
-      {/* Disabled banner when no template id */}
       {templateId === null && (
         <div style={{ padding: 16, background: '#FFF8E1', borderBottom: '1px solid #FFE082', fontSize: 12, color: '#795548' }}>
           Save the operation as Draft first to enable the Activity Library.
         </div>
       )}
 
-      {/* Activity list */}
+      {/* Flat activity list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
         {isLoading && <div style={{ padding: 16, fontSize: 12, color: '#888' }}>Loading…</div>}
-        {Object.entries(grouped).map(([machineCode, acts]) => (
-          <div key={machineCode} style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', padding: '4px 8px', letterSpacing: 1 }}>
-              {machineCode}
-            </div>
-            {acts.map(act => {
-              const alreadyAdded = existingSourceIds.has(act.id)
-              return (
-                <div key={act.id} style={{
-                  borderRadius: 4, marginBottom: 2,
-                  background: alreadyAdded ? '#F5F5F5' : '#fff',
-                  border: '1px solid #EEE',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, color: '#999', fontFamily: 'monospace' }}>{act.activity_code}</div>
-                      <div style={{ fontSize: 12, fontWeight: 500 }}>{act.name}</div>
-                      <div style={{ marginTop: 4 }}>
-                        <span style={{ fontSize: 11, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
-                          {Number(act.duration_min).toFixed(2)} min
-                        </span>
-                      </div>
-                    </div>
-                    <button
-                      disabled={templateId === null || alreadyAdded || addMut.isPending}
-                      onClick={() => addMut.mutate(act.id)}
-                      title={alreadyAdded ? 'Already added' : 'Add to operation'}
-                      style={{
-                        padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none',
-                        background: alreadyAdded ? '#E0E0E0' : '#1976D2',
-                        color: alreadyAdded ? '#999' : '#fff',
-                        cursor: templateId === null || alreadyAdded || addMut.isPending ? 'default' : 'pointer',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {alreadyAdded ? 'Added' : '+ Add'}
-                    </button>
+        {activities.map(act => {
+          const alreadyAdded = existingSourceIds.has(act.id)
+          return (
+            <div key={act.id} style={{
+              borderRadius: 4, marginBottom: 2,
+              background: alreadyAdded ? '#F5F5F5' : '#fff',
+              border: '1px solid #EEE',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: '#999', fontFamily: 'monospace' }}>{act.activity_code}</div>
+                  <div style={{ fontSize: 12, fontWeight: 500 }}>{act.name}</div>
+                  <div style={{ marginTop: 4 }}>
+                    <span style={{ fontSize: 11, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
+                      {Number(act.duration_min).toFixed(2)} min
+                    </span>
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        ))}
+                <button
+                  disabled={templateId === null || alreadyAdded || addMut.isPending}
+                  onClick={() => addMut.mutate(act.id)}
+                  title={alreadyAdded ? 'Already added' : 'Add to operation'}
+                  style={{
+                    padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none',
+                    background: alreadyAdded ? '#E0E0E0' : '#1976D2',
+                    color: alreadyAdded ? '#999' : '#fff',
+                    cursor: templateId === null || alreadyAdded || addMut.isPending ? 'default' : 'pointer',
+                    flexShrink: 0,
+                  }}
+                >
+                  {alreadyAdded ? 'Added' : '+ Add'}
+                </button>
+              </div>
+            </div>
+          )
+        })}
         {!isLoading && activities.length === 0 && (
           <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#999' }}>
             No activities found.{' '}

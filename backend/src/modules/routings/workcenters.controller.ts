@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiBearerAuth, ApiTags } from '@nestjs/swagger'
 import { WorkcenterService } from './services/workcenter.service'
 import { CreateWorkcenterDto } from './dto/create-workcenter.dto'
@@ -16,8 +16,9 @@ export class WorkcentersController {
 
   @Get()
   @ApiOperation({ summary: 'List all work centers' })
-  findAll() {
-    return this.wcService.findAll()
+  findAll(@Query('active') active?: string) {
+    const filter = active === undefined ? true : active === 'false' ? false : true
+    return this.wcService.findAll(filter)
   }
 
   @Post()

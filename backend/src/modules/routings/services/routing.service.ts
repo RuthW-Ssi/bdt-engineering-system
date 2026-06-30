@@ -152,7 +152,7 @@ export class RoutingService {
     throw new BadRequestException('Provide from_template to bind product to a routing template')
   }
 
-  // getTemplateById: returns full template with ops + activities (used by RoutingBuilder edit mode)
+  // getTemplateById: returns full template with ops + activities (used by RoutingBuilder edit mode + RoutingDetailModal)
   async getTemplateById(id: number) {
     const template = await this.prisma.routing_template.findUniqueOrThrow({
       where: { id },
@@ -160,39 +160,47 @@ export class RoutingService {
         operations: {
           orderBy: { sequence: 'asc' },
           include: {
-            workcenter: { select: { id: true, code: true, name: true } },
+            workcenter: { select: { id: true, code: true, name: true, machine: true } },
             op_type: { select: { id: true, key: true, label: true, color: true, method_options: true } },
+            operation_template: {
+              select: {
+                id: true, op_code: true, name: true,
+                activities: {
+                  orderBy: { sequence: 'asc' },
+                  select: {
+                    id: true, name: true, measure: true, per_minute: true, source_activity_id: true,
+                    source_activity: { select: { id: true, name: true, duration_min: true } },
+                    skills: { select: { skill: true, qty: true, level: true } },
+                    tools: { include: { resource: { select: { id: true, name: true } } } },
+                  },
+                },
+              },
+            },
           },
         },
       },
     })
 
-    // Collect all machine/tool IDs, source_activity_ids, and unlinked activity names
-    const machineIds = new Set<number>()
+    // Collect tool IDs and source_activity_ids from snapshot (for ops still using snapshot)
     const toolIds = new Set<number>()
     const activityIds = new Set<number>()
     const unlinkedNames = new Set<string>()
     for (const op of template.operations) {
+      if (op.operation_template_id) continue  // live FK path — skip snapshot scan
       const snap = op.activities_snapshot as any[]
       if (!Array.isArray(snap)) continue
       for (const act of snap) {
-        if (act.machine_id != null) machineIds.add(act.machine_id)
         if (Array.isArray(act.tool_ids)) act.tool_ids.forEach((t: number | { id: number }) => toolIds.add(typeof t === 'object' && t !== null ? t.id : t))
         if (act.source_activity_id != null) activityIds.add(act.source_activity_id)
         else if (act.name) unlinkedNames.add(act.name)
       }
     }
 
-    const allIds = [...machineIds, ...toolIds]
-    const resources = allIds.length
-      ? await this.prisma.equipment_resource.findMany({
-          where: { id: { in: allIds } },
-          select: { id: true, code: true, name: true },
-        })
+    const tools = toolIds.size
+      ? await this.prisma.equipment_resource.findMany({ where: { id: { in: [...toolIds] } }, select: { id: true, name: true } })
       : []
-    const resourceMap = new Map(resources.map(r => [r.id, r]))
+    const toolMap = new Map(tools.map(r => [r.id, r]))
 
-    // Fetch current skills from activity_skill so labors are always up-to-date
     const skillRows = activityIds.size
       ? await this.prisma.activity_skill.findMany({
           where: { activity_id: { in: [...activityIds] } },
@@ -206,7 +214,6 @@ export class RoutingService {
       skillMap.set(row.activity_id, list)
     }
 
-    // Name-match unlinked activities to Activity Library for skills
     const nameSkillMap = new Map<string, { skill: string; qty: number; level: string | null }[]>()
     if (unlinkedNames.size) {
       const matched = await this.prisma.activity.findMany({
@@ -216,23 +223,70 @@ export class RoutingService {
       for (const m of matched) if (m.skills.length) nameSkillMap.set(m.name, m.skills)
     }
 
-    const operations = template.operations.map(op => {
+    // Collect consumables for all source_activity_ids across all ops
+    const allActivityIds = new Set<number>()
+    for (const op of template.operations) {
+      if (op.operation_template?.activities) {
+        for (const a of op.operation_template.activities) {
+          if (a.source_activity_id) allActivityIds.add(a.source_activity_id)
+        }
+      }
       const snap = op.activities_snapshot as any[]
-      const activities_snapshot = Array.isArray(snap)
-        ? snap.map(act => ({
-            ...act,
-            machine_name: act.machine_id != null ? (resourceMap.get(act.machine_id)?.name ?? null) : null,
-            tool_names: Array.isArray(act.tool_ids)
-              ? act.tool_ids.map((t: number | { id: number }) => {
-                  const tid = typeof t === 'object' && t !== null ? t.id : t
-                  return resourceMap.get(tid)?.name ?? `#${tid}`
-                })
-              : [],
-            labors: act.source_activity_id != null && skillMap.has(act.source_activity_id)
-              ? skillMap.get(act.source_activity_id)
-              : (act.name && nameSkillMap.has(act.name) ? nameSkillMap.get(act.name) : (act.labors ?? [])),
-          }))
-        : snap
+      if (Array.isArray(snap)) {
+        for (const act of snap) { if (act.source_activity_id) allActivityIds.add(act.source_activity_id) }
+      }
+    }
+    const consumeRows = allActivityIds.size
+      ? await this.prisma.activity_consume.findMany({
+          where: { activity_id: { in: [...allActivityIds] } },
+          include: { material: { select: { id: true, default_code: true, name: true } } },
+        })
+      : []
+    const consumeMap = new Map<number, { resource_id: number; code: string; name: string }[]>()
+    for (const row of consumeRows) {
+      const list = consumeMap.get(row.activity_id) ?? []
+      list.push({ resource_id: row.material_id, code: row.material.default_code, name: row.material.name })
+      consumeMap.set(row.activity_id, list)
+    }
+
+    const operations = template.operations.map(op => {
+      let activities_snapshot: any[]
+
+      if (op.operation_template?.activities?.length) {
+        // Live path: build from Operation Library FK
+        activities_snapshot = op.operation_template.activities.map(a => ({
+          name: a.name,
+          measure: a.measure ?? null,
+          per_minute: a.per_minute != null ? Number(a.per_minute) : null,
+          source_activity_id: a.source_activity_id,
+          machine_id: null,
+          machine_name: null,
+          tool_ids: (a.tools ?? []).map((t: any) => t.resource_id),
+          tool_names: (a.tools ?? []).map((t: any) => t.resource.name),
+          labors: a.skills.map(s => ({ skill: s.skill, qty: s.qty, level: s.level })),
+          consumables: a.source_activity_id ? (consumeMap.get(a.source_activity_id) ?? []) : [],
+        }))
+      } else {
+        // Fallback: snapshot path
+        const snap = op.activities_snapshot as any[]
+        activities_snapshot = Array.isArray(snap)
+          ? snap.map(act => ({
+              ...act,
+              machine_name: null,
+              tool_names: Array.isArray(act.tool_ids)
+                ? act.tool_ids.map((t: number | { id: number }) => {
+                    const tid = typeof t === 'object' && t !== null ? t.id : t
+                    return toolMap.get(tid)?.name ?? `#${tid}`
+                  })
+                : [],
+              labors: act.source_activity_id != null && skillMap.has(act.source_activity_id)
+                ? skillMap.get(act.source_activity_id)
+                : (act.name && nameSkillMap.has(act.name) ? nameSkillMap.get(act.name) : (act.labors ?? [])),
+              consumables: act.source_activity_id ? (consumeMap.get(act.source_activity_id) ?? act.consumables ?? []) : (act.consumables ?? []),
+            }))
+          : []
+      }
+
       return { ...op, activities_snapshot }
     })
 
@@ -345,6 +399,7 @@ export class RoutingService {
             data: {
               op_code: op.op_code, name: op.name, sequence: op.sequence,
               workcenter_id: op.workcenter_id, op_type_id: op.op_type_id ?? null,
+              operation_template_id: op.operation_template_id ?? null,
               method: op.method ?? null, time_mode: op.time_mode,
               time_cycle_manual: op.time_cycle_manual ?? null,
               formula_expr: op.formula_expr ?? null,
@@ -359,6 +414,7 @@ export class RoutingService {
             data: {
               template_id: templateId, op_code: op.op_code, name: op.name, sequence: op.sequence,
               workcenter_id: op.workcenter_id, op_type_id: op.op_type_id ?? null,
+              operation_template_id: op.operation_template_id ?? null,
               method: op.method ?? null, time_mode: op.time_mode,
               time_cycle_manual: op.time_cycle_manual ?? null,
               formula_expr: op.formula_expr ?? null,

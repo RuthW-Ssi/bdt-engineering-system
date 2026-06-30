@@ -12,12 +12,11 @@ import { consumeFormulasApi, FORMULA_CATEGORY_LABELS, type ConsumeFormula } from
 import type { EquipmentStatus, Machine } from '../api/machines'
 import type { Operator } from '../api/laborSkills'
 
-type Tab = 'machine' | 'tool' | 'operator' | 'consume' | 'formula'
+type Tab = 'machine' | 'tool' | 'operator' | 'formula'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'machine',  label: 'Machine' },
   { id: 'tool',     label: 'Tool' },
-  { id: 'consume',  label: 'Consumable' },
   { id: 'operator', label: 'Operator' },
   { id: 'formula',  label: 'Formula' },
 ]
@@ -32,7 +31,7 @@ const STATUS_OPTIONS: { value: EquipmentStatus | ''; label: string }[] = [
 ]
 
 type ModalState =
-  | { tab: 'machine' | 'tool' | 'consume'; row?: Machine }
+  | { tab: 'machine' | 'tool'; row?: Machine }
   | { tab: 'operator'; row?: Operator }
   | null
 
@@ -53,7 +52,6 @@ export function ResourceList() {
   const handlingQuery = useMachines({ type: 'handling', name: nameSearch || undefined, status: statusFilter || undefined })
   const laborQuery = useLaborSkills()
   const toolQuery = useMachines({ type: 'tool', name: nameSearch || undefined })
-  const consumeQuery = useMachines({ type: 'consumable', name: nameSearch || undefined })
 
   const machineRows = useMemo(() => [
     ...(machineQuery.data ?? []),
@@ -80,13 +78,11 @@ export function ResourceList() {
     (activeTab === 'machine' && (machineQuery.isLoading || handlingQuery.isLoading)) ||
     (activeTab === 'operator' && laborQuery.isLoading) ||
     (activeTab === 'tool' && toolQuery.isLoading) ||
-    (activeTab === 'consume' && consumeQuery.isLoading) ||
     (activeTab === 'formula' && formulaQuery.isLoading)
 
   const totalCount =
     activeTab === 'machine' ? machineRows.length :
     activeTab === 'tool' ? (toolQuery.data?.length ?? 0) :
-    activeTab === 'consume' ? (consumeQuery.data?.length ?? 0) :
     activeTab === 'formula' ? formulaRows.length :
     operatorRows.length
 
@@ -100,7 +96,6 @@ export function ResourceList() {
   const addLabel =
     activeTab === 'machine' ? 'Add Machine' :
     activeTab === 'tool' ? 'Add Tool' :
-    activeTab === 'consume' ? 'Add Consumable' :
     activeTab === 'formula' ? 'Add Formula' : 'Add Operator'
 
   return (
@@ -225,12 +220,6 @@ export function ResourceList() {
                 onEdit={row => setModal({ tab: 'tool', row })}
               />
             )}
-            {activeTab === 'consume' && (
-              <ConsumeTable
-                rows={consumeQuery.data ?? []}
-                onEdit={row => setModal({ tab: 'consume', row })}
-              />
-            )}
             {activeTab === 'formula' && (
               <FormulaTable
                 rows={formulaRows}
@@ -245,7 +234,7 @@ export function ResourceList() {
       {modal !== null && (
         modal.tab === 'operator'
           ? <OperatorModal row={modal.row} onClose={() => setModal(null)} />
-          : <ResourceModal tab={modal.tab} row={(modal as { tab: 'machine' | 'tool' | 'consume'; row?: Machine }).row} onClose={() => setModal(null)} />
+          : <ResourceModal tab={modal.tab} row={(modal as { tab: 'machine' | 'tool'; row?: Machine }).row} onClose={() => setModal(null)} />
       )}
       {formulaModal?.open && (
         <FormulaModal row={formulaModal.row} onClose={() => setFormulaModal(null)} />
@@ -263,8 +252,8 @@ function MachineTable({ rows, onRowClick, onEdit }: {
   if (!rows.length) return <EmptyState label="ไม่พบข้อมูล Machine" />
   return (
     <>
-      <ColHeader cols={['Code', 'ชื่อ', 'ประเภท', 'จำนวน', 'พื้นที่', 'สถานะ', 'PM ล่าสุด', 'อายุ PM', '']}
-        widths="140px 1fr 100px 70px 120px 120px 110px 100px 60px" />
+      <ColHeader cols={['Code', 'ชื่อ', 'สถานะ', 'อายุ PM', '']}
+        widths="140px 1fr 130px 110px 60px" />
       {rows.map(m => (
         <div
           key={m.id}
@@ -273,32 +262,17 @@ function MachineTable({ rows, onRowClick, onEdit }: {
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)'; (e.currentTarget as HTMLElement).style.background = '#FAFAFA' }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none'; (e.currentTarget as HTMLElement).style.background = '#fff' }}
         >
-          <div style={gridStyle('140px 1fr 100px 70px 120px 120px 110px 100px 60px')}>
+          <div style={gridStyle('140px 1fr 130px 110px 60px')}>
             <Cell><span style={monoStyle}>{m.code}</span></Cell>
             <Cell>
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{m.name}</div>
-              {(m.manufacturer || m.model) && (
-                <div style={{ fontSize: 11, color: '#9E9E9E', marginTop: 1 }}>{[m.manufacturer, m.model].filter(Boolean).join(' · ')}</div>
-              )}
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{m.name}</div>
+                {(m.manufacturer || m.model) && (
+                  <div style={{ fontSize: 11, color: '#9E9E9E', marginTop: 1 }}>{[m.manufacturer, m.model].filter(Boolean).join(' · ')}</div>
+                )}
+              </div>
             </Cell>
-            <Cell>
-              <span style={{
-                fontSize: 11, padding: '2px 8px', borderRadius: 999, fontWeight: 600,
-                background: m.type === 'machine' ? '#EFF6FF' : '#F0FDF4',
-                color: m.type === 'machine' ? '#1D4ED8' : '#16A34A',
-                border: `1px solid ${m.type === 'machine' ? '#BFDBFE' : '#BBF7D0'}`,
-              }}>{m.type === 'machine' ? 'Machine' : 'Handling'}</span>
-            </Cell>
-            <Cell><span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{m.qty ?? '—'}</span></Cell>
-            <Cell><span style={{ fontSize: 12, color: '#555' }}>{m.location ?? '—'}</span></Cell>
             <Cell><MachineStatusPill status={m.current_status} size="sm" /></Cell>
-            <Cell>
-              <span style={{ fontSize: 12, color: '#555' }}>
-                {m.last_maintenance_at
-                  ? new Date(m.last_maintenance_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
-                  : '—'}
-              </span>
-            </Cell>
             <Cell><DaysSincePmBadge days={m.days_since_pm} /></Cell>
             <Cell>
               <button
@@ -382,39 +356,15 @@ function ToolTable({ rows, onEdit }: { rows: ReturnType<typeof useMachines>['dat
   )
 }
 
-// ── Consume Table ─────────────────────────────────────────────────────────────
-function ConsumeTable({ rows, onEdit }: { rows: ReturnType<typeof useMachines>['data']; onEdit: (row: Machine) => void }) {
-  if (!rows?.length) return <EmptyState label="ไม่พบข้อมูล Consumable" />
-  return (
-    <>
-      <ColHeader cols={['Code', 'ชื่อ', 'จำนวน', '']} widths="140px 1fr 100px 60px" />
-      {rows.map(r => (
-        <div key={r.id} style={rowCardStyle}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
-          <div style={gridStyle('140px 1fr 100px 60px')}>
-            <Cell><span style={monoStyle}>{r.code}</span></Cell>
-            <Cell><span style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{r.name}</span></Cell>
-            <Cell><span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.qty ?? '—'}</span></Cell>
-            <Cell>
-              <button onClick={() => onEdit(r)} style={editBtnStyle}>แก้ไข</button>
-            </Cell>
-          </div>
-        </div>
-      ))}
-    </>
-  )
-}
 
-// ── Resource Modal (Machine + Tool + Consumable) ───────────────────────────────
-function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool' | 'consume'; row?: Machine; onClose: () => void }) {
+// ── Resource Modal (Machine + Tool) ───────────────────────────────────────────
+function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool'; row?: Machine; onClose: () => void }) {
   const qc = useQueryClient()
   const isTool = tab === 'tool'
-  const isConsume = tab === 'consume'
   const isEdit = !!row
 
   const [form, setForm] = useState({
-    type: row?.type ?? (isTool ? 'tool' : isConsume ? 'consumable' : 'machine') as string,
+    type: row?.type ?? (isTool ? 'tool' : 'machine') as string,
     name: row?.name ?? '',
     location: row?.location ?? '',
     manufacturer: row?.manufacturer ?? '',
@@ -423,7 +373,7 @@ function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool' | 'consu
   })
   const set = (field: string, val: string) => setForm(f => ({ ...f, [field]: val }))
 
-  const tabLabel = isTool ? 'Tool' : isConsume ? 'Consumable' : 'Machine'
+  const tabLabel = isTool ? 'Tool' : 'Machine'
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -431,7 +381,7 @@ function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool' | 'consu
       return isEdit && row
         ? updateResource(row.id, { name: form.name || undefined, location: form.location || undefined,
             manufacturer: form.manufacturer || undefined, model: form.model || undefined, qty })
-        : createResource({ type: form.type as 'machine' | 'handling' | 'tool' | 'consumable',
+        : createResource({ type: form.type as 'machine' | 'handling' | 'tool',
             name: form.name, location: form.location || undefined,
             manufacturer: form.manufacturer || undefined, model: form.model || undefined, qty })
     },
@@ -443,7 +393,7 @@ function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool' | 'consu
       <div style={modalBoxStyle}>
         <ModalHeader title={isEdit ? `แก้ไข ${tabLabel}` : `เพิ่ม ${tabLabel}`} onClose={onClose} />
         <div style={formBodyStyle}>
-          {!isTool && !isConsume && !isEdit && (
+          {!isTool && !isEdit && (
             <FormField label="ประเภท">
               <select value={form.type} onChange={e => set('type', e.target.value)} style={inputStyle}>
                 <option value="machine">Machine</option>
@@ -459,7 +409,7 @@ function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool' | 'consu
             <input type="number" min={0} value={form.qty} onChange={e => set('qty', e.target.value)}
               placeholder="0" style={inputStyle} />
           </FormField>
-          {!isTool && !isConsume && (
+          {!isTool && (
             <>
               <FormField label="พื้นที่ / Location">
                 <input value={form.location} onChange={e => set('location', e.target.value)}

@@ -24,11 +24,9 @@ export interface MoListItem {
 export interface RoutingOpActivity {
   name: string
   measure: string | null
-  per_minute: number | null
-  machine: { id: number; code: string; name: string } | null
-  tools: { id: number; code: string; name: string; qty: number }[]
-  labors: { skill: string; qty: number; level?: string | null }[] | null
-  consumables: { resource_id: number; code: string; name: string }[] | null
+  labors: { skill: string; qty: number; level?: string | null }[]
+  tools: { id: number; name: string; qty: number }[]
+  consumables: { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_expr?: string | null; result_unit?: string | null }[]
 }
 
 // Routing op snapshot (read live from routing_template · replaces mo_operation)
@@ -39,7 +37,8 @@ export interface RoutingOp {
   name: string
   time_cycle: string | number
   time_cycle_manual: string | number | null
-  workcenter: { id: number; code: string; name: string }
+  workcenter: { id: number; code: string; name: string; machine: string | null }
+  op_type: { id: number; key: string; label: string; color: string } | null
   activities?: RoutingOpActivity[]
 }
 
@@ -176,7 +175,7 @@ export interface RoutingOpDetail {
   time_cycle_manual: number | null
   time_mode: string
   formula_expr: string | null
-  workcenter: { id: number; code: string; name: string }
+  workcenter: { id: number; code: string; name: string; machine: string | null }
   op_type: { id: number; key: string; label: string; color: string } | null
   activities_snapshot: RoutingActivitySnap[] | null
 }
@@ -187,6 +186,14 @@ export interface RoutingTemplateDetail {
   name: string
   state: string
   operations: RoutingOpDetail[]
+}
+
+export interface MoConsumeSummaryRow {
+  material_id: number
+  code: string
+  name: string
+  qty: number
+  unit: string | null
 }
 
 export interface MoPartRow {
@@ -223,6 +230,10 @@ export async function getMoAssemblies(id: number): Promise<MoAssemblyRow[]> {
 
 export async function getMoParts(id: number): Promise<MoPartRow[]> {
   return (await apiClient.get(`/mo/${id}/parts`)).data
+}
+
+export async function getMoConsumeSummary(id: number): Promise<MoConsumeSummaryRow[]> {
+  return (await apiClient.get(`/mo/${id}/consume-summary`)).data
 }
 
 export async function getMoHistory(id: number): Promise<MoHistoryEntry[]> {

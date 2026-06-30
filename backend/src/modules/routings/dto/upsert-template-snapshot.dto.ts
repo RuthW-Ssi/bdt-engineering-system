@@ -25,6 +25,7 @@ export class SnapshotOperationDto {
   @IsOptional() @IsString() @MaxLength(400) formula_expr?: string | null
   @IsOptional() @IsNumber() canvas_x?: number
   @IsOptional() @IsNumber() canvas_y?: number
+  @IsOptional() @IsInt() operation_template_id?: number | null
   @IsOptional() @IsArray() activities?: unknown[]
 }
 

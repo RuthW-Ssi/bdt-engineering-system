@@ -76,7 +76,7 @@ function evalFormula(expr: string, vars: Record<string, number>): number | null 
 
 type TimeMode = 'formula' | 'manual' | 'activities'
 
-interface WorkcenterItem { id: number; code: string; name: string }
+interface WorkcenterItem { id: number; code: string; name: string; machine?: string | null }
 
 interface ConsumedMaterial { resource_id: number; code: string; name: string; formula_id?: number | null; formula_name?: string | null; formula_unit?: string | null }
 
@@ -104,6 +104,7 @@ interface OperationData extends Record<string, unknown> {
   op_code: string
   operation_type: string
   op_type_id?: number
+  operation_template_id?: number | null
   workcenter_id: number | null
   workcenter_name: string
   method?: string
@@ -684,23 +685,13 @@ function ModalActivityLib({ addedIds, onAdd }: {
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
-  const [chip, setChip] = useState('All')
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
   const { data: activities = [], isLoading } = useActivities({ q: search || undefined })
 
-  const chips = ['All', ...Array.from(new Set(activities.map(a => a.machine?.code ?? 'Other'))).sort()]
   const q = search.trim().toLowerCase()
-  const filtered = activities.filter(act => {
-    if (chip !== 'All' && (act.machine?.code ?? 'Other') !== chip) return false
-    return !q || act.name.toLowerCase().includes(q) || act.activity_code.toLowerCase().includes(q)
-  })
-  const groups: Record<string, ActivityDto[]> = {}
-  for (const act of filtered) {
-    const key = act.machine?.code ?? 'Other'
-    if (!groups[key]) groups[key] = []
-    groups[key].push(act)
-  }
+  const filtered = activities.filter(act =>
+    !q || act.name.toLowerCase().includes(q) || act.activity_code.toLowerCase().includes(q)
+  )
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -713,38 +704,18 @@ function ModalActivityLib({ addedIds, onAdd }: {
             <Plus size={10} />สร้าง Activity
           </button>
         </div>
-        <div style={{ position: 'relative', marginBottom: 8 }}>
+        <div style={{ position: 'relative' }}>
           <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activities…"
             style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px 5px 26px', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-        </div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {chips.slice(0, 8).map(c => (
-            <button key={c} onClick={() => setChip(c)} style={{
-              height: 22, padding: '0 8px', borderRadius: 11, border: '1px solid', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-              borderColor: chip === c ? '#C8202A' : '#E0E0E0',
-              background: chip === c ? '#C8202A' : '#fff',
-              color: chip === c ? '#fff' : '#8E8E8E',
-            }}>{c}</button>
-          ))}
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 14px' }}>
         {isLoading ? (
           <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>Loading…</div>
-        ) : Object.entries(groups).length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>No activities found</div>
-        ) : Object.entries(groups).map(([machineCode, acts]) => {
-          const isOpen = !collapsed[machineCode]
-          return (
-            <div key={machineCode} style={{ marginBottom: 8 }}>
-              <button onClick={() => setCollapsed(c => ({ ...c, [machineCode]: !c[machineCode] }))}
-                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 5, background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '3px 2px' }}>
-                <span style={{ fontSize: 9, fontWeight: 800, color: '#555', textTransform: 'uppercase', letterSpacing: '0.1em', flex: 1, textAlign: 'left' }}>{machineCode}</span>
-                <span style={{ fontSize: 9, color: '#9E9E9E' }}>{acts.length}</span>
-                <ChevronDown size={10} style={{ color: '#BDBDBD', transform: isOpen ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }} />
-              </button>
-              {isOpen && acts.map(act => {
+        ) : filtered.map(act => {
                 const added = addedIds.has(act.id)
                 return (
                   <div key={act.id} style={{ borderRadius: 4, marginBottom: 2, background: added ? '#F5F5F5' : '#fff', border: '1px solid #EEE' }}>
@@ -783,9 +754,6 @@ function ModalActivityLib({ addedIds, onAdd }: {
                   </div>
                 )
               })}
-            </div>
-          )
-        })}
       </div>
     </div>
   )
@@ -799,9 +767,9 @@ interface InspModalForm {
   activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[]; ratio?: number | null; ratioUnit?: string | null; perTime?: number | null }>
 }
 
-interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null }
+interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null; opLibrary?: LibraryOpItem[] }
 
-const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh }: InspectorDrawerProps) {
+const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh, opLibrary = [] }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
@@ -1003,6 +971,15 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                     <option value="">— Select —</option>
                     {workcenters.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
                   </select>
+                  {(() => {
+                    const wc = workcenters.find(w => w.id === Number(form.workcenter_id))
+                    return wc?.machine ? (
+                      <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Machine:</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#185FA5' }}>{wc.machine}</span>
+                      </div>
+                    ) : null
+                  })()}
                 </div>
                 <div>
                   <div style={labelStyle}>Method</div>
@@ -1031,13 +1008,12 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 1fr 24px', gap: 6, padding: '0 8px', marginBottom: 2 }}>
-                    {['NAME', 'MIN', 'MACHINE', ''].map(h => (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 64px 24px', gap: 6, padding: '0 8px', marginBottom: 2 }}>
+                    {['NAME', 'MIN', ''].map(h => (
                       <div key={h} style={{ fontSize: 9, fontWeight: 700, color: '#BDBDBD', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                     ))}
                   </div>
                   {form.activities.map((act) => {
-                    const machines = equipmentList.filter(e => ['machine', 'handling'].includes(e.type))
                     const toolOpts = equipmentList.filter(e => e.type === 'tool')
                     const chip: React.CSSProperties = { fontSize: 10, padding: '2px 8px', borderRadius: 10, border: '1px solid', whiteSpace: 'nowrap' }
                     const chipEdit: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '1px 6px 1px 7px', borderRadius: 10, border: '1px solid', cursor: 'default', whiteSpace: 'nowrap' }
@@ -1046,8 +1022,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                     const isEditing = editingActId === act.localId
                     const pm = Number(act.per_minute)
                     const estMin = pm > 0 ? pm : null
-                    const machineName = machines.find(m => m.id === act.machine_id)?.name ?? '—'
-                    const COL_LIB = '1fr 64px 1fr 20px 20px'
+                    const COL_LIB = '1fr 64px 20px 20px'
                     return (
                       <div key={act.localId} style={{ border: `1px solid ${isEditing ? '#FFD54F' : '#BBDEFB'}`, borderRadius: 6, overflow: 'visible' }}>
                         {/* Main row */}
@@ -1064,7 +1039,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
-                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>{machineName}</div>
                             <button onClick={() => act.source_activity_template_id && onEditActivity?.(act.source_activity_template_id)}
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
                               <Pencil size={11} />
@@ -1080,11 +1054,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
                             <input type="number" min={0} step="0.01" value={act.per_minute} onChange={e => patchAct(act.localId, { per_minute: e.target.value })}
                               style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 5px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="0" />
-                            <select value={act.machine_id ?? ''} onChange={e => patchAct(act.localId, { machine_id: e.target.value ? Number(e.target.value) : null })}
-                              style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '3px 4px', background: '#fff', outline: 'none', fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' }}>
-                              <option value="">—</option>
-                              {machines.map(e => <option key={e.id} value={e.id}>{e.code}</option>)}
-                            </select>
                             <button onClick={() => setEditingActId(null)} title="Done"
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4CAF50', padding: 0, display: 'flex', justifyContent: 'center' }}>
                               <Check size={12} />
@@ -1107,7 +1076,6 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
-                            <div style={{ fontSize: 12, color: '#444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>{machineName}</div>
                             <button onClick={() => setEditingActId(act.localId)} title="Edit"
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
                               <Pencil size={11} />
@@ -2005,6 +1973,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
         op_code: op.op_code,
         operation_type: op.op_type?.key ?? '',
         op_type_id: op.op_type?.id ?? undefined,
+        operation_template_id: (op as any).operation_template?.id ?? null,
         workcenter_id: op.workcenter.id,
         workcenter_name: op.workcenter.name,
         method: op.method ?? undefined,
@@ -2111,6 +2080,8 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
       // Build snapshot payload — same shape for both create and edit
       const operations = sorted.map((node, i) => {
         const d = node.data as OperationData
+        // Auto-resolve operation_template_id from Operation Library by op_code match
+        const linkedOpTemplate = opLibrary.find(o => o.op_code === d.op_code.trim())
         return {
           ...(d.existing_op_id != null && { id: d.existing_op_id }),
           client_ref: node.id,          // frontend node ID — backend uses this to translate edge refs
@@ -2119,6 +2090,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
           sequence: (i + 1) * 10,
           workcenter_id: d.workcenter_id!,
           op_type_id: d.op_type_id ?? null,
+          operation_template_id: linkedOpTemplate?.id ?? null,
           method: d.method || null,
           time_mode: d.time_mode,
           time_cycle_manual: d.time_mode === 'manual' ? d.duration_min ?? null : null,
@@ -2378,6 +2350,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                   onDelete={handleInspectorDelete}
                   onEditActivity={setEditingActivityId}
                   pendingActivityRefresh={pendingActivityRefresh}
+                  opLibrary={opLibrary}
                 />
               )}
             </div>
