@@ -53,7 +53,7 @@ export function ResourceList() {
   const formulaDeleteMutation = useMutation({
     mutationFn: (id: number) => consumeFormulasApi.remove(id),
     onSuccess: () => {
-      toast.success('ลบสำเร็จ')
+      toast.success('Resource deleted')
       qc.invalidateQueries({ queryKey: ['consume-formulas'] })
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete resource — please try again'); console.error(e) },

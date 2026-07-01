@@ -412,7 +412,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
       } else {
         await createMutation.mutateAsync(payload)
       }
-      toast.success('บันทึกสำเร็จ')
+      toast.success('Activity saved')
       onSaved?.()
       onClose()
     } catch (e: any) {

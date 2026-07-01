@@ -176,7 +176,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
         consumable_cost_per_min: consumableCost,
         overhead_cost_per_min: overheadCost,
       } as any)
-      toast.success('บันทึกสำเร็จ')
+      toast.success('Workcenter saved')
       onClose()
     } catch (e: any) {
       toast.error(e.response?.data?.message ?? 'Failed to save workcenter — please try again')
@@ -348,7 +348,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
         consumable_cost_per_min: consumableCost,
         overhead_cost_per_min: overheadCost,
       } as any)
-      toast.success('สร้าง Work Center สำเร็จ')
+      toast.success('Workcenter created')
       onClose()
     } catch (e: any) {
       toast.error(e.response?.data?.message ?? 'Failed to save workcenter — please try again')

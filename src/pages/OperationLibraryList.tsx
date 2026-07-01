@@ -57,7 +57,7 @@ export default function OperationLibraryList() {
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/operation-templates/${id}`),
     onSuccess: () => {
-      toast.success('ลบสำเร็จ')
+      toast.success('Operation deleted')
       queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete operation — please try again'); console.error(e) },

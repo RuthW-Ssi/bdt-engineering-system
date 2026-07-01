@@ -120,7 +120,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
       qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
       qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
       qc.invalidateQueries({ queryKey: ['dispatches'] })
-      toast.success('อัพโหลด BOM สำเร็จ')
+      toast.success('BOM uploaded successfully')
       onClose()
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'BOM upload failed — please try again')
