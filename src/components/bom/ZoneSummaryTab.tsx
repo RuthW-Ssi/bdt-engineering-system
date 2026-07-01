@@ -1,4 +1,5 @@
 import { useState, useEffect, Fragment } from 'react'
+import { toast } from 'sonner'
 import { Loader2, Package, ChevronDown, ChevronRight, Clock, FlaskConical, Cpu } from 'lucide-react'
 import { getZoneSummary, type ZoneSummaryDto, type ZoneConsumableRow, type ZoneWorkcenterRow } from '../../api/routings'
 
@@ -167,28 +168,22 @@ function WorkcenterZoneTable({ rows }: { rows: ZoneWorkcenterRow[] }) {
 export function ZoneSummaryTab({ dispatchId }: { dispatchId: number }) {
   const [data, setData] = useState<ZoneSummaryDto | null>(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [section, setSection] = useState<'consumables' | 'time' | 'assemblies'>('consumables')
 
   useEffect(() => {
     setLoading(true)
-    setError('')
     getZoneSummary(dispatchId)
       .then(setData)
-      .catch(() => setError('Failed to load zone summary'))
+      .catch((e: any) => {
+        toast.error(e?.response?.data?.message ?? 'Failed to load zone summary')
+        console.error(e)
+      })
       .finally(() => setLoading(false))
   }, [dispatchId])
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, gap: 8, color: '#9CA3AF', fontSize: 13 }}>
       <Loader2 size={18} className="animate-spin" /> Computing zone summary...
-    </div>
-  )
-
-  if (error) return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 200, gap: 6 }}>
-      <Package size={32} style={{ color: '#D9D9D9' }} />
-      <span style={{ color: '#C8202A', fontSize: 13 }}>{error}</span>
     </div>
   )
 
