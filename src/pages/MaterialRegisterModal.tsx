@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { X, Loader2, AlertTriangle } from 'lucide-react'
+import { toast } from 'sonner'
 import { useCategories, useUoms } from '../hooks/useMasters'
 import { useCreateMaterial } from '../hooks/useMaterials'
 import type { CreateMaterialPayload, CategoryDTO } from '../api/types'
@@ -120,7 +121,7 @@ export function MaterialRegisterModal({ onClose }: Props) {
       setSuccess(`Created successfully: ${result.default_code}`)
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'An error occurred'
-      setErrors(prev => ({ ...prev, _form: typeof msg === 'string' ? msg : JSON.stringify(msg) }))
+      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
     }
   }
 
@@ -164,13 +165,6 @@ export function MaterialRegisterModal({ onClose }: Props) {
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col" style={{ overflowY: 'auto', flex: 1 }}>
           <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* Form error */}
-            {errors._form && (
-              <div className="rounded-lg" style={{ padding: 12, background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
-                {errors._form}
-              </div>
-            )}
 
             {/* Category */}
             <div>

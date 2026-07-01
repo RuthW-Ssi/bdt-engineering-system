@@ -2,7 +2,9 @@ import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
 import { Plus, X, Search, Loader2, FlaskConical } from 'lucide-react'
+import { toast } from 'sonner'
 import { PaginationBar } from '../components/PaginationBar'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 const LIMIT = 10
 import { useMachines } from '../hooks/useMachines'
@@ -47,9 +49,14 @@ export function ResourceList() {
   const [page, setPage] = useState(1)
   const [formulaModal, setFormulaModal] = useState<{ open: boolean; row?: ConsumeFormula } | null>(null)
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const formulaDeleteMutation = useMutation({
     mutationFn: (id: number) => consumeFormulasApi.remove(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['consume-formulas'] }),
+    onSuccess: () => {
+      toast.success('ลบสำเร็จ')
+      qc.invalidateQueries({ queryKey: ['consume-formulas'] })
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'ลบไม่สำเร็จ'),
   })
 
   const machineQuery = useMachines({ type: 'machine', name: nameSearch || undefined, status: statusFilter || undefined })
@@ -241,7 +248,7 @@ export function ResourceList() {
               <FormulaTable
                 rows={formulaRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setFormulaModal({ open: true, row })}
-                onDelete={row => { if (window.confirm(`ลบ "${row.name}" ?`)) formulaDeleteMutation.mutate(row.id) }}
+                onDelete={async row => { const ok = await confirm({ title: `ลบ "${row.name}"?`, variant: 'danger', confirmLabel: 'ลบ' }); if (ok) formulaDeleteMutation.mutate(row.id) }}
               />
             )}
           </>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { ChevronLeft, Loader2, Search, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { useDispatchDetail } from '../hooks/useBomDispatches'
 import { usePaintConfig, useSavePaintConfig, usePaintMaterials } from '../hooks/usePaint'
 
@@ -35,7 +36,6 @@ export function BomPaintConfig() {
   const [bulkIntermediate, setBulkIntermediate] = useState('')
   const [bulkFireproof, setBulkFireproof] = useState('')
   const [bulkTopcoat, setBulkTopcoat] = useState('')
-  const [submitError, setSubmitError] = useState<string | null>(null)
   const [markFilter, setMarkFilter] = useState('')
   const initialized = useRef(false)
 
@@ -118,12 +118,12 @@ export function BomPaintConfig() {
 
   const handleSave = async () => {
     if (!dispatchId) return
-    setSubmitError(null)
     try {
       await savePaint.mutateAsync({ configs: buildPayload() })
+      toast.success('บันทึกสำเร็จ')
       goBack()
     } catch {
-      setSubmitError('Save failed — check backend')
+      toast.error('Save failed — check backend')
     }
   }
 
@@ -430,9 +430,6 @@ export function BomPaintConfig() {
               ← กลับไป BOM
             </button>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              {submitError && (
-                <span style={{ fontSize: 12, color: '#C8202A' }}>{submitError}</span>
-              )}
               <button
                 onClick={handleSave}
                 disabled={isSaving}

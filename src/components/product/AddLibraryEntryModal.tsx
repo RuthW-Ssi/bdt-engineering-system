@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useCreateLibraryEntry } from '../../hooks/useLibrary'
 import { libraryApi } from '../../api/library'
 import { PREFIX_CATEGORIES } from '../../api/types'
@@ -26,7 +27,6 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
 
   const [nameError, setNameError] = useState('')
   const [prefixError, setPrefixError] = useState('')
-  const [formError, setFormError] = useState('')
   const [checkingName, setCheckingName] = useState(false)
   const [checkingPrefix, setCheckingPrefix] = useState(false)
   const [success, setSuccess] = useState<{ code: string; name: string } | null>(null)
@@ -72,13 +72,11 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
 
   const handleNameChange = (val: string) => {
     setName(val.toUpperCase())
-    setFormError('')
   }
 
   const handlePrefixCodeChange = (val: string) => {
     setPrefixCode(val.toUpperCase().replace(/[^A-Z0-9]/g, ''))
     setPrefixError('')
-    setFormError('')
   }
 
   const isValid =
@@ -93,12 +91,8 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) { setFormError('Product name is required'); return }
-    if (!prefixCode.trim()) { setFormError('Mark Prefix Code is required'); return }
-    if (!prefixLabel.trim()) { setFormError('Mark Prefix Label is required'); return }
-    if (!prefixCategory) { setFormError('Mark Prefix Category is required'); return }
+    if (!name.trim() || !prefixCode.trim() || !prefixLabel.trim() || !prefixCategory) return
     if (nameError || prefixError) return
-    setFormError('')
     try {
       const entry = await create({
         name: name.trim(),
@@ -110,7 +104,7 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
       onCreated?.({ id: entry.id, code: entry.code, name: entry.name })
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'An error occurred'
-      setFormError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
     }
   }
 
@@ -146,12 +140,6 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="flex flex-col" style={{ padding: 20, gap: 16 }}>
-          {formError && (
-            <div className="rounded-lg" style={{ padding: 12, background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
-              {formError}
-            </div>
-          )}
-
           {/* Product Name */}
           <div className="flex flex-col" style={{ gap: 6 }}>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
