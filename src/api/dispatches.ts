@@ -10,6 +10,7 @@ export interface DispatchSummaryDto {
   zone_id: number
   sub_zone_id: number | null
   status: DispatchStatus
+  upload_mode: 'combined' | 'separate'
   doc_count: number
   uploaded_at: string
   zone: { id: number; code: string; label: string }
@@ -219,5 +220,14 @@ export const dispatchesApi = {
     assignments: { assembly_id: number; match_status: MatchStatus | null; product_id?: number | null }[],
   ): Promise<void> {
     return apiClient.post(`/dispatches/${dispatchId}/assembly-match`, { assignments }).then(() => void 0)
+  },
+
+  getZoneUploadMode(projectId: number, zoneId: number): Promise<'combined' | 'separate' | null> {
+    return apiClient
+      .get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1 } })
+      .then(r => {
+        const items: DispatchSummaryDto[] = r.data.items ?? []
+        return items.length > 0 ? items[0].upload_mode : null
+      })
   },
 }

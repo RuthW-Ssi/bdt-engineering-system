@@ -1,9 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Layers, AlertCircle, Plus, Trash2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
+import { PaginationBar } from '../components/PaginationBar'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -16,6 +17,14 @@ interface RoutingTemplateSummary {
   operation_count: number
   bound_product_count: number
   write_date: string
+}
+
+interface PaginatedRoutings {
+  data: RoutingTemplateSummary[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
 }
 
 // ── State pill ─────────────────────────────────────────────────
@@ -35,12 +44,7 @@ function StatePill({ state }: { state: string }) {
   )
 }
 
-// ── Fetch routing templates ────────────────────────────────────
-
-async function fetchRoutingTemplates(): Promise<RoutingTemplateSummary[]> {
-  const { data } = await apiClient.get<RoutingTemplateSummary[]>('/routing-templates')
-  return Array.isArray(data) ? data : []
-}
+const LIMIT = 10
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -48,19 +52,32 @@ export function RoutingList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [search, setSearch] = useState('')
-  const [filterState, setFilterState] = useState<string>('all')
+  const [filterState, setFilterState] = useState('all')
+  const [page, setPage] = useState(1)
 
-  const { data = [], isLoading, error } = useQuery({
-    queryKey: ['routing-templates'],
-    queryFn: fetchRoutingTemplates,
+  const { data: paged, isLoading, error } = useQuery<PaginatedRoutings>({
+    queryKey: ['routing-templates', search, filterState, page],
+    queryFn: async () => {
+      const { data } = await apiClient.get('/routing-templates', {
+        params: {
+          search: search || undefined,
+          state: filterState !== 'all' ? filterState : undefined,
+          page,
+          limit: LIMIT,
+        },
+      })
+      return data
+    },
     staleTime: 2 * 60 * 1000,
+    placeholderData: (prev) => prev,
   })
 
+  const items = paged?.data ?? []
+  const total = paged?.total ?? 0
+  const totalPages = paged?.totalPages ?? 1
+
   const { data: markPrefixes = [] } = useMarkPrefixes()
-  const prefixMap = useMemo(
-    () => new Map(markPrefixes.map(p => [p.code, p.label])),
-    [markPrefixes],
-  )
+  const prefixMap = new Map(markPrefixes.map(p => [p.code, p.label]))
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/routing-templates/${id}`),
@@ -73,30 +90,31 @@ export function RoutingList() {
     deleteMut.mutate(r.id)
   }
 
-  const filtered = data.filter(r => {
-    const matchState = filterState === 'all' || r.state === filterState
-    const q = search.toLowerCase()
-    const matchSearch = !q ||
-      r.code.toLowerCase().includes(q) ||
-      r.name.toLowerCase().includes(q)
-    return matchState && matchSearch
-  })
+  function handleSearch(q: string) {
+    setSearch(q)
+    setPage(1)
+  }
+
+  function handleStateFilter(s: string) {
+    setFilterState(s)
+    setPage(1)
+  }
 
   return (
-    <div className="flex flex-col min-h-[calc(100vh-56px)]">
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', overflow: 'hidden', background: '#F5F5F5', fontFamily: 'inherit' }}>
+
       {/* Header */}
-      <div className="bg-white flex items-center justify-between sticky top-14 z-40 border-b border-chrome-100 px-6" style={{ height: 56 }}>
-        <div className="flex items-center gap-3">
+      <div className="bg-white border-b border-chrome-100" style={{ height: 56, padding: '0 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Routing Templates</span>
           <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {data.length} templates
+            {total} templates
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => navigate('/routings/new')}
-            className="rounded-md flex items-center gap-1.5"
-            style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer' }}
+            style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6 }}
           >
             <Plus size={13} /> New Template
           </button>
@@ -117,22 +135,21 @@ export function RoutingList() {
         </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="flex items-center sticky z-30 border-b border-chrome-100 px-6 gap-2" style={{ height: 44, top: 110, background: '#F5F5F5' }}>
-        <div className="relative">
-          <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+      {/* Filter bar */}
+      <div style={{ height: 44, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0' }}>
+        <div style={{ position: 'relative' }}>
+          <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
           <input
             className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
             style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 280 }}
             placeholder="Search template code or name..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => handleSearch(e.target.value)}
           />
         </div>
-
         <select
           value={filterState}
-          onChange={e => setFilterState(e.target.value)}
+          onChange={e => handleStateFilter(e.target.value)}
           className="border border-chrome-200 rounded-md bg-white cursor-pointer focus:outline-none"
           style={{ height: 32, padding: '0 10px', fontSize: 13 }}
         >
@@ -141,35 +158,34 @@ export function RoutingList() {
           <option value="active">Active</option>
           <option value="obsolete">Obsolete</option>
         </select>
-
         {(search || filterState !== 'all') && (
-          <button onClick={() => { setSearch(''); setFilterState('all') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>Reset</button>
+          <button onClick={() => { handleSearch(''); handleStateFilter('all') }} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>Reset</button>
         )}
-
-        <span className="flex-1" />
-        <span style={{ fontSize: 12, color: '#8E8E8E' }}>Showing {filtered.length} of {data.length}</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 12, color: '#8E8E8E' }}>{total} results</span>
       </div>
 
-      {/* Table */}
-      <div className="bg-white flex-1">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 70px 80px 110px 120px 36px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-          {['Template', 'Mark Prefix', 'Ops', 'Bound', 'State', 'Updated', ''].map((h, i) => (
-            <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
-          ))}
-        </div>
+      {/* Column headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px 70px 80px 110px 120px 36px', padding: '0 20px', height: 36, background: '#F5F5F5', borderBottom: '1px solid #E0E0E0', alignItems: 'center', flexShrink: 0 }}>
+        {['Template', 'Mark Prefix', 'Ops', 'Bound', 'State', 'Updated', ''].map((h, i) => (
+          <span key={i} style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
+        ))}
+      </div>
 
+      {/* Scrollable rows */}
+      <div style={{ flex: 1, overflowY: 'auto', background: '#fff' }}>
         {isLoading ? (
-          <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>Loading...</div>
+          <div style={{ padding: 48, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>Loading...</div>
         ) : error ? (
-          <div className="flex items-center justify-center gap-2" style={{ padding: 48, color: '#C8202A', fontSize: 13 }}>
+          <div style={{ padding: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, color: '#C8202A', fontSize: 13 }}>
             <AlertCircle size={16} /> Failed to load data
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center" style={{ padding: 48, color: '#8E8E8E', fontSize: 13 }}>
-            {data.length === 0 ? 'No routing templates in the system' : 'No templates match the current filters'}
+        ) : items.length === 0 ? (
+          <div style={{ padding: 48, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
+            {total === 0 && !search && filterState === 'all' ? 'No routing templates in the system' : 'No templates match the current filters'}
           </div>
         ) : (
-          filtered.map(r => (
+          items.map(r => (
             <div
               key={r.id}
               className="hover:bg-chrome-50 transition-colors cursor-pointer"
@@ -180,7 +196,6 @@ export function RoutingList() {
                 <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.code}</div>
                 <div className="truncate" style={{ fontSize: 12, color: '#555', maxWidth: 300 }}>{r.name}</div>
               </div>
-
               <div style={{ fontSize: 12, color: '#555' }}>
                 {r.applies_to_product_type
                   ? <>
@@ -191,24 +206,19 @@ export function RoutingList() {
                     </>
                   : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
-
-              <div className="flex items-center gap-1" style={{ fontSize: 13, color: '#555' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#555' }}>
                 <Layers size={13} style={{ color: '#8E8E8E' }} />
                 {r.operation_count}
               </div>
-
               <div style={{ fontSize: 13, color: '#555' }}>
                 {r.bound_product_count > 0
                   ? <span style={{ fontWeight: 600, color: '#1F1F1F' }}>{r.bound_product_count}</span>
                   : <span style={{ color: '#BDBDBD' }}>—</span>}
               </div>
-
               <div><StatePill state={r.state} /></div>
-
               <div style={{ fontSize: 12, color: '#8E8E8E' }}>
                 {new Date(r.write_date).toLocaleDateString('en-GB')}
               </div>
-
               <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <button
                   onClick={e => handleDelete(e, r)}
@@ -226,10 +236,7 @@ export function RoutingList() {
         )}
       </div>
 
-      <div className="sticky flex items-center border-t border-chrome-100 px-6 bg-chrome-50" style={{ bottom: 0, height: 32, fontSize: 12, color: '#8E8E8E', zIndex: 30 }}>
-        Showing {filtered.length} templates
-      </div>
-
+      <PaginationBar page={page} totalPages={totalPages} total={total} limit={LIMIT} onChange={setPage} />
     </div>
   )
 }

@@ -256,30 +256,20 @@ export class ManufacturingOrderService {
   async getConsumeSummary(moId: number) {
     await this.requireMo(moId)
 
-    // 1. Fetch all WOs with assembly dimensions (bom_assembly is a Prisma relation)
+    // 1. Fetch all WOs with assembly dimensions + resolved activities (stored in op_attributes by wo-auto-create)
     const wos = await this.prisma.work_order.findMany({
       where: { mo_id: moId },
       select: {
-        source_routing_op_id: true,
+        op_attributes: true,
         bom_assembly: { select: { length_mm: true, surface_area_m2: true, weight_kg: true } },
       },
     })
 
-    // 2. Fetch snapshots for the unique routing ops referenced (soft ref, no Prisma relation)
-    const opIds = [...new Set(wos.map(w => w.source_routing_op_id).filter((x): x is number => x != null))]
-    const routingOps = opIds.length > 0
-      ? await this.prisma.mrp_routing_workcenter.findMany({
-          where: { id: { in: opIds } },
-          select: { id: true, activities_snapshot: true },
-        })
-      : []
-    const snapshotMap = new Map(routingOps.map(r => [r.id, r.activities_snapshot]))
-
-    // 3. Collect all source_activity_ids across all snapshots
+    // 2. Collect all source_activity_ids from each WO's op_attributes.activities
     const allActivityIds = new Set<number>()
-    for (const op of routingOps) {
-      const snap = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : []
-      for (const a of snap) { if (a.source_activity_id) allActivityIds.add(a.source_activity_id) }
+    for (const wo of wos) {
+      const acts = Array.isArray((wo.op_attributes as any)?.activities) ? (wo.op_attributes as any).activities : []
+      for (const a of acts) { if (a.source_activity_id) allActivityIds.add(a.source_activity_id) }
     }
 
     const consumeRows = allActivityIds.size > 0
@@ -306,14 +296,11 @@ export class ManufacturingOrderService {
       consumeMap.set(row.activity_id, list)
     }
 
-    // 4. For each WO, evaluate formulas using that assembly's dimensions
+    // 3. For each WO, evaluate formulas using that assembly's dimensions
     const totals = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }>()
 
     for (const wo of wos) {
-      if (!wo.source_routing_op_id) continue
-      const snap = Array.isArray(snapshotMap.get(wo.source_routing_op_id))
-        ? (snapshotMap.get(wo.source_routing_op_id) as any[])
-        : []
+      const acts = Array.isArray((wo.op_attributes as any)?.activities) ? (wo.op_attributes as any).activities : []
       const ba = wo.bom_assembly
       const vars = {
         length: ba.length_mm ? Number(ba.length_mm) / 1000 : 0,
@@ -322,7 +309,7 @@ export class ManufacturingOrderService {
         thickness: 0,
       }
 
-      for (const act of snap) {
+      for (const act of acts) {
         if (!act.source_activity_id) continue
         for (const c of consumeMap.get(act.source_activity_id) ?? []) {
           let qty = 0

@@ -52,6 +52,15 @@ export function useSaveAssemblyMatch(dispatchId: number) {
   })
 }
 
+export function useZoneUploadMode(projectId: number | null, zoneId: number | null) {
+  return useQuery({
+    queryKey: ['zone-upload-mode', projectId, zoneId],
+    queryFn: () => dispatchesApi.getZoneUploadMode(projectId!, zoneId!),
+    enabled: !!projectId && !!zoneId,
+    staleTime: 30_000,
+  })
+}
+
 export function useUploadBom() {
   const qc = useQueryClient()
   return useMutation({

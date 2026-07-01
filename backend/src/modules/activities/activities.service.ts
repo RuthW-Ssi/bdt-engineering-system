@@ -37,16 +37,22 @@ export class ActivitiesService {
   ) {}
 
   async findAll(query: QueryActivityDto) {
-    const { q, material_id } = query
-    return this.prisma.activity.findMany({
-      where: {
-        ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
-        ...(material_id ? { consumes: { some: { material_id } } } : {}),
-      },
-      orderBy: { activity_code: 'asc' },
-      take: 500,
-      include: INCLUDE,
-    })
+    const { q, material_id, page = 1, limit = 20 } = query
+    const where = {
+      ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
+      ...(material_id ? { consumes: { some: { material_id } } } : {}),
+    }
+    const [data, total] = await Promise.all([
+      this.prisma.activity.findMany({
+        where,
+        orderBy: { activity_code: 'asc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: INCLUDE,
+      }),
+      this.prisma.activity.count({ where }),
+    ])
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
   async findOne(id: number) {

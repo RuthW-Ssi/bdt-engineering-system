@@ -97,21 +97,28 @@ export class OperationTemplateService {
     private readonly formula: FormulaService,
   ) {}
 
-  findAll(search?: string) {
-    return this.prisma.operation_template.findMany({
-      where: search ? {
-        OR: [
-          { op_code: { contains: search, mode: 'insensitive' } },
-          { name:    { contains: search, mode: 'insensitive' } },
-        ],
-      } : undefined,
-      include: {
-        workcenter: { select: { id: true, code: true, name: true } },
-        op_type:    { select: { id: true, key: true, label: true, color: true } },
-        _count: { select: { activities: true } },
-      },
-      orderBy: [{ status: 'asc' }, { op_code: 'asc' }],
-    })
+  async findAll(search?: string, page = 1, limit = 20) {
+    const where = search ? {
+      OR: [
+        { op_code: { contains: search, mode: 'insensitive' as const } },
+        { name:    { contains: search, mode: 'insensitive' as const } },
+      ],
+    } : undefined
+    const [data, total] = await Promise.all([
+      this.prisma.operation_template.findMany({
+        where,
+        include: {
+          workcenter: { select: { id: true, code: true, name: true } },
+          op_type:    { select: { id: true, key: true, label: true, color: true } },
+          _count: { select: { activities: true } },
+        },
+        orderBy: [{ status: 'asc' }, { op_code: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.operation_template.count({ where }),
+    ])
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
   async findOne(id: number, staleCheck = false) {

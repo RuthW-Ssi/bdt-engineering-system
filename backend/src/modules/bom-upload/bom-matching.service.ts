@@ -126,15 +126,9 @@ export class BomMatchingService {
     const zoneCode = zone?.code ?? ''
 
     let created = 0
-    let skipped = 0
     for (const asm of unmatched) {
       const nameKey = asm.name?.trim().toLowerCase() ?? ''
       const libEntry = libraryByName.get(nameKey)
-      if (!libEntry) {
-        this.logger.warn(`autoCreate: skip ${asm.assembly_mark} — '${asm.name}' not in library`)
-        skipped++
-        continue
-      }
 
       const { prefix, number } = parseAssemblyMark(asm.assembly_mark)
 
@@ -166,8 +160,8 @@ export class BomMatchingService {
         product = await this.prisma.products.create({
           data: {
             product_code: productCode,
-            name: libEntry.name,
-            library_id: libEntry.id,
+            name: asm.name ?? asm.assembly_mark,
+            library_id: libEntry?.id ?? null,
             categ_id: DEFAULT_CATEG_ID,
             product_type: 'custom',
             product_kind: 'assembly',
@@ -189,11 +183,11 @@ export class BomMatchingService {
         data: { product_id: product.id, match_status: 'MATCHED_CUSTOM', write_uid: uid },
       })
 
-      this.logger.log(`autoCreate: ${asm.assembly_mark} → ${product.product_code} (lib: ${libEntry.name})`)
+      this.logger.log(`autoCreate: ${asm.assembly_mark} → ${product.product_code} (lib: ${libEntry?.name ?? 'none'})`)
       created++
     }
 
-    this.logger.log(`autoCreate: created ${created}, skipped ${skipped} for dispatch ${dispatchId}`)
+    this.logger.log(`autoCreate: created ${created} for dispatch ${dispatchId}`)
     return created
   }
 

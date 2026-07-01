@@ -1,7 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
 import { Plus, X, Search, Loader2, FlaskConical } from 'lucide-react'
+import { PaginationBar } from '../components/PaginationBar'
+
+const LIMIT = 10
 import { useMachines } from '../hooks/useMachines'
 import { useLaborSkills } from '../hooks/useLaborSkills'
 import { MachineStatusPill } from '../components/machines/MachineStatusPill'
@@ -41,6 +44,7 @@ export function ResourceList() {
   const [statusFilter, setStatusFilter] = useState<EquipmentStatus | ''>('')
   const [nameSearch, setNameSearch] = useState('')
   const [modal, setModal] = useState<ModalState>(null)
+  const [page, setPage] = useState(1)
   const [formulaModal, setFormulaModal] = useState<{ open: boolean; row?: ConsumeFormula } | null>(null)
   const qc = useQueryClient()
   const formulaDeleteMutation = useMutation({
@@ -86,6 +90,9 @@ export function ResourceList() {
     activeTab === 'formula' ? formulaRows.length :
     operatorRows.length
 
+  // reset page when tab or filters change
+  useEffect(() => { setPage(1) }, [activeTab, nameSearch, statusFilter])
+
   function handleTabChange(tab: Tab) {
     setActiveTab(tab)
     setStatusFilter('')
@@ -97,6 +104,16 @@ export function ResourceList() {
     activeTab === 'machine' ? 'Add Machine' :
     activeTab === 'tool' ? 'Add Tool' :
     activeTab === 'formula' ? 'Add Formula' : 'Add Operator'
+
+  const allRows =
+    activeTab === 'machine' ? machineRows :
+    activeTab === 'tool' ? (toolQuery.data ?? []) :
+    activeTab === 'operator' ? operatorRows :
+    formulaRows
+  const totalForPage = allRows.length
+  const totalPages = Math.max(1, Math.ceil(totalForPage / LIMIT))
+  const sliceStart = (page - 1) * LIMIT
+  const sliceEnd = page * LIMIT
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', background: '#F8F8F8', overflow: 'hidden' }}>
@@ -203,26 +220,26 @@ export function ResourceList() {
           <>
             {activeTab === 'machine' && (
               <MachineTable
-                rows={machineRows}
+                rows={machineRows.slice(sliceStart, sliceEnd)}
                 onRowClick={id => navigate(`/machines/${id}`)}
                 onEdit={row => setModal({ tab: 'machine', row })}
               />
             )}
             {activeTab === 'operator' && (
               <LaborTable
-                operators={operatorRows}
+                operators={operatorRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setModal({ tab: 'operator', row })}
               />
             )}
             {activeTab === 'tool' && (
               <ToolTable
-                rows={toolQuery.data ?? []}
+                rows={(toolQuery.data ?? []).slice(sliceStart, sliceEnd)}
                 onEdit={row => setModal({ tab: 'tool', row })}
               />
             )}
             {activeTab === 'formula' && (
               <FormulaTable
-                rows={formulaRows}
+                rows={formulaRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setFormulaModal({ open: true, row })}
                 onDelete={row => { if (window.confirm(`ลบ "${row.name}" ?`)) formulaDeleteMutation.mutate(row.id) }}
               />
@@ -230,6 +247,7 @@ export function ResourceList() {
           </>
         )}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} total={totalForPage} limit={LIMIT} onChange={setPage} />
 
       {modal !== null && (
         modal.tab === 'operator'

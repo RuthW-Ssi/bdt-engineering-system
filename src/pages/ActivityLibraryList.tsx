@@ -3,16 +3,22 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Plus, Search, Clock } from 'lucide-react'
 import { useActivities, useDeleteActivity } from '../hooks/useActivities'
 import { ActivityBuilderModal } from './ActivityBuilder'
+import { PaginationBar } from '../components/PaginationBar'
 
 export function ActivityLibraryList() {
   const { id: paramId } = useParams<{ id?: string }>()
   const navigate = useNavigate()
   const [searchQ, setSearchQ] = useState('')
+  const [page, setPage] = useState(1)
+  const LIMIT = 10
   const [modal, setModal] = useState<{ id?: number } | null>(
     paramId ? { id: Number(paramId) } : null,
   )
 
-  const { data: activities = [], isLoading, isError } = useActivities({ q: searchQ || undefined })
+  const { data: paged, isLoading, isError } = useActivities({ q: searchQ || undefined, page, limit: LIMIT })
+  const activities = paged?.data ?? []
+  const total = paged?.total ?? 0
+  const totalPages = paged?.totalPages ?? 1
   const deleteMutation = useDeleteActivity()
 
   function handleDelete(id: number, name: string) {
@@ -20,11 +26,16 @@ export function ActivityLibraryList() {
     deleteMutation.mutate(id)
   }
 
+  function handleSearch(q: string) {
+    setSearchQ(q)
+    setPage(1)
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#F8F8F8', fontFamily: 'inherit' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', overflow: 'hidden', background: '#F8F8F8', fontFamily: 'inherit' }}>
 
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 56, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, position: 'sticky', top: 0, zIndex: 20 }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 56, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Activity Library</div>
           <div style={{ fontSize: 11, color: '#9E9E9E' }}>Reusable activities — assigned to machines with consumed materials</div>
@@ -38,32 +49,31 @@ export function ActivityLibraryList() {
       </div>
 
       {/* Filter bar */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 44, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, position: 'sticky', top: 56, zIndex: 10 }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #E0E0E0', height: 44, padding: '0 24px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
         <div style={{ position: 'relative' }}>
           <Search size={12} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
           <input
             value={searchQ}
-            onChange={(e) => setSearchQ(e.target.value)}
+            onChange={(e) => handleSearch(e.target.value)}
             placeholder="Search by name…"
             style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px 0 28px', height: 30, fontSize: 12, outline: 'none', fontFamily: 'inherit', width: 220 }}
           />
         </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 11, color: '#9E9E9E' }}>
-          {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}
+          {total} activit{total !== 1 ? 'ies' : 'y'}
         </span>
       </div>
 
-      {/* Table */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+      {/* Column headers */}
+      <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr 80px 90px 90px', gap: 12, padding: '0 40px', height: 32, alignItems: 'center', flexShrink: 0, background: '#F8F8F8' }}>
+        {['Code', 'Name', 'Consumes', 'Skill', 'Duration', ''].map((h) => (
+          <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+        ))}
+      </div>
 
-        {/* Header row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr 80px 90px 90px', gap: 12, padding: '0 16px', marginBottom: 6 }}>
-          {['Code', 'Name', 'Consumes', 'Skill', 'Duration', ''].map((h) => (
-            <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9E9E', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
-          ))}
-        </div>
-
+      {/* Scrollable table area */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 24px' }}>
         {isLoading ? (
           <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: '#9E9E9E' }}>Loading…</div>
         ) : isError ? (
@@ -124,6 +134,7 @@ export function ActivityLibraryList() {
           ))
         )}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} total={total} limit={LIMIT} onChange={setPage} />
 
       {modal !== null && (
         <ActivityBuilderModal

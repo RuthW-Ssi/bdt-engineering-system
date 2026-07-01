@@ -680,17 +680,16 @@ function InlineMatSearch({ onSelect, excludeIds }: {
 
 function ModalActivityLib({ addedIds, onAdd }: {
   addedIds: Set<number>
-  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; formula_code?: string | null; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[] }) => void
+  onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; formula_code?: string | null; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[]; ratio?: number | null; ratioUnit?: string | null; perTime?: number | null }) => void
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const LIMIT = 20
 
-  const { data: activities = [], isLoading } = useActivities({ q: search || undefined })
-
-  const q = search.trim().toLowerCase()
-  const filtered = activities.filter(act =>
-    !q || act.name.toLowerCase().includes(q) || act.activity_code.toLowerCase().includes(q)
-  )
+  const { data: paged, isLoading } = useActivities({ q: search || undefined, page, limit: LIMIT })
+  const activities = paged?.data ?? []
+  const totalPages = paged?.totalPages ?? 1
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -705,16 +704,16 @@ function ModalActivityLib({ addedIds, onAdd }: {
         </div>
         <div style={{ position: 'relative' }}>
           <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search activities…"
+          <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} placeholder="Search activities…"
             style={{ width: '100%', border: '1px solid #E0E0E0', borderRadius: 5, padding: '5px 8px 5px 26px', fontSize: 12, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
         </div>
       </div>
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 14px' }}>
         {isLoading ? (
           <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>Loading…</div>
-        ) : filtered.length === 0 ? (
+        ) : activities.length === 0 ? (
           <div style={{ padding: 20, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>No activities found</div>
-        ) : filtered.map(act => {
+        ) : activities.map(act => {
                 const added = addedIds.has(act.id)
                 return (
                   <div key={act.id} style={{ borderRadius: 4, marginBottom: 2, background: added ? '#F5F5F5' : '#fff', border: '1px solid #EEE' }}>
@@ -744,6 +743,9 @@ function ModalActivityLib({ addedIds, onAdd }: {
                           tool_ids: (act.tools ?? []).map((t: { resource: { id: number }; qty: number }) => ({ id: t.resource.id, qty: t.qty ?? 1 })),
                           consumables: (act.consumes ?? []).map((c: { material: { id: number; default_code: string; name: string }; formula: { id: number; name: string; result_unit: string | null } | null }) => ({ resource_id: c.material.id, code: c.material.default_code, name: c.material.name, formula_id: c.formula?.id ?? null, formula_name: c.formula?.name ?? null, formula_unit: c.formula?.result_unit ?? null })),
                           labors: (act.skills ?? []).map((l: { skill: string; qty: number; level?: string | null }) => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
+                          ratio: (act as any).ratio != null ? Number((act as any).ratio) : null,
+                          ratioUnit: (act as any).ratio_unit ?? null,
+                          perTime: (act as any).per_time != null ? Number((act as any).per_time) : null,
                         })}
                           style={{ padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none', background: '#1976D2', color: '#fff', cursor: 'pointer', flexShrink: 0 }}>
                           + Add
@@ -753,6 +755,15 @@ function ModalActivityLib({ addedIds, onAdd }: {
                   </div>
                 )
               })}
+        {totalPages > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '8px 0' }}>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+              style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #E0E0E0', background: page <= 1 ? '#F5F5F5' : '#fff', color: page <= 1 ? '#BDBDBD' : '#1F1F1F', fontSize: 11, cursor: page <= 1 ? 'default' : 'pointer', fontFamily: 'inherit' }}>←</button>
+            <span style={{ fontSize: 11, color: '#616161' }}>{page}/{totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              style={{ padding: '2px 8px', borderRadius: 4, border: '1px solid #E0E0E0', background: page >= totalPages ? '#F5F5F5' : '#fff', color: page >= totalPages ? '#BDBDBD' : '#1F1F1F', fontSize: 11, cursor: page >= totalPages ? 'default' : 'pointer', fontFamily: 'inherit' }}>→</button>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -1238,9 +1249,9 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
               tool_ids:                   act.tool_ids ?? [],
               consumables:                act.consumables ?? [],
               labors:                     act.labors ?? [],
-              ratio:                      null,
-              ratioUnit:                  null,
-              perTime:                    null,
+              ratio:                      act.ratio ?? null,
+              ratioUnit:                  act.ratioUnit ?? null,
+              perTime:                    act.perTime ?? null,
             }] })} />
           </div>
         </div>
@@ -1270,8 +1281,9 @@ function OpLibraryPanel() {
   const { data = [], isLoading } = useQuery<LibraryOpItem[]>({
     queryKey: ['op-library'],
     queryFn: async () => {
-      const { data: list } = await apiClient.get('/operation-templates')
-      const visible = (Array.isArray(list) ? list : []).filter((op: LibraryOpItem) => op.status !== 'draft')
+      const { data: res } = await apiClient.get('/operation-templates', { params: { limit: 999 } })
+      const list = Array.isArray(res) ? res : (res?.data ?? [])
+      const visible = list.filter((op: LibraryOpItem) => op.status !== 'draft')
       const details = await Promise.all(
         visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}?include=stale_check`).then(r => r.data))
       )
@@ -1905,8 +1917,9 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
   const { data: opLibrary = [] } = useQuery<LibraryOpItem[]>({
     queryKey: ['op-library'],
     queryFn: async () => {
-      const { data: list } = await apiClient.get('/operation-templates')
-      const visible = (Array.isArray(list) ? list : []).filter((op: LibraryOpItem) => op.status !== 'draft')
+      const { data: res } = await apiClient.get('/operation-templates', { params: { limit: 999 } })
+      const list = Array.isArray(res) ? res : (res?.data ?? [])
+      const visible = list.filter((op: LibraryOpItem) => op.status !== 'draft')
       const details = await Promise.all(
         visible.map((op: LibraryOpItem) => apiClient.get(`/operation-templates/${op.id}?include=stale_check`).then(r => r.data))
       )
