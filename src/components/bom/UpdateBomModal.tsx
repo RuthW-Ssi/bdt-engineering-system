@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useUploadBom } from '../../hooks/useBomDispatches'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
-import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES, DOC_TYPE_LABELS } from '../../lib/bom/filenameClassifier'
+import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
 import type { DocType } from '../../lib/bom/filenameClassifier'
 import type { FileRejection } from './FileDropzone'
 

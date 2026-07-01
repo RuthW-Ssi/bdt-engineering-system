@@ -9,7 +9,8 @@ interface ActivityLibraryPanelProps {
 
 export default function ActivityLibraryPanel({ templateId, existingSourceIds }: ActivityLibraryPanelProps) {
   const [search, setSearch] = useState('')
-  const { data: activities = [], isLoading } = useActivities({ q: search || undefined })
+  const { data: paged, isLoading } = useActivities({ q: search || undefined })
+  const activities = paged?.data ?? []
   const addMut = useAddFromLibrary(templateId ?? 0)
 
   return (
