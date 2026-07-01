@@ -204,7 +204,7 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
             </label>
             <input
               value={prefixLabel}
-              onChange={e => { setPrefixLabel(e.target.value); setFormError('') }}
+              onChange={e => { setPrefixLabel(e.target.value) }}
               maxLength={40}
               placeholder="e.g. H-Beam Column"
               className="border rounded-md focus:outline-none"
@@ -219,7 +219,7 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
             </label>
             <select
               value={prefixCategory}
-              onChange={e => { setPrefixCategory(e.target.value as PrefixCategory); setFormError('') }}
+              onChange={e => { setPrefixCategory(e.target.value as PrefixCategory) }}
               className="border rounded-md focus:outline-none"
               style={{ height: 38, padding: '0 10px', fontSize: 14, borderColor: '#E0E0E0', background: '#fff' }}
             >
