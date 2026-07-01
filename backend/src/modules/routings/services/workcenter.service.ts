@@ -22,6 +22,7 @@ export class WorkcenterService {
       data: {
         code: dto.code,
         name: dto.name,
+        machine: dto.machine ?? null,
         sequence,
         oee_target: dto.oee_target ?? 90,
         availability: dto.availability ?? 100,
