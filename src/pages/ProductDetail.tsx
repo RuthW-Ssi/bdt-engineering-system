@@ -908,7 +908,7 @@ export function ProductDetail() {
                     setConfirmAction(null)
                     setActionComment('')
                   } catch (e: any) {
-                    toast.error(e?.response?.data?.message ?? 'An error occurred')
+                    toast.error(e?.response?.data?.message ?? 'Action failed — please try again')
                     console.error(e)
                   }
                 }}

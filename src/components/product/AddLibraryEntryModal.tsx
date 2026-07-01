@@ -103,8 +103,8 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
       setSuccess({ code: entry.code, name: entry.name })
       onCreated?.({ id: entry.id, code: entry.code, name: entry.name })
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'An error occurred'
-      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      toast.error(err?.response?.data?.message ?? 'Failed to create library entry — please try again')
+      console.error(err)
     }
   }
 

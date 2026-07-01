@@ -108,8 +108,8 @@ export function EditLibraryEntryModal({ entry, onClose }: Props) {
       await update(payload)
       onClose()
     } catch (err: any) {
-      const msg = err?.response?.data?.message ?? 'An error occurred'
-      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      toast.error(err?.response?.data?.message ?? 'Failed to save changes — please try again')
+      console.error(err)
     }
   }
 

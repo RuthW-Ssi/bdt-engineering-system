@@ -410,8 +410,9 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
           try {
             await updateEntry({ active: false })
             toast.success('Archive สำเร็จ')
-          } catch {
-            toast.error('Archive ไม่สำเร็จ — กรุณาลองใหม่')
+          } catch (e: any) {
+            toast.error(e?.response?.data?.message ?? 'Failed to archive product — please try again')
+            console.error(e)
           }
         }
       }
@@ -434,7 +435,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
       await hardDeleteEntry()
       toast.success('ลบสำเร็จ')
     } catch (err: any) {
-      toast.error(err?.response?.data?.message ?? 'Delete failed')
+      toast.error(err?.response?.data?.message ?? 'Failed to delete product — please try again')
     }
   }
 

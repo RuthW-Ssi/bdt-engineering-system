@@ -80,7 +80,7 @@ function ConsumableModal({
         configs: [{ assembly_id: assemblyId, material_id: matSel.get('wire') ?? null, fillet_mm: null, sides: null, weld_layers: null }],
       })
       toast.success('บันทึกสำเร็จ')
-    } catch { toast.error('Save failed') }
+    } catch (e: any) { toast.error(e?.response?.data?.message ?? 'Failed to save routing name — please try again'); console.error(e) }
     finally { setSaving(false) }
   }
 
@@ -470,7 +470,7 @@ export function RoutingConfigContent({ dispatchId }: { dispatchId: number }) {
       setSelected(new Map())
       toast.success('Apply routing สำเร็จ')
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to apply routing')
+      toast.error(e?.response?.data?.message ?? 'Failed to apply routing — please try again')
     } finally {
       setSaving(false)
     }

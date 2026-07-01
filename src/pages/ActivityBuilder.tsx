@@ -416,7 +416,8 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
       onSaved?.()
       onClose()
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'บันทึกไม่สำเร็จ')
+      toast.error(e?.response?.data?.message ?? 'Failed to save activity — please try again')
+      console.error(e)
     }
   }
 

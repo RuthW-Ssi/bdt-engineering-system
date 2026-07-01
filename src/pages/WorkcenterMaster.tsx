@@ -179,7 +179,8 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
       toast.success('บันทึกสำเร็จ')
       onClose()
     } catch (e: any) {
-      toast.error(e.response?.data?.message ?? 'Save failed')
+      toast.error(e.response?.data?.message ?? 'Failed to save workcenter — please try again')
+      console.error(e)
     }
   }
 
@@ -350,7 +351,8 @@ function CreateModal({ onClose }: { onClose: () => void }) {
       toast.success('สร้าง Work Center สำเร็จ')
       onClose()
     } catch (e: any) {
-      toast.error(e.response?.data?.message ?? 'Save failed')
+      toast.error(e.response?.data?.message ?? 'Failed to save workcenter — please try again')
+      console.error(e)
     }
   }
 
