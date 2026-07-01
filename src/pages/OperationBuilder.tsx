@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeft, Check, Pencil, Save, Trash2, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { apiClient } from '../api/client'
 import ActivityLibraryPanel from '../components/operations/ActivityLibraryPanel'
 import { useOperationTemplate, useUpdateFromLibrary } from '../hooks/useOperationTemplates'
 import { ActivityBuilderModal } from './ActivityBuilder'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -180,15 +182,19 @@ export default function OperationBuilder() {
     ...overrides,
   })
 
+  const confirm = useConfirm()
+
   const saveMut = useMutation({
     mutationFn: () => isEdit
       ? apiClient.patch(`/operation-templates/${templateId}`, buildPayload()).then(r => r.data)
       : apiClient.post('/operation-templates', buildPayload()).then(r => r.data),
     onSuccess: (data) => {
+      toast.success('บันทึกสำเร็จ')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       if (isEdit) navigate('/operation-library')
       else navigate(`/operation-library/${data.id}/edit`)
     },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'บันทึกไม่สำเร็จ'),
   })
 
   const publishMut = useMutation({
@@ -199,21 +205,26 @@ export default function OperationBuilder() {
       return apiClient.patch(`/operation-templates/${tpl.id}/publish`).then(r => r.data)
     },
     onSuccess: () => {
+      toast.success('Publish สำเร็จ')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       navigate('/operation-library')
     },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Publish ไม่สำเร็จ'),
   })
 
   const deleteMut = useMutation({
     mutationFn: () => apiClient.delete(`/operation-templates/${templateId}`).then(r => r.data),
     onSuccess: () => {
+      toast.success('ลบ operation สำเร็จ')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       navigate('/operation-library')
     },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'ลบไม่สำเร็จ'),
   })
 
-  const handleDelete = () => {
-    if (!window.confirm(`Delete operation "${form.op_code}"? This cannot be undone.`)) return
+  const handleDelete = async () => {
+    const ok = await confirm({ title: `ลบ Operation "${form.op_code}"?`, message: 'ไม่สามารถกู้คืนได้', variant: 'danger', confirmLabel: 'ลบ' })
+    if (!ok) return
     deleteMut.mutate()
   }
 
@@ -230,7 +241,6 @@ export default function OperationBuilder() {
   }
 
   const isPending = saveMut.isPending || publishMut.isPending || deleteMut.isPending
-  const error = saveMut.error || publishMut.error || deleteMut.error
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'inherit', background: '#F8F8F8' }}>
@@ -521,13 +531,7 @@ export default function OperationBuilder() {
         />
       )}
 
-      {/* Error toast */}
-      {error && (
-        <div style={{ position: 'fixed', bottom: 20, right: 20, background: '#C8202A', color: '#fff', padding: '10px 16px', borderRadius: 8, fontSize: 13, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 9999, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <AlertCircle size={14} />
-          {error instanceof Error ? error.message : 'Save failed'}
-        </div>
-      )}
+
 
     </div>
   )

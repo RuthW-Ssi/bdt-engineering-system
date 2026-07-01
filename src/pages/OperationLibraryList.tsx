@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { apiClient } from '../api/client'
 import { PaginationBar } from '../components/PaginationBar'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 interface OpTemplateListItem {
   id: number; op_code: string; name: string; status: string
@@ -50,14 +52,21 @@ export default function OperationLibraryList() {
   const total = paged?.total ?? 0
   const totalPages = paged?.totalPages ?? 1
 
+  const confirm = useConfirm()
+
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/operation-templates/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['operation-templates'] }),
+    onSuccess: () => {
+      toast.success('ลบสำเร็จ')
+      queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
+    },
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'ลบไม่สำเร็จ'),
   })
 
-  const handleDelete = (e: React.MouseEvent, t: OpTemplateListItem) => {
+  const handleDelete = async (e: React.MouseEvent, t: OpTemplateListItem) => {
     e.stopPropagation()
-    if (!window.confirm(`Delete "${t.op_code} — ${t.name}"? This cannot be undone.`)) return
+    const ok = await confirm({ title: `ลบ "${t.op_code} — ${t.name}"?`, message: 'ไม่สามารถกู้คืนได้', variant: 'danger', confirmLabel: 'ลบ' })
+    if (!ok) return
     deleteMut.mutate(t.id)
   }
 

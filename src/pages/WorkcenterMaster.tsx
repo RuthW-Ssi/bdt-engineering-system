@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Edit2, X, Save, Loader2, AlertCircle, Plus, Search } from 'lucide-react'
+import { ArrowLeft, Edit2, X, Save, Loader2, Plus, Search } from 'lucide-react'
+import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { useWorkcenters, useWorkcenter } from '../hooks/useRoutings'
 import { useMachines } from '../hooks/useMachines'
@@ -160,14 +161,11 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
   const [electricityCost, setElectricityCost] = useState(Number(wc.electricity_cost_per_min))
   const [consumableCost, setConsumableCost] = useState(Number(wc.consumable_cost_per_min))
   const [overheadCost, setOverheadCost] = useState(Number(wc.overhead_cost_per_min))
-  const [error, setError] = useState<string | null>(null)
-
   const laborSum = laborMix.operator + laborMix.skilled + laborMix.group_head
   const laborValid = Math.abs(laborSum - 100) <= 0.5
 
   const handleSave = async () => {
-    if (!laborValid) { setError(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
-    setError(null)
+    if (!laborValid) { toast.error(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
     try {
       await update.mutateAsync({
         machine: machine.trim() || null,
@@ -178,9 +176,10 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
         consumable_cost_per_min: consumableCost,
         overhead_cost_per_min: overheadCost,
       } as any)
+      toast.success('บันทึกสำเร็จ')
       onClose()
     } catch (e: any) {
-      setError(e.response?.data?.message ?? 'Save failed')
+      toast.error(e.response?.data?.message ?? 'Save failed')
     }
   }
 
@@ -292,13 +291,6 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
             </div>
           </div>
 
-          {/* Error */}
-          {error && (
-            <div className="flex items-center gap-2 rounded-lg" style={{ padding: '10px 12px', background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
-              <AlertCircle size={13} />{error}
-            </div>
-          )}
-
           {/* Footer */}
           <div className="flex justify-end gap-2" style={{ borderTop: '1px solid #F0F0F0', paddingTop: 16 }}>
             <button onClick={onClose} className="rounded-md hover:bg-chrome-50"
@@ -335,17 +327,14 @@ function CreateModal({ onClose }: { onClose: () => void }) {
   const [electricityCost, setElectricityCost] = useState(0)
   const [consumableCost, setConsumableCost] = useState(0)
   const [overheadCost, setOverheadCost] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-
   const laborSum = laborMix.operator + laborMix.skilled + laborMix.group_head
   const laborValid = Math.abs(laborSum - 100) <= 0.5
   const totalCost = laborCost + electricityCost + consumableCost + overheadCost
 
   const handleSave = async () => {
-    if (!code.trim()) { setError('Code is required'); return }
-    if (!name.trim()) { setError('Name (station) is required'); return }
-    if (!laborValid) { setError(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
-    setError(null)
+    if (!code.trim()) { toast.error('Code is required'); return }
+    if (!name.trim()) { toast.error('Name (station) is required'); return }
+    if (!laborValid) { toast.error(`Operator mix totals ${laborSum}% (must equal 100%)`); return }
     try {
       await create.mutateAsync({
         code: code.trim().toUpperCase(),
@@ -358,9 +347,10 @@ function CreateModal({ onClose }: { onClose: () => void }) {
         consumable_cost_per_min: consumableCost,
         overhead_cost_per_min: overheadCost,
       } as any)
+      toast.success('สร้าง Work Center สำเร็จ')
       onClose()
     } catch (e: any) {
-      setError(e.response?.data?.message ?? 'Save failed')
+      toast.error(e.response?.data?.message ?? 'Save failed')
     }
   }
 
@@ -491,13 +481,6 @@ function CreateModal({ onClose }: { onClose: () => void }) {
               </span>
             </div>
           </div>
-
-          {/* Error */}
-          {error && (
-            <div className="flex items-center gap-2 rounded-lg" style={{ padding: '10px 12px', background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>
-              <AlertCircle size={13} />{error}
-            </div>
-          )}
 
           {/* Footer */}
           <div className="flex justify-end gap-2" style={{ borderTop: '1px solid #F0F0F0', paddingTop: 16 }}>

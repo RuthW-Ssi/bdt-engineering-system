@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Plus, MoreHorizontal, ChevronLeft, ChevronRight, Loader2, Archive, Pencil, ExternalLink, RotateCcw, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useProducts } from '../hooks/useProducts'
 import { useLibraryEntries, useUpdateLibraryEntry, useDeleteLibraryEntry, useHardDeleteLibraryEntry } from '../hooks/useLibrary'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useProjects } from '../hooks/useProjects'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import { NewStandardProductModal } from '../components/product/NewStandardProductModal'
@@ -386,24 +388,30 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
   const { mutateAsync: updateEntry, isPending: restoring } = useUpdateLibraryEntry(entry.id)
   const { mutateAsync: hardDeleteEntry, isPending: deleting } = useHardDeleteLibraryEntry(entry.id)
   const menuOpen = openMenuId === entry.id
+  const confirm = useConfirm()
 
   const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setOpenMenuId(null)
     try {
       await archiveEntry()
+      toast.success('Archive สำเร็จ')
     } catch (err: any) {
       const data = err?.response?.data
       const total = (data?.stdCount ?? 0) + (data?.cusCount ?? 0)
       if (total > 0) {
-        const ok = window.confirm(
-          `${total} product(s) still reference this entry (${data.stdCount} STD, ${data.cusCount} CUS).\n\nArchive anyway?`
-        )
+        const ok = await confirm({
+          title: 'Archive รายการนี้?',
+          message: `มี ${total} product ที่ยังใช้งานอยู่ (${data.stdCount} STD, ${data.cusCount} CUS)`,
+          variant: 'warning',
+          confirmLabel: 'Archive ต่อ',
+        })
         if (ok) {
           try {
             await updateEntry({ active: false })
+            toast.success('Archive สำเร็จ')
           } catch {
-            window.alert('Archive failed — please try again.')
+            toast.error('Archive ไม่สำเร็จ — กรุณาลองใหม่')
           }
         }
       }
@@ -414,17 +422,19 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
     e.stopPropagation()
     setOpenMenuId(null)
     await updateEntry({ active: true })
+    toast.success('Restore สำเร็จ')
   }
 
   const handleHardDelete = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setOpenMenuId(null)
-    const ok = window.confirm(`ลบ ${entry.code} — ${entry.name} ถาวรเลยใช่ไหม? ไม่สามารถกู้คืนได้`)
+    const ok = await confirm({ title: `ลบ ${entry.code} — ${entry.name} ถาวร?`, message: 'ไม่สามารถกู้คืนได้', variant: 'danger', confirmLabel: 'ลบถาวร' })
     if (!ok) return
     try {
       await hardDeleteEntry()
+      toast.success('ลบสำเร็จ')
     } catch (err: any) {
-      window.alert(err?.response?.data?.message ?? 'Delete failed')
+      toast.error(err?.response?.data?.message ?? 'Delete failed')
     }
   }
 

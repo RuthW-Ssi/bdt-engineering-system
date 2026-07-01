@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { AlertCircle, X, Search } from 'lucide-react'
+import { toast } from 'sonner'
 import { useActivity, useCreateActivity, useUpdateActivity } from '../hooks/useActivities'
 import { apiClient } from '../api/client'
 import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
@@ -405,16 +406,19 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
       tools: selectedTools.map((t) => ({ resource_id: t.id, qty: t.qty })),
       labors: selectedSkills.map((l) => ({ skill: l.skill, qty: l.qty, level: l.level || undefined })),
     }
-    if (isEdit) {
-      await updateMutation.mutateAsync(payload)
-    } else {
-      await createMutation.mutateAsync(payload)
+    try {
+      if (isEdit) {
+        await updateMutation.mutateAsync(payload)
+      } else {
+        await createMutation.mutateAsync(payload)
+      }
+      toast.success('บันทึกสำเร็จ')
+      onSaved?.()
+      onClose()
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'บันทึกไม่สำเร็จ')
     }
-    onSaved?.()
-    onClose()
   }
-
-  const mutationError = createMutation.error || updateMutation.error
 
   const sectionLabel: React.CSSProperties = {
     fontSize: 10, fontWeight: 800, color: '#9E9E9E',
@@ -569,15 +573,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
         </div>
 
         {/* Footer */}
-        <div style={{ height: 60, padding: '0 24px', borderTop: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <div>
-            {mutationError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#C8202A' }}>
-                <AlertCircle size={13} />
-                {mutationError instanceof Error ? mutationError.message : 'Save failed'}
-              </div>
-            )}
-          </div>
+        <div style={{ height: 60, padding: '0 24px', borderTop: '1px solid #E0E0E0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexShrink: 0 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" onClick={onClose}
               style={{ height: 36, padding: '0 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', fontSize: 13, color: '#555', cursor: 'pointer' }}>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Upload, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { FileDropzone } from '../components/bom/FileDropzone'
 import { FilePreviewItem } from '../components/bom/FilePreviewItem'
 import { useActiveProject } from '../context/ProjectContext'
@@ -84,7 +85,6 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
-  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -128,7 +128,6 @@ export function BomUpload() {
 
   const handleSubmit = async () => {
     if (!activeProject || !canSubmit) return
-    setSubmitError(null)
     setProgress(0)
 
     const formData = new FormData()
@@ -149,7 +148,7 @@ export function BomUpload() {
       navigate(`/bom/dispatch/${res.id}/paint`)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      setSubmitError(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Upload failed'))
+      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Upload failed'))
       setProgress(null)
     }
   }
@@ -337,12 +336,6 @@ export function BomUpload() {
               <div style={{ height: '100%', width: `${progress}%`, background: '#C8202A', transition: 'width 0.2s' }} />
             </div>
             <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 4, textAlign: 'right' }}>{progress}%</div>
-          </div>
-        )}
-
-        {submitError && (
-          <div style={{ fontSize: 13, color: '#C8202A', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: '10px 14px' }}>
-            {submitError}
           </div>
         )}
 
