@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, Loader2, Save } from 'lucide-react'
+import { toast } from 'sonner'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import {
   getBindingRules,
   createBindingRule,
@@ -44,8 +46,16 @@ export function BindingRuleManager() {
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteBindingRule(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: rulesKey }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: rulesKey })
+      toast.success('Binding rule deleted')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message ?? 'Failed to delete binding rule — please try again')
+      console.error(e)
+    },
   })
+  const confirm = useConfirm()
 
   return (
     <div style={{ padding: 24, maxWidth: 900 }}>
@@ -171,7 +181,15 @@ export function BindingRuleManager() {
               <span className="font-mono" style={{ fontWeight: 600 }}>{rule.match_mark_prefix ?? <span style={{ color: '#C2C2C2' }}>—</span>}</span>
               <span style={{ fontWeight: 600, color: '#1F1F1F' }}>{rule.routing_template?.code} <span style={{ fontWeight: 400, color: '#8E8E8E', fontSize: 11 }}>— {rule.routing_template?.name}</span></span>
               <button
-                onClick={() => { if (confirm(`Delete rule "${rule.description ?? rule.id}"?`)) deleteMut.mutate(rule.id) }}
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: 'Delete binding rule?',
+                    message: rule.description ? `Rule "${rule.description}" will be permanently deleted.` : 'This binding rule will be permanently deleted.',
+                    variant: 'danger',
+                    confirmLabel: 'Delete',
+                  })
+                  if (ok) deleteMut.mutate(rule.id)
+                }}
                 disabled={deleteMut.isPending}
                 className="flex items-center justify-center rounded hover:bg-red-50"
                 style={{ width: 28, height: 28 }}
