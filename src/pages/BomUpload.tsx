@@ -148,7 +148,7 @@ export function BomUpload() {
       navigate(`/bom/dispatch/${res.id}/paint`)
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Upload failed'))
+      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'BOM upload failed — please try again'))
       setProgress(null)
     }
   }

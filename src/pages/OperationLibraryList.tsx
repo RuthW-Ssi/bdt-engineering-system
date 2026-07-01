@@ -60,7 +60,7 @@ export default function OperationLibraryList() {
       toast.success('ลบสำเร็จ')
       queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'ลบไม่สำเร็จ'),
+    onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete operation — please try again'); console.error(e) },
   })
 
   const handleDelete = async (e: React.MouseEvent, t: OpTemplateListItem) => {

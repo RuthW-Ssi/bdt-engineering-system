@@ -194,7 +194,7 @@ export default function OperationBuilder() {
       if (isEdit) navigate('/operation-library')
       else navigate(`/operation-library/${data.id}/edit`)
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'บันทึกไม่สำเร็จ'),
+    onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to save operation — please try again'); console.error(e) },
   })
 
   const publishMut = useMutation({
@@ -209,7 +209,7 @@ export default function OperationBuilder() {
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       navigate('/operation-library')
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Publish ไม่สำเร็จ'),
+    onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to publish operation — please try again'); console.error(e) },
   })
 
   const deleteMut = useMutation({
@@ -219,7 +219,7 @@ export default function OperationBuilder() {
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       navigate('/operation-library')
     },
-    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'ลบไม่สำเร็จ'),
+    onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete operation — please try again'); console.error(e) },
   })
 
   const handleDelete = async () => {

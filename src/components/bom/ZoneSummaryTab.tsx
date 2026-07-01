@@ -175,7 +175,7 @@ export function ZoneSummaryTab({ dispatchId }: { dispatchId: number }) {
     getZoneSummary(dispatchId)
       .then(setData)
       .catch((e: any) => {
-        toast.error(e?.response?.data?.message ?? 'Failed to load zone summary')
+        toast.error(e?.response?.data?.message ?? 'Failed to load zone summary — please try again')
         console.error(e)
       })
       .finally(() => setLoading(false))
