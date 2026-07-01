@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Loader2, AlertTriangle } from 'lucide-react'
+import { toast } from 'sonner'
 import { useCategories } from '../../hooks/useMasters'
 import { useProjects } from '../../hooks/useProjects'
 import { useProjectZones } from '../../hooks/useProjectZones'
@@ -134,7 +135,7 @@ export function NewCustomProductModal({ onClose }: Props) {
       setSuccess(`Created successfully: ${result.product_code}`)
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'An error occurred'
-      setErrors(prev => ({ ...prev, _form: typeof msg === 'string' ? msg : JSON.stringify(msg) }))
+      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
     }
   }
 
@@ -163,10 +164,6 @@ export function NewCustomProductModal({ onClose }: Props) {
 
         <form onSubmit={handleSubmit} className="flex flex-col" style={{ overflowY: 'auto', flex: 1 }}>
           <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {errors._form && (
-              <div className="rounded-lg" style={{ padding: 12, background: '#FCEBEB', color: '#5C0D15', fontSize: 13 }}>{errors._form}</div>
-            )}
 
             {/* Project & Zone */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 14, background: '#F8F9FA', borderRadius: 8, border: `1px solid ${errors.project_id ? '#C8202A' : '#E0E0E0'}` }}>

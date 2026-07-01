@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Upload, Loader2, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUploadBom } from '../../hooks/useBomDispatches'
 import { FileDropzone } from './FileDropzone'
@@ -83,7 +84,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -100,7 +100,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const canSubmit = bomReady && ncFiles.length >= 1 && !uploadMutation.isPending
 
   const handleSubmit = async () => {
-    setError(null)
     setProgress(0)
     const formData = new FormData()
     formData.append('project_id', String(projectId))
@@ -121,9 +120,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
       qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
       qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
       qc.invalidateQueries({ queryKey: ['dispatches'] })
+      toast.success('อัพโหลด BOM สำเร็จ')
       onClose()
     } catch {
-      setError('Upload failed — check that the backend is running')
+      toast.error('Upload failed — check that the backend is running')
       setProgress(null)
     }
   }
@@ -228,12 +228,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
         {progress !== null && (
           <div style={{ height: 4, background: '#E0E0E0', borderRadius: 999, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${progress}%`, background: '#185FA5', transition: 'width 0.2s' }} />
-          </div>
-        )}
-
-        {error && (
-          <div style={{ fontSize: 13, color: '#C8202A', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: '8px 12px' }}>
-            {error}
           </div>
         )}
 

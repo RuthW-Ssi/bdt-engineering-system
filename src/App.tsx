@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate, useParams } from 'react-router-dom'
+import { Toaster } from 'sonner'
 import { AuthProvider } from './context/AuthContext'
 import { ProjectProvider } from './context/ProjectContext'
+import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './pages/LoginPage'
@@ -50,6 +52,15 @@ export default function App() {
   return (
     <AuthProvider>
       <ProjectProvider>
+      <ConfirmProvider>
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: { fontFamily: 'inherit', fontSize: 13, borderRadius: 8 },
+          classNames: {},
+        }}
+        richColors
+      />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -112,6 +123,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      </ConfirmProvider>
       </ProjectProvider>
     </AuthProvider>
   )
