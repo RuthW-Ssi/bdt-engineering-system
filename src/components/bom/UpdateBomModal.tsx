@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useUploadBom } from '../../hooks/useBomDispatches'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
-import { classifyFilename } from '../../lib/bom/filenameClassifier'
+import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES, DOC_TYPE_LABELS } from '../../lib/bom/filenameClassifier'
 import type { DocType } from '../../lib/bom/filenameClassifier'
 import type { FileRejection } from './FileDropzone'
 
@@ -17,26 +17,28 @@ interface FileEntry {
   error?: string
 }
 
-interface Props {
-  dispatchId: number
-  projectId: number
-  zoneId: number
-  subZoneId: number | null
-  onClose: () => void
+const MAIN_TYPE_MAP: Partial<Record<DocType, DocType>> = {
+  ASSEMBLY_LIST: 'MAIN_ASSEMBLY_LIST',
+  ASSEMBLY_PART_LIST: 'MAIN_ASSEMBLY_PART_LIST',
+  PART_LIST: 'MAIN_PART_LIST',
 }
 
-export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClose }: Props) {
-  const qc = useQueryClient()
-  const uploadMutation = useUploadBom()
-  const [files, setFiles] = useState<FileEntry[]>([])
-  const [ncFiles, setNcFiles] = useState<File[]>([])
-  const [progress, setProgress] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
+const ACC_TYPE_MAP: Partial<Record<DocType, DocType>> = {
+  ASSEMBLY_LIST: 'ACC_ASSEMBLY_LIST',
+  ASSEMBLY_PART_LIST: 'ACC_ASSEMBLY_PART_LIST',
+  PART_LIST: 'ACC_PART_LIST',
+}
 
+function makeFileHandlers(
+  files: FileEntry[],
+  setFiles: React.Dispatch<React.SetStateAction<FileEntry[]>>,
+  typeMap?: Partial<Record<DocType, DocType>>,
+) {
   const onFilesAdded = (accepted: File[], rejected: FileRejection[]) => {
     const entries: FileEntry[] = []
     accepted.forEach(f => {
-      const detectedType = classifyFilename(f.name)
+      const raw = classifyFilename(f.name)
+      const detectedType = raw && typeMap ? (typeMap[raw] ?? raw) : raw
       const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
       if (detectedType && existingTypes.includes(detectedType)) {
         entries.push({ file: f, detectedType, error: `A file of type "${detectedType}" already exists` })
@@ -47,9 +49,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
     const rejectedEntries: FileEntry[] = rejected.map(r => ({ file: r.file, detectedType: null, error: r.reason }))
     setFiles(prev => [...prev, ...entries, ...rejectedEntries])
   }
-
   const removeFile = (i: number) => setFiles(prev => prev.filter((_, j) => j !== i))
-
   const updateType = (index: number, type: DocType) => {
     setFiles(prev => prev.map((entry, i) => {
       if (i !== index) return entry
@@ -58,11 +58,41 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
       return { ...entry, detectedType: type, error: undefined }
     }))
   }
+  return { onFilesAdded, removeFile, updateType }
+}
 
-  const validFiles = files.filter(e => !e.error && e.detectedType !== null)
-  const detectedTypes = validFiles.map(e => e.detectedType)
-  const hasAllBomTypes = REQUIRED_BOM_TYPES.every(t => detectedTypes.includes(t))
-  const canSubmit = hasAllBomTypes && ncFiles.length >= 1 && !uploadMutation.isPending
+interface Props {
+  dispatchId: number
+  projectId: number
+  zoneId: number
+  subZoneId: number | null
+  uploadMode: 'combined' | 'separate'
+  onClose: () => void
+}
+
+export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploadMode, onClose }: Props) {
+  const qc = useQueryClient()
+  const uploadMutation = useUploadBom()
+  const [files, setFiles] = useState<FileEntry[]>([])
+  const [mainFiles, setMainFiles] = useState<FileEntry[]>([])
+  const [accFiles, setAccFiles] = useState<FileEntry[]>([])
+  const [ncFiles, setNcFiles] = useState<File[]>([])
+  const [progress, setProgress] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const combined = makeFileHandlers(files, setFiles)
+  const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP)
+  const acc = makeFileHandlers(accFiles, setAccFiles, ACC_TYPE_MAP)
+
+  const validCombined = files.filter(e => !e.error && e.detectedType)
+  const validMain = mainFiles.filter(e => !e.error && e.detectedType)
+  const validAcc = accFiles.filter(e => !e.error && e.detectedType)
+
+  const hasAllCombined = REQUIRED_BOM_TYPES.every(t => validCombined.map(e => e.detectedType).includes(t))
+  const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
+  const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
+  const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain && hasAllAcc)
+  const canSubmit = bomReady && ncFiles.length >= 1 && !uploadMutation.isPending
 
   const handleSubmit = async () => {
     setError(null)
@@ -70,13 +100,17 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
     const formData = new FormData()
     formData.append('project_id', String(projectId))
     formData.append('zone_id', String(zoneId))
+    formData.append('upload_mode', uploadMode)
     if (subZoneId != null) formData.append('sub_zone_id', String(subZoneId))
     formData.append('dispatch_id', String(dispatchId))
-    validFiles.forEach(e => {
+
+    const allValid = uploadMode === 'combined' ? validCombined : [...validMain, ...validAcc]
+    allValid.forEach(e => {
       formData.append('bom_files', e.file)
       formData.append('doc_types', e.detectedType!)
     })
     ncFiles.forEach(f => formData.append('nc_files', f))
+
     try {
       await uploadMutation.mutateAsync({ formData, onProgress: pct => setProgress(pct) })
       qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
@@ -88,6 +122,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
       setProgress(null)
     }
   }
+
+  const modeLabel = uploadMode === 'separate' ? 'แยก Main + ACC' : 'รวม (Combined)'
 
   return (
     <div
@@ -106,36 +142,55 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
           A new revision will be added — existing files are not deleted, history is preserved
         </div>
 
-        {/* BOM files */}
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            BOM Files <span style={{ color: '#C8202A' }}>*</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>ครบ 3 ไฟล์</span>
-          </label>
-          <FileDropzone
-            maxFiles={3}
-            currentCount={files.filter(e => !e.error).length}
-            onFilesAdded={onFilesAdded}
-            disabled={files.filter(e => !e.error).length >= 3}
-          />
+        {/* Mode badge */}
+        <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontWeight: 600 }}>Upload mode:</span>
+          <span style={{ padding: '2px 10px', borderRadius: 99, fontSize: 11, fontWeight: 600, background: uploadMode === 'separate' ? '#EFF6FF' : '#F0FDF4', color: uploadMode === 'separate' ? '#1D4ED8' : '#15803D', border: `1px solid ${uploadMode === 'separate' ? '#BFDBFE' : '#BBF7D0'}` }}>
+            {modeLabel}
+          </span>
         </div>
 
-        {files.length > 0 && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {files.map((entry, i) => (
-              <FilePreviewItem
-                key={i}
-                file={entry.file}
-                detectedType={entry.detectedType}
-                error={entry.error}
-                onRemove={() => removeFile(i)}
-                onTypeChange={type => updateType(i, type)}
-              />
-            ))}
-          </div>
+        {/* BOM Files — Combined */}
+        {uploadMode === 'combined' && (
+          <BomSection
+            label="BOM Files"
+            hint="ครบ 3 ไฟล์"
+            maxFiles={3}
+            files={files}
+            allowedTypes={['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']}
+            onFilesAdded={combined.onFilesAdded}
+            onRemove={combined.removeFile}
+            onTypeChange={combined.updateType}
+          />
         )}
 
-        {/* NC files */}
+        {/* BOM Files — Separate */}
+        {uploadMode === 'separate' && (
+          <>
+            <BomSection
+              label="MAIN BOM Files"
+              hint="MAIN Assembly List, MAIN Assembly Part List, MAIN Part List"
+              maxFiles={3}
+              files={mainFiles}
+              allowedTypes={REQUIRED_MAIN_TYPES}
+              onFilesAdded={main.onFilesAdded}
+              onRemove={main.removeFile}
+              onTypeChange={main.updateType}
+            />
+            <BomSection
+              label="ACC BOM Files"
+              hint="ACC Assembly List, ACC Assembly Part List, ACC Part List"
+              maxFiles={3}
+              files={accFiles}
+              allowedTypes={REQUIRED_ACC_TYPES}
+              onFilesAdded={acc.onFilesAdded}
+              onRemove={acc.removeFile}
+              onTypeChange={acc.updateType}
+            />
+          </>
+        )}
+
+        {/* NC Files */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
             NC Files <span style={{ color: '#C8202A' }}>*</span>
@@ -153,31 +208,12 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
 
         {ncFiles.length > 0 && (
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>
-              NC FILES ({ncFiles.length})
-            </div>
-            <div style={{
-              maxHeight: 160, overflowY: 'auto',
-              display: 'flex', flexDirection: 'column', gap: 4,
-              border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px',
-              background: '#FAFAFA',
-            }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
+            <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
               {ncFiles.map((f, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '4px 8px', background: 'white', borderRadius: 4,
-                    border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0,
-                  }}
-                >
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
                   <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <button
-                    onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))}
-                    style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
                 </div>
               ))}
             </div>
@@ -185,10 +221,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
         )}
 
         {progress !== null && (
-          <div>
-            <div style={{ height: 4, background: '#E0E0E0', borderRadius: 999, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${progress}%`, background: '#185FA5', transition: 'width 0.2s' }} />
-            </div>
+          <div style={{ height: 4, background: '#E0E0E0', borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${progress}%`, background: '#185FA5', transition: 'width 0.2s' }} />
           </div>
         )}
 
@@ -210,10 +244,41 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, onClo
           >
             {uploadMutation.isPending
               ? <><Loader2 size={13} className="animate-spin" />Uploading...</>
-              : <><Upload size={13} />Upload ({validFiles.length} BOM + {ncFiles.length} NC)</>}
+              : <><Upload size={13} />Upload</>}
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+interface BomSectionProps {
+  label: string
+  hint: string
+  maxFiles: number
+  files: FileEntry[]
+  allowedTypes: DocType[]
+  onFilesAdded: (accepted: File[], rejected: FileRejection[]) => void
+  onRemove: (i: number) => void
+  onTypeChange: (i: number, type: DocType) => void
+}
+
+function BomSection({ label, hint, maxFiles, files, allowedTypes, onFilesAdded, onRemove, onTypeChange }: BomSectionProps) {
+  const validCount = files.filter(e => !e.error).length
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+        {label} <span style={{ color: '#C8202A' }}>*</span>
+        <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>{hint}</span>
+      </label>
+      <FileDropzone maxFiles={maxFiles} currentCount={validCount} onFilesAdded={onFilesAdded} disabled={validCount >= maxFiles} />
+      {files.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          {files.map((entry, i) => (
+            <FilePreviewItem key={i} file={entry.file} detectedType={entry.detectedType} error={entry.error} allowedTypes={allowedTypes} onRemove={() => onRemove(i)} onTypeChange={type => onTypeChange(i, type)} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

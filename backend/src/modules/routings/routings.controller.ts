@@ -161,9 +161,15 @@ export class RoutingsController {
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'List routing templates · ?mark_prefix_id=CODE → {suggested, others} (T-MO.05)' })
   @ApiQuery({ name: 'mark_prefix_id', required: false, description: 'mark prefix CODE → suggestion mode' })
-  listRoutingTemplates(@Query('mark_prefix_id') markPrefixId?: string) {
+  listRoutingTemplates(
+    @Query('mark_prefix_id') markPrefixId?: string,
+    @Query('search') search?: string,
+    @Query('state') state?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     if (markPrefixId) return this.routingService.suggestByMarkPrefix(markPrefixId)
-    return this.routingService.listTemplates()
+    return this.routingService.listTemplates(search, state, page ? Number(page) : 1, limit ? Number(limit) : 20)
   }
 
   @Post('routing-templates')

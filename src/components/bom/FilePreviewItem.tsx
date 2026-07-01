@@ -2,7 +2,7 @@ import { X, CheckCircle, AlertTriangle, XCircle } from 'lucide-react'
 import type { DocType } from '../../lib/bom/filenameClassifier'
 import { DOC_TYPE_LABELS } from '../../lib/bom/filenameClassifier'
 
-const DOC_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
+const DEFAULT_DOC_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 
 interface Props {
   file: File
@@ -10,6 +10,7 @@ interface Props {
   onRemove: () => void
   onTypeChange?: (type: DocType) => void
   error?: string
+  allowedTypes?: DocType[]
 }
 
 function formatSize(bytes: number): string {
@@ -17,7 +18,8 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024).toFixed(0)} KB`
 }
 
-export function FilePreviewItem({ file, detectedType, onRemove, onTypeChange, error }: Props) {
+export function FilePreviewItem({ file, detectedType, onRemove, onTypeChange, error, allowedTypes }: Props) {
+  const DOC_TYPES = allowedTypes ?? DEFAULT_DOC_TYPES
   const hasError = !!error
   const needsPick = !detectedType && !hasError
 

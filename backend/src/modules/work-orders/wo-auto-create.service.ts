@@ -47,6 +47,21 @@ export class WorkOrderAutoCreateService {
                 time_cycle: true,
                 time_cycle_manual: true,
                 activities_snapshot: true,
+                operation_template: {
+                  select: {
+                    activities: {
+                      select: {
+                        id: true,
+                        name: true,
+                        measure: true,
+                        per_minute: true,
+                        source_activity_id: true,
+                        tools: { select: { resource_id: true, qty: true } },
+                        skills: { select: { skill: true, qty: true, level: true } },
+                      },
+                    },
+                  },
+                },
               },
             },
           },
@@ -71,11 +86,27 @@ export class WorkOrderAutoCreateService {
       orderBy: { line_seq: 'asc' },
     })
 
-    // Collect all source_activity_ids referenced across all op snapshots
+    // Resolve activities per op: prefer live operation_template.activities, fallback to activities_snapshot
+    type ResolvedAct = { name: string; measure: string | null; per_minute: number | null; source_activity_id: number | null; tool_ids: { id: number; qty: number }[]; labors: { skill: string; qty: number; level: string | null }[] }
+    const resolvedOps = ops.map(op => {
+      const liveActs = op.operation_template?.activities ?? []
+      const acts: ResolvedAct[] = liveActs.length > 0
+        ? liveActs.map(a => ({
+            name: a.name,
+            measure: a.measure ?? null,
+            per_minute: a.per_minute != null ? Number(a.per_minute) : null,
+            source_activity_id: a.source_activity_id ?? null,
+            tool_ids: a.tools.map(t => ({ id: t.resource_id, qty: t.qty })),
+            labors: a.skills.map(s => ({ skill: s.skill, qty: s.qty, level: s.level ?? null })),
+          }))
+        : (Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : [])
+      return { ...op, resolvedActs: acts }
+    })
+
+    // Collect all source_activity_ids
     const allSourceIds = new Set<number>()
-    for (const op of ops) {
-      const snap = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : []
-      for (const a of snap) { if (a.source_activity_id) allSourceIds.add(a.source_activity_id) }
+    for (const op of resolvedOps) {
+      for (const a of op.resolvedActs) { if (a.source_activity_id) allSourceIds.add(a.source_activity_id) }
     }
 
     // Load activity time data for duration computation
@@ -108,8 +139,8 @@ export class WorkOrderAutoCreateService {
       const bom = line.bom_assembly
       const dispatchId = bom.dispatch_id
 
-      for (const op of ops) {
-        const { run_min, setup_min } = this.computeDuration(op, bom, activityMap)
+      for (const op of resolvedOps) {
+        const { run_min, setup_min } = this.computeDuration(op.resolvedActs, bom, activityMap)
         const wo_code = `WO-${(firstCode + codeIdx).toString().padStart(8, '0')}`
         codeIdx++
         woData.push({
@@ -122,6 +153,7 @@ export class WorkOrderAutoCreateService {
           setup_time_min: setup_min,
           bom_assembly_id: line.bom_assembly_id,
           bom_dispatch_id_snapshot: dispatchId,
+          op_attributes: { activities: op.resolvedActs },
           status: 'NOT_STARTED',
           created_by: userName,
         })
@@ -133,11 +165,10 @@ export class WorkOrderAutoCreateService {
   }
 
   private computeDuration(
-    op: { time_cycle: unknown; time_cycle_manual: unknown; activities_snapshot: unknown },
+    acts: { source_activity_id: number | null }[],
     bom: { length_mm: unknown; surface_area_m2: unknown; width_mm: unknown },
     activityMap: Map<number, { formula_code: string | null; per_minute: unknown; duration_min: unknown; kind: string }>,
   ): { run_min: number; setup_min: number } {
-    const snap = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as any[]) : []
     const lengthMm   = Number(bom.length_mm       ?? 0)
     const areaSqM    = Number(bom.surface_area_m2  ?? 0)
     const widthMm    = Number(bom.width_mm         ?? 0)
@@ -145,7 +176,7 @@ export class WorkOrderAutoCreateService {
     let runMin   = 0
     let setupMin = 0
 
-    for (const snapAct of snap) {
+    for (const snapAct of acts) {
       const srcId = snapAct.source_activity_id as number | null
       if (!srcId) continue
       const act = activityMap.get(srcId)
@@ -196,10 +227,7 @@ export class WorkOrderAutoCreateService {
       }
     }
 
-    // Fallback: no activities matched → use time_cycle
-    if (runMin === 0 && setupMin === 0) {
-      runMin = Number((op as any).time_cycle_manual ?? (op as any).time_cycle ?? 0)
-    }
+    // Fallback: no activities matched → duration stays 0 → clamped to 1 below
 
     return {
       run_min:   Math.max(1, Math.round(runMin)),

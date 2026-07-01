@@ -49,14 +49,15 @@ export class BomUploadController {
         project_id: { type: 'integer' },
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
+        upload_mode: { type: 'string', enum: ['combined', 'separate'] },
         bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
-        doc_types: { type: 'array', items: { type: 'string', enum: ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST'] } },
+        doc_types: { type: 'array', items: { type: 'string' } },
       },
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 3 }, { name: 'nc_files', maxCount: 200 }],
+    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 200 }],
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async upload(
@@ -103,7 +104,9 @@ export class BomUploadController {
       originalname: f.originalname,
     }))
 
-    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub)
+    const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
+
+    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode)
   }
 
   @Get('dispatches')

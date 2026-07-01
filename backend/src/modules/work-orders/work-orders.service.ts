@@ -138,6 +138,18 @@ export class WorkOrdersService {
           time_mode: true, time_cycle: true, time_cycle_manual: true, formula_expr: true,
           activities_snapshot: true,
           op_type: { select: { id: true, key: true, label: true, color: true } },
+          operation_template: {
+            select: {
+              activities: {
+                select: {
+                  id: true, name: true, measure: true, per_minute: true,
+                  source_activity_id: true,
+                  tools: { select: { resource_id: true, qty: true } },
+                  skills: { select: { skill: true, qty: true, level: true } },
+                },
+              },
+            },
+          },
         },
       })
       if (op) {
@@ -149,7 +161,26 @@ export class WorkOrdersService {
           labors: { skill: string; qty: number; level?: string | null }[] | null
           consumables: { resource_id: number; code: string; name: string }[] | null
         }
-        const acts = Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : []
+
+        // Priority: 1) per-WO snapshot in op_attributes  2) live operation_template.activities  3) stale activities_snapshot
+        const woAttr = wo.op_attributes as any
+        const woSnap: RawAct[] | null = Array.isArray(woAttr?.activities) && woAttr.activities.length > 0 ? woAttr.activities : null
+
+        const liveActivities = op.operation_template?.activities ?? []
+        const acts: RawAct[] = woSnap
+          ? woSnap
+          : liveActivities.length > 0
+          ? liveActivities.map(a => ({
+              name: a.name,
+              measure: a.measure ?? null,
+              per_minute: a.per_minute != null ? Number(a.per_minute) : null,
+              formula_code: null,
+              source_activity_id: a.source_activity_id ?? null,
+              tool_ids: a.tools.map(t => ({ id: t.resource_id, qty: t.qty })),
+              labors: a.skills.map(s => ({ skill: s.skill, qty: s.qty, level: s.level ?? null })),
+              consumables: [],
+            }))
+          : (Array.isArray(op.activities_snapshot) ? (op.activities_snapshot as RawAct[]) : [])
 
         const toolIdOf = (t: RawTool): number | null => typeof t === 'number' ? t : (t.id ?? null)
         const toolQtyOf = (t: RawTool): number => typeof t === 'number' ? 1 : (t.qty ?? 1)

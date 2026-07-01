@@ -863,6 +863,7 @@ export function BomList() {
           projectId={selectedItem.project_id}
           zoneId={selectedItem.zone_id}
           subZoneId={selectedItem.sub_zone_id}
+          uploadMode={selectedItem.upload_mode ?? 'combined'}
           onClose={() => setShowModal(false)}
         />
       )}
