@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, Send, ArrowDownLeft, Package, Clock } from 'lucide-react'
+import { toast } from 'sonner'
 import { useMaterial, useMaterialAction, useMaterialMessages } from '../hooks/useMaterials'
 
 // ── State display ─────────────────────────────────────────────────
@@ -53,7 +54,6 @@ export function MaterialDetail() {
   const navigate = useNavigate()
   const [tab, setTab] = useState<Tab>('Overview')
   const [confirmAction, setConfirmAction] = useState<ActionDef | null>(null)
-  const [actionError, setActionError] = useState('')
 
   const { data: mat, isLoading, isError } = useMaterial(code ?? '')
   const action = useMaterialAction(code ?? '')
@@ -63,12 +63,12 @@ export function MaterialDetail() {
   const availableActions = ACTIONS_BY_STATE[mat?.state ?? ''] ?? []
 
   async function handleAction(def: ActionDef) {
-    setActionError('')
     try {
       await action.mutateAsync(def.action)
       setConfirmAction(null)
+      toast.success(`${def.label} สำเร็จ`)
     } catch (e: any) {
-      setActionError(e?.response?.data?.message ?? 'Action failed')
+      toast.error(e?.response?.data?.message ?? 'Action failed')
     }
   }
 
@@ -110,7 +110,7 @@ export function MaterialDetail() {
 
         {availableActions.map(def => (
           <button key={def.action}
-            onClick={() => { setConfirmAction(def); setActionError('') }}
+            onClick={() => setConfirmAction(def)}
             disabled={action.isPending}
             className="flex items-center gap-1.5 rounded-md"
             style={{
@@ -302,7 +302,6 @@ export function MaterialDetail() {
           <div className="bg-white rounded-xl" style={{ padding: '28px 32px', width: 360, boxShadow: '0 8px 32px rgba(0,0,0,0.18)' }}>
             <div style={{ fontSize: 15, fontWeight: 600, color: '#1F1F1F', marginBottom: 8 }}>Confirm Action</div>
             <div style={{ fontSize: 13, color: '#555', marginBottom: 20 }}>{confirmAction.confirm}</div>
-            {actionError && <div style={{ fontSize: 12, color: '#C8202A', marginBottom: 12 }}>{actionError}</div>}
             <div className="flex gap-2 justify-end">
               <button onClick={() => setConfirmAction(null)} disabled={action.isPending}
                 className="rounded-md" style={{ padding: '7px 18px', fontSize: 13, fontWeight: 500, background: '#F5F5F5', border: '1px solid #E0E0E0', cursor: 'pointer' }}>
