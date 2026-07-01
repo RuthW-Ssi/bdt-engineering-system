@@ -62,14 +62,11 @@ export class RoutingService {
     return op
   }
 
-  // listTemplates: returns routing_template rows (not mrp_routing_workcenter)
-  async listTemplates() {
+  private async _fetchTemplates(where: object) {
     const rows = await this.prisma.routing_template.findMany({
-      where: { active: true },
+      where,
       orderBy: { code: 'asc' },
-      include: {
-        _count: { select: { operations: true, bound_products: true } },
-      },
+      include: { _count: { select: { operations: true, bound_products: true } } },
     })
     return rows.map(r => ({
       id: r.id,
@@ -81,6 +78,22 @@ export class RoutingService {
       operation_count: r._count.operations,
       bound_product_count: r._count.bound_products,
     }))
+  }
+
+  // listTemplates: returns paginated routing_template rows
+  async listTemplates(search?: string, state?: string, page = 1, limit = 20) {
+    const where: any = { active: true }
+    if (state && state !== 'all') where.state = state
+    if (search) where.OR = [
+      { code: { contains: search, mode: 'insensitive' } },
+      { name: { contains: search, mode: 'insensitive' } },
+    ]
+    const [total, allRows] = await Promise.all([
+      this.prisma.routing_template.count({ where }),
+      this._fetchTemplates(where),
+    ])
+    const data = allRows.slice((page - 1) * limit, page * limit)
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
   }
 
   /**
@@ -105,7 +118,7 @@ export class RoutingService {
       if (r.match_mark_prefix && markPrefix.startsWith(r.match_mark_prefix)) push(r.routing_template_id)
     }
 
-    const templates = await this.listTemplates()
+    const templates = await this._fetchTemplates({ active: true })
     // primary signal in current data: template targets this mark prefix directly
     for (const t of templates) {
       if (t.applies_to_product_type === markPrefix) push(t.id)
@@ -169,9 +182,9 @@ export class RoutingService {
                   orderBy: { sequence: 'asc' },
                   select: {
                     id: true, name: true, measure: true, per_minute: true, source_activity_id: true,
-                    source_activity: { select: { id: true, name: true, duration_min: true } },
+                    source_activity: { select: { id: true, name: true, duration_min: true, formula_code: true, ratio: true, ratio_unit: true, per_time: true } },
                     skills: { select: { skill: true, qty: true, level: true } },
-                    tools: { include: { resource: { select: { id: true, name: true } } } },
+                    tools: { include: { resource: { select: { id: true, name: true } } }, orderBy: { id: 'asc' } },
                   },
                 },
               },
@@ -259,9 +272,13 @@ export class RoutingService {
           measure: a.measure ?? null,
           per_minute: a.per_minute != null ? Number(a.per_minute) : null,
           source_activity_id: a.source_activity_id,
+          formula_code: a.source_activity?.formula_code ?? null,
+          ratio: a.source_activity?.ratio != null ? Number(a.source_activity.ratio) : null,
+          ratio_unit: a.source_activity?.ratio_unit ?? null,
+          per_time: a.source_activity?.per_time != null ? Number(a.source_activity.per_time) : null,
           machine_id: null,
           machine_name: null,
-          tool_ids: (a.tools ?? []).map((t: any) => t.resource_id),
+          tool_ids: (a.tools ?? []).map((t: any) => ({ id: t.resource_id, qty: t.qty ?? 1 })),
           tool_names: (a.tools ?? []).map((t: any) => t.resource.name),
           labors: a.skills.map(s => ({ skill: s.skill, qty: s.qty, level: s.level })),
           consumables: a.source_activity_id ? (consumeMap.get(a.source_activity_id) ?? []) : [],

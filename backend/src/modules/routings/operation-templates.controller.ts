@@ -18,8 +18,12 @@ export class OperationTemplatesController {
 
   @Get()
   @ApiOperation({ summary: 'List operation templates (operation library)' })
-  findAll(@Query('search') search?: string) {
-    return this.svc.findAll(search)
+  findAll(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.findAll(search, page ? Number(page) : 1, limit ? Number(limit) : 20)
   }
 
   @Get(':id')

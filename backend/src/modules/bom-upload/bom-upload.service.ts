@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
+import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcFile } from './nc-parser'
 import type { NcFileParsed } from './nc-parser'
@@ -56,6 +57,7 @@ export class BomUploadService {
     zoneId: number,
     subZoneId: number | null,
     uid: number,
+    uploadMode: 'combined' | 'separate' = 'combined',
   ) {
     // 1. Validate inputs
     this.validateFiles(files)
@@ -64,6 +66,26 @@ export class BomUploadService {
     const parsed = new Map<BomDocType, ParsedBomFile>()
     for (const f of files) {
       parsed.set(f.docType, this.parser.parse(f.buffer, f.docType))
+    }
+
+    // 3. If separate mode, merge MAIN+ACC into combined keys before further processing
+    if (uploadMode === 'separate') {
+      const merge = (mainKey: BomDocType, accKey: BomDocType, targetKey: BomDocType) => {
+        const main = parsed.get(mainKey)
+        const acc = parsed.get(accKey)
+        if (!main && !acc) return
+        parsed.set(targetKey, {
+          docType: targetKey,
+          assemblies: [...(main?.assemblies ?? []), ...(acc?.assemblies ?? [])],
+          parts: [...(main?.parts ?? []), ...(acc?.parts ?? [])],
+          assemblyParts: [...(main?.assemblyParts ?? []), ...(acc?.assemblyParts ?? [])],
+        })
+        parsed.delete(mainKey)
+        parsed.delete(accKey)
+      }
+      merge('MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST', 'ASSEMBLY_LIST')
+      merge('MAIN_ASSEMBLY_PART_LIST', 'ACC_ASSEMBLY_PART_LIST', 'ASSEMBLY_PART_LIST')
+      merge('MAIN_PART_LIST', 'ACC_PART_LIST', 'PART_LIST')
     }
 
     // 3. Parse NC files → build canonical map (part_mark → NC data)
@@ -116,6 +138,7 @@ export class BomUploadService {
             zone_id: zoneId,
             sub_zone_id: subZoneId,
             status: 'pending',
+            upload_mode: uploadMode,
             create_uid: uid,
             write_uid: uid,
           },
@@ -516,6 +539,7 @@ export class BomUploadService {
     zone_id: number
     sub_zone_id: number | null
     status: string
+    upload_mode: string
     uploaded_at: Date
     assembly_total: number | null
     part_total: number | null
@@ -530,6 +554,7 @@ export class BomUploadService {
       zone_id: d.zone_id,
       sub_zone_id: d.sub_zone_id,
       status: d.status,
+      upload_mode: d.upload_mode,
       doc_count: d.doc_revisions?.length ?? 0,
       uploaded_at: d.uploaded_at.toISOString(),
       zone: d.zone,
@@ -623,6 +648,11 @@ export class BomUploadService {
     const docTypes = files.map(f => f.docType)
     if (new Set(docTypes).size !== docTypes.length) {
       throw new BadRequestException('Duplicate doc_type — each type may only appear once per dispatch')
+    }
+    const isSeparate = files.some(f => SEPARATE_DOC_TYPES.includes(f.docType))
+    const isCombined = files.some(f => !SEPARATE_DOC_TYPES.includes(f.docType))
+    if (isSeparate && isCombined) {
+      throw new BadRequestException('Cannot mix combined and separate doc types in the same upload')
     }
   }
 

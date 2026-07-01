@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { Search, Loader2, AlertTriangle } from 'lucide-react'
 import { useWos } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
+import { PaginationBar } from '../components/PaginationBar'
 import type { WoStatus } from '../api/wo'
+
+const LIMIT = 10
 
 const STATUSES: (WoStatus | 'ALL')[] = [
   'ALL', 'NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'DONE', 'CANCELLED',
@@ -22,6 +25,7 @@ export function WoList() {
   const [status, setStatus] = useState<WoStatus | 'ALL'>('ALL')
   const [workCenterId, setWorkCenterId] = useState<number | ''>('')
   const [moId, setMoId] = useState<number | ''>('')
+  const [page, setPage] = useState(1)
 
   // Unfiltered universe for dropdown options (one query); the list below is server-filtered.
   const { data: all } = useWos({})
@@ -32,6 +36,10 @@ export function WoList() {
     mo_id: moId || undefined,
   })
   const items = data ?? []
+  const totalPages = Math.max(1, Math.ceil(items.length / LIMIT))
+  const pagedItems = items.slice((page - 1) * LIMIT, page * LIMIT)
+
+  function resetPage() { setPage(1) }
 
   const workCenters = useMemo(() => {
     const m = new Map<number, string>()
@@ -54,16 +62,16 @@ export function WoList() {
           <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); resetPage() }}
             placeholder="Search WO code..."
             style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', width: 200 }}
           />
         </div>
-        <select value={workCenterId} onChange={(e) => setWorkCenterId(e.target.value ? Number(e.target.value) : '')} style={selectStyle}>
+        <select value={workCenterId} onChange={(e) => { setWorkCenterId(e.target.value ? Number(e.target.value) : ''); resetPage() }} style={selectStyle}>
           <option value="">All work centers</option>
           {workCenters.map(([id, code]) => <option key={id} value={id}>{code}</option>)}
         </select>
-        <select value={moId} onChange={(e) => setMoId(e.target.value ? Number(e.target.value) : '')} style={selectStyle}>
+        <select value={moId} onChange={(e) => { setMoId(e.target.value ? Number(e.target.value) : ''); resetPage() }} style={selectStyle}>
           <option value="">All MOs</option>
           {mos.map(([id, code]) => <option key={id} value={id}>{code}</option>)}
         </select>
@@ -71,7 +79,7 @@ export function WoList() {
           {STATUSES.map((s) => (
             <button
               key={s}
-              onClick={() => setStatus(s)}
+              onClick={() => { setStatus(s); resetPage() }}
               style={{
                 height: 28, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 999,
                 border: '1px solid ' + (status === s ? '#C8202A' : '#D8D8D8'),
@@ -97,7 +105,7 @@ export function WoList() {
         ) : items.length === 0 ? (
           <div className="flex items-center justify-center" style={{ height: 200, color: '#8E8E8E', fontSize: 14 }}>No work orders found</div>
         ) : (
-          items.map((w) => (
+          pagedItems.map((w) => (
             <div
               key={w.id}
               onClick={() => navigate(`/order/wo/${w.id}`)}
@@ -128,6 +136,7 @@ export function WoList() {
           ))
         )}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
     </div>
   )
 }

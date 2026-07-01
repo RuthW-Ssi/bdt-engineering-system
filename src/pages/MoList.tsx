@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { Plus, Search, Loader2, Package, ChevronRight } from 'lucide-react'
 import { useMos } from '../hooks/useMo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
+import { PaginationBar } from '../components/PaginationBar'
 import type { MoStatus } from '../api/mo'
+
+const LIMIT = 10
 
 const STATUSES: (MoStatus | 'ALL')[] = ['ALL', 'DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'DONE', 'CANCELLED']
 
@@ -16,12 +19,18 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<MoStatus | 'ALL'>('ALL')
+  const [page, setPage] = useState(1)
 
   const { data, isLoading } = useMos({
     search: search || undefined,
     status: status === 'ALL' ? undefined : status,
   })
   const items = data ?? []
+  const totalPages = Math.max(1, Math.ceil(items.length / LIMIT))
+  const pagedItems = items.slice((page - 1) * LIMIT, page * LIMIT)
+
+  function handleSearch(q: string) { setSearch(q); setPage(1) }
+  function handleStatus(s: MoStatus | 'ALL') { setStatus(s); setPage(1) }
 
   return (
     <div className="flex flex-col" style={{ height: embedded ? '100%' : 'calc(100vh - 56px)', overflow: 'hidden' }}>
@@ -33,6 +42,7 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
             <span style={{ color: '#C2C2C2' }}>·</span>
             <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
               {isLoading ? '...' : `${items.length} orders`}
+
             </span>
           </div>
           <button
@@ -51,7 +61,7 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
           <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
           <input
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => handleSearch(e.target.value)}
             placeholder="Search MO code..."
             style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', width: 240 }}
           />
@@ -60,7 +70,7 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
           {STATUSES.map(s => (
             <button
               key={s}
-              onClick={() => setStatus(s)}
+              onClick={() => handleStatus(s)}
               style={{
                 height: 28, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 999,
                 border: '1px solid ' + (status === s ? '#C8202A' : '#D8D8D8'),
@@ -85,7 +95,7 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
             No manufacturing orders found
           </div>
         ) : (
-          items.map(mo => (
+          pagedItems.map(mo => (
             <div
               key={mo.id}
               onClick={() => navigate(`/mo/${mo.id}`)}
@@ -117,6 +127,7 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
           ))
         )}
       </div>
+      <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
     </div>
   )
 }
