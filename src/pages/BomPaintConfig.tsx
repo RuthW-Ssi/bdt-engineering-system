@@ -120,7 +120,7 @@ export function BomPaintConfig() {
     if (!dispatchId) return
     try {
       await savePaint.mutateAsync({ configs: buildPayload() })
-      toast.success('บันทึกสำเร็จ')
+      toast.success('Paint config saved')
       goBack()
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Failed to save paint config — please try again')

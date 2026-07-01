@@ -395,7 +395,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
     setOpenMenuId(null)
     try {
       await archiveEntry()
-      toast.success('Archive สำเร็จ')
+      toast.success('Product archived')
     } catch (err: any) {
       const data = err?.response?.data
       const total = (data?.stdCount ?? 0) + (data?.cusCount ?? 0)
@@ -409,7 +409,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
         if (ok) {
           try {
             await updateEntry({ active: false })
-            toast.success('Archive สำเร็จ')
+            toast.success('Product archived')
           } catch (e: any) {
             toast.error(e?.response?.data?.message ?? 'Failed to archive product — please try again')
             console.error(e)
@@ -423,7 +423,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
     e.stopPropagation()
     setOpenMenuId(null)
     await updateEntry({ active: true })
-    toast.success('Restore สำเร็จ')
+    toast.success('Product restored')
   }
 
   const handleHardDelete = async (e: React.MouseEvent) => {
@@ -433,7 +433,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
     if (!ok) return
     try {
       await hardDeleteEntry()
-      toast.success('ลบสำเร็จ')
+      toast.success('Product deleted')
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? 'Failed to delete product — please try again')
     }

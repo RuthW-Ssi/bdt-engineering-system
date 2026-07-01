@@ -189,7 +189,7 @@ export default function OperationBuilder() {
       ? apiClient.patch(`/operation-templates/${templateId}`, buildPayload()).then(r => r.data)
       : apiClient.post('/operation-templates', buildPayload()).then(r => r.data),
     onSuccess: (data) => {
-      toast.success('บันทึกสำเร็จ')
+      toast.success('Operation saved')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       if (isEdit) navigate('/operation-library')
       else navigate(`/operation-library/${data.id}/edit`)
@@ -205,7 +205,7 @@ export default function OperationBuilder() {
       return apiClient.patch(`/operation-templates/${tpl.id}/publish`).then(r => r.data)
     },
     onSuccess: () => {
-      toast.success('Publish สำเร็จ')
+      toast.success('Operation published')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       navigate('/operation-library')
     },
@@ -215,7 +215,7 @@ export default function OperationBuilder() {
   const deleteMut = useMutation({
     mutationFn: () => apiClient.delete(`/operation-templates/${templateId}`).then(r => r.data),
     onSuccess: () => {
-      toast.success('ลบ operation สำเร็จ')
+      toast.success('Operation deleted')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
       navigate('/operation-library')
     },
