@@ -12,6 +12,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, Workflow, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
@@ -2177,14 +2178,15 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
   const handleInspectorClose = useCallback(() => setSelectedNodeId(null), [])
   const handleInspectorDelete = useCallback(async () => {
     const ok = await confirm({
-      title: 'ลบ Operation นี้?',
-      message: 'Operation จะถูกลบออกจาก Routing',
+      title: 'Remove this operation?',
+      message: 'The operation will be removed from the routing canvas.',
       variant: 'danger',
-      confirmLabel: 'ลบ',
+      confirmLabel: 'Remove',
     })
     if (!ok) return
     setNodes(nds => nds.filter(n => n.id !== selectedNodeId))
     setSelectedNodeId(null)
+    toast.success('Operation removed from routing')
   }, [selectedNodeId, setNodes, confirm])
 
   if (isEdit && loadingTemplate) {

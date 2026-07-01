@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Plus, Search, Pencil, Trash2, Loader2, Building2, Mail, Phone, MapPin } from 'lucide-react'
+import { toast } from 'sonner'
 import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '../hooks/useCustomers'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import type { Customer, CreateCustomerPayload } from '../api/customers'
 
 const EMPTY: CreateCustomerPayload = { name: '' }
@@ -96,12 +98,11 @@ export function CustomerList() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<{ open: boolean; editing: Customer | null }>({ open: false, editing: null })
   const [form, setForm] = useState<CreateCustomerPayload>(EMPTY)
-  const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null)
-
   const { data, isLoading } = useCustomers({ search: search || undefined, active: 'true', limit: 100 })
   const createMut = useCreateCustomer()
   const updateMut = useUpdateCustomer()
   const deleteMut = useDeleteCustomer()
+  const confirm = useConfirm()
 
   const items = data?.items ?? []
 
@@ -126,8 +127,20 @@ export function CustomerList() {
   }
 
   async function handleDelete(c: Customer) {
-    await deleteMut.mutateAsync(c.id)
-    setConfirmDelete(null)
+    const ok = await confirm({
+      title: 'Archive customer?',
+      message: `"${c.name}" will be archived and hidden from active lists.`,
+      variant: 'danger',
+      confirmLabel: 'Archive',
+    })
+    if (!ok) return
+    try {
+      await deleteMut.mutateAsync(c.id)
+      toast.success('Customer archived')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to archive customer — please try again')
+      console.error(e)
+    }
   }
 
   const saving = createMut.isPending || updateMut.isPending
@@ -177,7 +190,7 @@ export function CustomerList() {
           </div>
         ) : (
           items.map(c => (
-            <CustomerCard key={c.id} c={c} onEdit={openEdit} onDelete={setConfirmDelete} />
+            <CustomerCard key={c.id} c={c} onEdit={openEdit} onDelete={handleDelete} />
           ))
         )}
       </div>
@@ -228,20 +241,6 @@ export function CustomerList() {
         </div>
       )}
 
-      {/* Delete Confirm */}
-      {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-          <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 360 }}>
-            <p style={{ fontSize: 14, marginBottom: 20, color: '#333' }}>
-              Archive customer <strong>{confirmDelete.name}</strong>?
-            </p>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setConfirmDelete(null)} style={{ padding: '7px 14px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => handleDelete(confirmDelete)} style={{ padding: '7px 14px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: '#C8202A', color: '#fff', cursor: 'pointer' }}>Archive</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

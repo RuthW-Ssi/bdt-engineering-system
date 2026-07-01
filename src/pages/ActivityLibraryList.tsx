@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Plus, Search, Clock } from 'lucide-react'
+import { toast } from 'sonner'
 import { useActivities, useDeleteActivity } from '../hooks/useActivities'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { ActivityBuilderModal } from './ActivityBuilder'
 import { PaginationBar } from '../components/PaginationBar'
 
@@ -20,10 +22,23 @@ export function ActivityLibraryList() {
   const total = paged?.total ?? 0
   const totalPages = paged?.totalPages ?? 1
   const deleteMutation = useDeleteActivity()
+  const confirm = useConfirm()
 
-  function handleDelete(id: number, name: string) {
-    if (!confirm(`Delete "${name}"?`)) return
-    deleteMutation.mutate(id)
+  async function handleDelete(id: number, name: string) {
+    const ok = await confirm({
+      title: 'Delete activity?',
+      message: `"${name}" will be permanently deleted.`,
+      variant: 'danger',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    try {
+      await deleteMutation.mutateAsync(id)
+      toast.success('Activity deleted')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to delete activity — please try again')
+      console.error(e)
+    }
   }
 
   function handleSearch(q: string) {
