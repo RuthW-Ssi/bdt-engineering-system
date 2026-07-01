@@ -1,6 +1,7 @@
 import { IsNumber, IsObject, IsOptional, IsString, Max, Min } from 'class-validator'
 
 export class UpdateWorkcenterDto {
+  @IsOptional() @IsString() machine?: string | null
   @IsOptional() @IsNumber() @Min(0) @Max(100) availability?: number
   @IsOptional() @IsNumber() @Min(0) @Max(100) performance?: number
   @IsOptional() @IsNumber() @Min(0) @Max(100) quality?: number

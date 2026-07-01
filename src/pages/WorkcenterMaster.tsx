@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowLeft, Edit2, X, Save, Loader2, AlertCircle, Plus, Search } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useWorkcenters, useWorkcenter } from '../hooks/useRoutings'
+import { useMachines } from '../hooks/useMachines'
 import type { WorkcenterDTO } from '../api/routings'
 
 // ── Station color by name ──────────────────────────────────────
@@ -30,6 +31,93 @@ const STATION_ORDER = [
   'Assembly', 'Assembly (manual)', 'Material Preparation (manual)',
   'Subcontract',
 ]
+
+// ── Machine combobox ───────────────────────────────────────────
+
+function MachineCombobox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [focused, setFocused] = useState(false)
+  const [search, setSearch] = useState(value)
+  const ref = useRef<HTMLDivElement>(null)
+  const { data: machines = [] } = useMachines({ type: 'machine' })
+
+  // keep search in sync when value is cleared from outside
+  useEffect(() => { if (!value) setSearch('') }, [value])
+
+  const filtered = machines.filter(m => {
+    const q = search.toLowerCase()
+    return !q || m.name.toLowerCase().includes(q) || m.code.toLowerCase().includes(q)
+  })
+
+  const showList = focused && machines.length > 0
+
+  useEffect(() => {
+    if (!focused) return
+    function onMouseDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setFocused(false)
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [focused])
+
+  const handleSelect = (name: string) => {
+    onChange(name)
+    setSearch(name)
+    setFocused(false)
+  }
+
+  const handleClear = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onChange('')
+    setSearch('')
+    setFocused(false)
+  }
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      {/* Search input */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px', height: 38, border: `1px solid ${focused ? '#185FA5' : '#E0E0E0'}`, borderRadius: showList ? '6px 6px 0 0' : 6, background: '#fff', transition: 'border-color 0.15s' }}>
+        <Search size={13} style={{ color: '#BDBDBD', flexShrink: 0 }} />
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); onChange('') }}
+          onFocus={() => setFocused(true)}
+          placeholder="ค้นหาเครื่องจักร…"
+          style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontFamily: 'inherit', color: '#1F1F1F' }}
+        />
+        {(search || value) && (
+          <button onClick={handleClear} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2, display: 'flex', color: '#BDBDBD', lineHeight: 1, flexShrink: 0 }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#555')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#BDBDBD')}>
+            <X size={12} />
+          </button>
+        )}
+      </div>
+
+      {/* Inline results list */}
+      {showList && (
+        <div style={{ border: '1px solid #185FA5', borderTop: 'none', borderRadius: '0 0 6px 6px', background: '#fff', maxHeight: 220, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 200, position: 'absolute', left: 0, right: 0 }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: '14px', fontSize: 12, color: '#BDBDBD', textAlign: 'center' }}>ไม่พบเครื่องจักร</div>
+          ) : filtered.map(m => (
+            <div
+              key={m.id}
+              onMouseDown={e => { e.preventDefault(); handleSelect(m.name) }}
+              style={{
+                padding: '10px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14,
+                borderBottom: '1px solid #F5F5F5',
+                background: value === m.name ? '#F0F7FF' : 'transparent',
+              }}
+              onMouseEnter={e => { if (value !== m.name) (e.currentTarget as HTMLElement).style.background = '#F8F8F8' }}
+              onMouseLeave={e => { if (value !== m.name) (e.currentTarget as HTMLElement).style.background = 'transparent' }}
+            >
+              <span style={{ fontSize: 13, color: '#1F1F1F', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Slider field ───────────────────────────────────────────────
 
@@ -120,11 +208,7 @@ function EditModal({ wc, onClose }: { wc: WorkcenterDTO; onClose: () => void }) 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 12, alignItems: 'end' }}>
             <div className="flex flex-col" style={{ gap: 6 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Machine</label>
-              <input autoFocus
-                value={machine} onChange={e => setMachine(e.target.value)}
-                placeholder="ชื่อเครื่องจักร (เว้นว่างถ้าไม่มี)"
-                className="border rounded-md focus:outline-none"
-                style={{ height: 38, padding: '0 12px', fontSize: 14, borderColor: '#E0E0E0' }} />
+              <MachineCombobox value={machine} onChange={setMachine} />
             </div>
             <div className="flex flex-col" style={{ gap: 6 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Status</label>
@@ -322,11 +406,7 @@ function CreateModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className="flex flex-col flex-1" style={{ gap: 6 }}>
                   <label style={{ fontSize: 11, fontWeight: 600, color: '#555', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Machine</label>
-                  <input
-                    value={machine} onChange={e => setMachine(e.target.value)}
-                    placeholder="e.g. CNC Plasma"
-                    className="border rounded-md focus:outline-none"
-                    style={{ height: 38, padding: '0 12px', fontSize: 14, borderColor: '#E0E0E0' }} />
+                  <MachineCombobox value={machine} onChange={setMachine} />
                 </div>
               </div>
               <div className="flex flex-col" style={{ gap: 6 }}>

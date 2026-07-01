@@ -3,6 +3,7 @@ import { IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Max, Min } from '
 export class CreateWorkcenterDto {
   @IsNotEmpty() @IsString() code: string
   @IsNotEmpty() @IsString() name: string
+  @IsOptional() @IsString() machine?: string | null
 
   @IsOptional() @IsNumber() @Min(0) sequence?: number
   @IsOptional() @IsNumber() @Min(0) @Max(100) oee_target?: number
