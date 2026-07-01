@@ -66,7 +66,7 @@ export function MaterialDetail() {
     try {
       await action.mutateAsync(def.action)
       setConfirmAction(null)
-      toast.success(`${def.label} สำเร็จ`)
+      toast.success(`${def.label} completed`)
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Action failed — please try again')
     }

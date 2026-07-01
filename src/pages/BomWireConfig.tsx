@@ -72,7 +72,7 @@ export function BomWireConfig() {
     }))
     try {
       await saveMutation.mutateAsync({ configs })
-      toast.success('บันทึกสำเร็จ')
+      toast.success('Wire config saved')
       navigate(`/bom/dispatch/${dispatchId}`)
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Failed to save wire config — please try again')
