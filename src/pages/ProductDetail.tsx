@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
 import { useProduct, useProductAction, useProductMessages, useUpdateProductSpec } from '../hooks/useProducts'
@@ -907,7 +908,8 @@ export function ProductDetail() {
                     setConfirmAction(null)
                     setActionComment('')
                   } catch (e: any) {
-                    setActionError(e?.response?.data?.message ?? 'An error occurred')
+                    toast.error(e?.response?.data?.message ?? 'An error occurred')
+                    console.error(e)
                   }
                 }}
                 className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-60"

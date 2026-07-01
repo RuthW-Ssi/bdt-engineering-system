@@ -16,6 +16,7 @@ import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
 import { ActivityBuilderModal } from './ActivityBuilder'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
 
@@ -1605,6 +1606,7 @@ function MarkPrefixPicker({
 function RoutingBuilderInner() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const { id: paramId } = useParams<{ id?: string }>()
   const isEdit = Boolean(paramId)
   const templateId = paramId ? Number(paramId) : null
@@ -2173,10 +2175,17 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
     [previewMode, previewInputs]
   )
   const handleInspectorClose = useCallback(() => setSelectedNodeId(null), [])
-  const handleInspectorDelete = useCallback(() => {
+  const handleInspectorDelete = useCallback(async () => {
+    const ok = await confirm({
+      title: 'ลบ Operation นี้?',
+      message: 'Operation จะถูกลบออกจาก Routing',
+      variant: 'danger',
+      confirmLabel: 'ลบ',
+    })
+    if (!ok) return
     setNodes(nds => nds.filter(n => n.id !== selectedNodeId))
     setSelectedNodeId(null)
-  }, [selectedNodeId, setNodes])
+  }, [selectedNodeId, setNodes, confirm])
 
   if (isEdit && loadingTemplate) {
     return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 'calc(100vh - 56px)', color: '#8E8E8E', fontSize: 13 }}>Loading template…</div>
