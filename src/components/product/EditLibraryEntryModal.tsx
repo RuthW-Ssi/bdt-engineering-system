@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { X, Loader2, AlertTriangle } from 'lucide-react'
+import { toast } from 'sonner'
 import { useUpdateLibraryEntry } from '../../hooks/useLibrary'
 import { libraryApi } from '../../api/library'
 import { PREFIX_CATEGORIES } from '../../api/types'
@@ -108,7 +109,7 @@ export function EditLibraryEntryModal({ entry, onClose }: Props) {
       onClose()
     } catch (err: any) {
       const msg = err?.response?.data?.message ?? 'An error occurred'
-      setFormError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+      toast.error(typeof msg === 'string' ? msg : JSON.stringify(msg))
     }
   }
 
