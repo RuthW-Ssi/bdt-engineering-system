@@ -74,8 +74,9 @@ export function BomWireConfig() {
       await saveMutation.mutateAsync({ configs })
       toast.success('บันทึกสำเร็จ')
       navigate(`/bom/dispatch/${dispatchId}`)
-    } catch {
-      toast.error('Save failed — check backend')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to save wire config — please try again')
+      console.error(e)
     }
   }
 

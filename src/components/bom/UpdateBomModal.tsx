@@ -122,8 +122,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
       qc.invalidateQueries({ queryKey: ['dispatches'] })
       toast.success('อัพโหลด BOM สำเร็จ')
       onClose()
-    } catch {
-      toast.error('Upload failed — check that the backend is running')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'BOM upload failed — please try again')
+      console.error(e)
       setProgress(null)
     }
   }

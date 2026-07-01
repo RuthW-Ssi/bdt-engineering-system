@@ -68,7 +68,7 @@ export function MaterialDetail() {
       setConfirmAction(null)
       toast.success(`${def.label} สำเร็จ`)
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Action failed')
+      toast.error(e?.response?.data?.message ?? 'Action failed — please try again')
     }
   }
 
