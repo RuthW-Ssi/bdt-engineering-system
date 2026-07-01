@@ -36,10 +36,15 @@ function makeFileHandlers(
   files: FileEntry[],
   setFiles: React.Dispatch<React.SetStateAction<FileEntry[]>>,
   typeMap?: Partial<Record<DocType, DocType>>,
+  requiredKeyword?: string,
 ) {
   const onFilesAdded = (accepted: File[], rejected: FileRejection[]) => {
     const newEntries: FileEntry[] = []
     accepted.forEach(file => {
+      if (requiredKeyword && !file.name.toUpperCase().includes(requiredKeyword.toUpperCase())) {
+        newEntries.push({ file, detectedType: null, error: `ชื่อไฟล์ต้องมีคำว่า "${requiredKeyword}"` })
+        return
+      }
       const raw = classifyFilename(file.name)
       const detectedType = raw && typeMap ? (typeMap[raw] ?? raw) : raw
       const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
@@ -97,8 +102,8 @@ export function BomUpload() {
   const uploadMutation = useUploadBom()
 
   const combined = makeFileHandlers(files, setFiles)
-  const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP)
-  const acc = makeFileHandlers(accFiles, setAccFiles, ACC_TYPE_MAP)
+  const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
+  const acc = makeFileHandlers(accFiles, setAccFiles, ACC_TYPE_MAP, 'ACC')
 
   const handleZoneChange = (val: string) => {
     setZoneId(val)
