@@ -47,7 +47,7 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
     if (!suggest) return
     await statusMutation.mutateAsync({
       new_status: suggest.to,
-      reason: 'เปลี่ยนสถานะอัตโนมัติหลังแจ้งซ่อม',
+      reason: 'Status auto-changed after reporting repair',
       changed_by: statusChangedBy || form.reported_by,
       ...(createdTicketId != null ? { related_repair_id: createdTicketId } : {}),
     })
@@ -58,20 +58,20 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
         <div style={{ background: 'white', borderRadius: 12, padding: 24, width: 400 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>เปลี่ยนสถานะด้วยไหม?</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Change status as well?</h2>
           <p style={{ fontSize: 14, color: '#374151', marginBottom: 16 }}>
-            ต้องการเปลี่ยนสถานะจาก{' '}
-            <MachineStatusPill status={suggest.from as EquipmentStatus} size="sm" /> เป็น{' '}
-            <MachineStatusPill status={suggest.to as EquipmentStatus} size="sm" /> ด้วยไหม?
+            Change status from{' '}
+            <MachineStatusPill status={suggest.from as EquipmentStatus} size="sm" /> to{' '}
+            <MachineStatusPill status={suggest.to as EquipmentStatus} size="sm" /> as well?
           </p>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 4 }}>ผู้บันทึก</label>
+            <label style={{ fontSize: 13, fontWeight: 500, color: '#374151', display: 'block', marginBottom: 4 }}>Recorded by</label>
             <input value={statusChangedBy} onChange={e => setStatusChangedBy(e.target.value)} placeholder={form.reported_by} style={inputStyle} />
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={onClose} style={cancelBtnStyle}>ไม่ต้องการ</button>
+            <button onClick={onClose} style={cancelBtnStyle}>No thanks</button>
             <button onClick={handleAcceptSuggest} disabled={statusMutation.isPending} style={submitBtnStyle}>
-              {statusMutation.isPending ? 'กำลังบันทึก...' : 'ยืนยัน เปลี่ยนสถานะ'}
+              {statusMutation.isPending ? 'Saving...' : 'Confirm status change'}
             </button>
           </div>
         </div>
@@ -83,42 +83,42 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div style={{ background: 'white', borderRadius: 12, padding: 24, width: 480, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>แจ้งซ่อม</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Report Repair</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>×</button>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="ผู้แจ้ง *">
+          <Field label="Reported by *">
             <input required value={form.reported_by} onChange={e => set('reported_by', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="วันที่แจ้ง *">
+          <Field label="Report date *">
             <input required type="datetime-local" value={form.reported_at} onChange={e => set('reported_at', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="ความรุนแรง *">
+          <Field label="Severity *">
             <div style={{ display: 'flex', gap: 8 }}>
               {(['LOW', 'MEDIUM', 'HIGH'] as RepairSeverity[]).map(s => (
                 <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 13 }}>
                   <input type="radio" value={s} checked={form.severity === s} onChange={() => set('severity', s)} />
                   <span style={{ color: s === 'HIGH' ? '#dc2626' : s === 'MEDIUM' ? '#d97706' : '#16a34a', fontWeight: 600 }}>
-                    {s === 'LOW' ? 'เล็กน้อย' : s === 'MEDIUM' ? 'ปานกลาง' : 'รุนแรง'}
+                    {s === 'LOW' ? 'Low' : s === 'MEDIUM' ? 'Medium' : 'High/Critical'}
                   </span>
                 </label>
               ))}
             </div>
           </Field>
-          <Field label="รายละเอียดปัญหา *">
+          <Field label="Problem description *">
             <textarea required value={form.problem_description} onChange={e => set('problem_description', e.target.value)} rows={4} style={{ ...inputStyle, resize: 'vertical' }} />
           </Field>
-          <PhotoUploadField label="รูปก่อนซ่อม" value={form.photos_before} onChange={v => set('photos_before', v)} />
+          <PhotoUploadField label="Before repair photos" value={form.photos_before} onChange={v => set('photos_before', v)} />
 
           {openMutation.error && (
-            <div style={{ color: '#dc2626', fontSize: 13 }}>เกิดข้อผิดพลาด กรุณาลองใหม่</div>
+            <div style={{ color: '#dc2626', fontSize: 13 }}>Error occurred. Please try again</div>
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-            <button type="button" onClick={onClose} style={cancelBtnStyle}>ยกเลิก</button>
+            <button type="button" onClick={onClose} style={cancelBtnStyle}>Cancel</button>
             <button type="submit" disabled={openMutation.isPending} style={{ ...submitBtnStyle, background: '#dc2626' }}>
-              {openMutation.isPending ? 'กำลังบันทึก...' : 'แจ้งซ่อม'}
+              {openMutation.isPending ? 'Saving...' : 'Report Repair'}
             </button>
           </div>
         </form>

@@ -43,7 +43,7 @@ function makeFileHandlers(
     const newEntries: FileEntry[] = []
     accepted.forEach(file => {
       if (requiredKeyword && !file.name.toUpperCase().includes(requiredKeyword.toUpperCase())) {
-        newEntries.push({ file, detectedType: null, error: `ชื่อไฟล์ต้องมีคำว่า "${requiredKeyword}"` })
+        newEntries.push({ file, detectedType: null, error: `Filename must contain "${requiredKeyword}"` })
         return
       }
       const raw = classifyFilename(file.name)
@@ -250,7 +250,7 @@ export function BomUpload() {
                     }}
                     style={{ accentColor: '#C8202A' }}
                   />
-                  {mode === 'combined' ? 'รวม (Combined)' : 'แยก Main + ACC'}
+                  {mode === 'combined' ? 'Combined' : 'Separate Main + ACC'}
                 </label>
               ))}
             </div>
@@ -261,7 +261,7 @@ export function BomUpload() {
         {effectiveMode === 'combined' && (
           <BomFileSection
             label="BOM Files"
-            hint="Assembly List, Assembly Part List, Part List (ครบ 3 ไฟล์)"
+            hint="Assembly List, Assembly Part List, Part List (3 files required)"
             maxFiles={3}
             files={files}
             allowedTypes={['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']}
@@ -302,7 +302,7 @@ export function BomUpload() {
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
             NC Files <span style={{ color: '#C8202A' }}>*</span>
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              ไฟล์ .nc1 จาก Tekla (ใช้เป็น canonical source สำหรับ qty + dimensions)
+              .nc1 files from Tekla (canonical source for qty + dimensions)
             </span>
           </label>
           <FileDropzone

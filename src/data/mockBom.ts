@@ -3,7 +3,7 @@ import type { BomNode, BomDiffNode } from '../types'
 export const mockBomTree: BomNode = {
   id: 'root',
   code: 'MA-B1-00005',
-  name: 'Main Assembly คานหลัก B1 ชั้น 1',
+  name: 'Main Assembly B1 Floor 1',
   category: 'Assembly',
   qty: 1,
   uom: 'PCS',
@@ -14,7 +14,7 @@ export const mockBomTree: BomNode = {
     {
       id: 'sa-l1',
       code: 'SA-00123',
-      name: 'SubAssembly คาน I-beam L1 ซ้าย',
+      name: 'SubAssembly I-beam L1 Left',
       category: 'SubAssembly',
       qty: 1,
       uom: 'PCS',
@@ -22,16 +22,16 @@ export const mockBomTree: BomNode = {
       level: 1,
       expanded: true,
       children: [
-        { id: 'pp-099', code: 'PP-00099', name: 'Part แผ่นเชื่อมปีก I-beam 200×10', category: 'Part', qty: 4, uom: 'PCS', scrap_pct: 5, level: 2, expanded: false, children: [] },
-        { id: 'pp-100', code: 'PP-00100', name: 'Part แผ่นเชื่อมเอว I-beam 350×8', category: 'Part', qty: 2, uom: 'PCS', scrap_pct: 5, level: 2, expanded: false, children: [] },
-        { id: 'pl-045', code: 'PL-00045', name: 'แผ่นเหล็ก SS400 t10×1500', category: 'Plate', qty: 120, uom: 'KG', scrap_pct: 8, level: 2, expanded: false, children: [] },
-        { id: 'cn-weld', code: 'CN-WELD-E7018', name: 'ลวดเชื่อม E7018 ขนาด 3.2mm', category: 'Consumable', qty: 2.5, uom: 'KG', scrap_pct: 0, level: 2, expanded: false, children: [] },
+        { id: 'pp-099', code: 'PP-00099', name: 'Part Flange Plate I-beam 200×10', category: 'Part', qty: 4, uom: 'PCS', scrap_pct: 5, level: 2, expanded: false, children: [] },
+        { id: 'pp-100', code: 'PP-00100', name: 'Part Web Plate I-beam 350×8', category: 'Part', qty: 2, uom: 'PCS', scrap_pct: 5, level: 2, expanded: false, children: [] },
+        { id: 'pl-045', code: 'PL-00045', name: 'Steel Plate SS400 t10×1500', category: 'Plate', qty: 120, uom: 'KG', scrap_pct: 8, level: 2, expanded: false, children: [] },
+        { id: 'cn-weld', code: 'CN-WELD-E7018', name: 'Welding Rod E7018 3.2mm', category: 'Consumable', qty: 2.5, uom: 'KG', scrap_pct: 0, level: 2, expanded: false, children: [] },
       ],
     },
     {
       id: 'sa-r1',
       code: 'SA-00124',
-      name: 'SubAssembly คาน I-beam R1 ขวา',
+      name: 'SubAssembly I-beam R1 Right',
       category: 'SubAssembly',
       qty: 1,
       uom: 'PCS',
@@ -39,18 +39,18 @@ export const mockBomTree: BomNode = {
       level: 1,
       expanded: false,
       children: [
-        { id: 'pp-099b', code: 'PP-00099', name: 'Part แผ่นเชื่อมปีก I-beam 200×10', category: 'Part', qty: 4, uom: 'PCS', scrap_pct: 5, level: 2, expanded: false, children: [] },
+        { id: 'pp-099b', code: 'PP-00099', name: 'Part Flange Plate I-beam 200×10', category: 'Part', qty: 4, uom: 'PCS', scrap_pct: 5, level: 2, expanded: false, children: [] },
         { id: 'pp-101', code: 'PP-00101', name: 'Base Plate 350×350×20', category: 'Part', qty: 1, uom: 'PCS', scrap_pct: 2, level: 2, expanded: false, children: [] },
       ],
     },
-    { id: 'pl-046', code: 'PL-00046', name: 'แผ่นเหล็ก SS400 t20×350', category: 'Plate', qty: 4, uom: 'PCS', scrap_pct: 3, level: 1, expanded: false, children: [] },
+    { id: 'pl-046', code: 'PL-00046', name: 'Steel Plate SS400 t20×350', category: 'Plate', qty: 4, uom: 'PCS', scrap_pct: 3, level: 1, expanded: false, children: [] },
   ],
 }
 
 export const mockBomDiff: BomDiffNode = {
   id: 'root',
   code: 'SA-00124',
-  name: 'SubAssembly คาน I-beam R1 ขวา',
+  name: 'SubAssembly I-beam R1 Right',
   category: 'SubAssembly',
   state: 'unchanged',
   level: 0,
@@ -60,7 +60,7 @@ export const mockBomDiff: BomDiffNode = {
     {
       id: 'd-pp-099',
       code: 'PP-00099',
-      name: 'Part แผ่นเชื่อมปีก I-beam 200×10',
+      name: 'Part Flange Plate I-beam 200×10',
       category: 'Part',
       state: 'modified',
       level: 1,
@@ -97,7 +97,7 @@ export const mockBomDiff: BomDiffNode = {
     {
       id: 'd-cn-bolt',
       code: 'CN-BOLT-M16',
-      name: 'น็อต M16 Grade 8.8',
+      name: 'Bolt M16 Grade 8.8',
       category: 'Consumable',
       state: 'removed',
       level: 1,
@@ -108,7 +108,7 @@ export const mockBomDiff: BomDiffNode = {
     {
       id: 'd-pl-045',
       code: 'PL-00045',
-      name: 'แผ่นเหล็ก SS400 t10×1500',
+      name: 'Steel Plate SS400 t10×1500',
       category: 'Plate',
       state: 'unchanged',
       level: 1,

@@ -93,7 +93,7 @@ export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, cur
         {hint ?? `${formats.join(', ')} · max 20 MB / file · up to ${maxFiles} files`}
       </div>
 
-      {/* Input คลุมทั้ง dropzone — คลิกที่ไหนก็เปิด file picker */}
+      {/* Input covers entire dropzone — clicking anywhere opens the file picker */}
       {!disabled && (
         <input
           type="file"

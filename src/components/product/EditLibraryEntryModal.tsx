@@ -204,7 +204,7 @@ export function EditLibraryEntryModal({ entry, onClose }: Props) {
           {/* Mark Prefix section */}
           <div style={{ borderTop: '1px solid #F0F0F0', paddingTop: 16 }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#0C447C', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 12 }}>
-              Mark Prefix {!hasPrefix && <span style={{ fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>— ยังไม่ได้ตั้งค่า</span>}
+              Mark Prefix {!hasPrefix && <span style={{ fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>— Not configured</span>}
             </div>
 
             <div className="flex flex-col" style={{ gap: 12 }}>
@@ -252,7 +252,7 @@ export function EditLibraryEntryModal({ entry, onClose }: Props) {
                   className="border rounded-md focus:outline-none"
                   style={{ height: 36, padding: '0 10px', fontSize: 14, borderColor: '#E0E0E0', background: '#fff' }}
                 >
-                  <option value="">— เลือก Category —</option>
+                  <option value="">— Select category —</option>
                   {PREFIX_CATEGORIES.map(c => (
                     <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
                   ))}

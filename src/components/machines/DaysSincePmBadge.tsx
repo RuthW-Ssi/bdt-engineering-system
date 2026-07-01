@@ -5,7 +5,7 @@ interface Props {
 export function DaysSincePmBadge({ days }: Props) {
   if (days === null) {
     return (
-      <span style={{ color: '#9ca3af', fontSize: 12 }}>ไม่มีข้อมูล</span>
+      <span style={{ color: '#9ca3af', fontSize: 12 }}>No data</span>
     )
   }
 
@@ -24,7 +24,7 @@ export function DaysSincePmBadge({ days }: Props) {
         display: 'inline-block',
       }}
     >
-      {days} วัน
+      {days} days
     </span>
   )
 }

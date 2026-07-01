@@ -9,7 +9,6 @@ import {
 
 interface NavItem {
   label: string
-  labelTh: string
   icon: React.ReactNode
   path: string
   badge?: number
@@ -20,41 +19,41 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: '',
     items: [
-      { label: 'Dashboard', labelTh: 'ภาพรวม', icon: <LayoutDashboard size={18} />, path: '/dashboard' },
+      { label: 'Dashboard', icon: <LayoutDashboard size={18} />, path: '/dashboard' },
     ],
   },
   {
     title: 'Project Management',
     items: [
-      { label: 'Customers', labelTh: 'ลูกค้า', icon: <Users size={18} />, path: '/customers' },
-      { label: 'Projects', labelTh: 'โปรเจกต์', icon: <FolderOpen size={18} />, path: '/projects' },
-      { label: 'Zones', labelTh: 'โซน', icon: <MapPin size={18} />, path: '/zones' },
+      { label: 'Customers', icon: <Users size={18} />, path: '/customers' },
+      { label: 'Projects', icon: <FolderOpen size={18} />, path: '/projects' },
+      { label: 'Zones', icon: <MapPin size={18} />, path: '/zones' },
     ],
   },
   {
     title: 'Engineering',
     items: [
-      { label: 'Materials', labelTh: 'วัสดุ', icon: <Boxes size={18} />, path: '/materials' },
-      { label: 'Engineer Products', labelTh: 'ชิ้นงานวิศวกร', icon: <Package size={18} />, path: '/engineer-products' },
-      { label: 'BOM', labelTh: 'BOM', icon: <GitBranch size={18} />, path: '/bom' },
+      { label: 'Materials', icon: <Boxes size={18} />, path: '/materials' },
+      { label: 'Engineer Products', icon: <Package size={18} />, path: '/engineer-products' },
+      { label: 'BOM', icon: <GitBranch size={18} />, path: '/bom' },
       {
-        label: 'Routings', labelTh: 'ผังการผลิต', icon: <Workflow size={18} />, path: '/routings',
+        label: 'Routings', icon: <Workflow size={18} />, path: '/routings',
         children: [
-{ label: 'Routing Template', labelTh: 'เทมเพลต', icon: <Puzzle size={14} />, path: '/routings' },
-          { label: 'Operation Library', labelTh: 'คลังออเปอเรชัน', icon: <BookOpen size={14} />, path: '/operation-library' },
-          { label: 'Activity Library', labelTh: 'คลังกิจกรรม', icon: <Activity size={14} />, path: '/activity-library' },
+          { label: 'Routing Template', icon: <Puzzle size={14} />, path: '/routings' },
+          { label: 'Operation Library', icon: <BookOpen size={14} />, path: '/operation-library' },
+          { label: 'Activity Library', icon: <Activity size={14} />, path: '/activity-library' },
         ],
       },
-      { label: 'ECO', labelTh: 'ECO', icon: <FileWarning size={18} />, path: '/eco', badge: 3 },
+      { label: 'ECO', icon: <FileWarning size={18} />, path: '/eco', badge: 3 },
     ],
   },
   {
     title: 'Production',
     items: [
-      { label: 'Order', labelTh: 'ใบสั่งการผลิต', icon: <ClipboardList size={18} />, path: '/order' },
-      { label: 'Machine & Resources', labelTh: 'เครื่องจักรและทรัพยากร', icon: <Cog size={18} />, path: '/resources' },
-      { label: 'QC', labelTh: 'ควบคุมคุณภาพ', icon: <ShieldCheck size={18} />, path: '/qc' },
-      { label: 'Reports', labelTh: 'รายงาน', icon: <BarChart3 size={18} />, path: '/reports' },
+      { label: 'Order', icon: <ClipboardList size={18} />, path: '/order' },
+      { label: 'Machine & Resources', icon: <Cog size={18} />, path: '/resources' },
+      { label: 'QC', icon: <ShieldCheck size={18} />, path: '/qc' },
+      { label: 'Reports', icon: <BarChart3 size={18} />, path: '/reports' },
     ],
   },
 ]

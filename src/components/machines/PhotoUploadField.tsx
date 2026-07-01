@@ -11,7 +11,7 @@ interface Props {
   label?: string
 }
 
-export function PhotoUploadField({ value, onChange, label = 'รูปภาพ' }: Props) {
+export function PhotoUploadField({ value, onChange, label = 'Photos' }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +22,7 @@ export function PhotoUploadField({ value, onChange, label = 'รูปภาพ'
 
     const remaining = MAX_PHOTOS - value.length
     if (remaining <= 0) {
-      setError(`อัปโหลดได้สูงสุด ${MAX_PHOTOS} รูป`)
+      setError(`Maximum ${MAX_PHOTOS} photos allowed`)
       return
     }
 
@@ -30,11 +30,11 @@ export function PhotoUploadField({ value, onChange, label = 'รูปภาพ'
 
     for (const file of toUpload) {
       if (!ALLOWED_TYPES.includes(file.type)) {
-        setError('รองรับเฉพาะไฟล์ jpg/png')
+        setError('Only jpg/png files are supported')
         return
       }
       if (file.size > MAX_SIZE) {
-        setError('ไฟล์ต้องไม่เกิน 5MB')
+        setError('File must not exceed 5MB')
         return
       }
     }
@@ -48,7 +48,7 @@ export function PhotoUploadField({ value, onChange, label = 'รูปภาพ'
       }
       onChange([...value, ...urls])
     } catch {
-      setError('อัปโหลดล้มเหลว กรุณาลองใหม่')
+      setError('Upload failed — please try again')
     } finally {
       setUploading(false)
     }
@@ -84,10 +84,10 @@ export function PhotoUploadField({ value, onChange, label = 'รูปภาพ'
         }}
       >
         {uploading
-          ? 'กำลังอัปโหลด...'
+          ? 'Uploading...'
           : value.length >= MAX_PHOTOS
-          ? `ถึงขีดสูงสุด (${MAX_PHOTOS} รูป)`
-          : 'ลากและวาง หรือคลิกเลือกรูปภาพ (jpg/png, max 5MB)'}
+          ? `Maximum reached (${MAX_PHOTOS} photos)`
+          : 'Drag & drop or click to select photos (jpg/png, max 5MB)'}
       </div>
 
       <input

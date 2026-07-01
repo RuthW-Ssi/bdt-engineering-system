@@ -132,7 +132,7 @@ function ConsumablePicker({ value, onChange, formulas }: {
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9E9E9E', pointerEvents: 'none' }} />
         <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
-          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา material (consumable)…" />
+          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="Search material (consumable)…" />
       </div>
       {open && filtered.length > 0 && (
         <div style={{
@@ -199,7 +199,7 @@ function ToolPicker({ value, onChange }: { value: ToolOption[]; onChange: (items
             }}>
               <span style={{ fontWeight: 600, fontFamily: 'monospace', fontSize: 11, color: '#1565C0', minWidth: 60 }}>{tool.code}</span>
               <span style={{ color: '#555', flex: 1 }}>{tool.name}</span>
-              <span style={{ fontSize: 11, color: '#9E9E9E', marginRight: 2 }}>จำนวน</span>
+              <span style={{ fontSize: 11, color: '#9E9E9E', marginRight: 2 }}>Qty</span>
               <input
                 type="number" min={1} value={tool.qty}
                 onChange={e => onChange(value.map(v => v.id === tool.id ? { ...v, qty: Math.max(1, Number(e.target.value)) } : v))}
@@ -216,7 +216,7 @@ function ToolPicker({ value, onChange }: { value: ToolOption[]; onChange: (items
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9E9E9E', pointerEvents: 'none' }} />
         <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
-          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา tool…" />
+          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="Search tool…" />
       </div>
       {open && filtered.length > 0 && (
         <div style={{
@@ -299,7 +299,7 @@ function SkillPicker({ value, onChange }: { value: LaborEntry[]; onChange: (item
                 <button type="button" onMouseDown={(e) => { e.preventDefault(); setQty(skill, qty + 1) }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#1B5E20', fontSize: 14, lineHeight: 1, padding: '0 2px', fontWeight: 700 }}>+</button>
               </div>
-              <span style={{ fontSize: 10, color: '#888' }}>คน</span>
+              <span style={{ fontSize: 10, color: '#888' }}>persons</span>
               {/* level */}
               <select
                 value={level ?? ''}
@@ -319,7 +319,7 @@ function SkillPicker({ value, onChange }: { value: LaborEntry[]; onChange: (item
       <div style={{ position: 'relative' }}>
         <Search size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#9E9E9E', pointerEvents: 'none' }} />
         <input value={query} onChange={(e) => { setQuery(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
-          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="ค้นหา skill…" />
+          style={{ ...inputStyle, paddingLeft: 30 }} placeholder="Search skill…" />
       </div>
       {open && filtered.length > 0 && (
         <div style={{
@@ -452,7 +452,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
               <div style={{ background: '#F8F9FA', border: '1px solid #E8E8E8', borderRadius: 10, padding: 20 }}>
                 <div style={sectionLabel}>Activity Details</div>
                 <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>ชื่อกิจกรรม <span style={{ color: '#C8202A' }}>*</span></label>
+                  <label style={labelStyle}>Activity name <span style={{ color: '#C8202A' }}>*</span></label>
                   <input
                     {...register('name', { required: 'Required', maxLength: { value: 120, message: 'Max 120 chars' } })}
                     style={{ ...inputStyle, borderColor: errors.name ? '#FFCDD2' : '#E0E0E0' }}
@@ -491,7 +491,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                       {...register('formula_code')}
                       style={{ ...inputStyle, color: watchedFormulaCode ? '#1F1F1F' : '#9E9E9E', fontSize: 12 }}
                     >
-                      <option value="">— ไม่ใช้ formula —</option>
+                      <option value="">— No formula —</option>
                       {routingFormulas.map(f => (
                         <option key={f.code} value={f.code}>
                           {f.name || f.description} [{f.return_unit}]
@@ -504,14 +504,14 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                     const f = routingFormulas.find(x => x.code === watchedFormulaCode)
                     const unit = f?.return_unit ?? 'unit'
                     const preview = watchedRatio !== '' && watchedPerTime !== ''
-                      ? `ทุก ${watchedRatio} ${unit} ใช้เวลา ${watchedPerTime} นาที`
+                      ? `Every ${watchedRatio} ${unit} takes ${watchedPerTime} min`
                       : null
                     return (
                       <div style={{ background: '#F0F7FF', border: '1px solid #BBDEFB', borderRadius: 8, padding: 12 }}>
                         <div style={{ display: 'flex', gap: 8, marginBottom: preview ? 8 : 0 }}>
                           {/* ratio */}
                           <div style={{ flex: 2 }}>
-                            <label style={{ ...labelStyle, fontSize: 9 }}>Ratio (ทุกกี่ {unit})</label>
+                            <label style={{ ...labelStyle, fontSize: 9 }}>Ratio (per how many {unit})</label>
                             <input
                               {...register('ratio', { min: { value: 0, message: '≥ 0' } })}
                               type="number" step="0.0001"
@@ -559,12 +559,12 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                 </div>
                 <div style={{ borderTop: '1px solid #EEEEEE', marginBottom: 20 }} />
                 <div style={{ marginBottom: 20 }}>
-                  <label style={labelStyle}>Tools / เครื่องมือ (optional)</label>
+                  <label style={labelStyle}>Tools / Equipment (optional)</label>
                   <ToolPicker value={selectedTools} onChange={setSelectedTools} />
                 </div>
                 <div style={{ borderTop: '1px solid #EEEEEE', marginBottom: 20 }} />
                 <div>
-                  <label style={labelStyle}>Skill / ทักษะ (optional)</label>
+                  <label style={labelStyle}>Skill / Expertise (optional)</label>
                   <SkillPicker value={selectedSkills} onChange={setSelectedSkills} />
                 </div>
               </div>

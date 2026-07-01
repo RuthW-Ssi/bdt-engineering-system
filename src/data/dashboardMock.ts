@@ -96,9 +96,9 @@ export interface MaterialSummary {
 // ─── Projects ─────────────────────────────────────────────────────────────────
 
 export const MOCK_PROJECTS: MockProject[] = [
-  { id: 1, project_code: 'THEPHA', name: 'THEPHA 28×54m อาคารคลังสินค้า', state: 'active' },
-  { id: 2, project_code: 'PROJ-B', name: 'Project B — โรงงานสมุทรสาคร', state: 'active' },
-  { id: 3, project_code: 'PROJ-C', name: 'Project C — คลังเย็นระยอง', state: 'planning' },
+  { id: 1, project_code: 'THEPHA', name: 'THEPHA 28×54m Warehouse', state: 'active' },
+  { id: 2, project_code: 'PROJ-B', name: 'Project B — Samut Sakhon Factory', state: 'active' },
+  { id: 3, project_code: 'PROJ-C', name: 'Project C — Rayong Cold Storage', state: 'planning' },
   { id: 4, project_code: 'PROJ-D', name: 'Project D — Pilot Phase 1', state: 'on_hold' },
 ]
 
@@ -224,8 +224,8 @@ export const MATERIALS_SUMMARY: MaterialSummary = {
   paint: 31,
   welding: 6,
   recent: [
-    { code: 'CN-WELD-E7018', name: 'ลวดเชื่อม E7018 3.2mm',       state: 'confirmed' },
-    { code: 'PL-00046',      name: 'แผ่นเหล็ก SS400 t20×350',      state: 'confirmed' },
+    { code: 'CN-WELD-E7018', name: 'Welding Rod E7018 3.2mm',      state: 'confirmed' },
+    { code: 'PL-00046',      name: 'Steel Plate SS400 t20×350',     state: 'confirmed' },
     { code: 'CN-EPOXY-P1',   name: 'Epoxy Primer Coat 1',           state: 'to_approve' },
     { code: 'CN-TOPCOAT-G',  name: 'Top Coat Grey RAL7035',         state: 'draft' },
   ],

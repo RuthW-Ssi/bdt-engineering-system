@@ -221,7 +221,7 @@ export function ProductList() {
             {!libLoading && !libError && libItems.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E', fontSize: 13 }}>
                 <Search size={32} style={{ opacity: 0.3 }} />
-                <div>ยังไม่มี library entry — กด + Add เพื่อเริ่ม</div>
+                <div>No library entries yet — click + Add to get started</div>
               </div>
             )}
 
@@ -401,10 +401,10 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
       const total = (data?.stdCount ?? 0) + (data?.cusCount ?? 0)
       if (total > 0) {
         const ok = await confirm({
-          title: 'Archive รายการนี้?',
-          message: `มี ${total} product ที่ยังใช้งานอยู่ (${data.stdCount} STD, ${data.cusCount} CUS)`,
+          title: 'Archive this entry?',
+          message: `${total} active products (${data.stdCount} STD, ${data.cusCount} CUS) will be affected`,
           variant: 'warning',
-          confirmLabel: 'Archive ต่อ',
+          confirmLabel: 'Archive anyway',
         })
         if (ok) {
           try {
@@ -429,7 +429,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
   const handleHardDelete = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setOpenMenuId(null)
-    const ok = await confirm({ title: `ลบ ${entry.code} — ${entry.name} ถาวร?`, message: 'ไม่สามารถกู้คืนได้', variant: 'danger', confirmLabel: 'ลบถาวร' })
+    const ok = await confirm({ title: `Delete ${entry.code} — ${entry.name} permanently?`, message: 'This cannot be undone', variant: 'danger', confirmLabel: 'Delete permanently' })
     if (!ok) return
     try {
       await hardDeleteEntry()
@@ -558,7 +558,7 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
                 <button onClick={handleHardDelete}
                   className="flex items-center gap-2 w-full hover:bg-chrome-50"
                   style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}
-                  title={entry.std_count + entry.cus_count > 0 ? 'มี products อ้างอิง — ลบไม่ได้' : ''}>
+                  title={entry.std_count + entry.cus_count > 0 ? 'Has linked products — cannot delete' : ''}>
                   <Trash2 size={13} /> Delete permanently
                 </button>
               </>

@@ -280,7 +280,7 @@ export function NewCustomProductModal({ onClose }: Props) {
                         ))}
                         {libraryQuery.trim() && libraryResults.length === 0 && (
                           <div style={{ padding: '7px 10px', borderTop: '1px solid #F0F0F0', color: '#9CA3AF', fontSize: 12 }}>
-                            ไม่พบ — กรุณาสร้าง entry ใน Product Library ก่อน
+                            Not found — please create an entry in Product Library first
                           </div>
                         )}
                       </div>

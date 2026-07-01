@@ -5,9 +5,9 @@ export function fmtTime(min: number): string {
 }
 
 export function fmtDate(d: string): string {
-  const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const [y, mo, dd] = d.split('-')
-  return `${parseInt(dd)} ${months[parseInt(mo) - 1]} ${parseInt(y) + 543}`
+  return `${parseInt(dd)} ${months[parseInt(mo) - 1]} ${parseInt(y)}`
 }
 
 export function genId(): string {

@@ -29,8 +29,6 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
   const [prefixError, setPrefixError] = useState('')
   const [checkingName, setCheckingName] = useState(false)
   const [checkingPrefix, setCheckingPrefix] = useState(false)
-  const [success, setSuccess] = useState<{ code: string; name: string } | null>(null)
-
   const { mutateAsync: create, isPending } = useCreateLibraryEntry()
 
   // Debounced name duplicate check
@@ -100,31 +98,13 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
         mark_prefix_label: prefixLabel.trim(),
         mark_prefix_category: prefixCategory,
       })
-      setSuccess({ code: entry.code, name: entry.name })
+      toast.success(`Library entry created — ${entry.code}`)
       onCreated?.({ id: entry.id, code: entry.code, name: entry.name })
+      onClose()
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? 'Failed to create library entry — please try again')
       console.error(err)
     }
-  }
-
-  if (success) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-        <div className="bg-white rounded-xl shadow-xl flex flex-col items-center" style={{ width: 440, padding: 40, gap: 16 }}>
-          <div style={{ fontSize: 32 }}>✓</div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: '#1F1F1F' }}>Library entry created</div>
-          <div style={{ fontSize: 13, color: '#555', textAlign: 'center' }}>
-            <span className="font-mono" style={{ fontWeight: 600, color: '#0C447C' }}>{success.code}</span>
-            {' · '}{success.name}
-          </div>
-          <button onClick={onClose} className="rounded-md text-white"
-            style={{ marginTop: 8, height: 36, padding: '0 24px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}>
-            Close
-          </button>
-        </div>
-      </div>
-    )
   }
 
   return (
@@ -223,7 +203,7 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
               className="border rounded-md focus:outline-none"
               style={{ height: 38, padding: '0 10px', fontSize: 14, borderColor: '#E0E0E0', background: '#fff' }}
             >
-              <option value="">— เลือก Category —</option>
+              <option value="">— Select category —</option>
               {PREFIX_CATEGORIES.map(c => (
                 <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
               ))}
@@ -231,7 +211,7 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
           </div>
 
           <div style={{ padding: '10px 12px', background: '#F5F5F5', borderRadius: 8, fontSize: 12, color: '#555' }}>
-            Code จะถูกสร้างอัตโนมัติ (LIB-001, LIB-002, ...) · Mark Prefix จะถูก sync ไป mark_prefix_master
+            Code will be auto-generated (LIB-001, LIB-002, ...) · Mark Prefix will sync to mark_prefix_master
           </div>
 
           {/* Footer */}

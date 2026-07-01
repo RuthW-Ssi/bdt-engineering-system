@@ -10,7 +10,7 @@ import { ActionButtons } from '../components/machines/ActionButtons'
 import { CloseRepairTicketModal } from '../components/machines/CloseRepairTicketModal'
 import type { RepairTicket } from '../api/machines'
 
-const TABS = ['รายละเอียด', 'งาน (Mock)', 'บันทึก PM', 'Ticket ซ่อม', 'ประวัติสถานะ']
+const TABS = ['Details', 'Jobs (Mock)', 'PM log', 'Repair Tickets', 'Status history']
 
 export function MachineDetail() {
   const { id } = useParams<{ id: string }>()
@@ -26,7 +26,7 @@ export function MachineDetail() {
   if (isLoading || !machine) {
     return (
       <div style={{ padding: 32, color: '#6b7280', fontSize: 14, textAlign: 'center' }}>
-        {isLoading ? 'กำลังโหลด...' : 'ไม่พบข้อมูล'}
+        {isLoading ? 'Loading...' : 'No data found'}
       </div>
     )
   }
@@ -40,7 +40,7 @@ export function MachineDetail() {
         onClick={() => navigate('/machines')}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, marginBottom: 16, padding: 0 }}
       >
-        <ChevronLeft size={16} /> กลับ
+        <ChevronLeft size={16} /> Back
       </button>
 
       {/* Header card */}
@@ -61,8 +61,8 @@ export function MachineDetail() {
 
           {/* Quick stats */}
           <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-            <StatBox label="อายุ PM" value={<DaysSincePmBadge days={machine.days_since_pm} />} />
-            <StatBox label="ซ่อมเดือนนี้" value={`${machine.quick_stats.repairs_this_month} ครั้ง`} />
+            <StatBox label="PM age" value={<DaysSincePmBadge days={machine.days_since_pm} />} />
+            <StatBox label="Repairs this month" value={`${machine.quick_stats.repairs_this_month}`} />
             <DowntimeBox stats={machine.quick_stats} />
           </div>
         </div>
@@ -117,7 +117,7 @@ function DowntimeBox({ stats }: { stats: { total_downtime_hours: number; repair_
     <div style={{ textAlign: 'left' }}>
       <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Downtime</div>
       <div style={{ marginTop: 2, fontSize: 14, fontWeight: 600 }}>{stats.total_downtime_hours} hrs</div>
-      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>↳ ซ่อม: {stats.repair_downtime_hours} hrs ({stats.repairs_this_month} tickets)</div>
+      <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>↳ Repair: {stats.repair_downtime_hours} hrs ({stats.repairs_this_month} tickets)</div>
       <div style={{ fontSize: 11, color: '#6b7280' }}>↳ PM: {stats.pm_downtime_hours} hrs ({stats.pm_count_this_month} PMs)</div>
     </div>
   )
@@ -126,15 +126,15 @@ function DowntimeBox({ stats }: { stats: { total_downtime_hours: number; repair_
 function DetailsTab({ machine }: { machine: ReturnType<typeof useMachine>['data'] & object }) {
   if (!machine) return null
   const fields = [
-    ['รหัส', machine.code],
-    ['ชื่อ', machine.name],
-    ['ประเภท', machine.type],
-    ['พื้นที่', machine.location],
-    ['ผู้ผลิต', machine.manufacturer],
-    ['รุ่น', machine.model],
+    ['Code', machine.code],
+    ['Name', machine.name],
+    ['Type', machine.type],
+    ['Location', machine.location],
+    ['Manufacturer', machine.manufacturer],
+    ['Model', machine.model],
     ['Serial No.', machine.serial_number],
-    ['วันที่ติดตั้ง', machine.install_date ? new Date(machine.install_date).toLocaleDateString('th-TH') : null],
-    ['สเปก', machine.specs],
+    ['Install date', machine.install_date ? new Date(machine.install_date).toLocaleDateString('th-TH') : null],
+    ['Specs', machine.specs],
   ]
   return (
     <div style={{ background: 'white', borderRadius: 10, border: '1px solid #e5e7eb', padding: 20 }}>
@@ -155,13 +155,13 @@ function JobsTab({ jobs }: { jobs: { code: string; operation: string; status: st
     <div>
       <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
         <AlertTriangle size={14} style={{ color: '#d97706' }} />
-        <span style={{ fontSize: 13, color: '#92400e' }}>⚠ ข้อมูล Mock · ยังไม่ link work order จริง</span>
+        <span style={{ fontSize: 13, color: '#92400e' }}>⚠ Mock data · not linked to real work orders</span>
       </div>
       <div style={{ background: 'white', borderRadius: 10, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-              {['รหัสงาน', 'ออเปอเรชัน', 'สถานะ', 'เริ่ม', 'สิ้นสุด'].map(h => (
+              {['Job code', 'Operation', 'Status', 'Start', 'End'].map(h => (
                 <th key={h} style={{ padding: '10px 14px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#6b7280' }}>{h}</th>
               ))}
             </tr>
@@ -191,7 +191,7 @@ function JobsTab({ jobs }: { jobs: { code: string; operation: string; status: st
 
 function PmLogsTab({ logs }: { logs: import('../api/machines').MaintenanceLog[] }) {
   if (logs.length === 0) {
-    return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>ยังไม่มีบันทึก PM</div>
+    return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>No PM logs yet</div>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -202,7 +202,7 @@ function PmLogsTab({ logs }: { logs: import('../api/machines').MaintenanceLog[] 
               <Wrench size={16} style={{ color: '#2563eb', flexShrink: 0 }} />
               <div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{log.description}</div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>ดำเนินการโดย: {log.performed_by}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Performed by: {log.performed_by}</div>
               </div>
             </div>
             <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'right', flexShrink: 0 }}>
@@ -211,8 +211,8 @@ function PmLogsTab({ logs }: { logs: import('../api/machines').MaintenanceLog[] 
           </div>
           {(log.parts_replaced || log.duration_min) && (
             <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 12, color: '#6b7280' }}>
-              {log.parts_replaced && <span>อะไหล่: {log.parts_replaced}</span>}
-              {log.duration_min && <span>เวลา: {log.duration_min} นาที</span>}
+              {log.parts_replaced && <span>Parts replaced: {log.parts_replaced}</span>}
+              {log.duration_min && <span>Duration: {log.duration_min} min</span>}
             </div>
           )}
           {log.photo_urls.length > 0 && (
@@ -232,7 +232,7 @@ function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; mac
   const [closeTicket, setCloseTicket] = useState<RepairTicket | null>(null)
 
   if (tickets.length === 0) {
-    return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>ยังไม่มี ticket ซ่อม</div>
+    return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>No repair tickets yet</div>
   }
   return (
     <>
@@ -275,7 +275,7 @@ function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; mac
                       }}>{t.severity}</span>
                     </div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{t.problem_description}</div>
-                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>แจ้งโดย: {t.reported_by}</div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Reported by: {t.reported_by}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
@@ -291,14 +291,14 @@ function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; mac
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      ✓ ปิด ticket · ซ่อมเสร็จ
+                      ✓ Closed · Repair complete
                     </button>
                   )}
                 </div>
               </div>
               {t.status === 'CLOSED' && t.repair_description && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #f3f4f6', fontSize: 13, color: '#374151' }}>
-                  <b>การซ่อม:</b> {t.repair_description}
+                  <b>Repair:</b> {t.repair_description}
                   {mttr && <span style={{ marginLeft: 12, color: '#6b7280' }}>MTTR: {mttr}</span>}
                 </div>
               )}
@@ -312,7 +312,7 @@ function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; mac
 
 function StatusHistoryTab({ history }: { history: import('../api/machines').StatusHistory[] }) {
   if (history.length === 0) {
-    return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>ยังไม่มีประวัติการเปลี่ยนสถานะ</div>
+    return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>No status history yet</div>
   }
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -332,9 +332,9 @@ function StatusHistoryTab({ history }: { history: import('../api/machines').Stat
             </div>
           </div>
           <div style={{ fontSize: 13, color: '#374151', marginTop: 8 }}>
-            <b>เหตุผล:</b> {h.reason}
+            <b>Reason:</b> {h.reason}
           </div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>โดย: {h.changed_by}</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>By: {h.changed_by}</div>
         </div>
       ))}
     </div>

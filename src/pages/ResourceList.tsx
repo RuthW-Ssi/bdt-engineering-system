@@ -27,12 +27,12 @@ const TABS: { id: Tab; label: string }[] = [
 ]
 
 const STATUS_OPTIONS: { value: EquipmentStatus | ''; label: string }[] = [
-  { value: '', label: 'ทุกสถานะ' },
-  { value: 'OPERATIONAL', label: 'กำลังทำงาน' },
-  { value: 'MAINTENANCE', label: 'ซ่อมบำรุง' },
-  { value: 'REPAIR', label: 'ซ่อม' },
-  { value: 'UNAVAILABLE', label: 'ไม่พร้อม' },
-  { value: 'RETIRED', label: 'ปลดระวาง' },
+  { value: '', label: 'All statuses' },
+  { value: 'OPERATIONAL', label: 'Operational' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'REPAIR', label: 'Repair' },
+  { value: 'UNAVAILABLE', label: 'Unavailable' },
+  { value: 'RETIRED', label: 'Retired' },
 ]
 
 type ModalState =
@@ -133,7 +133,7 @@ export function ResourceList() {
       }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Machine & Resources</div>
-          <div style={{ fontSize: 11, color: '#9E9E9E' }}>จัดการทรัพยากรการผลิต — เครื่องจักร เครื่องมือ และ Operator</div>
+          <div style={{ fontSize: 11, color: '#9E9E9E' }}>Manage production resources — machines, tools, and operators</div>
         </div>
         <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
           {isLoading ? '...' : `${totalCount} items`}
@@ -189,7 +189,7 @@ export function ResourceList() {
           <input
             value={nameSearch}
             onChange={e => setNameSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ / รหัส…"
+            placeholder="Search name / code…"
             style={{ border: '1px solid #E0E0E0', borderRadius: 6, padding: '0 10px 0 28px', height: 30, fontSize: 12, outline: 'none', fontFamily: 'inherit', width: 200, background: '#FAFAFA' }}
           />
         </div>
@@ -248,7 +248,7 @@ export function ResourceList() {
               <FormulaTable
                 rows={formulaRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setFormulaModal({ open: true, row })}
-                onDelete={async row => { const ok = await confirm({ title: `ลบ "${row.name}"?`, variant: 'danger', confirmLabel: 'ลบ' }); if (ok) formulaDeleteMutation.mutate(row.id) }}
+                onDelete={async row => { const ok = await confirm({ title: `Delete "${row.name}"?`, variant: 'danger', confirmLabel: 'Delete' }); if (ok) formulaDeleteMutation.mutate(row.id) }}
               />
             )}
           </>
@@ -274,10 +274,10 @@ function MachineTable({ rows, onRowClick, onEdit }: {
   onRowClick: (id: number) => void
   onEdit: (row: Machine) => void
 }) {
-  if (!rows.length) return <EmptyState label="ไม่พบข้อมูล Machine" />
+  if (!rows.length) return <EmptyState label="No machines found" />
   return (
     <>
-      <ColHeader cols={['Code', 'ชื่อ', 'สถานะ', 'อายุ PM', '']}
+      <ColHeader cols={['Code', 'Name', 'Status', 'PM Age', '']}
         widths="140px 1fr 130px 110px 60px" />
       {rows.map(m => (
         <div
@@ -303,7 +303,7 @@ function MachineTable({ rows, onRowClick, onEdit }: {
               <button
                 onClick={e => { e.stopPropagation(); onEdit(m) }}
                 style={editBtnStyle}
-              >แก้ไข</button>
+              >Edit</button>
             </Cell>
           </div>
         </div>
@@ -314,10 +314,10 @@ function MachineTable({ rows, onRowClick, onEdit }: {
 
 // ── Operator Table ────────────────────────────────────────────────────────────
 function LaborTable({ operators, onEdit }: { operators: Operator[]; onEdit: (row: Operator) => void }) {
-  if (!operators.length) return <EmptyState label="ไม่พบข้อมูล Operator" />
+  if (!operators.length) return <EmptyState label="No operators found" />
   return (
     <>
-      <ColHeader cols={['Code', 'ชื่อ', 'สัญชาติ', 'ตำแหน่ง', 'Skills', '']}
+      <ColHeader cols={['Code', 'Name', 'Nationality', 'Position', 'Skills', '']}
         widths="180px 200px 90px 160px 1fr 60px" />
       {operators.map(r => (
         <div key={r.id} style={rowCardStyle}
@@ -348,7 +348,7 @@ function LaborTable({ operators, onEdit }: { operators: Operator[]; onEdit: (row
               </div>
             </Cell>
             <Cell>
-              <button onClick={() => onEdit(r)} style={editBtnStyle}>แก้ไข</button>
+              <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>
             </Cell>
           </div>
         </div>
@@ -359,10 +359,10 @@ function LaborTable({ operators, onEdit }: { operators: Operator[]; onEdit: (row
 
 // ── Tool Table ────────────────────────────────────────────────────────────────
 function ToolTable({ rows, onEdit }: { rows: ReturnType<typeof useMachines>['data']; onEdit: (row: Machine) => void }) {
-  if (!rows?.length) return <EmptyState label="ไม่พบข้อมูล Tool" />
+  if (!rows?.length) return <EmptyState label="No tools found" />
   return (
     <>
-      <ColHeader cols={['Code', 'ชื่อ', 'จำนวน', '']} widths="140px 1fr 100px 60px" />
+      <ColHeader cols={['Code', 'Name', 'Quantity', '']} widths="140px 1fr 100px 60px" />
       {rows.map(r => (
         <div key={r.id} style={rowCardStyle}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
@@ -372,7 +372,7 @@ function ToolTable({ rows, onEdit }: { rows: ReturnType<typeof useMachines>['dat
             <Cell><span style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{r.name}</span></Cell>
             <Cell><span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.qty ?? '—'}</span></Cell>
             <Cell>
-              <button onClick={() => onEdit(r)} style={editBtnStyle}>แก้ไข</button>
+              <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>
             </Cell>
           </div>
         </div>
@@ -416,29 +416,29 @@ function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool'; row?: M
   return (
     <ModalOverlay onClose={onClose}>
       <div style={modalBoxStyle}>
-        <ModalHeader title={isEdit ? `แก้ไข ${tabLabel}` : `เพิ่ม ${tabLabel}`} onClose={onClose} />
+        <ModalHeader title={isEdit ? `Edit ${tabLabel}` : `Add ${tabLabel}`} onClose={onClose} />
         <div style={formBodyStyle}>
           {!isTool && !isEdit && (
-            <FormField label="ประเภท">
+            <FormField label="Type">
               <select value={form.type} onChange={e => set('type', e.target.value)} style={inputStyle}>
                 <option value="machine">Machine</option>
                 <option value="handling">Handling</option>
               </select>
             </FormField>
           )}
-          <FormField label="ชื่อ *">
+          <FormField label="Name *">
             <input value={form.name} onChange={e => set('name', e.target.value)}
-              placeholder="ชื่อ..." style={inputStyle} autoFocus />
+              placeholder="Name..." style={inputStyle} autoFocus />
           </FormField>
-          <FormField label="จำนวน">
+          <FormField label="Quantity">
             <input type="number" min={0} value={form.qty} onChange={e => set('qty', e.target.value)}
               placeholder="0" style={inputStyle} />
           </FormField>
           {!isTool && (
             <>
-              <FormField label="พื้นที่ / Location">
+              <FormField label="Location">
                 <input value={form.location} onChange={e => set('location', e.target.value)}
-                  placeholder="โรงงาน A..." style={inputStyle} />
+                  placeholder="Factory A..." style={inputStyle} />
               </FormField>
               <FormField label="Manufacturer">
                 <input value={form.manufacturer} onChange={e => set('manufacturer', e.target.value)}
@@ -532,27 +532,27 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
   return (
     <ModalOverlay onClose={onClose}>
       <div style={{ ...modalBoxStyle, maxWidth: 520 }}>
-        <ModalHeader title={isEdit ? 'แก้ไข Operator' : 'เพิ่ม Operator'} onClose={onClose} />
+        <ModalHeader title={isEdit ? 'Edit Operator' : 'Add Operator'} onClose={onClose} />
         <div style={formBodyStyle}>
-          <FormField label="รหัส (Code) *">
+          <FormField label="Code *">
             <input value={form.code} onChange={e => set('code', e.target.value)}
               placeholder="BPD2022-02/B-001" style={{ ...inputStyle, fontFamily: 'monospace' }} autoFocus />
           </FormField>
-          <FormField label="ชื่อ *">
+          <FormField label="Name *">
             <input value={form.name} onChange={e => set('name', e.target.value)}
-              placeholder="นาย ..." style={inputStyle} />
+              placeholder="Mr./Ms. ..." style={inputStyle} />
           </FormField>
-          <FormField label="สัญชาติ">
+          <FormField label="Nationality">
             <select value={form.nationality} onChange={e => set('nationality', e.target.value)} style={inputStyle}>
-              <option value="TH">TH — ไทย</option>
-              <option value="MM">MM — พม่า</option>
+              <option value="TH">TH — Thai</option>
+              <option value="MM">MM — Myanmar</option>
             </select>
           </FormField>
-          <FormField label="ตำแหน่ง">
+          <FormField label="Position">
             <input value={form.position_raw} onChange={e => set('position_raw', e.target.value)}
-              placeholder="ช่างเชื่อม B..." style={inputStyle} />
+              placeholder="Welder B..." style={inputStyle} />
           </FormField>
-          <FormField label="วันที่เริ่มงาน">
+          <FormField label="Start date">
             <input type="date" value={form.start_raw} onChange={e => set('start_raw', e.target.value)}
               style={inputStyle} />
           </FormField>
@@ -562,7 +562,7 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
             <div style={{ display: 'flex', gap: 6 }}>
               <select value={pickSkillId} onChange={e => setPickSkillId(e.target.value)}
                 style={{ ...inputStyle, flex: 1 }}>
-                <option value="">— เลือก Skill —</option>
+                <option value="">— Select skill —</option>
                 {availableSkills.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
               <select value={pickLevel} onChange={e => setPickLevel(e.target.value)}
@@ -628,7 +628,7 @@ function EmptyState({ label }: { label: string }) {
 }
 
 function ErrMsg() {
-  return <div style={{ padding: '0 20px 12px', fontSize: 12, color: '#C8202A' }}>เกิดข้อผิดพลาด — ลองใหม่อีกครั้ง</div>
+  return <div style={{ padding: '0 20px 12px', fontSize: 12, color: '#C8202A' }}>An error occurred — please try again</div>
 }
 
 function ModalOverlay({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
@@ -657,14 +657,14 @@ function ModalFooter({ onClose, onSave, saving, disabled }: { onClose: () => voi
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, padding: '12px 20px', borderTop: '1px solid #E0E0E0' }}>
       <button onClick={onClose} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #D8D8D8', background: '#fff', fontSize: 13, color: '#555', cursor: 'pointer' }}>
-        ยกเลิก
+        Cancel
       </button>
       <button
         onClick={onSave}
         disabled={disabled || saving}
         style={{ padding: '7px 20px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: disabled || saving ? 'not-allowed' : 'pointer', opacity: disabled || saving ? 0.5 : 1 }}
       >
-        {saving ? 'กำลังบันทึก...' : 'บันทึก'}
+        {saving ? 'Saving...' : 'Save'}
       </button>
     </div>
   )
@@ -760,19 +760,19 @@ function ExprBuilder({ tokens, onChange }: { tokens: ExprToken[]; onChange: (t: 
           <input value={num} onChange={e => setNum(e.target.value)} onKeyDown={e => e.key === 'Enter' && insertNum()}
             style={{ width: 72, padding: '5px 8px', border: '1px solid #D4D4D4', borderRadius: 5, fontSize: 13, fontFamily: 'monospace', background: '#fff' }}
             placeholder="0.00" />
-          <button onClick={insertNum} title="ใส่ตัวเลข"
+          <button onClick={insertNum} title="Insert number"
             style={{ padding: '5px 10px', borderRadius: 5, border: '1px solid #D4D4D4', background: '#F5F5F5', color: '#333', fontSize: 13, cursor: 'pointer', fontWeight: 600 }}>
             ↵
           </button>
         </div>
         <button onClick={back} disabled={tokens.length === 0}
           style={{ marginLeft: 'auto', padding: '5px 12px', borderRadius: 5, border: '1px solid #D4D4D4', background: '#F5F5F5', color: tokens.length === 0 ? '#CACACA' : '#555', fontSize: 12, cursor: tokens.length === 0 ? 'not-allowed' : 'pointer' }}>
-          ⌫ ลบ
+          ⌫ Delete
         </button>
       </div>
       <div style={{ background: '#FAFAFA', border: '1px solid #E0E0E0', borderRadius: 6, padding: '10px 14px', minHeight: 42, display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 5 }}>
         {tokens.length === 0
-          ? <span style={{ fontSize: 12, color: '#BBBBBB' }}>กด Variable → Operator → ตัวเลข ด้านบนเพื่อสร้าง expression</span>
+          ? <span style={{ fontSize: 12, color: '#BBBBBB' }}>Click Variable → Operator → Number above to build an expression</span>
           : tokens.map((t, i) => (
             <span key={i} style={{
               fontFamily: 'monospace', fontSize: 13,
@@ -800,7 +800,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; color: string; border: strin
 }
 
 function FormulaTable({ rows, onEdit, onDelete }: { rows: ConsumeFormula[]; onEdit: (row: ConsumeFormula) => void; onDelete: (row: ConsumeFormula) => void }) {
-  if (!rows.length) return <EmptyState label="ยังไม่มี Formula Template" />
+  if (!rows.length) return <EmptyState label="No formula templates yet" />
   const grouped = rows.reduce<Record<string, ConsumeFormula[]>>((acc, f) => {
     const cat = f.category ?? 'other'
     ;(acc[cat] ??= []).push(f)
@@ -909,14 +909,14 @@ function FormulaModal({ row, onClose }: { row?: ConsumeFormula; onClose: () => v
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9E9E', display: 'flex' }}><X size={16} /></button>
         </div>
         <div style={formBodyStyle}>
-          <FormField label="ชื่อ Formula *">
+          <FormField label="Formula name *">
             <input value={form.name} onChange={e => set('name', e.target.value)} style={inputStyle} placeholder="e.g. Zinc Primer – by area (50µm)" />
           </FormField>
           <FormField label="Expression *">
             <ExprBuilder tokens={tokens} onChange={setTokens} />
           </FormField>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <FormField label="หน่วยผลลัพธ์">
+            <FormField label="Output unit">
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 {['L', 'kg', 'm³', 'pcs', 'm', 'm²'].map(u => (
                   <button key={u} onClick={() => set('result_unit', form.result_unit === u ? '' : u)}
@@ -934,8 +934,8 @@ function FormulaModal({ row, onClose }: { row?: ConsumeFormula; onClose: () => v
               </select>
             </FormField>
           </div>
-          <FormField label="หมายเหตุ">
-            <input value={form.description} onChange={e => set('description', e.target.value)} style={inputStyle} placeholder="อธิบายการใช้งาน" />
+          <FormField label="Notes">
+            <input value={form.description} onChange={e => set('description', e.target.value)} style={inputStyle} placeholder="Describe usage" />
           </FormField>
         </div>
         <div style={{ padding: '12px 20px', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

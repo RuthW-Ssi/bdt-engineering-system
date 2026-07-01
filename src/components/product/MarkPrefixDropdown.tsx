@@ -38,7 +38,7 @@ export function MarkPrefixDropdown({ value, onChange, error }: Props) {
           value={open ? query : value ? `${value} · ${selectedLabel}` : ''}
           onChange={e => { setQuery(e.target.value); setOpen(true) }}
           onFocus={() => { setQuery(''); setOpen(true) }}
-          placeholder={isLoading ? 'Loading…' : '— ค้นหา Mark Prefix —'}
+          placeholder={isLoading ? 'Loading…' : '— Search mark prefix —'}
           readOnly={isLoading}
         />
         {open && (
@@ -53,7 +53,7 @@ export function MarkPrefixDropdown({ value, onChange, error }: Props) {
                 style={{ padding: '7px 10px', fontSize: 13, cursor: 'pointer', color: '#888', borderBottom: '1px solid #F0F0F0' }}
                 className="hover:bg-chrome-50"
               >
-                ✕ ล้างค่า
+                ✕ Clear
               </div>
             )}
             {filtered.map(p => (
@@ -72,7 +72,7 @@ export function MarkPrefixDropdown({ value, onChange, error }: Props) {
               </div>
             ))}
             {filtered.length === 0 && q && (
-              <div style={{ padding: '7px 10px', fontSize: 12, color: '#9CA3AF' }}>ไม่พบ prefix ที่ตรงกัน</div>
+              <div style={{ padding: '7px 10px', fontSize: 12, color: '#9CA3AF' }}>No matching prefix found</div>
             )}
           </div>
         )}

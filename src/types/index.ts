@@ -6,19 +6,19 @@ export type Category = 'Assembly' | 'SubAssembly' | 'Part' | 'Plate' | 'ShapeSto
 
 // ── Material Groups (13 groups per BDT Product Master standard) ──
 export type MaterialGroup =
-  | 'PLATE'           // แผ่นเหล็ก (Steel Plate)
+  | 'PLATE'           // Steel Plate
   | 'HR_SHAPE'        // Hot Roll Shape (H-Beam, I-Beam, Channel, Angle)
   | 'COLDFORM'        // Cold Form Shape (C-Section, Z-Section, Lipped Channel)
-  | 'PIPE_TUBE'       // ท่อเหล็ก (Steel Pipe & Tube)
+  | 'PIPE_TUBE'       // Steel Pipe & Tube
   | 'FLAT_ROUND_BAR'  // Flat Bar & Round Bar
   | 'COIL'            // Steel Coil
   | 'BOLT_NUT'        // Bolt, Nut, Washer (Fasteners)
-  | 'WELD_CONSUMABLE' // Welding Consumable (ลวดเชื่อม, Flux, Gas)
-  | 'PAINT_COAT'      // Paint & Coating (สี, สารเคลือบ)
+  | 'WELD_CONSUMABLE' // Welding Consumable (Rod, Flux, Gas)
+  | 'PAINT_COAT'      // Paint & Coating
   | 'BUILDING_COMP'   // Building Component (Purlin, Girt, Roof Sheet, Cladding)
   | 'ACCESSORY'       // Steel Accessory (Anchor Bolt, Base Plate, Gusset)
-  | 'SPARE_PART'      // Spare Part (อะไหล่เครื่องจักร — ต้องระบุ Criticality)
-  | 'FIXED_ASSET'     // Fixed Asset / Machine (เครื่องจักรการผลิต)
+  | 'SPARE_PART'      // Spare Part (machine spare — Criticality required)
+  | 'FIXED_ASSET'     // Fixed Asset / Machine (production machinery)
 
 // ── Product Attributes (physical & material properties per BDT naming convention) ──
 export interface ProductAttributes {
@@ -56,7 +56,7 @@ export interface Product {
   version: string | null
   uom: string               // Standard unit: KG, M, PCS, SET, SHEET, etc.
   odoo_ref_id: string | null
-  substitute_for?: string | null  // Part Code ของวัสดุที่ถูกแทนที่
+  substitute_for?: string | null  // Part code of the substituted material
   attributes?: ProductAttributes
   spec: {
     drawing_ref: string | null

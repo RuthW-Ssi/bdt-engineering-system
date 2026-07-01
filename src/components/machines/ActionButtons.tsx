@@ -21,30 +21,30 @@ export function ActionButtons({ machine, openTicket }: Props) {
       {machine.current_status === 'OPERATIONAL' && (
         <>
           <button onClick={() => setModal('repair')} style={btnStyle('#dc2626')}>
-            <Wrench size={14} /> แจ้งซ่อม
+            <Wrench size={14} /> Report Repair
           </button>
           <button onClick={() => setModal('pm')} style={btnStyle('#2563eb')}>
-            <ClipboardCheck size={14} /> บันทึก PM
+            <ClipboardCheck size={14} /> Log PM
           </button>
         </>
       )}
 
       {(machine.current_status === 'REPAIR') && openTicket && (
         <button onClick={() => setModal('close')} style={btnStyle('#16a34a', true)}>
-          <CheckCircle size={14} /> ปิด Ticket ซ่อม
+          <CheckCircle size={14} /> Close Repair Ticket
         </button>
       )}
 
       {machine.current_status === 'MAINTENANCE' && (
         <>
           <button onClick={() => setModal('pm')} style={btnStyle('#16a34a', true)}>
-            <ClipboardCheck size={14} /> ปิด PM
+            <ClipboardCheck size={14} /> Close PM
           </button>
         </>
       )}
 
       <button onClick={() => setModal('status')} style={btnOutlineStyle}>
-        <Settings size={14} /> เปลี่ยนสถานะ
+        <Settings size={14} /> Change Status
       </button>
 
       {modal === 'repair' && <ReportRepairModal machineId={machine.id} onClose={close} />}

@@ -5,11 +5,7 @@ import { DiffWarningBanner } from '../components/bom/DiffWarningBanner'
 import { DiffAggregateCard } from '../components/bom/DiffAggregateCard'
 import { DiffHierarchyView } from '../components/bom/DiffHierarchyView'
 import { DiffExportButtons } from '../components/bom/DiffExportButtons'
-import { DOC_TYPE_LABELS } from '../lib/bom/filenameClassifier'
-import type { DocType } from '../lib/bom/filenameClassifier'
 import type { DispatchDiffDto } from '../api/dispatches'
-
-const ALL_DOC_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 
 // ─── BomDispatchDetail ──────────────────────────────────────────────────────
 
@@ -54,9 +50,6 @@ export function BomDispatchDetail() {
     )
   }
 
-  const uploadedDocTypes = new Set(detail.doc_revisions.map(r => r.doc_type))
-  const missingTypes = ALL_DOC_TYPES.filter(t => !uploadedDocTypes.has(t))
-
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
       {/* Header */}
@@ -74,13 +67,6 @@ export function BomDispatchDetail() {
           )}
         </div>
       </div>
-
-      {/* Warning bar */}
-      {missingTypes.length > 0 && (
-        <div style={{ background: '#FFFBEB', borderBottom: '1px solid #FDE68A', padding: '8px 24px', fontSize: 12, color: '#92400E', flexShrink: 0 }}>
-          ⚠ Missing files: {missingTypes.map(t => DOC_TYPE_LABELS[t]).join(', ')}
-        </div>
-      )}
 
       {/* Content */}
       <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '0 24px 24px' }}>

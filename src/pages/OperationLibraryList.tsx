@@ -65,7 +65,7 @@ export default function OperationLibraryList() {
 
   const handleDelete = async (e: React.MouseEvent, t: OpTemplateListItem) => {
     e.stopPropagation()
-    const ok = await confirm({ title: `ลบ "${t.op_code} — ${t.name}"?`, message: 'ไม่สามารถกู้คืนได้', variant: 'danger', confirmLabel: 'ลบ' })
+    const ok = await confirm({ title: `Delete "${t.op_code} — ${t.name}"?`, message: 'This cannot be undone', variant: 'danger', confirmLabel: 'Delete' })
     if (!ok) return
     deleteMut.mutate(t.id)
   }

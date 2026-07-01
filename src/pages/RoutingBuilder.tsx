@@ -188,20 +188,20 @@ const SAMPLE_JOB_QTY: Record<string, number> = {
   // English keys
   mm: 6000, holes: 16, points: 12, pass: 4,
   m: 8, m2: 12, kg: 50, pcs: 1, ea: 8,
-  // Thai measure keys used in activities_snapshot
+  // Measure keys used in activities_snapshot
   'setup':        1,   // 1 setup per operation
-  'แนวตัด':      8,   // 8 m cutting line
-  'ชิ้น':        3,   // 3 pieces
-  'ตัว':         1,   // 1 H-beam unit
-  'รู':          16,  // 16 bolt holes
-  'จุด':         12,  // 12 tack/weld points
+  'cut_line':     8,   // 8 m cutting line
+  'pieces':       3,   // 3 pieces
+  'units':        1,   // 1 H-beam unit
+  'bolt_holes':   16,  // 16 bolt holes
+  'weld_points':  12,  // 12 tack/weld points
   'per unit':    1,   // 1 per unit (QC, record)
-  'แนวเชื่อม':   6,  // 6 m weld length
-  'ตร.ม.':       12,  // 12 m² surface area
-  'ท่อน':        4,   // 4 pipe sections
+  'weld_length':  6,  // 6 m weld length
+  'sqm':          12,  // 12 m² surface area
+  'sections':     4,   // 4 pipe sections
   'weld m':      6,   // 6 m weld (SAW)
   'rod':         4,   // 4 rods (anchor bolt)
-  'จุดพับ':      3,   // 3 bend points
+  'bend_points':  3,   // 3 bend points
   'meter':       6,
   'kilogram':    50,
   'miliimeter':  8,
@@ -553,7 +553,7 @@ function EditableLabelEdge({
               <div style={{ background: isParallel ? '#FFF3E0' : '#fff', border: `1px solid ${edgeColor}`, borderRadius: 3, padding: '1px 6px', fontSize: 11, fontWeight: 700, color: edgeColor, display: 'flex', alignItems: 'center', gap: 3 }}>
                 {isParallel && <span style={{ fontSize: 9, letterSpacing: '-1px' }}>∥</span>}
                 {String(label)}
-                <button onClick={deleteEdge} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#BDBDBD', fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center' }} title="ลบเส้นเชื่อม">×</button>
+                <button onClick={deleteEdge} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#BDBDBD', fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center' }} title="Remove connection">×</button>
               </div>
             )}
           </div>
@@ -701,7 +701,7 @@ function ModalActivityLib({ addedIds, onAdd }: {
           <div style={{ flex: 1 }} />
           <button onClick={() => navigate('/activity-library/new')}
             style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #FFCDD2', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3, background: '#FFEBEE', color: '#C62828' }}>
-            <Plus size={10} />สร้าง Activity
+            <Plus size={10} />Create Activity
           </button>
         </div>
         <div style={{ position: 'relative' }}>
@@ -1044,7 +1044,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
                               {act.ratio != null && act.perTime != null && (
                                 <div style={{ marginTop: 2, fontSize: 10, fontFamily: 'monospace', color: '#1565C0' }}>
-                                  ทุก {act.ratio} {act.ratioUnit ?? ''} → {act.perTime} min
+                                  {act.ratio} per {act.ratioUnit ?? ''} → {act.perTime} min
                                 </div>
                               )}
                             </div>
@@ -1081,7 +1081,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                               <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name || '—'}</div>
                               {act.ratio != null && act.perTime != null && (
                                 <div style={{ marginTop: 2, fontSize: 10, fontFamily: 'monospace', color: '#1565C0' }}>
-                                  ทุก {act.ratio} {act.ratioUnit ?? ''} → {act.perTime} min
+                                  {act.ratio} per {act.ratioUnit ?? ''} → {act.perTime} min
                                 </div>
                               )}
                             </div>
@@ -1407,7 +1407,7 @@ function ExpandAllControl() {
   return (
     <ControlButton
       onClick={() => allExpanded ? collapseAll() : expandAll(activityNodeIds)}
-      title={allExpanded ? 'ย่อ activities ทั้งหมด' : 'ขยาย activities ทั้งหมด'}
+      title={allExpanded ? 'Collapse all activities' : 'Expand all activities'}
       style={{ color: allExpanded ? '#C8202A' : '#555' }}
     >
       {allExpanded ? <ChevronsUp size={12} /> : <ChevronsDown size={12} />}
@@ -1422,7 +1422,7 @@ function MiniMapControl() {
   return (
     <ControlButton
       onClick={toggleMiniMap}
-      title={showMiniMap ? 'ซ่อน Mini Map' : 'แสดง Mini Map'}
+      title={showMiniMap ? 'Hide mini map' : 'Show mini map'}
       style={{ color: showMiniMap ? '#555' : '#C8202A' }}
     >
       <MapIcon size={12} />
@@ -1451,7 +1451,7 @@ function GatherControl() {
   }, [getNodes, setNodes, fitView])
 
   return (
-    <ControlButton onClick={handleGather} title="รวม nodes ทั้งหมด">
+    <ControlButton onClick={handleGather} title="Gather all nodes">
       <Target size={12} />
     </ControlButton>
   )
@@ -1491,7 +1491,7 @@ function AutoWireControl() {
   }, [getNodes, setEdges])
 
   return (
-    <ControlButton onClick={handleAutoWire} title="เชื่อม operations เป็น sequence อัตโนมัติ">
+    <ControlButton onClick={handleAutoWire} title="Auto-wire operations as sequence">
       <Workflow size={12} />
     </ControlButton>
   )
@@ -1572,12 +1572,12 @@ function MarkPrefixPicker({
                 onMouseEnter={e => (e.currentTarget.style.background = '#F5F5F5')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}
               >
-                ✕ ล้างค่า
+                ✕ Clear
               </div>
             )}
             {filtered.length === 0 ? (
               <div style={{ padding: '10px 12px', fontSize: 13, color: '#9E9E9E' }}>
-                ไม่พบ "{query}"
+                No results for "{query}"
               </div>
             ) : filtered.map(p => (
               <div
@@ -2164,7 +2164,12 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['routing-templates'] })
       queryClient.invalidateQueries({ queryKey: ['routing-template-detail', templateId] })
+      toast.success(isEdit ? 'Routing template saved' : 'Routing template created')
       navigate('/routings')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message ?? e?.message ?? 'Failed to save routing template — please try again')
+      console.error(e)
     },
   })
 
@@ -2289,7 +2294,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                 onClick={() => saveMutation.mutate()}
                 disabled={!canSave || saveMutation.isPending}
                 title={!canSave
-                  ? (!code.trim() && !isEdit ? 'กรอก Code ก่อน' : !templateName.trim() ? 'กรอก Template name ก่อน' : opNodes.length === 0 ? 'เพิ่ม Operation อย่างน้อย 1 ตัว' : 'กรอกข้อมูล Operation ให้ครบ (*)')
+                  ? (!code.trim() && !isEdit ? 'Enter code first' : !templateName.trim() ? 'Enter template name first' : opNodes.length === 0 ? 'Add at least 1 operation' : 'Complete all required operation fields (*)')
                   : undefined}
                 style={{
                   height: 34, padding: '0 18px', borderRadius: 6, fontSize: 13, fontWeight: 600,
@@ -2319,7 +2324,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                 </div>
                 {/* Collapsed tab */}
                 {!leftPanelOpen && (
-                  <button onClick={() => setLeftPanelOpen(true)} title="แสดง Operation List"
+                  <button onClick={() => setLeftPanelOpen(true)} title="Show operation list"
                     style={{ position: 'absolute', inset: 0, background: 'none', border: 'none', cursor: 'pointer', padding: 0,
                       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                     <ChevronRight size={12} style={{ color: '#9E9E9E' }} />
@@ -2453,7 +2458,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                 <span style={{ fontSize: 10, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Variables</span>
                 <button
                   onClick={() => setPreviewInputs(Object.fromEntries(previewVars.map(v => [v, SAMPLE_JOB_QTY[v] ?? 1])))}
-                  title="ตัวอย่าง: H-Beam 6m (แนวตัด×6, รู×16, แนวเชื่อม×8, ตร.ม.×12 …)"
+                  title="Example: H-Beam 6m (cut_line×6, bolt_holes×16, weld_length×8, sqm×12 …)"
                   style={{ fontSize: 10, fontWeight: 600, color: '#185FA5', background: '#E3F0FB', border: '1px solid #BAD4EF', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', flexShrink: 0 }}
                 >Sample job</button>
                 {previewVars.map(v => (

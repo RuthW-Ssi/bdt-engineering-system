@@ -6,12 +6,12 @@ import { DaysSincePmBadge } from '../components/machines/DaysSincePmBadge'
 import type { EquipmentStatus } from '../api/machines'
 
 const STATUS_OPTIONS: { value: EquipmentStatus | ''; label: string }[] = [
-  { value: '', label: 'ทุกสถานะ' },
-  { value: 'OPERATIONAL', label: 'กำลังทำงาน' },
-  { value: 'MAINTENANCE', label: 'ซ่อมบำรุง' },
-  { value: 'REPAIR', label: 'ซ่อม' },
-  { value: 'UNAVAILABLE', label: 'ไม่พร้อม' },
-  { value: 'RETIRED', label: 'ปลดระวาง' },
+  { value: '', label: 'All statuses' },
+  { value: 'OPERATIONAL', label: 'Operational' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'REPAIR', label: 'Repair' },
+  { value: 'UNAVAILABLE', label: 'Unavailable' },
+  { value: 'RETIRED', label: 'Retired' },
 ]
 
 export function MachineList() {
@@ -29,9 +29,9 @@ export function MachineList() {
   return (
     <div style={{ padding: '24px 32px', maxWidth: 1200 }}>
       <div style={{ marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: '#111827' }}>เครื่องจักร</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0, color: '#111827' }}>Machines</h1>
         <p style={{ fontSize: 14, color: '#6b7280', margin: '4px 0 0' }}>
-          ติดตามสถานะ PM และการซ่อมบำรุงเครื่องจักร
+          Track machine PM status and maintenance
         </p>
       </div>
 
@@ -47,13 +47,13 @@ export function MachineList() {
           ))}
         </select>
         <input
-          placeholder="ค้นหาพื้นที่..."
+          placeholder="Search location..."
           value={areaFilter}
           onChange={e => setAreaFilter(e.target.value)}
           style={filterStyle}
         />
         <input
-          placeholder="ค้นหาชื่อ/รหัส..."
+          placeholder="Search name/code..."
           value={nameSearch}
           onChange={e => setNameSearch(e.target.value)}
           style={{ ...filterStyle, minWidth: 200 }}
@@ -61,15 +61,15 @@ export function MachineList() {
       </div>
 
       {isLoading && (
-        <div style={{ color: '#6b7280', fontSize: 14, padding: 32, textAlign: 'center' }}>กำลังโหลด...</div>
+        <div style={{ color: '#6b7280', fontSize: 14, padding: 32, textAlign: 'center' }}>Loading...</div>
       )}
 
       {error && (
-        <div style={{ color: '#dc2626', fontSize: 14, padding: 16 }}>เกิดข้อผิดพลาดในการโหลดข้อมูล</div>
+        <div style={{ color: '#dc2626', fontSize: 14, padding: 16 }}>Error loading data</div>
       )}
 
       {machines && machines.length === 0 && (
-        <div style={{ color: '#6b7280', fontSize: 14, padding: 32, textAlign: 'center' }}>ไม่พบข้อมูลเครื่องจักร</div>
+        <div style={{ color: '#6b7280', fontSize: 14, padding: 32, textAlign: 'center' }}>No machines found</div>
       )}
 
       {machines && machines.length > 0 && (
@@ -77,12 +77,12 @@ export function MachineList() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={thStyle}>รหัส</th>
-                <th style={thStyle}>ชื่อเครื่องจักร</th>
-                <th style={thStyle}>พื้นที่</th>
-                <th style={thStyle}>สถานะ</th>
-                <th style={thStyle}>PM ล่าสุด</th>
-                <th style={thStyle}>อายุ PM</th>
+                <th style={thStyle}>Code</th>
+                <th style={thStyle}>Machine name</th>
+                <th style={thStyle}>Location</th>
+                <th style={thStyle}>Status</th>
+                <th style={thStyle}>Last PM</th>
+                <th style={thStyle}>PM age</th>
               </tr>
             </thead>
             <tbody>

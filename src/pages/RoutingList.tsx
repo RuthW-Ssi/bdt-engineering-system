@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Layers, AlertCircle, Plus, Trash2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import { apiClient } from '../api/client'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 import { PaginationBar } from '../components/PaginationBar'
 
 // ── Types ──────────────────────────────────────────────────────
@@ -79,14 +81,29 @@ export function RoutingList() {
   const { data: markPrefixes = [] } = useMarkPrefixes()
   const prefixMap = new Map(markPrefixes.map(p => [p.code, p.label]))
 
+  const confirm = useConfirm()
+
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiClient.delete(`/routing-templates/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['routing-templates'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['routing-templates'] })
+      toast.success('Routing template deleted')
+    },
+    onError: (e: any) => {
+      toast.error(e?.response?.data?.message ?? 'Failed to delete routing template — please try again')
+      console.error(e)
+    },
   })
 
-  function handleDelete(e: React.MouseEvent, r: RoutingTemplateSummary) {
+  async function handleDelete(e: React.MouseEvent, r: RoutingTemplateSummary) {
     e.stopPropagation()
-    if (!confirm(`ลบ "${r.code} — ${r.name}" ใช่ไหม?`)) return
+    const ok = await confirm({
+      title: 'Delete routing template?',
+      message: `"${r.code} — ${r.name}" will be permanently deleted.`,
+      variant: 'danger',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
     deleteMut.mutate(r.id)
   }
 
@@ -223,7 +240,7 @@ export function RoutingList() {
                 <button
                   onClick={e => handleDelete(e, r)}
                   disabled={deleteMut.isPending}
-                  title="ลบ routing template นี้"
+                  title="Delete this routing template"
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A' }}
                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}

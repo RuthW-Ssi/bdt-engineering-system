@@ -635,7 +635,7 @@ export function NewStandardProductModal({ onClose }: Props) {
                       ))}
                       {libraryQuery.trim() && libraryResults.length === 0 && (
                         <div style={{ padding: '8px 12px', borderTop: '1px solid #E0E0E0', color: '#9CA3AF', fontSize: 12 }}>
-                          ไม่พบ — กรุณาสร้าง entry ใน Product Library ก่อน
+                          Not found — please create an entry in Product Library first
                         </div>
                       )}
                       {!librarySearching && libraryResults.length === 0 && !libraryQuery.trim() && (

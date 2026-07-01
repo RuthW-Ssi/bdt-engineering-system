@@ -55,7 +55,7 @@ export function BomWireConfig() {
 
   const handleClearSelected = useCallback(async () => {
     if (selectedRows.size === 0) return
-    const ok = await confirm({ title: `Clear wire values สำหรับ ${selectedRows.size} rows?`, variant: 'warning', confirmLabel: 'Clear' })
+    const ok = await confirm({ title: `Clear wire values for ${selectedRows.size} rows?`, variant: 'warning', confirmLabel: 'Clear' })
     if (!ok) return
     setCellState(prev => {
       const next = new Map(prev)

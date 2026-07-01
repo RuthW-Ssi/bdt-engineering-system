@@ -223,7 +223,7 @@ export default function OperationBuilder() {
   })
 
   const handleDelete = async () => {
-    const ok = await confirm({ title: `ลบ Operation "${form.op_code}"?`, message: 'ไม่สามารถกู้คืนได้', variant: 'danger', confirmLabel: 'ลบ' })
+    const ok = await confirm({ title: `Delete Operation "${form.op_code}"?`, message: 'This cannot be undone', variant: 'danger', confirmLabel: 'Delete' })
     if (!ok) return
     deleteMut.mutate()
   }
@@ -267,13 +267,13 @@ export default function OperationBuilder() {
         )}
 
         <button onClick={() => saveMut.mutate()} disabled={!form.name.trim() || isPending}
-          title={!form.name.trim() ? 'กรอก name ก่อน' : undefined}
+          title={!form.name.trim() ? 'Enter name first' : undefined}
           style={{ height: 34, padding: '0 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', color: form.name.trim() ? '#555' : '#BDBDBD', fontSize: 13, fontWeight: 500, cursor: form.name.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
           <Save size={13} />Save Draft
         </button>
 
         <button onClick={() => publishMut.mutate()} disabled={!canPublish(form) || isPending}
-          title={!canPublish(form) ? 'กรอกข้อมูลให้ครบก่อน publish' : undefined}
+          title={!canPublish(form) ? 'Complete all required fields before publishing' : undefined}
           style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: canPublish(form) ? '#C8202A' : '#E0E0E0', color: canPublish(form) ? '#fff' : '#9E9E9E', fontSize: 13, fontWeight: 600, cursor: canPublish(form) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
           <Check size={13} />{isPending ? 'Saving…' : 'Publish to Library'}
         </button>
@@ -395,7 +395,7 @@ export default function OperationBuilder() {
                               <div style={{ fontSize: 12, fontWeight: 500, color: '#1A1A1A' }}>{act.name}</div>
                               {act.ratio != null && act.per_time != null && (
                                 <div style={{ marginTop: 2, fontSize: 10, fontFamily: 'monospace', color: '#1565C0' }}>
-                                  ทุก {act.ratio} {act.ratio_unit ?? ''} → {act.per_time} min
+                                  Every {act.ratio} {act.ratio_unit ?? ''} → {act.per_time} min
                                 </div>
                               )}
                             </div>

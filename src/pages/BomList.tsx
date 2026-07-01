@@ -62,7 +62,7 @@ function PaintTab({
       {/* Toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderBottom: '1px solid #F0F0F0', flexShrink: 0 }}>
         <span style={{ fontSize: 11, color: '#8E8E8E' }}>
-          <strong style={{ color: '#1A1A1A' }}>{doneCount}</strong>/{assemblies.length} assemblies มีสี
+          <strong style={{ color: '#1A1A1A' }}>{doneCount}</strong>/{assemblies.length} assemblies have paint
         </span>
         <button
           onClick={onEdit}
@@ -82,7 +82,7 @@ function PaintTab({
       {/* List */}
       {assemblies.length === 0 ? (
         <div style={{ padding: 40, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
-          ยังไม่ได้ตั้งค่าสี
+          Paint not configured
         </div>
       ) : (
         <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '6px 10px' }}>

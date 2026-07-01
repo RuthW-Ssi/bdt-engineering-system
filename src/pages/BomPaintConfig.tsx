@@ -196,7 +196,7 @@ export function BomPaintConfig() {
         </div>
         <div style={{ textAlign: 'right' }}>
           <div style={{ fontSize: 13, color: '#6e6e73' }}>
-            <strong style={{ color: '#1d1d1f' }}>{doneCount}/{assemblies.length}</strong> เลือกแล้ว
+            <strong style={{ color: '#1d1d1f' }}>{doneCount}/{assemblies.length}</strong> selected
           </div>
           <div
             style={{
@@ -235,7 +235,7 @@ export function BomPaintConfig() {
               textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 12,
             }}
           >
-            ⚡ Bulk apply · กรอกครั้งเดียวใช้ได้ทุก row ที่เลือก
+            ⚡ Bulk apply · Fill once to apply to all selected rows
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             {([
@@ -282,8 +282,8 @@ export function BomPaintConfig() {
             </button>
           </div>
           <div style={{ fontSize: 11, color: '#6e6e73', marginTop: 8 }}>
-            💡 <strong>Apply</strong> = กับเฉพาะ row ที่ check ·{' '}
-            <strong>Apply all</strong> = ทุก row · per-row dropdown ใต้ก็แก้เองได้
+            💡 <strong>Apply</strong> = selected rows only ·{' '}
+            <strong>Apply all</strong> = all rows · individual row dropdowns can also be edited
           </div>
         </div>
 
@@ -360,7 +360,7 @@ export function BomPaintConfig() {
               ) : filteredAssemblies.length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ padding: 30, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
-                    ไม่พบ mark "{markFilter}"
+                    No mark found matching "{markFilter}"
                   </td>
                 </tr>
               ) : (
@@ -428,7 +428,7 @@ export function BomPaintConfig() {
                 background: '#fff', fontSize: 13, cursor: 'pointer', color: '#1d1d1f',
               }}
             >
-              ← กลับไป BOM
+              ← Back to BOM
             </button>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button

@@ -40,39 +40,39 @@ export function LogPmModal({ machineId, onClose }: Props) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div style={{ background: 'white', borderRadius: 12, padding: 24, width: 480, maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>บันทึก PM</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Log PM</h2>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>×</button>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="ผู้ดำเนินการ *">
+          <Field label="Performed by *">
             <input required value={form.performed_by} onChange={e => set('performed_by', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="วันที่ดำเนินการ *">
+          <Field label="Date performed *">
             <input required type="datetime-local" value={form.performed_at} onChange={e => set('performed_at', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="รายละเอียด *">
+          <Field label="Description *">
             <textarea required value={form.description} onChange={e => set('description', e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
           </Field>
-          <Field label="อะไหล่ที่เปลี่ยน">
+          <Field label="Parts replaced">
             <input value={form.parts_replaced} onChange={e => set('parts_replaced', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="Downtime (นาที)">
+          <Field label="Downtime (minutes)">
             <input type="number" min={0} value={form.duration_min} onChange={e => set('duration_min', e.target.value)} style={inputStyle} />
           </Field>
-          <Field label="หมายเหตุ">
+          <Field label="Notes">
             <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
           </Field>
-          <PhotoUploadField label="รูปภาพ (ไม่บังคับ)" value={form.photo_urls} onChange={v => set('photo_urls', v)} />
+          <PhotoUploadField label="Photos (optional)" value={form.photo_urls} onChange={v => set('photo_urls', v)} />
 
           {mutation.error && (
-            <div style={{ color: '#dc2626', fontSize: 13 }}>เกิดข้อผิดพลาด กรุณาลองใหม่</div>
+            <div style={{ color: '#dc2626', fontSize: 13 }}>Error occurred. Please try again</div>
           )}
 
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-            <button type="button" onClick={onClose} style={cancelBtnStyle}>ยกเลิก</button>
+            <button type="button" onClick={onClose} style={cancelBtnStyle}>Cancel</button>
             <button type="submit" disabled={mutation.isPending} style={submitBtnStyle}>
-              {mutation.isPending ? 'กำลังบันทึก...' : 'บันทึก PM'}
+              {mutation.isPending ? 'Saving...' : 'Log PM'}
             </button>
           </div>
         </form>

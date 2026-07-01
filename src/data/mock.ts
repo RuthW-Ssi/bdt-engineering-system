@@ -3,7 +3,7 @@ import type { Routing, RoutingStep } from '../types'
 export const mockRoutings: Routing[] = [
   {
     product_code: 'SA-00124',
-    name_th: 'SubAssembly คาน I-beam R1 ขวา',
+    name_th: 'SubAssembly I-beam R1 Right',
     category: 'SubAssembly',
     steps: ['CUT', 'DRILL', 'WELD', 'GRIND', 'QC', 'PAINT'],
     step_count: 6,
@@ -14,7 +14,7 @@ export const mockRoutings: Routing[] = [
   },
   {
     product_code: 'SA-00123',
-    name_th: 'SubAssembly คาน I-beam L1 ซ้าย',
+    name_th: 'SubAssembly I-beam L1 Left',
     category: 'SubAssembly',
     steps: ['CUT', 'DRILL', 'WELD', 'GRIND', 'QC', 'PAINT'],
     step_count: 6,
@@ -25,7 +25,7 @@ export const mockRoutings: Routing[] = [
   },
   {
     product_code: 'PP-00099',
-    name_th: 'Part แผ่นเชื่อมปีก I-beam 200×10',
+    name_th: 'Part Flange Plate I-beam 200×10',
     category: 'Part',
     steps: ['CUT', 'WELD', 'QC', 'PAINT'],
     step_count: 4,
@@ -47,7 +47,7 @@ export const mockRoutings: Routing[] = [
   },
   {
     product_code: 'MA-B1-00005',
-    name_th: 'Main Assembly คานหลัก B1 ชั้น 1',
+    name_th: 'Main Assembly B1 Floor 1',
     category: 'Assembly',
     steps: ['CUT', 'DRILL', 'WELD', 'BEND', 'GRIND', 'QC', 'PAINT', 'ASSEMBLE'],
     step_count: 8,
@@ -58,7 +58,7 @@ export const mockRoutings: Routing[] = [
   },
   {
     product_code: 'PP-00100',
-    name_th: 'Part แผ่น Stiffener I-beam 150×8',
+    name_th: 'Part Stiffener Plate I-beam 150×8',
     category: 'Part',
     steps: ['CUT', 'WELD', 'GRIND', 'PAINT'],
     step_count: 4,
@@ -66,15 +66,15 @@ export const mockRoutings: Routing[] = [
     status: 'Rejected',
     updated_at: '2026-04-22',
     updated_by: 'somchai.k',
-    reject_reason: 'ขาด step PAINT',
+    reject_reason: 'Missing PAINT step',
   },
 ]
 
 export const mockRoutingSteps: RoutingStep[] = [
-  { id: 's1', step_no: 10, op_code: 'CUT',   name_th: 'ตัดชิ้นส่วน I-beam',        work_center: 'เครื่องตัดพลาสม่า #2',  std_time_min: 15, note: '' },
-  { id: 's2', step_no: 20, op_code: 'DRILL', name_th: 'เจาะรูน็อต M16',            work_center: 'เครื่องเจาะ CNC #1',    std_time_min: 20, note: 'เจาะ 4 รู ขนาด Ø18' },
-  { id: 's3', step_no: 30, op_code: 'WELD',  name_th: 'เชื่อมประกอบ SubAssembly',  work_center: 'สถานีเชื่อม Sub-A #3',  std_time_min: 45, note: 'ลวดเชื่อม E7018 3.2mm' },
-  { id: 's4', step_no: 40, op_code: 'GRIND', name_th: 'ขัดรอยเชื่อม',              work_center: 'สถานีขัด #1',           std_time_min: 10, note: '' },
-  { id: 's5', step_no: 50, op_code: 'QC',    name_th: 'ตรวจสอบคุณภาพ',            work_center: 'สถานี QC',              std_time_min: 15, note: 'ตรวจ weld + dimension ตาม drawing' },
-  { id: 's6', step_no: 60, op_code: 'PAINT', name_th: 'พ่นสี Epoxy Primer',        work_center: 'ห้องพ่นสี #1',          std_time_min: 30, note: 'Epoxy Primer 2 coats' },
+  { id: 's1', step_no: 10, op_code: 'CUT',   name_th: 'Cut I-beam components',      work_center: 'Plasma Cutter #2',       std_time_min: 15, note: '' },
+  { id: 's2', step_no: 20, op_code: 'DRILL', name_th: 'Drill M16 bolt holes',       work_center: 'CNC Drilling Machine #1', std_time_min: 20, note: 'Drill 4 holes, size Ø18' },
+  { id: 's3', step_no: 30, op_code: 'WELD',  name_th: 'Weld SubAssembly',           work_center: 'Welding Station Sub-A #3', std_time_min: 45, note: 'Welding Rod E7018 3.2mm' },
+  { id: 's4', step_no: 40, op_code: 'GRIND', name_th: 'Grind weld seams',           work_center: 'Grinding Station #1',    std_time_min: 10, note: '' },
+  { id: 's5', step_no: 50, op_code: 'QC',    name_th: 'Quality Inspection',         work_center: 'QC Station',             std_time_min: 15, note: 'Inspect weld + dimension per drawing' },
+  { id: 's6', step_no: 60, op_code: 'PAINT', name_th: 'Apply Epoxy Primer',         work_center: 'Paint Booth #1',         std_time_min: 30, note: 'Epoxy Primer 2 coats' },
 ]

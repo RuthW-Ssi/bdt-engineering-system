@@ -82,7 +82,7 @@ function MachineCombobox({ value, onChange }: { value: string; onChange: (v: str
           value={search}
           onChange={e => { setSearch(e.target.value); onChange('') }}
           onFocus={() => setFocused(true)}
-          placeholder="ค้นหาเครื่องจักร…"
+          placeholder="Search machines…"
           style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontFamily: 'inherit', color: '#1F1F1F' }}
         />
         {(search || value) && (
@@ -98,7 +98,7 @@ function MachineCombobox({ value, onChange }: { value: string; onChange: (v: str
       {showList && (
         <div style={{ border: '1px solid #185FA5', borderTop: 'none', borderRadius: '0 0 6px 6px', background: '#fff', maxHeight: 220, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)', zIndex: 200, position: 'absolute', left: 0, right: 0 }}>
           {filtered.length === 0 ? (
-            <div style={{ padding: '14px', fontSize: 12, color: '#BDBDBD', textAlign: 'center' }}>ไม่พบเครื่องจักร</div>
+            <div style={{ padding: '14px', fontSize: 12, color: '#BDBDBD', textAlign: 'center' }}>No machines found</div>
           ) : filtered.map(m => (
             <div
               key={m.id}
