@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Loader2, Cpu, Wrench, FlaskConical, ChevronDown, ChevronRight, X, Save } from 'lucide-react'
+import { toast } from 'sonner'
 import { useDispatchDetail } from '../hooks/useBomDispatches'
 import {
   getRoutingTemplates, getRoutingTemplate, createRouting,
@@ -44,7 +45,6 @@ function ConsumableModal({
   const [paintMaterials, setPaintMaterials] = useState<PaintMaterialDto[]>([])
   const [wireMaterials, setWireMaterials] = useState<WireMaterialDto[]>([])
   const [saving, setSaving] = useState(false)
-  const [saveMsg, setSaveMsg] = useState('')
 
   useEffect(() => {
     getRoutingTemplate(templateId)
@@ -71,7 +71,7 @@ function ConsumableModal({
 
   // Save material selections to paint/wire config
   const handleSaveMaterials = async () => {
-    setSaving(true); setSaveMsg('')
+    setSaving(true)
     try {
       await paintApi.saveConfig(dispatchId, {
         configs: PAINT_TYPES.map(pt => ({ assembly_id: assemblyId, paint_type: pt, material_id: matSel.get(pt) ?? null, layers: 1 })),
@@ -79,8 +79,8 @@ function ConsumableModal({
       await weldingApi.saveConfig(dispatchId, {
         configs: [{ assembly_id: assemblyId, material_id: matSel.get('wire') ?? null, fillet_mm: null, sides: null, weld_layers: null }],
       })
-      setSaveMsg('Saved')
-    } catch { setSaveMsg('Failed') }
+      toast.success('บันทึกสำเร็จ')
+    } catch { toast.error('Save failed') }
     finally { setSaving(false) }
   }
 
@@ -276,7 +276,6 @@ function ConsumableModal({
                     >
                       <Save size={11} />{saving ? 'Saving…' : 'Save'}
                     </button>
-                    {saveMsg && <span style={{ fontSize: 11, color: saveMsg === 'Saved' ? '#065F46' : '#B91C1C', fontWeight: 600 }}>{saveMsg}</span>}
                   </div>
                 </div>
               )}
@@ -444,7 +443,6 @@ export function RoutingConfigContent({ dispatchId }: { dispatchId: number }) {
   const [selected, setSelected] = useState<Map<string, number>>(new Map())
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState<Set<string>>(new Set())
-  const [error, setError] = useState('')
   const [previewTemplateId, setPreviewTemplateId] = useState<number | null>(null)
   const [modal, setModal] = useState<{
     templateId: number; assemblyId: number; assemblyMark: string; assemblyQty: number
@@ -460,7 +458,6 @@ export function RoutingConfigContent({ dispatchId }: { dispatchId: number }) {
   const handleApply = async () => {
     if (!selected.size) return
     setSaving(true)
-    setError('')
     const newSaved = new Set(saved)
     try {
       for (const [productCode, templateId] of selected) {
@@ -471,8 +468,9 @@ export function RoutingConfigContent({ dispatchId }: { dispatchId: number }) {
       }
       setSaved(newSaved)
       setSelected(new Map())
+      toast.success('Apply routing สำเร็จ')
     } catch (e: any) {
-      setError(e?.response?.data?.message ?? 'Failed to apply routing')
+      toast.error(e?.response?.data?.message ?? 'Failed to apply routing')
     } finally {
       setSaving(false)
     }
@@ -494,12 +492,6 @@ export function RoutingConfigContent({ dispatchId }: { dispatchId: number }) {
     <div style={{ display: 'flex', gap: 16, padding: '20px 0', minHeight: 0 }}>
       {/* ── Left: assembly table ── */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {error && (
-          <div style={{ padding: 12, background: '#FCEBEB', color: '#5C0D15', fontSize: 13, borderRadius: 8 }}>
-            {error}
-          </div>
-        )}
-
         <div style={{ border: '1px solid #E0E0E0', borderRadius: 8, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>

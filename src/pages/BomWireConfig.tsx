@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronLeft, Loader2, Package } from 'lucide-react'
+import { toast } from 'sonner'
 import { useWeldingConfig, useSaveWirePartConfig } from '../hooks/useWelding'
 import { WireConfigTable } from '../components/bom/WireConfigTable'
 import type { WireCell } from '../components/bom/WireConfigTable'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 export function BomWireConfig() {
   const { id } = useParams<{ id: string }>()
@@ -15,7 +17,7 @@ export function BomWireConfig() {
 
   const [cellState, setCellState] = useState<Map<number, WireCell>>(new Map())
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  const confirm = useConfirm()
   const initialized = useRef(false)
 
   useEffect(() => {
@@ -51,28 +53,29 @@ export function BomWireConfig() {
     })
   }, [selectedRows, cellState, configData])
 
-  const handleClearSelected = useCallback(() => {
+  const handleClearSelected = useCallback(async () => {
     if (selectedRows.size === 0) return
-    if (!window.confirm(`Clear wire values for ${selectedRows.size} rows?`)) return
+    const ok = await confirm({ title: `Clear wire values สำหรับ ${selectedRows.size} rows?`, variant: 'warning', confirmLabel: 'Clear' })
+    if (!ok) return
     setCellState(prev => {
       const next = new Map(prev)
       for (const id of selectedRows) next.set(id, { material_id: null })
       return next
     })
-  }, [selectedRows])
+  }, [selectedRows, confirm])
 
   const handleSubmit = async () => {
     if (!dispatchId || !configData) return
-    setSubmitError(null)
     const configs = configData.parts.map(p => ({
       part_id: p.part_id,
       material_id: cellState.get(p.part_id)?.material_id ?? null,
     }))
     try {
       await saveMutation.mutateAsync({ configs })
+      toast.success('บันทึกสำเร็จ')
       navigate(`/bom/dispatch/${dispatchId}`)
     } catch {
-      setSubmitError('Save failed — check backend')
+      toast.error('Save failed — check backend')
     }
   }
 
@@ -152,8 +155,7 @@ export function BomWireConfig() {
 
       {/* Footer */}
       <div className="bg-white border-t border-chrome-100 flex items-center justify-between px-6" style={{ height: 56, flexShrink: 0 }}>
-        {submitError && <span style={{ fontSize: 12, color: '#C8202A' }}>{submitError}</span>}
-        {!submitError && <span />}
+        <span />
         <div className="flex gap-3">
           <button
             onClick={() => navigate(`/bom/dispatch/${dispatchId}`)}

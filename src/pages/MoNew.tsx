@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, AlertCircle } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
+import { toast } from 'sonner'
 import { useCreateMo, useMo, useUpdateMo } from '../hooks/useMo'
 import { changeMoStatus } from '../api/mo'
 import { MarkPrefixGrid } from '../components/mo/MarkPrefixGrid'
@@ -39,7 +40,6 @@ export function MoNew() {
   const [filter, setFilter] = useState<AssemblyFilter>(DEFAULT_FILTER)
   const patchFilter = (patch: Partial<AssemblyFilter>) => setFilter(prev => ({ ...prev, ...patch }))
   const [routingName, setRoutingName] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
 
   // prefill once when editing (only DRAFT is editable — bounce otherwise)
   const seeded = useRef(false)
@@ -95,7 +95,6 @@ export function MoNew() {
 
   async function save(confirm: boolean) {
     if (!canSave || !markPrefix || !routingId) return
-    setError(null)
     const payload = {
       primary_mark_prefix_code: markPrefix,
       routing_template_id: routingId,
@@ -113,7 +112,7 @@ export function MoNew() {
     } catch (e: unknown) {
       const resp = (e as { response?: { data?: { message?: string | string[] } } })?.response
       const msg = resp?.data?.message
-      setError(Array.isArray(msg) ? msg.join(' · ') : msg ?? `Failed to ${isEdit ? 'update' : 'create'} MO`)
+      toast.error(Array.isArray(msg) ? msg.join(' · ') : msg ?? `Failed to ${isEdit ? 'update' : 'create'} MO`)
     }
   }
 
@@ -132,12 +131,6 @@ export function MoNew() {
 
       {/* Body */}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', background: '#F7F7F7' }}>
-        {error && (
-          <div className="flex items-center gap-2" style={{ background: '#FCEBEB', border: '1px solid #E8A0A0', borderRadius: 8, padding: '10px 14px', margin: '12px 20px 0', fontSize: 13, color: '#C8202A' }}>
-            <AlertCircle size={15} /> {error}
-          </div>
-        )}
-
         <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16, padding: '12px 20px 16px', overflow: 'hidden' }}>
           {/* Left col — Select By + Mark Prefix */}
           <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0, gap: 10 }}>
