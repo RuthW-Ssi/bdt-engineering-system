@@ -33,10 +33,15 @@ function makeFileHandlers(
   files: FileEntry[],
   setFiles: React.Dispatch<React.SetStateAction<FileEntry[]>>,
   typeMap?: Partial<Record<DocType, DocType>>,
+  requiredKeyword?: string,
 ) {
   const onFilesAdded = (accepted: File[], rejected: FileRejection[]) => {
     const entries: FileEntry[] = []
     accepted.forEach(f => {
+      if (requiredKeyword && !f.name.toUpperCase().includes(requiredKeyword.toUpperCase())) {
+        entries.push({ file: f, detectedType: null, error: `ชื่อไฟล์ต้องมีคำว่า "${requiredKeyword}"` })
+        return
+      }
       const raw = classifyFilename(f.name)
       const detectedType = raw && typeMap ? (typeMap[raw] ?? raw) : raw
       const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
@@ -81,8 +86,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const [error, setError] = useState<string | null>(null)
 
   const combined = makeFileHandlers(files, setFiles)
-  const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP)
-  const acc = makeFileHandlers(accFiles, setAccFiles, ACC_TYPE_MAP)
+  const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
+  const acc = makeFileHandlers(accFiles, setAccFiles, ACC_TYPE_MAP, 'ACC')
 
   const validCombined = files.filter(e => !e.error && e.detectedType)
   const validMain = mainFiles.filter(e => !e.error && e.detectedType)
