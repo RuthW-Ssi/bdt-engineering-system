@@ -52,8 +52,16 @@ export interface CreateActivityPayload {
   tools?: { resource_id: number; qty: number }[]
 }
 
+export interface PaginatedActivities {
+  data: ActivityDto[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+}
+
 export const activitiesApi = {
-  list(params?: { q?: string; machine_id?: number; material_id?: number }): Promise<ActivityDto[]> {
+  list(params?: { q?: string; machine_id?: number; material_id?: number; page?: number; limit?: number }): Promise<PaginatedActivities> {
     return apiClient.get('/activities', { params }).then((r) => r.data)
   },
 

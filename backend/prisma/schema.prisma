@@ -807,6 +807,7 @@ model bom_dispatch {
   sub_zone_id           Int?
   sub_zone              sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
   status                String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
+  upload_mode           String       @default("combined") @db.VarChar(20) // combined | separate
   uploaded_at           DateTime     @default(now()) @db.Timestamptz
   // Aggregate counts — cached after processing
   assembly_total        Int?
@@ -836,7 +837,7 @@ model bom_doc_revision {
   id                   Int          @id @default(autoincrement())
   dispatch_id          Int
   dispatch             bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
-  doc_type             String       @db.VarChar(30) // ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST
+  doc_type             String       @db.VarChar(30) // ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST | MAIN_* | ACC_*
   original_filename    String       @db.VarChar(255)
   storage_key          String       @db.VarChar(500) // path in LocalFileStorageDriver
   file_size_bytes      BigInt?

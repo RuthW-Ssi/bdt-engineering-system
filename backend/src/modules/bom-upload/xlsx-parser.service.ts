@@ -154,8 +154,10 @@ export class XlsxParserService {
       throw new BadRequestException('Sheet has no data rows')
     }
 
-    if (docType === 'ASSEMBLY_LIST') return this.parseAssemblyList(rows)
-    if (docType === 'PART_LIST') return this.parsePartList(rows)
+    if (docType === 'ASSEMBLY_LIST' || docType === 'MAIN_ASSEMBLY_LIST' || docType === 'ACC_ASSEMBLY_LIST')
+      return this.parseAssemblyList(rows)
+    if (docType === 'PART_LIST' || docType === 'MAIN_PART_LIST' || docType === 'ACC_PART_LIST')
+      return this.parsePartList(rows)
     return this.parseAssemblyPartList(rows)
   }
 
