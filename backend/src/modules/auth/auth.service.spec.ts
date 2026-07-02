@@ -44,6 +44,17 @@ describe('AuthService', () => {
     expect(warnSpy.mock.calls[0][0]).not.toContain('wrong-password')
   })
 
+  it('strips CR/LF and control characters from the login before logging (log injection)', async () => {
+    prisma.res_users.findFirst.mockResolvedValue(null)
+
+    await expect(
+      svc.login({ login: 'ghost\n2026-07-02 [Nest] LOG [AuthService] Login succeeded for admin', password: 'x' }),
+    ).rejects.toThrow(UnauthorizedException)
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Login failed: unknown or inactive login "ghost2026-07-02 [Nest] LOG [AuthService] Login succeeded for admin"',
+    )
+  })
+
   it('does not log anything on a successful login', async () => {
     prisma.res_users.findFirst.mockResolvedValue({
       id: 1, login: 'admin', name: 'Admin', role: 'admin', password: await bcrypt.hash('correct-password', 4),

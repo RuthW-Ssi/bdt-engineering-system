@@ -19,18 +19,23 @@ export class AuthService {
     private readonly jwt: JwtService,
   ) {}
 
+  private sanitizeForLog(value: string): string {
+    // Strip control characters (CR/LF included) so untrusted input can't forge fake log lines (CWE-117).
+    return value.replace(/[\x00-\x1F\x7F]/g, '')
+  }
+
   async login(dto: LoginDto): Promise<{ access_token: string; user: { id: number; login: string; name: string; role: string } }> {
     const user = await this.prisma.res_users.findFirst({
       where: { login: dto.login, active: true },
     })
     if (!user || !user.password) {
-      this.logger.warn(`Login failed: unknown or inactive login "${dto.login}"`)
+      this.logger.warn(`Login failed: unknown or inactive login "${this.sanitizeForLog(dto.login)}"`)
       throw new UnauthorizedException('Invalid credentials')
     }
 
     const valid = await bcrypt.compare(dto.password, user.password)
     if (!valid) {
-      this.logger.warn(`Login failed: wrong password for login "${dto.login}"`)
+      this.logger.warn(`Login failed: wrong password for login "${this.sanitizeForLog(dto.login)}"`)
       throw new UnauthorizedException('Invalid credentials')
     }
 
