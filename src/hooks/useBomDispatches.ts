@@ -9,11 +9,12 @@ export function useDispatches(params?: Parameters<typeof dispatchesApi.list>[0])
   })
 }
 
-export function useDispatchDetail(id: number | undefined) {
+export function useDispatchDetail(id: number | undefined, opts?: { skipGlobalErrorToast?: boolean }) {
   return useQuery({
     queryKey: ['dispatch', id],
     queryFn: () => dispatchesApi.get(id!),
     enabled: !!id,
+    meta: { skipGlobalErrorToast: opts?.skipGlobalErrorToast },
   })
 }
 
@@ -31,6 +32,7 @@ export function useDispatchDiff(id: number | undefined) {
     queryFn: () => dispatchesApi.getDiff(id!),
     enabled: !!id,
     staleTime: 60_000,
+    meta: { skipGlobalErrorToast: true },
   })
 }
 
