@@ -2171,6 +2171,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
       toast.error(e?.response?.data?.message ?? e?.message ?? 'Failed to save routing template — please try again')
       console.error(e)
     },
+    meta: { skipGlobalErrorToast: true },
   })
 
   const allReady = opNodes.length > 0 && opNodes.every(n => isOpReady(n.data as OperationData))

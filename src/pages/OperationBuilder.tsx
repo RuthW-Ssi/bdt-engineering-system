@@ -195,6 +195,7 @@ export default function OperationBuilder() {
       else navigate(`/operation-library/${data.id}/edit`)
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to save operation — please try again'); console.error(e) },
+    meta: { skipGlobalErrorToast: true },
   })
 
   const publishMut = useMutation({
@@ -210,6 +211,7 @@ export default function OperationBuilder() {
       navigate('/operation-library')
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to publish operation — please try again'); console.error(e) },
+    meta: { skipGlobalErrorToast: true },
   })
 
   const deleteMut = useMutation({
@@ -220,6 +222,7 @@ export default function OperationBuilder() {
       navigate('/operation-library')
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete operation — please try again'); console.error(e) },
+    meta: { skipGlobalErrorToast: true },
   })
 
   const handleDelete = async () => {

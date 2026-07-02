@@ -93,6 +93,7 @@ export function RoutingList() {
       toast.error(e?.response?.data?.message ?? 'Failed to delete routing template — please try again')
       console.error(e)
     },
+    meta: { skipGlobalErrorToast: true },
   })
 
   async function handleDelete(e: React.MouseEvent, r: RoutingTemplateSummary) {
