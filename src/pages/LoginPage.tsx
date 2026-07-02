@@ -1,24 +1,25 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
+import { getErrorMessage } from '../lib/getErrorMessage'
 
 export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
-    setError(null)
     setLoading(true)
     try {
-      await login(loginId, password)
+      const authUser = await login(loginId, password)
+      toast.success(`Welcome, ${authUser.name}!`)
       navigate('/', { replace: true })
-    } catch {
-      setError('Login failed. Check your credentials and try again.')
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Login failed. Please check your username/password.'))
     } finally {
       setLoading(false)
     }
@@ -84,12 +85,6 @@ export function LoginPage() {
               }}
             />
           </div>
-
-          {error && (
-            <div style={{ fontSize: 12, color: '#C8202A', background: '#FFF0F0', padding: '6px 10px', borderRadius: 4 }}>
-              {error}
-            </div>
-          )}
 
           <button
             type="submit"
