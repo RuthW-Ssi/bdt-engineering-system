@@ -109,6 +109,7 @@ export function useBomDiff(productCode: string | undefined): UseBomDiffResult {
   // Load BOM list
   useEffect(() => {
     if (!productCode) return
+    setError(null)
     listBoms(productCode).then(list => {
       setBomList(list)
 
