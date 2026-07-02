@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Plus, Loader2, ChevronDown, GripVertical, Check, X } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   DndContext,
   closestCenter,
@@ -190,13 +191,20 @@ export function ZoneList() {
 
   async function saveReorder() {
     setSavingReorder(true)
-    await Promise.all(
-      orderedIds.map((id, idx) =>
-        updateZoneMut.mutateAsync({ zoneId: id, payload: { erection_sequence: idx + 1 } })
+    try {
+      await Promise.all(
+        orderedIds.map((id, idx) =>
+          updateZoneMut.mutateAsync({ zoneId: id, payload: { erection_sequence: idx + 1 } })
+        )
       )
-    )
-    setSavingReorder(false)
-    setReorderMode(false)
+      toast.success('Zone order saved')
+      setReorderMode(false)
+    } catch {
+      // Global handler (meta.showGlobalErrorToast on the mutation) already showed
+      // the error toast — stay in reorder mode so the user can retry.
+    } finally {
+      setSavingReorder(false)
+    }
   }
 
   function openZoneModal() {
@@ -211,21 +219,33 @@ export function ZoneList() {
   async function handleCreateZone() {
     setZoneTouched(true)
     if (!zoneForm.code?.trim() || !zoneForm.label?.trim() || !projectId) return
-    const created = await createZoneMut.mutateAsync(zoneForm as CreateZonePayload)
-    setZoneModal(false)
-    setExpandedZone(created.id)
+    try {
+      const created = await createZoneMut.mutateAsync(zoneForm as CreateZonePayload)
+      toast.success('Zone created')
+      setZoneModal(false)
+      setExpandedZone(created.id)
+    } catch {
+      // Global handler (meta.showGlobalErrorToast on the mutation) already showed
+      // the error toast — stop here so the modal stays open for the user to retry.
+    }
   }
 
   async function handleCreateSub() {
     if (!subForm.name || !subModal.zoneId) return
-    await createSubMut.mutateAsync({
-      name: subForm.name,
-      code: subForm.code || undefined,
-      start_date: subForm.start_date || undefined,
-      due_date: subForm.due_date || undefined,
-    })
-    setSubModal({ open: false, zoneId: null })
-    setSubForm({ name: '', code: '', start_date: '', due_date: '' })
+    try {
+      await createSubMut.mutateAsync({
+        name: subForm.name,
+        code: subForm.code || undefined,
+        start_date: subForm.start_date || undefined,
+        due_date: subForm.due_date || undefined,
+      })
+      toast.success('Sub-zone created')
+      setSubModal({ open: false, zoneId: null })
+      setSubForm({ name: '', code: '', start_date: '', due_date: '' })
+    } catch {
+      // Global handler (meta.showGlobalErrorToast on the mutation) already showed
+      // the error toast — stop here so the modal stays open for the user to retry.
+    }
   }
 
   // Build ordered zone objects for render
@@ -319,7 +339,7 @@ export function ZoneList() {
                     setExpandedZone={setExpandedZone}
                     subZones={expandedZone === zone.id ? (subZones ?? []) : []}
                     onAddSub={id => { setSubModal({ open: true, zoneId: id }); setExpandedZone(id) }}
-                    onDeleteSub={id => deleteSubMut.mutate(id)}
+                    onDeleteSub={id => deleteSubMut.mutate(id, { onSuccess: () => toast.success('Sub-zone deleted') })}
                     reorderMode={reorderMode}
                   />
                 ))}
