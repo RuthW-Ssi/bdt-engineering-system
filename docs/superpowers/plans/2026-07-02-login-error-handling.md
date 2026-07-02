@@ -134,6 +134,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw err
     }
   }, [])
+  // ⚠️ AMENDED by commit 26011d0: the line above logs the raw caught error, which for
+  // an AxiosError carries the plaintext password via err.config.data (request body).
+  // Shipped code instead does: console.error('[auth] login failed:', err instanceof Error ? err.message : String(err))
+  // Do not copy this snippet as-is into a future feature — copy the amended version.
 
   const logout = useCallback(() => {
     localStorage.removeItem('bdt_token')
@@ -452,6 +456,12 @@ export class AuthService {
       this.logger.warn(`Login failed: wrong password for login "${dto.login}"`)
       throw new UnauthorizedException('Invalid credentials')
     }
+    // ⚠️ AMENDED by commit 35694c8: interpolating dto.login unsanitized above is a
+    // log-injection vector (CWE-117) — @IsString()-only validation lets an attacker
+    // submit CR/LF to forge fake log lines on this unauthenticated endpoint. Shipped
+    // code adds `private sanitizeForLog(v: string) { return v.replace(/[\x00-\x1F\x7F]/g, '') }`
+    // and wraps `dto.login` with it at both call sites above. Copy the amended version,
+    // not this snippet, into future features that log user-supplied identifiers.
 
     const payload: JwtPayload = { sub: user.id, login: user.login, role: user.role }
     return {
