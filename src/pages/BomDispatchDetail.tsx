@@ -13,7 +13,7 @@ export function BomDispatchDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const dispatchId = id ? parseInt(id) : undefined
-  const { data: detail, isLoading, isError } = useDispatchDetail(dispatchId)
+  const { data: detail, isLoading, isError } = useDispatchDetail(dispatchId, { skipGlobalErrorToast: true })
   const { data: diff, isLoading: isDiffLoading, isError: isDiffError } = useDispatchDiff(dispatchId)
 
   if (isLoading) {
