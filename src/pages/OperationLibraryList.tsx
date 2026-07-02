@@ -61,7 +61,6 @@ export default function OperationLibraryList() {
       queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete operation — please try again'); console.error(e) },
-    meta: { skipGlobalErrorToast: true },
   })
 
   const handleDelete = async (e: React.MouseEvent, t: OpTemplateListItem) => {

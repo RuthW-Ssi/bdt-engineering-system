@@ -54,7 +54,6 @@ export function BindingRuleManager() {
       toast.error(e?.response?.data?.message ?? 'Failed to delete binding rule — please try again')
       console.error(e)
     },
-    meta: { skipGlobalErrorToast: true },
   })
   const confirm = useConfirm()
 

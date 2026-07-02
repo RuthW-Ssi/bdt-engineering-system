@@ -10,7 +10,12 @@ import { getErrorMessage } from './lib/getErrorMessage'
 declare module '@tanstack/react-query' {
   interface Register {
     queryMeta: { skipGlobalErrorToast?: boolean }
-    mutationMeta: { skipGlobalErrorToast?: boolean }
+    // Mutations are opt-IN (not opt-out like queries): most existing mutations
+    // across the app already handle their own errors (try/catch around
+    // mutateAsync, or their own onError) — defaulting to "on" would double-toast
+    // on all of them. Only mutations that explicitly want the shared fallback
+    // toast should set this.
+    mutationMeta: { showGlobalErrorToast?: boolean }
   }
 }
 
@@ -26,7 +31,7 @@ const queryClient = new QueryClient({
   }),
   mutationCache: new MutationCache({
     onError: (error, _variables, _onMutateResult, mutation) => {
-      if (mutation.meta?.skipGlobalErrorToast) return
+      if (!mutation.meta?.showGlobalErrorToast) return
       toast.error(getErrorMessage(error, 'Action failed. Please try again.'))
     },
   }),

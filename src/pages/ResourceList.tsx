@@ -57,7 +57,6 @@ export function ResourceList() {
       qc.invalidateQueries({ queryKey: ['consume-formulas'] })
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete resource — please try again'); console.error(e) },
-    meta: { skipGlobalErrorToast: true },
   })
 
   const machineQuery = useMachines({ type: 'machine', name: nameSearch || undefined, status: statusFilter || undefined })
