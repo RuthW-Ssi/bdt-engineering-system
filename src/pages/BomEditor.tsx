@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { ArrowLeft, RotateCcw, RotateCw, GitBranch, Layers, CheckCircle2, AlertCircle, Plus, ChevronRight, ChevronDown, GripVertical, Edit2, Copy, Trash2, Loader2, Zap } from 'lucide-react'
 import * as Icons from 'lucide-react'
 import { CAT_META } from '../data/meta'
@@ -7,6 +8,7 @@ import { genId } from '../data/utils'
 import type { BomNode, Category } from '../types'
 import { useBom } from '../hooks/useBom'
 import { activateBom } from '../api/boms'
+import { getErrorMessage } from '../lib/getErrorMessage'
 
 type ValidateState = null | 'pass' | 'fail'
 
@@ -242,6 +244,8 @@ export function BomEditor() {
     try {
       await activateBom(bom.id)
       await refresh()
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to activate BOM. Please try again.'))
     } finally {
       setActivating(false)
     }
