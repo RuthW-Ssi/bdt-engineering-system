@@ -113,6 +113,17 @@
 - **Status:** Open
 - **Created:** 2026-05-29
 
+### R-009 · A09:2021 Security Logging and Monitoring Failures — log-injection pattern in interpolated logger calls
+
+- **OWASP:** A09:2021 (Security Logging and Monitoring Failures) / CWE-117
+- **Impact:** Low — untrusted string values (attacker-influenceable via HTTP body or uploaded file content) are interpolated directly into `logger.warn/log` template strings without sanitization in several backend services. Left unsanitized, this allows CR/LF or control-char injection to forge fake log lines (log forgery), complicating incident forensics.
+- **Likelihood:** Low-Medium — `backend/src/modules/bom-upload/bom-upload.service.ts:208,219`, `bom-matching.service.ts:186,190`, and `product-derivation/product-derivation.service.ts:92` interpolate xlsx-derived values (`assembly_mark`, `part_mark`, `product_code`) into log lines; these endpoints are `JwtAuthGuard`-protected (authenticated only) but the values originate from uploaded file content the attacker fully controls.
+- **Owner:** backend
+- **Fix path:** introduce a shared `sanitizeForLog()` utility (pattern already established in `AuthService.sanitizeForLog()`, strips `/[\x00-\x1F\x7F]/g`) and apply at each interpolation site listed above; consider hoisting to a common util (e.g. `common/utils/log-sanitize.ts`) so future services reuse it instead of reimplementing per-service.
+- **Status:** Open — watch item, not yet actively exploited or blocking any feature
+- **Created:** 2026-07-02 (F-Login Error Handling review) — surfaced while independently verifying the `auth.service.ts` CWE-117 fix (commit `35694c8`) landed in the same feature; this entry generalizes the pattern to other services with the same shape
+- **Finding ref:** `docs/security/findings/2026-07-02-login-error-handling.md` F-003
+
 ---
 
 ## Mitigated risks
