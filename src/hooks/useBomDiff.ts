@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { toast } from 'sonner'
 import { listBoms, getBom } from '../api/boms'
 import type { BomListItemDTO, BomLineDTO } from '../api/boms'
 import type { BomDiffNode, DiffState, Category } from '../types'
+import { getErrorMessage } from '../lib/getErrorMessage'
 
 function lineKey(line: BomLineDTO): string {
   return line.material ? line.material.default_code : line.sub_product?.product_code ?? String(line.id)
@@ -92,6 +94,7 @@ interface UseBomDiffResult {
   setFromVersionId: (id: number) => void
   setToVersionId: (id: number) => void
   loading: boolean
+  error: string | null
   stats: { added: number; modified: number; removed: number; unchanged: number }
 }
 
@@ -101,18 +104,25 @@ export function useBomDiff(productCode: string | undefined): UseBomDiffResult {
   const [toVersionId, setToVersionId] = useState<number | null>(null)
   const [diffNodes, setDiffNodes] = useState<BomDiffNode[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // Load BOM list
   useEffect(() => {
     if (!productCode) return
     listBoms(productCode).then(list => {
       setBomList(list)
+
+      // Prefer active BOM, fallback to first draft
       if (list.length >= 2) {
         setFromVersionId(list[list.length - 1].id)
         setToVersionId(list[0].id)
       } else if (list.length === 1) {
         setToVersionId(list[0].id)
       }
+    }).catch(err => {
+      const msg = getErrorMessage(err, 'Failed to load BOM versions.')
+      setError(msg)
+      toast.error(msg)
     })
   }, [productCode])
 
@@ -120,6 +130,7 @@ export function useBomDiff(productCode: string | undefined): UseBomDiffResult {
   useEffect(() => {
     if (!toVersionId) return
     setLoading(true)
+    setError(null)
 
     const fetchBoth = fromVersionId
       ? Promise.all([getBom(fromVersionId), getBom(toVersionId)])
@@ -131,6 +142,11 @@ export function useBomDiff(productCode: string | undefined): UseBomDiffResult {
         const newLines = toBom.lines
         setDiffNodes(diffBomLines(oldLines, newLines))
       })
+      .catch(err => {
+        const msg = getErrorMessage(err, 'Failed to load BOM diff.')
+        setError(msg)
+        toast.error(msg)
+      })
       .finally(() => setLoading(false))
   }, [fromVersionId, toVersionId])
 
@@ -139,5 +155,5 @@ export function useBomDiff(productCode: string | undefined): UseBomDiffResult {
     { added: 0, modified: 0, removed: 0, unchanged: 0 },
   )
 
-  return { bomList, diffNodes, fromVersionId, toVersionId, setFromVersionId, setToVersionId, loading, stats }
+  return { bomList, diffNodes, fromVersionId, toVersionId, setFromVersionId, setToVersionId, loading, error, stats }
 }
