@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import { listBoms, getBom, updateBomLine, deleteBomLine } from '../api/boms'
 import type { BomDTO, BomListItemDTO, BomView } from '../api/boms'
 import type { BomNode, Category } from '../types'
+import { getErrorMessage } from '../lib/getErrorMessage'
 
 // Map category prefix5 to BomNode category
 function inferCategory(code: string): Category {
@@ -100,14 +102,22 @@ export function useBom(productCode: string | undefined): UseBomResult {
 
   const updateLineQty = useCallback(async (lineId: number, qty: number) => {
     if (!bom) return
-    await updateBomLine(bom.id, lineId, { product_qty: qty })
-    await load()
+    try {
+      await updateBomLine(bom.id, lineId, { product_qty: qty })
+      await load()
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to update quantity. Please try again.'))
+    }
   }, [bom, load])
 
   const deleteLineById = useCallback(async (lineId: number) => {
     if (!bom) return
-    await deleteBomLine(bom.id, lineId)
-    await load()
+    try {
+      await deleteBomLine(bom.id, lineId)
+      await load()
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Failed to delete line. Please try again.'))
+    }
   }, [bom, load])
 
   return { bom, tree, bomList, loading, error, activeBomView, setActiveBomView, refresh: load, updateLineQty, deleteLineById }
