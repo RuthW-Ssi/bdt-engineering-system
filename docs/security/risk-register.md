@@ -124,6 +124,17 @@
 - **Created:** 2026-07-02 (F-Login Error Handling review) — surfaced while independently verifying the `auth.service.ts` CWE-117 fix (commit `35694c8`) landed in the same feature; this entry generalizes the pattern to other services with the same shape
 - **Finding ref:** `docs/security/findings/2026-07-02-login-error-handling.md` F-003
 
+### R-010 · A09:2021 Security Logging and Monitoring Failures — raw error objects logged to browser console (client-side)
+
+- **OWASP:** A09:2021 (Security Logging and Monitoring Failures) / CWE-532-adjacent (client-side analogue)
+- **Impact:** Low — `console.error(e)` / `console.error(err)` calls across ~19 frontend files log the full caught `AxiosError` object (not just `.message`) on request failure. `AxiosError.config` can carry the `Authorization: Bearer <JWT>` header and request body for the failed call. Exposure is limited to the requesting user's own browser devtools console (not transmitted anywhere) — risk materializes only via local device access, screen-share/recording, or a malicious browser extension with console-read access.
+- **Likelihood:** Low — same shape of bug the Login feature was already flagged and fixed for (`AuthContext.tsx`, commit `26011d0`, now logs `err.message` only), but the fix was scoped to that one call site and never generalized. Confirmed still present (pre-existing on `dev`, unrelated to any single feature) at: `src/pages/ResourceList.tsx:59`, `src/pages/OperationBuilder.tsx:197,212,222`, `src/pages/OperationLibraryList.tsx:63`, `src/pages/BindingRuleManager.tsx:55`, `src/pages/RoutingBuilder.tsx:2172`, `src/pages/RoutingList.tsx:94`, `src/pages/BomRoutingConfig.tsx:83`, `src/pages/BomPaintConfig.tsx:127`, `src/pages/BomWireConfig.tsx:79`, `src/pages/CustomerList.tsx:142`, `src/pages/ProductList.tsx:415`, `src/pages/ProductDetail.tsx:912`, `src/pages/ActivityBuilder.tsx:420`, `src/pages/ActivityLibraryList.tsx:40`, `src/pages/MaterialRegisterModal.tsx:124`, `src/pages/WorkcenterMaster.tsx:183,355`, `src/components/bom/UpdateBomModal.tsx:127`, `src/components/bom/ZoneSummaryTab.tsx:179`, `src/components/product/AddLibraryEntryModal.tsx:106`, `src/components/product/EditLibraryEntryModal.tsx:112`, `src/components/product/NewCustomProductModal.tsx:138`, `src/components/product/NewStandardProductModal.tsx:335`.
+- **Owner:** frontend
+- **Fix path:** replace `console.error(e)` / `console.error(err)` with `console.error(e instanceof Error ? e.message : String(e))` (the `AuthContext.tsx` pattern) at each site, or centralize via a small `logClientError()` util so it isn't reimplemented per-file; low priority, batch with next frontend cleanup pass.
+- **Status:** Open — watch item, not yet actively exploited or blocking any feature
+- **Created:** 2026-07-02 (F-BOM Error Handling review) — surfaced while re-applying the Login feature's "raw error object → console" lens to this branch's incidental touches (`meta` add/revert) on 6 of these files; none of the flagged lines are part of the BOM Error Handling diff itself (confirmed net-zero), so this is logged as a follow-up rather than blocking that PR
+- **Finding ref:** `docs/security/findings/2026-07-02-bom-error-handling.md` (Observation section)
+
 ---
 
 ## Mitigated risks

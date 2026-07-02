@@ -749,7 +749,19 @@ export function BomList() {
         <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
           <Loader2 size={20} className="animate-spin" />Loading...
         </div>
-      ) : isError || allItems.length === 0 ? (
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
+          <Package size={40} style={{ opacity: 0.2 }} />
+          <div style={{ fontSize: 14, fontWeight: 500 }}>Unable to load BOM dispatches</div>
+          <button
+            onClick={() => refetch()}
+            className="flex items-center gap-1.5 rounded-md"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, color: '#3A3A3A', border: '1px solid #C2C2C2', marginTop: 8 }}
+          >
+            <RefreshCw size={14} />Retry
+          </button>
+        </div>
+      ) : allItems.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
           <div style={{ fontSize: 14, fontWeight: 500 }}>No BOM dispatches yet</div>

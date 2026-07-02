@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, FileText, Box, XCircle, CheckCircle, PlusCircle, MinusCircle, Edit, Equal, Download, Tag, Clock } from 'lucide-react'
+import { ArrowLeft, FileText, Box, XCircle, CheckCircle, PlusCircle, MinusCircle, Edit, Equal, Download, Tag, Clock, AlertCircle } from 'lucide-react'
 import * as Icons from 'lucide-react'
 import { CAT_META } from '../data/meta'
 import type { BomDiffNode, DiffState } from '../types'
@@ -101,7 +101,7 @@ export function BomDiffReview() {
   const [rejectReason, setRejectReason] = useState('Other (specify)')
   const [rejectDetail, setRejectDetail] = useState('')
 
-  const { bomList, diffNodes, fromVersionId, toVersionId, setFromVersionId, setToVersionId, loading, stats } = useBomDiff(code)
+  const { bomList, diffNodes, fromVersionId, toVersionId, setFromVersionId, setToVersionId, loading, error, stats } = useBomDiff(code)
 
   const fromBom = bomList.find(b => b.id === fromVersionId)
   const toBom = bomList.find(b => b.id === toVersionId)
@@ -192,7 +192,14 @@ export function BomDiffReview() {
           </div>
           {loading
             ? <div className="flex items-center justify-center py-12" style={{ color: '#8E8E8E', gap: 8, fontSize: 13 }}><span>Loading diff...</span></div>
-            : diffNodes.map(node => <DiffRow key={node.id} node={node} hideUnchanged={hideUnchanged} />)
+            : error
+              ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-12" style={{ color: '#C8202A' }}>
+                  <AlertCircle size={28} />
+                  <span style={{ fontSize: 13 }}>{error}</span>
+                </div>
+              )
+              : diffNodes.map(node => <DiffRow key={node.id} node={node} hideUnchanged={hideUnchanged} />)
           }
         </div>
       </div>
