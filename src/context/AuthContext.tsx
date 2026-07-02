@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 
-interface AuthUser {
+export interface AuthUser {
   id: number
   login: string
   name: string
@@ -11,7 +11,7 @@ interface AuthUser {
 interface AuthContextValue {
   user: AuthUser | null
   token: string | null
-  login: (loginId: string, password: string) => Promise<void>
+  login: (loginId: string, password: string) => Promise<AuthUser>
   logout: () => void
 }
 
@@ -25,15 +25,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   })
 
   const login = useCallback(async (loginId: string, password: string) => {
-    const res = await apiClient.post<{ access_token: string; user: AuthUser }>('/auth/login', {
-      login: loginId,
-      password,
-    })
-    const { access_token, user: authUser } = res.data
-    localStorage.setItem('bdt_token', access_token)
-    localStorage.setItem('bdt_user', JSON.stringify(authUser))
-    setToken(access_token)
-    setUser(authUser)
+    try {
+      const res = await apiClient.post<{ access_token: string; user: AuthUser }>('/auth/login', {
+        login: loginId,
+        password,
+      })
+      const { access_token, user: authUser } = res.data
+      localStorage.setItem('bdt_token', access_token)
+      localStorage.setItem('bdt_user', JSON.stringify(authUser))
+      setToken(access_token)
+      setUser(authUser)
+      return authUser
+    } catch (err) {
+      console.error('[auth] login failed', err)
+      throw err
+    }
   }, [])
 
   const logout = useCallback(() => {
