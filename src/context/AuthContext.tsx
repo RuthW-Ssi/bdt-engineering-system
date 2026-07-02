@@ -37,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(authUser)
       return authUser
     } catch (err) {
-      console.error('[auth] login failed', err)
+      console.error('[auth] login failed:', err instanceof Error ? err.message : String(err))
       throw err
     }
   }, [])
