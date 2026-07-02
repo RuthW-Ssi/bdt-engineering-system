@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common'
+import { Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcryptjs'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -12,6 +12,8 @@ export interface JwtPayload {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -21,10 +23,16 @@ export class AuthService {
     const user = await this.prisma.res_users.findFirst({
       where: { login: dto.login, active: true },
     })
-    if (!user || !user.password) throw new UnauthorizedException('Invalid credentials')
+    if (!user || !user.password) {
+      this.logger.warn(`Login failed: unknown or inactive login "${dto.login}"`)
+      throw new UnauthorizedException('Invalid credentials')
+    }
 
     const valid = await bcrypt.compare(dto.password, user.password)
-    if (!valid) throw new UnauthorizedException('Invalid credentials')
+    if (!valid) {
+      this.logger.warn(`Login failed: wrong password for login "${dto.login}"`)
+      throw new UnauthorizedException('Invalid credentials')
+    }
 
     const payload: JwtPayload = { sub: user.id, login: user.login, role: user.role }
     return {
