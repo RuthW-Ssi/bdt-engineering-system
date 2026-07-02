@@ -14,6 +14,7 @@ export function useDispatchDetail(id: number | undefined) {
     queryKey: ['dispatch', id],
     queryFn: () => dispatchesApi.get(id!),
     enabled: !!id,
+    meta: { skipGlobalErrorToast: true },
   })
 }
 
@@ -31,6 +32,7 @@ export function useDispatchDiff(id: number | undefined) {
     queryFn: () => dispatchesApi.getDiff(id!),
     enabled: !!id,
     staleTime: 60_000,
+    meta: { skipGlobalErrorToast: true },
   })
 }
 
