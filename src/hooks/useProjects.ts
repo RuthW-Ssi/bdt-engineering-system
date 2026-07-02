@@ -14,5 +14,6 @@ export function useCreateProject() {
   return useMutation({
     mutationFn: (payload: CreateProjectPayload) => projectsApi.create(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    meta: { showGlobalErrorToast: true },
   })
 }

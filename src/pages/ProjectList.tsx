@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Loader2, Plus, FolderOpen, Building2, Calendar } from 'lucide-react'
+import { toast } from 'sonner'
 import { useProjects, useCreateProject } from '../hooks/useProjects'
 import { useCustomers } from '../hooks/useCustomers'
 import { useActiveProject } from '../context/ProjectContext'
@@ -151,9 +152,15 @@ export function ProjectList() {
   async function handleSubmit() {
     setTouched(true)
     if (!isValid) return
-    const created = await createMut.mutateAsync(form as CreateProjectPayload)
-    setModalOpen(false)
-    setActiveProject(created)
+    try {
+      const created = await createMut.mutateAsync(form as CreateProjectPayload)
+      toast.success('Project created')
+      setModalOpen(false)
+      setActiveProject(created)
+    } catch {
+      // Global handler (meta.showGlobalErrorToast on the mutation) already showed
+      // the error toast — stop here so the modal stays open for the user to retry.
+    }
   }
 
   function errBorder(key: keyof CreateProjectPayload) {
