@@ -3,6 +3,7 @@ import { Plus, Search, Pencil, Trash2, Loader2, Building2, Mail, Phone, MapPin }
 import { toast } from 'sonner'
 import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '../hooks/useCustomers'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { getErrorMessage } from '../lib/getErrorMessage'
 import type { Customer, CreateCustomerPayload } from '../api/customers'
 
 const EMPTY: CreateCustomerPayload = { name: '' }
@@ -118,12 +119,19 @@ export function CustomerList() {
 
   async function handleSubmit() {
     if (!form.name) return
-    if (modal.editing) {
-      await updateMut.mutateAsync({ id: modal.editing.id, payload: form })
-    } else {
-      await createMut.mutateAsync(form)
+    try {
+      if (modal.editing) {
+        await updateMut.mutateAsync({ id: modal.editing.id, payload: form })
+        toast.success('Customer updated')
+      } else {
+        await createMut.mutateAsync(form)
+        toast.success('Customer created')
+      }
+      setModal({ open: false, editing: null })
+    } catch {
+      // Global handler (meta.showGlobalErrorToast on the mutation) already showed
+      // the error toast — stop here so the modal stays open for the user to retry.
     }
-    setModal({ open: false, editing: null })
   }
 
   async function handleDelete(c: Customer) {
@@ -137,9 +145,8 @@ export function CustomerList() {
     try {
       await deleteMut.mutateAsync(c.id)
       toast.success('Customer archived')
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to archive customer — please try again')
-      console.error(e)
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'Failed to archive customer. Please try again.'))
     }
   }
 
