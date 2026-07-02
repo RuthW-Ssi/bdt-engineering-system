@@ -19,6 +19,7 @@ export function useCreateCustomer() {
   return useMutation({
     mutationFn: (payload: CreateCustomerPayload) => createCustomer(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
+    meta: { showGlobalErrorToast: true },
   })
 }
 
@@ -28,6 +29,7 @@ export function useUpdateCustomer() {
     mutationFn: ({ id, payload }: { id: number; payload: Partial<CreateCustomerPayload> }) =>
       updateCustomer(id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['customers'] }),
+    meta: { showGlobalErrorToast: true },
   })
 }
 
