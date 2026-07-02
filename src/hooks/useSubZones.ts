@@ -17,6 +17,7 @@ export function useCreateSubZone(zoneId: number, projectId?: number) {
       qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] })
       if (projectId) qc.invalidateQueries({ queryKey: ['project-zones', projectId] })
     },
+    meta: { showGlobalErrorToast: true },
   })
 }
 
@@ -37,5 +38,6 @@ export function useDeleteSubZone(zoneId: number, projectId?: number) {
       qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] })
       if (projectId) qc.invalidateQueries({ queryKey: ['project-zones', projectId] })
     },
+    meta: { showGlobalErrorToast: true },
   })
 }

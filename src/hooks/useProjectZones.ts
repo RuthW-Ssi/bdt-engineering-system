@@ -15,6 +15,7 @@ export function useCreateZone(projectId: number) {
   return useMutation({
     mutationFn: (payload: CreateZonePayload) => projectZonesApi.create(projectId, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project-zones', projectId] }),
+    meta: { showGlobalErrorToast: true },
   })
 }
 
@@ -24,5 +25,6 @@ export function useUpdateZone(projectId: number) {
     mutationFn: ({ zoneId, payload }: { zoneId: number; payload: { erection_sequence?: number; label?: string } }) =>
       projectZonesApi.update(projectId, zoneId, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project-zones', projectId] }),
+    meta: { showGlobalErrorToast: true },
   })
 }
