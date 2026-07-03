@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
-import { useUploadBom } from '../../hooks/useBomDispatches'
+import { useUploadBom, useLatestRevision } from '../../hooks/useBomDispatches'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
@@ -84,6 +84,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
+  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
+
+  const { data: latestRevision } = useLatestRevision(projectId, zoneId, subZoneId)
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -105,8 +108,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     formData.append('project_id', String(projectId))
     formData.append('zone_id', String(zoneId))
     formData.append('upload_mode', uploadMode)
+    formData.append('revision_choice', latestRevision != null ? revisionChoice : 'new')
     if (subZoneId != null) formData.append('sub_zone_id', String(subZoneId))
-    formData.append('dispatch_id', String(dispatchId))
 
     const allValid = uploadMode === 'combined' ? validCombined : [...validMain, ...validAcc]
     allValid.forEach(e => {
@@ -144,9 +147,21 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           </button>
         </div>
 
-        <div style={{ fontSize: 13, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 12px' }}>
-          A new revision will be added — existing files are not deleted, history is preserved
-        </div>
+        {latestRevision != null && (
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Revision</label>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
+                Continue revision {latestRevision}
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
+                Start new revision ({latestRevision + 1})
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Mode badge */}
         <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>
