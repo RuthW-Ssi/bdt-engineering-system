@@ -51,8 +51,8 @@ function buildMockDataFromFixtures() {
 function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
   const { p0Asm, p0Part, p0AsmPart, p1Asm, p1Part, p1AsmPart } = fixtures
 
-  const dispatch0 = { id: 1, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), assembly_total: p0Asm?.assemblies.length ?? null, part_total: p0Part?.parts.length ?? null }
-  const dispatch1 = { id: 2, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), assembly_total: p1Asm?.assemblies.length ?? null, part_total: p1Part?.parts.length ?? null }
+  const dispatch0 = { id: 1, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 0, assembly_total: p0Asm?.assemblies.length ?? null, part_total: p0Part?.parts.length ?? null }
+  const dispatch1 = { id: 2, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1, assembly_total: p1Asm?.assemblies.length ?? null, part_total: p1Part?.parts.length ?? null }
 
   const asm0Rows = (p0Asm?.assemblies ?? []).map((a, i) => ({ id: i + 1, dispatch_id: 1, assembly_mark: a.assembly_mark, name: a.name ?? null, qty: a.qty ?? null, weight_kg: a.weight_kg ?? null, surface_area_m2: a.surface_area_m2 ?? null }))
   const asm1Rows = (p1Asm?.assemblies ?? []).map((a, i) => ({ id: 1000 + i, dispatch_id: 2, assembly_mark: a.assembly_mark, name: a.name ?? null, qty: a.qty ?? null, weight_kg: a.weight_kg ?? null, surface_area_m2: a.surface_area_m2 ?? null }))
@@ -87,28 +87,49 @@ function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
         if (where.id === 2) return Promise.resolve(dispatch1)
         return Promise.resolve(null)
       }),
-      findFirst: jest.fn(() => Promise.resolve(dispatch0)),
+      findFirst: jest.fn(({ where }: any) =>
+        Promise.resolve(
+          [dispatch0, dispatch1]
+            .filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision < where.revision.lt)
+            .sort((a, b) => b.revision - a.revision)[0] ?? null,
+        ),
+      ),
+      findMany: jest.fn(({ where }: any) => {
+        // resolve sibling ids sharing a revision, or the latest-prior-revision lookup
+        if (where.revision != null) {
+          return Promise.resolve([dispatch0, dispatch1].filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision === where.revision))
+        }
+        return Promise.resolve([dispatch0, dispatch1].filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision < where.revision.lt))
+      }),
     },
     bom_assembly: {
       findMany: jest.fn(({ where }: any) => {
-        if (where.dispatch_id === 1) return Promise.resolve(asm0Rows)
-        if (where.dispatch_id === 2) return Promise.resolve(asm1Rows)
+        const ids: number[] = where.dispatch_id.in
+        if (ids.includes(1)) return Promise.resolve(asm0Rows)
+        if (ids.includes(2)) return Promise.resolve(asm1Rows)
         return Promise.resolve([])
       }),
     },
     bom_part: {
       findMany: jest.fn(({ where }: any) => {
-        if (where.dispatch_id === 1) return Promise.resolve(part0Rows)
-        if (where.dispatch_id === 2) return Promise.resolve(part1Rows)
+        const ids: number[] = where.dispatch_id.in
+        if (ids.includes(1)) return Promise.resolve(part0Rows)
+        if (ids.includes(2)) return Promise.resolve(part1Rows)
         return Promise.resolve([])
+      }),
+      count: jest.fn(({ where }: any) => {
+        const ids: number[] = where.dispatch_id.in
+        const rows: any[] = []
+        if (ids.includes(1)) rows.push(...part0Rows)
+        if (ids.includes(2)) rows.push(...part1Rows)
+        return Promise.resolve(rows.length)
       }),
     },
     bom_assembly_part: {
       findMany: jest.fn(({ where }: any) => {
-        // match dispatch via nested assembly filter
-        const dispatchId = where?.assembly?.dispatch_id
-        if (dispatchId === 1) return Promise.resolve(junctions0)
-        if (dispatchId === 2) return Promise.resolve(junctions1)
+        const ids: number[] = where?.assembly?.dispatch_id?.in ?? []
+        if (ids.includes(1)) return Promise.resolve(junctions0)
+        if (ids.includes(2)) return Promise.resolve(junctions1)
         return Promise.resolve([])
       }),
     },
@@ -134,13 +155,20 @@ describe('BomDiffService — fixture-based contract test', () => {
   })
 
   it('returns null when no previous dispatch exists', async () => {
+    const dispatch99 = { id: 99, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), revision: 0 }
     const noPrevPrisma = {
       bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue({ id: 99, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'pending', uploaded_at: new Date() }),
+        findUnique: jest.fn().mockResolvedValue(dispatch99),
         findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ where }: any) => {
+          if (where.revision != null) {
+            return Promise.resolve([dispatch99].filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision === where.revision))
+          }
+          return Promise.resolve([])
+        }),
       },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
-      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const result = await new BomDiffService(noPrevPrisma as any).computeDiff(99)
@@ -149,9 +177,9 @@ describe('BomDiffService — fixture-based contract test', () => {
 
   it('throws NotFoundException for unknown dispatch', async () => {
     const unknownPrisma = {
-      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn(), findMany: jest.fn() },
       bom_assembly: { findMany: jest.fn() },
-      bom_part: { findMany: jest.fn() },
+      bom_part: { findMany: jest.fn(), count: jest.fn() },
       bom_assembly_part: { findMany: jest.fn() },
     }
     await expect(new BomDiffService(unknownPrisma as any).computeDiff(9999)).rejects.toThrow(NotFoundException)
@@ -213,17 +241,30 @@ describe('BomDiffService — fixture-based contract test', () => {
 
 describe('BomDiffService — algorithm unit tests', () => {
   function makeMinimalPrisma() {
-    const prev = { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), assembly_total: 2, part_total: 3 }
-    const curr = { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), assembly_total: 2, part_total: 3 }
+    const prev = { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 0, assembly_total: 2, part_total: 3 }
+    const curr = { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1, assembly_total: 2, part_total: 3 }
 
     return {
       bom_dispatch: {
         findUnique: jest.fn(({ where }: any) => Promise.resolve(where.id === 1 ? prev : curr)),
-        findFirst: jest.fn().mockResolvedValue(prev),
+        findFirst: jest.fn(({ where }: any) =>
+          Promise.resolve(
+            [prev, curr]
+              .filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision < where.revision.lt)
+              .sort((a, b) => b.revision - a.revision)[0] ?? null,
+          ),
+        ),
+        findMany: jest.fn(({ where }: any) => {
+          if (where.revision != null) {
+            return Promise.resolve([prev, curr].filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision === where.revision))
+          }
+          return Promise.resolve([prev, curr].filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision < where.revision.lt))
+        }),
       },
       bom_assembly: {
         findMany: jest.fn(({ where }: any) => {
-          if (where.dispatch_id === 1) return Promise.resolve([
+          const ids: number[] = where.dispatch_id.in
+          if (ids.includes(1)) return Promise.resolve([
             { assembly_mark: 'A1', name: 'Assembly 1', qty: 2, weight_kg: 100, surface_area_m2: 5 },
             { assembly_mark: 'A2', name: 'Assembly 2', qty: 1, weight_kg: 50, surface_area_m2: 3 },
           ])
@@ -234,7 +275,10 @@ describe('BomDiffService — algorithm unit tests', () => {
           ])
         }),
       },
-      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
   }
@@ -258,5 +302,79 @@ describe('BomDiffService — algorithm unit tests', () => {
     expect(result!.aggregate.weight_kg.prev).toBeCloseTo(150)
     expect(result!.aggregate.weight_kg.curr).toBeCloseTo(200)
     expect(result!.aggregate.weight_kg.delta).toBeCloseTo(50)
+  })
+})
+
+// ── Revision-group aggregation tests ──────────────────────────
+
+describe('BomDiffService — revision-group aggregation', () => {
+  function buildGroupedPrisma() {
+    // Revision 0: one combined dispatch (id 1) with assemblies B1, B2
+    // Revision 1: two dispatches sharing revision 1 — Main (id 2, assembly M1) and Acc (id 3, assembly A1)
+    const dispatches = [
+      { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 0 },
+      { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1 },
+      { id: 3, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-02'), revision: 1 },
+    ]
+    const assembliesByDispatch: Record<number, any[]> = {
+      1: [
+        { assembly_mark: 'B1', name: 'Base 1', qty: 1, weight_kg: 100, surface_area_m2: 5 },
+        { assembly_mark: 'B2', name: 'Base 2', qty: 1, weight_kg: 50, surface_area_m2: 3 },
+      ],
+      2: [{ assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 }],
+      3: [{ assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 }],
+    }
+    return {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: jest.fn(({ where }: any) => {
+          // resolve sibling ids sharing a revision, or the latest-prior-revision lookup
+          if (where.revision != null) {
+            return Promise.resolve(dispatches.filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision === where.revision))
+          }
+          return Promise.resolve(dispatches.filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision < where.revision.lt))
+        }),
+        findFirst: jest.fn(({ where }: any) =>
+          Promise.resolve(
+            dispatches
+              .filter(d => d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id && d.revision < where.revision.lt)
+              .sort((a, b) => b.revision - a.revision)[0] ?? null,
+          ),
+        ),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => {
+          const ids: number[] = where.dispatch_id.in
+          return Promise.resolve(ids.flatMap(id => assembliesByDispatch[id] ?? []))
+        }),
+      },
+      bom_part: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+  }
+
+  it('diffs the union of a same-revision group (Main+Acc) against the true prior revision, not against each other', async () => {
+    const svc = new BomDiffService(buildGroupedPrisma() as any)
+    const result = await svc.computeDiff(3) // dispatch 3 = Acc, revision 1
+
+    expect(result).not.toBeNull()
+    const marks = result!.assembly_diff.map(r => (r.curr ?? r.prev)!.assembly_mark).sort()
+    // current group = {M1, A1} (dispatch 2 + 3, both revision 1), previous = {B1, B2} (revision 0)
+    expect(marks).toEqual(['A1', 'B1', 'B2', 'M1'])
+    expect(result!.assembly_diff.find(r => r.curr?.assembly_mark === 'M1')!.status).toBe('added')
+    expect(result!.assembly_diff.find(r => r.curr?.assembly_mark === 'A1')!.status).toBe('added')
+    expect(result!.assembly_diff.find(r => r.prev?.assembly_mark === 'B1')!.status).toBe('removed')
+    expect(result!.assembly_diff.find(r => r.prev?.assembly_mark === 'B2')!.status).toBe('removed')
+  })
+
+  it('returns null when the dispatch is the first-ever revision for its zone/sub-zone (no earlier revision, sibling or not)', async () => {
+    const soloPrisma = buildGroupedPrisma()
+    // Simulate viewing dispatch 1 itself (revision 0, nothing earlier than 0)
+    const svc = new BomDiffService(soloPrisma as any)
+    const result = await svc.computeDiff(1)
+    expect(result).toBeNull()
   })
 })

@@ -86,34 +86,52 @@ function junctionsEqual(a: JunctionDiffItem, b: JunctionDiffItem): boolean {
 export class BomDiffService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findPrevious(id: number) {
+  private async findRevisionGroupIds(projectId: number, zoneId: number, subZoneId: number | null, revision: number): Promise<number[]> {
+    const rows = await this.prisma.bom_dispatch.findMany({
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, revision },
+      select: { id: true },
+    })
+    return rows.map(r => r.id)
+  }
+
+  async findPreviousRevisionGroup(id: number): Promise<{ currentIds: number[]; previousIds: number[] } | null> {
     const current = await this.prisma.bom_dispatch.findUnique({ where: { id } })
     if (!current) throw new NotFoundException(`Dispatch ${id} not found`)
-    return this.prisma.bom_dispatch.findFirst({
+
+    const currentIds = await this.findRevisionGroupIds(current.project_id, current.zone_id, current.sub_zone_id, current.revision)
+
+    const previousDispatch = await this.prisma.bom_dispatch.findFirst({
       where: {
         project_id: current.project_id,
         zone_id: current.zone_id,
         sub_zone_id: current.sub_zone_id,
-        uploaded_at: { lt: current.uploaded_at },
-        id: { not: id },
+        revision: { lt: current.revision },
       },
-      orderBy: { uploaded_at: 'desc' },
+      orderBy: { revision: 'desc' },
     })
+    if (!previousDispatch) return null
+
+    const previousIds = await this.findRevisionGroupIds(current.project_id, current.zone_id, current.sub_zone_id, previousDispatch.revision)
+    return { currentIds, previousIds }
   }
 
   async computeDiff(id: number): Promise<DispatchDiffResult | null> {
-    const prev = await this.findPrevious(id)
-    if (!prev) return null
+    const groups = await this.findPreviousRevisionGroup(id)
+    if (!groups) return null
+    const { currentIds, previousIds } = groups
 
     const [currDetail, prevDetail] = await Promise.all([
-      this.loadDispatchData(id),
-      this.loadDispatchData(prev.id),
+      this.loadRevisionGroupData(currentIds),
+      this.loadRevisionGroupData(previousIds),
     ])
 
-    const currDispatch = await this.prisma.bom_dispatch.findUnique({ where: { id } })
-    const prevDispatch = prev
+    const currDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: currentIds } } })
+    const prevDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: previousIds } } })
 
-    const warning = this.computeWarning(prevDispatch.status, currDispatch!.status)
+    const warning = this.computeWarning(
+      prevDispatches.map(d => d.status),
+      currDispatches.map(d => d.status),
+    )
 
     const assembly_diff = diffEntities(
       prevDetail.assemblies, currDetail.assemblies,
@@ -130,11 +148,11 @@ export class BomDiffService {
       j => `${j.assembly_mark}__${j.part_mark}`, junctionsEqual,
     )
 
-    const aggregate = await this.computeAggregate(prev.id, id, assembly_diff, part_diff)
+    const aggregate = await this.computeAggregate(previousIds, currentIds, assembly_diff, part_diff)
 
     return {
-      prev_id: prev.id,
-      curr_id: id,
+      prev_id: previousIds[0],
+      curr_id: currentIds[0],
       warning,
       aggregate,
       assembly_diff,
@@ -145,18 +163,18 @@ export class BomDiffService {
 
   // ── Private helpers ──────────────────────────────────────────
 
-  private async loadDispatchData(id: number) {
+  private async loadRevisionGroupData(ids: number[]) {
     const [assemblies, parts, junctions] = await Promise.all([
       this.prisma.bom_assembly.findMany({
-        where: { dispatch_id: id },
+        where: { dispatch_id: { in: ids } },
         select: { assembly_mark: true, name: true, qty: true, weight_kg: true, surface_area_m2: true },
       }),
       this.prisma.bom_part.findMany({
-        where: { dispatch_id: id },
+        where: { dispatch_id: { in: ids } },
         select: { part_mark: true, description: true, profile: true, grade: true, qty: true, length_mm: true, weight_kg: true },
       }),
       this.prisma.bom_assembly_part.findMany({
-        where: { assembly: { dispatch_id: id } },
+        where: { assembly: { dispatch_id: { in: ids } } },
         select: {
           qty: true,
           assembly: { select: { assembly_mark: true } },
@@ -193,21 +211,21 @@ export class BomDiffService {
   }
 
   private async computeAggregate(
-    prevId: number, currId: number,
+    prevIds: number[], currIds: number[],
     assemblyDiff: DiffRow<AssemblyDiffItem>[],
     partDiff: DiffRow<PartDiffItem>[],
   ): Promise<DiffAggregate> {
     const [prevWeightArea, currWeightArea] = await Promise.all([
-      this.sumWeightArea(prevId),
-      this.sumWeightArea(currId),
+      this.sumWeightArea(prevIds),
+      this.sumWeightArea(currIds),
     ])
 
     const asmPrev = assemblyDiff.filter(r => r.prev != null).length
     const asmCurr = assemblyDiff.filter(r => r.curr != null).length
 
     const [prevPartCount, currPartCount] = await Promise.all([
-      this.prisma.bom_part.count({ where: { dispatch_id: prevId } }),
-      this.prisma.bom_part.count({ where: { dispatch_id: currId } }),
+      this.prisma.bom_part.count({ where: { dispatch_id: { in: prevIds } } }),
+      this.prisma.bom_part.count({ where: { dispatch_id: { in: currIds } } }),
     ])
 
     const countChanges = <T>(rows: DiffRow<T>[]) => ({
@@ -226,9 +244,9 @@ export class BomDiffService {
     }
   }
 
-  private async sumWeightArea(dispatchId: number) {
+  private async sumWeightArea(dispatchIds: number[]) {
     const rows = await this.prisma.bom_assembly.findMany({
-      where: { dispatch_id: dispatchId },
+      where: { dispatch_id: { in: dispatchIds } },
       select: { weight_kg: true, surface_area_m2: true },
     })
     let weight_kg = 0, area_m2 = 0
@@ -242,12 +260,14 @@ export class BomDiffService {
     }
   }
 
-  private computeWarning(prevStatus: string, currStatus: string): string | null {
-    if (prevStatus === 'partial' && currStatus === 'partial') {
+  private computeWarning(prevStatuses: string[], currStatuses: string[]): string | null {
+    const prevPartial = prevStatuses.some(s => s === 'partial')
+    const currPartial = currStatuses.some(s => s === 'partial')
+    if (prevPartial && currPartial) {
       return 'ทั้งสอง dispatch มีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
     }
-    if (prevStatus === 'partial') return 'เวอร์ชันก่อนหน้ามีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
-    if (currStatus === 'partial') return 'เวอร์ชันปัจจุบันมีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
+    if (prevPartial) return 'เวอร์ชันก่อนหน้ามีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
+    if (currPartial) return 'เวอร์ชันปัจจุบันมีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
     return null
   }
 }
