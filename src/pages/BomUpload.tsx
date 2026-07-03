@@ -7,7 +7,7 @@ import { FilePreviewItem } from '../components/bom/FilePreviewItem'
 import { useActiveProject } from '../context/ProjectContext'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
-import { useUploadBom, useZoneUploadMode } from '../hooks/useBomDispatches'
+import { useUploadBom, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
@@ -85,6 +85,7 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
+  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -94,6 +95,12 @@ export function BomUpload() {
   const { data: zoneMode, isLoading: zoneModeLoading } = useZoneUploadMode(
     activeProject?.id ?? null,
     zoneId ? parseInt(zoneId) : null,
+  )
+
+  const { data: latestRevision } = useLatestRevision(
+    activeProject?.id,
+    zoneId ? parseInt(zoneId) : undefined,
+    subZoneId ? parseInt(subZoneId) : null,
   )
 
   const isModeLocked = !!zoneMode
@@ -134,6 +141,7 @@ export function BomUpload() {
     formData.append('project_id', String(activeProject.id))
     formData.append('zone_id', zoneId)
     formData.append('upload_mode', effectiveMode)
+    formData.append('revision_choice', zoneId && latestRevision != null ? revisionChoice : 'new')
     if (subZoneId) formData.append('sub_zone_id', subZoneId)
 
     const allValid = effectiveMode === 'combined' ? validCombined : [...validMain, ...validAcc]
@@ -212,6 +220,23 @@ export function BomUpload() {
             {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
           </select>
         </div>
+
+        {/* Revision Choice */}
+        {zoneId && latestRevision != null && (
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Revision</label>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
+                Continue revision {latestRevision}
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
+                Start new revision ({latestRevision + 1})
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Upload Mode Radio */}
         {zoneId && !zoneModeLoading && (
