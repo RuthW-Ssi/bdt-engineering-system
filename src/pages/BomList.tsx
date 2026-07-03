@@ -6,7 +6,7 @@ import { usePaintConfig } from '../hooks/usePaint'
 import type { PaintConfigResponseDto } from '../api/paint'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
-import { useActiveProject } from '../context/ProjectContext'
+import { useProjectSelection } from '../hooks/useProjectSelection'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto } from '../api/dispatches'
@@ -474,9 +474,9 @@ function DispatchGroup({
 // ── Main page ─────────────────────────────────────────────────
 export function BomList() {
   const navigate = useNavigate()
-  const { activeProject } = useActiveProject()
-  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
+  const location = useLocation()
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const pendingTabRef = useRef<ContentTab | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -679,6 +679,21 @@ export function BomList() {
       {/* ── Filter bar ────────────────────────────────────────── */}
       <div className="flex items-center gap-2 px-4 border-b border-chrome-100" style={{ height: 44, background: '#F5F5F5', flexShrink: 0 }}>
         <select
+          className="border rounded-md bg-white focus:outline-none"
+          style={{ height: 30, padding: '0 8px', fontSize: 12, minWidth: 180, borderColor: '#E0E0E0' }}
+          value={activeProject?.id ?? ''}
+          onChange={e => {
+            const project = projects.find(p => p.id === Number(e.target.value))
+            if (project) selectProject(project)
+          }}
+        >
+          {projects.length === 0
+            ? <option value="" disabled>No projects found</option>
+            : projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)
+          }
+        </select>
+
+        <select
           disabled={!hasProject || zones.length === 0}
           className="border rounded-md bg-white focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed"
           style={{ height: 30, padding: '0 8px', fontSize: 12, minWidth: 150, borderColor: zoneFilter ? '#C8202A' : '#E0E0E0' }}
@@ -704,7 +719,7 @@ export function BomList() {
           }
         </select>
 
-        {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Select a Project from the header first</span>}
+        {!hasProject && <span style={{ fontSize: 12, color: '#8E8E8E' }}>Select a Project first</span>}
 
         <span style={{ width: 1, height: 20, background: '#E0E0E0', flexShrink: 0 }} />
 
@@ -743,7 +758,7 @@ export function BomList() {
       {!hasProject ? (
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
-          <div style={{ fontSize: 14, fontWeight: 500 }}>Select a Project from the header first</div>
+          <div style={{ fontSize: 14, fontWeight: 500 }}>Select a Project first</div>
         </div>
       ) : isLoading ? (
         <div className="flex items-center justify-center gap-2 flex-1" style={{ color: '#8E8E8E', fontSize: 13 }}>
