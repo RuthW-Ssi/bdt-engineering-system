@@ -11,6 +11,7 @@ export interface DispatchSummaryDto {
   sub_zone_id: number | null
   status: DispatchStatus
   upload_mode: 'combined' | 'separate'
+  revision: number
   doc_count: number
   uploaded_at: string
   zone: { id: number; code: string; label: string }
@@ -229,5 +230,11 @@ export const dispatchesApi = {
         const items: DispatchSummaryDto[] = r.data.items ?? []
         return items.length > 0 ? items[0].upload_mode : null
       })
+  },
+
+  getLatestRevision(projectId: number, zoneId: number, subZoneId: number | null): Promise<number | null> {
+    return apiClient
+      .get('/dispatches/latest-revision', { params: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })
+      .then(r => r.data.revision)
   },
 }

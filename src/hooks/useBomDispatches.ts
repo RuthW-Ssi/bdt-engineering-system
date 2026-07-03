@@ -63,6 +63,14 @@ export function useZoneUploadMode(projectId: number | null, zoneId: number | nul
   })
 }
 
+export function useLatestRevision(projectId: number | undefined, zoneId: number | undefined, subZoneId: number | null | undefined) {
+  return useQuery({
+    queryKey: ['latest-revision', projectId, zoneId, subZoneId],
+    queryFn: () => dispatchesApi.getLatestRevision(projectId!, zoneId!, subZoneId ?? null),
+    enabled: !!projectId && !!zoneId,
+  })
+}
+
 export function useUploadBom() {
   const qc = useQueryClient()
   return useMutation({

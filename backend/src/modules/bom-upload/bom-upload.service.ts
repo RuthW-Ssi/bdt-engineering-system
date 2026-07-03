@@ -558,6 +558,7 @@ export class BomUploadService {
     sub_zone_id: number | null
     status: string
     upload_mode: string
+    revision: number
     uploaded_at: Date
     assembly_total: number | null
     part_total: number | null
@@ -573,6 +574,7 @@ export class BomUploadService {
       sub_zone_id: d.sub_zone_id,
       status: d.status,
       upload_mode: d.upload_mode,
+      revision: d.revision,
       doc_count: d.doc_revisions?.length ?? 0,
       uploaded_at: d.uploaded_at.toISOString(),
       zone: d.zone,
