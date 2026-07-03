@@ -32,6 +32,7 @@ export interface AssemblyPartDto {
   part_qty: number
   unit_weight_kg: number | null
   match_status: string | null
+  version_label: string | null
 }
 
 export interface AssemblyProductDto {
@@ -54,6 +55,7 @@ export interface AssemblyDto {
   parts: AssemblyPartDto[]
   match_status: string | null
   product: AssemblyProductDto | null
+  version_label: string | null
 }
 
 export interface DispatchDetailDto extends DispatchSummaryDto {

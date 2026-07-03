@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
+import { BomDiffService } from './bom-diff.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcFile } from './nc-parser'
@@ -46,6 +47,7 @@ export class BomUploadService {
     private readonly storage: FileStorageService,
     private readonly parser: XlsxParserService,
     private readonly matching: BomMatchingService,
+    private readonly diffService: BomDiffService,
   ) {}
 
   // ─── Upload ──────────────────────────────────────────────────
@@ -343,68 +345,69 @@ export class BomUploadService {
         zone: { select: { id: true, code: true, label: true } },
         sub_zone: { select: { id: true, name: true, code: true } },
         create_user: { select: { id: true, name: true } },
-        doc_revisions: {
-          select: {
-            id: true,
-            dispatch_id: true,
-            doc_type: true,
-            original_filename: true,
-            create_date: true,
-            create_user: { select: { id: true, name: true } },
-          },
-          orderBy: { create_date: 'asc' },
+        doc_revisions: { select: { doc_type: true } },
+      },
+    })
+    if (!d) throw new NotFoundException(`Dispatch ${id} not found`)
+
+    // The "current BOM" for this zone/sub-zone is the effective Main + Acc
+    // group as of this dispatch (see BomDiffService.resolveEffectiveGroup) —
+    // not just this one dispatch's own rows. A Main-only or Acc-only upload
+    // must still show whichever sibling slot is currently active, carried
+    // forward from wherever it was last uploaded (possibly an earlier
+    // revision), so the content view never silently drops half the BOM.
+    const effectiveIds = await this.diffService.resolveEffectiveGroup(
+      d.project_id, d.zone_id, d.sub_zone_id, { lte: id },
+    )
+
+    const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
+
+    const [docRevisions, assemblies, orphans, partCount] = await Promise.all([
+      this.prisma.bom_doc_revision.findMany({
+        where: { dispatch_id: { in: effectiveIds } },
+        select: {
+          id: true, dispatch_id: true, doc_type: true, original_filename: true,
+          create_date: true, create_user: { select: { id: true, name: true } },
         },
-        assemblies: {
-          orderBy: { assembly_mark: 'asc' },
-          select: {
-            id: true,
-            assembly_mark: true,
-            name: true,
-            qty: true,
-            weight_kg: true,
-            surface_area_m2: true,
-            length_mm: true,
-            width_mm: true,
-            height_mm: true,
-            match_status: true,
-            product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
-            assembly_parts: {
-              orderBy: { sequence: 'asc' },
-              select: {
-                qty: true,
-                part: {
-                  select: {
-                    id: true,
-                    part_mark: true,
-                    description: true,
-                    profile: true,
-                    grade: true,
-                    length_mm: true,
-                    weight_kg: true,
-                    match_status: true,
-                    product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
-                  },
+        orderBy: { create_date: 'asc' },
+      }),
+      this.prisma.bom_assembly.findMany({
+        where: { dispatch_id: { in: effectiveIds } },
+        orderBy: { assembly_mark: 'asc' },
+        select: {
+          id: true, dispatch_id: true, assembly_mark: true, name: true, qty: true,
+          weight_kg: true, surface_area_m2: true, length_mm: true, width_mm: true, height_mm: true,
+          match_status: true,
+          product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
+          assembly_parts: {
+            orderBy: { sequence: 'asc' },
+            select: {
+              qty: true,
+              part: {
+                select: {
+                  id: true, part_mark: true, description: true, profile: true, grade: true,
+                  length_mm: true, weight_kg: true, match_status: true,
+                  product: { select: { id: true, product_code: true, product_type: true, product_kind: true, name: true } },
                 },
               },
             },
           },
         },
-        _count: { select: { assemblies: true, parts: true } },
-      },
-    })
-
-    if (!d) throw new NotFoundException(`Dispatch ${id} not found`)
-
-    // Parts with no assembly junction (orphans)
-    const orphans = await this.prisma.bom_part.findMany({
-      where: { dispatch_id: id, assembly_parts: { none: {} } },
-      orderBy: { part_mark: 'asc' },
-      select: { id: true, part_mark: true, description: true, profile: true, grade: true, length_mm: true, qty: true, weight_kg: true, match_status: true },
-    })
+      }),
+      // Parts with no assembly junction (orphans)
+      this.prisma.bom_part.findMany({
+        where: { dispatch_id: { in: effectiveIds }, assembly_parts: { none: {} } },
+        orderBy: { part_mark: 'asc' },
+        select: { id: true, dispatch_id: true, part_mark: true, description: true, profile: true, grade: true, length_mm: true, qty: true, weight_kg: true, match_status: true },
+      }),
+      this.prisma.bom_part.count({ where: { dispatch_id: { in: effectiveIds } } }),
+    ])
 
     return {
       ...this.toSummaryDto(d),
-      doc_revisions: d.doc_revisions.map(r => ({
+      assembly_count: assemblies.length,
+      part_count: partCount,
+      doc_revisions: docRevisions.map(r => ({
         id: r.id,
         dispatch_id: r.dispatch_id,
         doc_type: r.doc_type,
@@ -412,7 +415,7 @@ export class BomUploadService {
         uploaded_at: r.create_date.toISOString(),
         uploader: r.create_user,
       })),
-      assemblies: d.assemblies.map(a => ({
+      assemblies: assemblies.map(a => ({
         id: a.id,
         assembly_mark: a.assembly_mark,
         name: a.name ?? null,
@@ -424,6 +427,7 @@ export class BomUploadService {
         height_mm: a.height_mm ? Number(a.height_mm) : null,
         match_status: a.match_status ?? null,
         product: a.product ?? null,
+        version_label: versionLabelById.get(a.dispatch_id) ?? null,
         parts: a.assembly_parts.map(ap => ({
           id: ap.part.id,
           part_mark: ap.part.part_mark,
@@ -435,6 +439,7 @@ export class BomUploadService {
           unit_weight_kg: ap.part.weight_kg ? Number(ap.part.weight_kg) : null,
           match_status: ap.part.match_status ?? null,
           product: ap.part.product ?? null,
+          version_label: versionLabelById.get(a.dispatch_id) ?? null, // a part reached through an assembly always belongs to that assembly's own dispatch
         })),
       })),
       orphan_parts: orphans.map(p => ({
@@ -447,6 +452,7 @@ export class BomUploadService {
         part_qty: Number(p.qty),
         unit_weight_kg: p.weight_kg ? Number(p.weight_kg) : null,
         match_status: p.match_status ?? null,
+        version_label: versionLabelById.get(p.dispatch_id) ?? null,
       })),
     }
   }
