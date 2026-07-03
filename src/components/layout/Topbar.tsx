@@ -29,13 +29,10 @@ export function Topbar({ onMobileMenuToggle }: Props) {
           <Menu size={20} />
         </button>
         <div className="flex items-center gap-2.5">
-          <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
-            <ellipse cx="14" cy="14" rx="11" ry="6" stroke="#C8202A" strokeWidth="2.5" fill="none" transform="rotate(-15 14 14)" />
-            <ellipse cx="14" cy="14" rx="7" ry="3.5" stroke="#8E8E8E" strokeWidth="2" fill="none" transform="rotate(15 14 14)" />
-          </svg>
+          <img src="/assets/logo/bdt-logo.png" alt="SSI Building Tech" width={28} height={28} className="shrink-0 object-contain" />
           <div className="hidden md:block leading-none">
             <div className="text-chrome-900" style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em' }}>SSI BUILDING TECH</div>
-            <div className="text-chrome-400 mt-0.5" style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.08em' }}>ENGINEER MGMT</div>
+            <div className="text-chrome-400 mt-0.5" style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.08em' }}>ENGINEER SYSTEMS</div>
           </div>
         </div>
       </div>
