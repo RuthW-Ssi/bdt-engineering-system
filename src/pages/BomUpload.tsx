@@ -1,10 +1,10 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Upload, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { FileDropzone } from '../components/bom/FileDropzone'
 import { FilePreviewItem } from '../components/bom/FilePreviewItem'
-import { useActiveProject } from '../context/ProjectContext'
+import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
 import { useUploadBom, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
@@ -75,7 +75,8 @@ function makeFileHandlers(
 
 export function BomUpload() {
   const navigate = useNavigate()
-  const { activeProject } = useActiveProject()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
 
   const [zoneId, setZoneId] = useState('')
   const [subZoneId, setSubZoneId] = useState('')
@@ -121,6 +122,17 @@ export function BomUpload() {
     setNcFiles([])
     setRevisionChoice('continue')
   }
+
+  // Clear zone-scoped state only when the project actually *changes* — see
+  // BomList.tsx's identical guard for why a value-comparison ref (not a
+  // boolean) is required under React StrictMode's dev-only double-invoke.
+  const lastProjectIdRef = useRef(activeProject?.id)
+  useEffect(() => {
+    const id = activeProject?.id
+    if (lastProjectIdRef.current === id) return
+    lastProjectIdRef.current = id
+    handleZoneChange('')
+  }, [activeProject?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Validation
   const validCombined = files.filter(e => !e.error && e.detectedType)
@@ -179,12 +191,24 @@ export function BomUpload() {
       {/* Form */}
       <div style={{ maxWidth: 640, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* Project (read-only) */}
+        {/* Project */}
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Project</label>
-          <div style={{ height: 36, padding: '0 12px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: '#F5F5F5', color: '#8E8E8E', display: 'flex', alignItems: 'center' }}>
-            {activeProject ? `${activeProject.project_code} — ${activeProject.name}` : 'No project selected'}
-          </div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+            Project <span style={{ color: '#C8202A' }}>*</span>
+          </label>
+          <select
+            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: 'white' }}
+            value={activeProject?.id ?? ''}
+            onChange={e => {
+              const project = projects.find(p => p.id === Number(e.target.value))
+              if (project) selectProject(project)
+            }}
+          >
+            {projects.length === 0
+              ? <option value="" disabled>No projects found</option>
+              : projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)
+            }
+          </select>
         </div>
 
         {/* Zone */}
