@@ -227,7 +227,7 @@ export function ProjectList() {
               p={p}
               isActive={activeProject?.id === p.id}
               onClick={() => setActiveProject(p)}
-              onDoubleClick={() => { setActiveProject(p); navigate('/zones') }}
+              onDoubleClick={() => navigate(`/zones?project_id=${p.id}`)}
             />
           ))
         )}
