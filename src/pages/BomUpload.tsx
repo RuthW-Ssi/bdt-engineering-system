@@ -246,18 +246,18 @@ export function BomUpload() {
           </select>
         </div>
 
-        {/* Revision Choice */}
+        {/* Version Choice */}
         {zoneId && latestRevision != null && (
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Revision</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Version</label>
             <div style={{ display: 'flex', gap: 16 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
-                Continue revision {latestRevision}
+                Continue version {latestRevision}
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
                 <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
-                Start new revision ({latestRevision + 1})
+                Start new version ({latestRevision + 1})
               </label>
             </div>
           </div>
