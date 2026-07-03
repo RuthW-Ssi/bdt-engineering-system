@@ -90,6 +90,7 @@ export class BomDiffService {
     const rows = await this.prisma.bom_dispatch.findMany({
       where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, revision },
       select: { id: true },
+      orderBy: { id: 'asc' },
     })
     return rows.map(r => r.id)
   }
