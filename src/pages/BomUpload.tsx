@@ -123,7 +123,7 @@ export function BomUpload() {
   const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
   const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
 
-  const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain && hasAllAcc)
+  const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
   const canSubmit = !!zoneId && bomReady && ncFiles.length >= 1 && !uploadMutation.isPending
 
   const handleSubmit = async () => {
