@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Plus, Loader2, ChevronDown, GripVertical, Check, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -16,7 +17,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useActiveProject } from '../context/ProjectContext'
+import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones, useCreateZone, useUpdateZone } from '../hooks/useProjectZones'
 import { useSubZones, useCreateSubZone, useDeleteSubZone } from '../hooks/useSubZones'
 import type { ProjectZoneDTO } from '../api/types'
@@ -140,7 +141,8 @@ function SortableZoneRow({
 
 // ── Main page ───────────────────────────────────────────────────
 export function ZoneList() {
-  const { activeProject } = useActiveProject()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
   const projectId = activeProject?.id ?? null
 
   const { data: zones, isLoading: zonesLoading } = useProjectZones(projectId ?? undefined)
@@ -259,13 +261,6 @@ export function ZoneList() {
       <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Zones</span>
-          {activeProject && (
-            <>
-              <span style={{ color: '#C2C2C2' }}>·</span>
-              <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: '#C8202A' }}>{activeProject.project_code}</span>
-              <span style={{ fontSize: 13, color: '#8E8E8E' }}>{activeProject.name}</span>
-            </>
-          )}
         </div>
         {activeProject && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -307,11 +302,29 @@ export function ZoneList() {
         )}
       </div>
 
+      {/* Filter bar */}
+      <div className="flex items-center gap-2 px-6 border-b border-chrome-100" style={{ height: 44, background: '#F5F5F5', flexShrink: 0 }}>
+        <select
+          className="border rounded-md bg-white focus:outline-none"
+          style={{ height: 30, padding: '0 8px', fontSize: 12, minWidth: 220, borderColor: '#E0E0E0' }}
+          value={activeProject?.id ?? ''}
+          onChange={e => {
+            const project = projects.find(p => p.id === Number(e.target.value))
+            if (project) selectProject(project)
+          }}
+        >
+          {projects.length === 0
+            ? <option value="" disabled>No projects found</option>
+            : projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)
+          }
+        </select>
+      </div>
+
       {/* Zone list */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {!projectId ? (
           <div className="flex items-center justify-center" style={{ height: 200, color: '#8E8E8E', fontSize: 14 }}>
-            Select a Project from the dropdown above first
+            Select a Project above
           </div>
         ) : zonesLoading ? (
           <div className="flex items-center justify-center" style={{ height: 200 }}>

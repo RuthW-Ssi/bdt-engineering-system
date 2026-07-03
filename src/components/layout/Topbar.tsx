@@ -1,48 +1,22 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Bell, ChevronDown, FolderOpen, Check, Plus, User, Settings, Keyboard, LogOut, Menu } from 'lucide-react'
+import { Search, Bell, ChevronDown, Check, User, Settings, Keyboard, LogOut, Menu } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { useActiveProject } from '../../context/ProjectContext'
-import { useProjects } from '../../hooks/useProjects'
 
 interface Props {
   onMobileMenuToggle: () => void
 }
 
 export function Topbar({ onMobileMenuToggle }: Props) {
-  const [projectOpen, setProjectOpen] = useState(false)
   const [bellOpen, setBellOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const { user, logout } = useAuth()
-  const { activeProject, setActiveProject } = useActiveProject()
   const navigate = useNavigate()
-  const dropdownRef = useRef<HTMLDivElement>(null)
-
-  const { data: projectsData } = useProjects({ limit: 20 })
-  const projectItems = projectsData?.items ?? []
-
-  useEffect(() => {
-    if (!activeProject && projectItems.length > 0) {
-      setActiveProject(projectItems[0])
-    }
-  }, [projectItems, activeProject, setActiveProject])
 
   function handleLogout() {
     logout()
     navigate('/login', { replace: true })
   }
-
-  // Close project dropdown on outside click
-  useEffect(() => {
-    if (!projectOpen) return
-    function onClickOutside(e: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setProjectOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onClickOutside)
-    return () => document.removeEventListener('mousedown', onClickOutside)
-  }, [projectOpen])
 
   return (
     <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b border-chrome-100 z-50 flex items-center px-5">
@@ -66,76 +40,8 @@ export function Topbar({ onMobileMenuToggle }: Props) {
         </div>
       </div>
 
-      {/* CENTER — project selector */}
-      <div className="flex-1 hidden md:flex items-center pl-4">
-        <div className="relative" ref={dropdownRef}>
-          <button
-            onClick={() => { setProjectOpen(o => !o); setBellOpen(false); setUserOpen(false) }}
-            className="flex items-center gap-2 bg-chrome-50 border border-chrome-100 rounded-md hover:bg-chrome-100 hover:border-chrome-200 transition-colors"
-            style={{ padding: '6px 12px', maxWidth: 360 }}
-          >
-            <FolderOpen size={16} className="text-chrome-400 shrink-0" />
-            {activeProject ? (
-              <>
-                <span className="font-mono text-chrome-900" style={{ fontSize: 13, fontWeight: 500 }}>{activeProject.project_code}</span>
-                <span className="text-chrome-400">·</span>
-                <span className="text-chrome-600 truncate" style={{ fontSize: 13 }}>
-                  {activeProject.name}{activeProject.customer ? ` — ${activeProject.customer.name}` : ''}
-                </span>
-              </>
-            ) : (
-              <span className="text-chrome-400" style={{ fontSize: 13 }}>Select project...</span>
-            )}
-            <ChevronDown size={14} className="text-chrome-400 shrink-0" />
-          </button>
-
-          {projectOpen && (
-            <div
-              className="absolute left-0 mt-1 bg-white border border-chrome-100 shadow-dropdown rounded-lg overflow-hidden"
-              style={{ top: '100%', minWidth: 360, maxHeight: 360, overflowY: 'auto', padding: 4 }}
-            >
-              {projectItems.length === 0 ? (
-                <div style={{ padding: '12px 16px', fontSize: 13, color: '#8E8E8E' }}>No projects found</div>
-              ) : (
-                projectItems.map((p, i) => {
-                  const isActive = activeProject?.id === p.id
-                  return (
-                    <div key={p.id}>
-                      {i > 0 && <div className="h-px bg-chrome-100 mx-2" />}
-                      <button
-                        onClick={() => { setActiveProject(p); setProjectOpen(false) }}
-                        className="w-full flex items-start gap-2.5 text-left rounded-md"
-                        style={{ padding: '10px 12px', background: isActive ? '#FCEBEB' : undefined }}
-                        onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = '#F5F5F5' }}
-                        onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLButtonElement).style.background = '' }}
-                      >
-                        {isActive
-                          ? <Check size={16} className="mt-0.5 shrink-0" style={{ color: '#C8202A' }} />
-                          : <span className="w-4 h-4 mt-0.5 shrink-0" />
-                        }
-                        <div className="flex-1 min-w-0">
-                          <div className="font-mono text-chrome-900" style={{ fontSize: 13, fontWeight: 500 }}>{p.project_code}</div>
-                          <div className="text-chrome-600 truncate" style={{ fontSize: 12 }}>
-                            {p.name}{p.customer ? ` — ${p.customer.name}` : ''}
-                          </div>
-                        </div>
-                      </button>
-                    </div>
-                  )
-                })
-              )}
-              <div className="h-px bg-chrome-100 mx-2 my-1" />
-              <button
-                onClick={() => { setProjectOpen(false); navigate('/projects') }}
-                className="w-full flex items-center gap-2 rounded-md hover:bg-chrome-50 text-chrome-600"
-                style={{ padding: '8px 12px', fontSize: 13 }}
-              >
-                <Plus size={14} />View all projects
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      {/* CENTER spacer */}
+      <div className="flex-1" />
 
       {/* RIGHT */}
       <div className="flex items-center gap-2">
@@ -149,7 +55,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
         {/* Bell */}
         <div className="relative">
           <button
-            onClick={() => { setBellOpen(o => !o); setProjectOpen(false); setUserOpen(false) }}
+            onClick={() => { setBellOpen(o => !o); setUserOpen(false) }}
             className="relative flex items-center justify-center w-9 h-9 rounded-full text-chrome-600 hover:bg-chrome-50"
           >
             <Bell size={18} />
@@ -193,7 +99,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
         {/* User */}
         <div className="relative">
           <button
-            onClick={() => { setUserOpen(o => !o); setProjectOpen(false); setBellOpen(false) }}
+            onClick={() => { setUserOpen(o => !o); setBellOpen(false) }}
             className="flex items-center gap-2 rounded-md hover:bg-chrome-50 transition-colors"
             style={{ padding: '4px 8px' }}
           >
