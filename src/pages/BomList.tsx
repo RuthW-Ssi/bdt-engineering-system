@@ -485,8 +485,24 @@ export function BomList() {
   const zoneFilter = searchParams.get('zone_id') || ''
   const subZoneFilter = searchParams.get('sub_zone_id') || ''
 
-  // Clear zone + sub_zone when project changes (or on mount)
+  // Clear zone + sub_zone only when the project actually *changes*.
+  // Baseline the ref to whatever activeProject?.id already is on the very
+  // first render, so the initial mount is a no-op: at that point
+  // useProjectSelection may still be resolving activeProject in the same
+  // commit, and unconditionally clearing here would clobber that
+  // resolution by writing to a stale (pre-resolution) searchParams
+  // snapshot. Comparing against the last *value* we handled (rather than
+  // a simple "have we run yet" boolean) also makes this safe under
+  // StrictMode's dev-only double-invocation of effects on mount, which
+  // would otherwise flip a boolean guard before the real project_id
+  // resolution has landed in a subsequent commit. Once project_id lands
+  // in the URL, activeProject?.id changes in a later, separate commit,
+  // so this effect fires again there and clears as expected.
+  const lastProjectIdRef = useRef(activeProject?.id)
   useEffect(() => {
+    const id = activeProject?.id
+    if (lastProjectIdRef.current === id) return
+    lastProjectIdRef.current = id
     setSearchParams(prev => {
       const p = new URLSearchParams(prev)
       p.delete('zone_id')
