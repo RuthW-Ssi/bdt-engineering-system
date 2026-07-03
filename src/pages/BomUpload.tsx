@@ -119,6 +119,7 @@ export function BomUpload() {
     setMainFiles([])
     setAccFiles([])
     setNcFiles([])
+    setRevisionChoice('continue')
   }
 
   // Validation
