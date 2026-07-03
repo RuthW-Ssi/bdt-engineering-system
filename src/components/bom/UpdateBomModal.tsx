@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
@@ -87,6 +87,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
 
   const { data: latestRevision } = useLatestRevision(projectId, zoneId, subZoneId)
+
+  useEffect(() => {
+    setRevisionChoice('continue')
+  }, [dispatchId, zoneId, subZoneId])
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
