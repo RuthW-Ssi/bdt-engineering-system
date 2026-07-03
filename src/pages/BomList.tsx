@@ -568,10 +568,10 @@ export function BomList() {
     const versionMap = new Map<number, number>()
     const groupedItems: DispatchSummaryDto[][] = []
     for (const group of groups.values()) {
-      // API returns desc order → reverse gives oldest-first for version numbering
-      const asc = [...group].reverse()
-      asc.forEach((item, i) => versionMap.set(item.id, i + 1))
+      // API returns desc order — group[0] is the most recently uploaded physical dispatch,
+      // regardless of which revision number it carries.
       latestIdSet.add(group[0].id)
+      for (const item of group) versionMap.set(item.id, item.revision)
       groupedItems.push(group)
     }
     return { latestIdSet, versionMap, groupedItems }
