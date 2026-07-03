@@ -22,3 +22,14 @@ export class QueryDispatchDto {
   @ApiPropertyOptional({ default: 20 }) @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
   limit?: number = 20
 }
+
+export class QueryLatestRevisionDto {
+  @ApiPropertyOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
+  project_id!: number
+
+  @ApiPropertyOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
+  zone_id!: number
+
+  @ApiPropertyOptional() @IsOptional() @Transform(({ value }) => value != null ? Number(value) : undefined) @IsInt() @Min(1)
+  sub_zone_id?: number
+}

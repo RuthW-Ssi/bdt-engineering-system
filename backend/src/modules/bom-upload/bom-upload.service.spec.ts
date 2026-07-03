@@ -40,6 +40,7 @@ function buildInnerPrisma(baseDispatch: any, seq: number) {
   let id = seq
   return {
     bom_dispatch: {
+      findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ ...baseDispatch, id: id++ }),
       update: jest.fn(({ data }: any) => Promise.resolve({ ...baseDispatch, ...data })),
     },
@@ -353,5 +354,76 @@ describe('BomUploadService.getRevisions()', () => {
     const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
 
     await expect(svc.getRevisions(999)).rejects.toThrow(NotFoundException)
+  })
+})
+
+describe('BomUploadService — revision resolution', () => {
+  function buildRevisionPrisma(latestRevision: number | null) {
+    const dispatch = { id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }
+    const innerCreateSpy = jest.fn().mockResolvedValue({ ...dispatch, id: 100 })
+    const prisma = {
+      $transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb({
+        bom_dispatch: {
+          findFirst: jest.fn().mockResolvedValue(latestRevision == null ? null : { revision: latestRevision }),
+          create: innerCreateSpy,
+          update: jest.fn(({ data }: any) => Promise.resolve({ ...dispatch, ...data })),
+        },
+        bom_doc_revision: { create: jest.fn().mockResolvedValue({ id: 1 }) },
+        bom_assembly: { createManyAndReturn: jest.fn().mockResolvedValue([]) },
+        bom_part: { createManyAndReturn: jest.fn().mockResolvedValue([]) },
+        bom_assembly_part: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      })),
+      bom_dispatch: { count: jest.fn().mockResolvedValue(1), findUnique: jest.fn().mockResolvedValue(makeDetailRow()) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    return { prisma, innerCreateSpy }
+  }
+
+  const minimalFiles: FileInput[] = [
+    { buffer: Buffer.from('x'), originalname: 'assembly list.xlsx', mimetype: 'application/vnd.ms-excel', size: 1, docType: 'ASSEMBLY_LIST' },
+    { buffer: Buffer.from('x'), originalname: 'assembly part list.xlsx', mimetype: 'application/vnd.ms-excel', size: 1, docType: 'ASSEMBLY_PART_LIST' },
+    { buffer: Buffer.from('x'), originalname: 'part list.xlsx', mimetype: 'application/vnd.ms-excel', size: 1, docType: 'PART_LIST' },
+  ]
+  const noNcFiles: NcFileInput[] = []
+
+  it('forces revision 1 when no prior dispatch exists for the zone/sub-zone, regardless of choice', async () => {
+    const { prisma, innerCreateSpy } = buildRevisionPrisma(null)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
+    await svc.upload(minimalFiles, noNcFiles, 1, 2, null, 1, 'combined', 'new')
+    expect(innerCreateSpy).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revision: 1 }) }))
+  })
+
+  it('reuses the latest revision when revisionChoice is "continue"', async () => {
+    const { prisma, innerCreateSpy } = buildRevisionPrisma(3)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
+    await svc.upload(minimalFiles, noNcFiles, 1, 2, null, 1, 'combined', 'continue')
+    expect(innerCreateSpy).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revision: 3 }) }))
+  })
+
+  it('increments to latest+1 when revisionChoice is "new" and a prior dispatch exists', async () => {
+    const { prisma, innerCreateSpy } = buildRevisionPrisma(3)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
+    await svc.upload(minimalFiles, noNcFiles, 1, 2, null, 1, 'combined', 'new')
+    expect(innerCreateSpy).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revision: 4 }) }))
+  })
+})
+
+describe('BomUploadService — getLatestRevision', () => {
+  it('returns null when no dispatch exists for the zone/sub-zone', async () => {
+    const prisma = { bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) } }
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
+    const result = await svc.getLatestRevision(1, 2, null)
+    expect(result).toEqual({ revision: null })
+  })
+
+  it('returns the max revision for that exact zone/sub-zone scope', async () => {
+    const prisma = { bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ revision: 5 }) } }
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any)
+    const result = await svc.getLatestRevision(1, 2, null)
+    expect(result).toEqual({ revision: 5 })
+    expect(prisma.bom_dispatch.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { project_id: 1, zone_id: 2, sub_zone_id: null },
+      orderBy: { revision: 'desc' },
+    }))
   })
 })

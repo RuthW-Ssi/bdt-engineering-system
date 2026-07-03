@@ -58,6 +58,7 @@ export class BomUploadService {
     subZoneId: number | null,
     uid: number,
     uploadMode: 'combined' | 'separate' = 'combined',
+    revisionChoice: 'continue' | 'new' = 'new',
   ) {
     // 1. Validate inputs
     this.validateFiles(files)
@@ -131,6 +132,13 @@ export class BomUploadService {
       const asmPartList = parsed.get('ASSEMBLY_PART_LIST')
 
       const { dispatchId, assemblyIdByMark, partIdByMark } = await this.prisma.$transaction(async tx => {
+        const latest = await tx.bom_dispatch.findFirst({
+          where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+          orderBy: { revision: 'desc' },
+          select: { revision: true },
+        })
+        const revision = !latest ? 1 : revisionChoice === 'continue' ? latest.revision : latest.revision + 1
+
         // bom_dispatch
         const d = await tx.bom_dispatch.create({
           data: {
@@ -139,6 +147,7 @@ export class BomUploadService {
             sub_zone_id: subZoneId,
             status: 'pending',
             upload_mode: uploadMode,
+            revision,
             create_uid: uid,
             write_uid: uid,
           },
@@ -529,6 +538,15 @@ export class BomUploadService {
       uploaded_at: r.create_date.toISOString(),
       uploader: r.create_user,
     }))
+  }
+
+  async getLatestRevision(projectId: number, zoneId: number, subZoneId: number | null): Promise<{ revision: number | null }> {
+    const latest = await this.prisma.bom_dispatch.findFirst({
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+      orderBy: { revision: 'desc' },
+      select: { revision: true },
+    })
+    return { revision: latest?.revision ?? null }
   }
 
   // ─── Helpers ─────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import { BomDiffService } from './bom-diff.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
-import { QueryDispatchDto } from './dto/dispatch.dto'
+import { QueryDispatchDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
 import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -50,6 +50,7 @@ export class BomUploadController {
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
+        revision_choice: { type: 'string', enum: ['continue', 'new'] },
         bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         doc_types: { type: 'array', items: { type: 'string' } },
@@ -105,14 +106,21 @@ export class BomUploadController {
     }))
 
     const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
+    const revisionChoice = (body['revision_choice'] === 'continue' ? 'continue' : 'new') as 'continue' | 'new'
 
-    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode)
+    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode, revisionChoice)
   }
 
   @Get('dispatches')
   @ApiOperation({ summary: 'List BOM dispatches' })
   list(@Query() query: QueryDispatchDto) {
     return this.svc.list(query)
+  }
+
+  @Get('dispatches/latest-revision')
+  @ApiOperation({ summary: 'Get the latest revision number for a zone/sub-zone (null if none exists yet)' })
+  getLatestRevision(@Query() query: QueryLatestRevisionDto) {
+    return this.svc.getLatestRevision(query.project_id, query.zone_id, query.sub_zone_id ?? null)
   }
 
   @Get('dispatches/:id')
