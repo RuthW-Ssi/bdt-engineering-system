@@ -223,6 +223,12 @@ export const dispatchesApi = {
       .then(r => r.data)
   },
 
+  previewUpload(formData: FormData): Promise<PreviewJunctionsResult> {
+    return apiClient
+      .post('/bom/upload/preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then(r => r.data)
+  },
+
   saveAssemblyMatch(
     dispatchId: number,
     assignments: { assembly_id: number; match_status: MatchStatus | null; product_id?: number | null }[],
