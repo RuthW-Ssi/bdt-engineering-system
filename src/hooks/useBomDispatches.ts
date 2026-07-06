@@ -117,19 +117,24 @@ export function useUploadBomWithPreview() {
       setPendingMismatch(result)
       return null
     }
+    setPendingMismatch(null)
     return uploadMutation.mutateAsync({ formData, onProgress })
   }
 
   async function confirm() {
     const formData = pendingFormDataRef.current
     if (!formData) return null
+    const onProgress = pendingOnProgressRef.current
     setPendingMismatch(null)
-    return uploadMutation.mutateAsync({ formData, onProgress: pendingOnProgressRef.current })
+    pendingFormDataRef.current = null
+    pendingOnProgressRef.current = undefined
+    return uploadMutation.mutateAsync({ formData, onProgress })
   }
 
   function cancel() {
     setPendingMismatch(null)
     pendingFormDataRef.current = null
+    pendingOnProgressRef.current = undefined
   }
 
   return {
