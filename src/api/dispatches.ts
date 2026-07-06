@@ -11,6 +11,7 @@ export interface DispatchSummaryDto {
   sub_zone_id: number | null
   status: DispatchStatus
   upload_mode: 'combined' | 'separate'
+  revision: number
   doc_count: number
   uploaded_at: string
   zone: { id: number; code: string; label: string }
@@ -31,6 +32,7 @@ export interface AssemblyPartDto {
   part_qty: number
   unit_weight_kg: number | null
   match_status: string | null
+  version_label: string | null
 }
 
 export interface AssemblyProductDto {
@@ -53,6 +55,7 @@ export interface AssemblyDto {
   parts: AssemblyPartDto[]
   match_status: string | null
   product: AssemblyProductDto | null
+  version_label: string | null
 }
 
 export interface DispatchDetailDto extends DispatchSummaryDto {
@@ -171,6 +174,11 @@ export interface DispatchMappingDto {
   summary: MappingSummaryDto
 }
 
+export interface PreviewJunctionsResult {
+  unmatchedAssemblyMarks: string[]
+  unmatchedPartMarks: string[]
+}
+
 export const dispatchesApi = {
   list(params?: {
     project_id?: number
@@ -215,6 +223,12 @@ export const dispatchesApi = {
       .then(r => r.data)
   },
 
+  previewUpload(formData: FormData): Promise<PreviewJunctionsResult> {
+    return apiClient
+      .post('/bom/upload/preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      .then(r => r.data)
+  },
+
   saveAssemblyMatch(
     dispatchId: number,
     assignments: { assembly_id: number; match_status: MatchStatus | null; product_id?: number | null }[],
@@ -229,5 +243,11 @@ export const dispatchesApi = {
         const items: DispatchSummaryDto[] = r.data.items ?? []
         return items.length > 0 ? items[0].upload_mode : null
       })
+  },
+
+  getLatestRevision(projectId: number, zoneId: number, subZoneId: number | null): Promise<number | null> {
+    return apiClient
+      .get('/dispatches/latest-revision', { params: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })
+      .then(r => r.data.revision)
   },
 }

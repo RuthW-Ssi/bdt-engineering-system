@@ -1,13 +1,14 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Upload, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { FileDropzone } from '../components/bom/FileDropzone'
 import { FilePreviewItem } from '../components/bom/FilePreviewItem'
-import { useActiveProject } from '../context/ProjectContext'
+import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
-import { useUploadBom, useZoneUploadMode } from '../hooks/useBomDispatches'
+import { useUploadBomWithPreview, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
+import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
@@ -75,7 +76,8 @@ function makeFileHandlers(
 
 export function BomUpload() {
   const navigate = useNavigate()
-  const { activeProject } = useActiveProject()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
 
   const [zoneId, setZoneId] = useState('')
   const [subZoneId, setSubZoneId] = useState('')
@@ -85,6 +87,7 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
+  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -96,10 +99,16 @@ export function BomUpload() {
     zoneId ? parseInt(zoneId) : null,
   )
 
+  const { data: latestRevision } = useLatestRevision(
+    activeProject?.id,
+    zoneId ? parseInt(zoneId) : undefined,
+    subZoneId ? parseInt(subZoneId) : null,
+  )
+
   const isModeLocked = !!zoneMode
   const effectiveMode = isModeLocked ? zoneMode! : uploadMode
 
-  const uploadMutation = useUploadBom()
+  const uploadFlow = useUploadBomWithPreview()
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -112,7 +121,19 @@ export function BomUpload() {
     setMainFiles([])
     setAccFiles([])
     setNcFiles([])
+    setRevisionChoice('continue')
   }
+
+  // Clear zone-scoped state only when the project actually *changes* — see
+  // BomList.tsx's identical guard for why a value-comparison ref (not a
+  // boolean) is required under React StrictMode's dev-only double-invoke.
+  const lastProjectIdRef = useRef(activeProject?.id)
+  useEffect(() => {
+    const id = activeProject?.id
+    if (lastProjectIdRef.current === id) return
+    lastProjectIdRef.current = id
+    handleZoneChange('')
+  }, [activeProject?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Validation
   const validCombined = files.filter(e => !e.error && e.detectedType)
@@ -123,8 +144,14 @@ export function BomUpload() {
   const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
   const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
 
-  const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain && hasAllAcc)
-  const canSubmit = !!zoneId && bomReady && ncFiles.length >= 1 && !uploadMutation.isPending
+  const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
+  const canSubmit = !!zoneId && bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+
+  const handleUploadError = (err: unknown) => {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'BOM upload failed — please try again'))
+    setProgress(null)
+  }
 
   const handleSubmit = async () => {
     if (!activeProject || !canSubmit) return
@@ -134,6 +161,7 @@ export function BomUpload() {
     formData.append('project_id', String(activeProject.id))
     formData.append('zone_id', zoneId)
     formData.append('upload_mode', effectiveMode)
+    formData.append('revision_choice', zoneId && latestRevision != null ? revisionChoice : 'new')
     if (subZoneId) formData.append('sub_zone_id', subZoneId)
 
     const allValid = effectiveMode === 'combined' ? validCombined : [...validMain, ...validAcc]
@@ -144,12 +172,21 @@ export function BomUpload() {
     ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
-      const res = await uploadMutation.mutateAsync({ formData, onProgress: pct => setProgress(pct) })
+      const res = await uploadFlow.submit(formData, pct => setProgress(pct))
+      if (res == null) { setProgress(null); return }
       navigate(`/bom/dispatch/${res.id}/paint`)
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'BOM upload failed — please try again'))
-      setProgress(null)
+      handleUploadError(err)
+    }
+  }
+
+  const handleConfirmUpload = async () => {
+    try {
+      const res = await uploadFlow.confirm()
+      if (res == null) return
+      navigate(`/bom/dispatch/${res.id}/paint`)
+    } catch (err: unknown) {
+      handleUploadError(err)
     }
   }
 
@@ -170,12 +207,24 @@ export function BomUpload() {
       {/* Form */}
       <div style={{ maxWidth: 640, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* Project (read-only) */}
+        {/* Project */}
         <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Project</label>
-          <div style={{ height: 36, padding: '0 12px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: '#F5F5F5', color: '#8E8E8E', display: 'flex', alignItems: 'center' }}>
-            {activeProject ? `${activeProject.project_code} — ${activeProject.name}` : 'No project selected'}
-          </div>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+            Project <span style={{ color: '#C8202A' }}>*</span>
+          </label>
+          <select
+            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: 'white' }}
+            value={activeProject?.id ?? ''}
+            onChange={e => {
+              const project = projects.find(p => p.id === Number(e.target.value))
+              if (project) selectProject(project)
+            }}
+          >
+            {projects.length === 0
+              ? <option value="" disabled>No projects found</option>
+              : projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)
+            }
+          </select>
         </div>
 
         {/* Zone */}
@@ -212,6 +261,23 @@ export function BomUpload() {
             {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
           </select>
         </div>
+
+        {/* Version Choice */}
+        {zoneId && latestRevision != null && (
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Version</label>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
+                Continue version {latestRevision}
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
+                Start new version ({latestRevision + 1})
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Upload Mode Radio */}
         {zoneId && !zoneModeLoading && (
@@ -350,12 +416,23 @@ export function BomUpload() {
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
           >
-            {uploadMutation.isPending
-              ? <><Loader2 size={14} className="animate-spin" />Uploading...</>
-              : <><Upload size={14} />Upload</>}
+            {uploadFlow.isPreviewing
+              ? <><Loader2 size={14} className="animate-spin" />Checking...</>
+              : uploadFlow.uploadMutation.isPending
+                ? <><Loader2 size={14} className="animate-spin" />Uploading...</>
+                : <><Upload size={14} />Upload</>}
           </button>
         </div>
       </div>
+
+      {uploadFlow.pendingMismatch && (
+        <JunctionMismatchModal
+          mismatch={uploadFlow.pendingMismatch}
+          onCancel={uploadFlow.cancel}
+          onConfirm={handleConfirmUpload}
+          isUploading={uploadFlow.uploadMutation.isPending}
+        />
+      )}
     </div>
   )
 }

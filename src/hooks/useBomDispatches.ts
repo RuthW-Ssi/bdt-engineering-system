@@ -1,6 +1,7 @@
+import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dispatchesApi } from '../api/dispatches'
-import type { MatchStatus } from '../api/dispatches'
+import type { MatchStatus, PreviewJunctionsResult } from '../api/dispatches'
 
 export function useDispatches(params?: Parameters<typeof dispatchesApi.list>[0]) {
   return useQuery({
@@ -63,6 +64,14 @@ export function useZoneUploadMode(projectId: number | null, zoneId: number | nul
   })
 }
 
+export function useLatestRevision(projectId: number | undefined, zoneId: number | undefined, subZoneId: number | null | undefined) {
+  return useQuery({
+    queryKey: ['latest-revision', projectId, zoneId, subZoneId],
+    queryFn: () => dispatchesApi.getLatestRevision(projectId!, zoneId!, subZoneId ?? null),
+    enabled: !!projectId && !!zoneId,
+  })
+}
+
 export function useUploadBom() {
   const qc = useQueryClient()
   return useMutation({
@@ -75,4 +84,65 @@ export function useUploadBom() {
     }) => dispatchesApi.upload(formData, onProgress),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['dispatches'] }),
   })
+}
+
+export function usePreviewBomJunctions() {
+  return useMutation({
+    mutationFn: (formData: FormData) => dispatchesApi.previewUpload(formData),
+  })
+}
+
+function buildPreviewFormData(formData: FormData): FormData {
+  const preview = new FormData()
+  for (const file of formData.getAll('bom_files')) preview.append('bom_files', file)
+  for (const docType of formData.getAll('doc_types')) preview.append('doc_types', docType)
+  const uploadMode = formData.get('upload_mode')
+  if (uploadMode != null) preview.append('upload_mode', uploadMode)
+  return preview
+}
+
+export function useUploadBomWithPreview() {
+  const uploadMutation = useUploadBom()
+  const previewMutation = usePreviewBomJunctions()
+  const [pendingMismatch, setPendingMismatch] = useState<PreviewJunctionsResult | null>(null)
+  const pendingFormDataRef = useRef<FormData | null>(null)
+  const pendingOnProgressRef = useRef<((pct: number) => void) | undefined>(undefined)
+
+  async function submit(formData: FormData, onProgress?: (pct: number) => void) {
+    const result = await previewMutation.mutateAsync(buildPreviewFormData(formData))
+    const hasMismatch = result.unmatchedAssemblyMarks.length + result.unmatchedPartMarks.length > 0
+    if (hasMismatch) {
+      pendingFormDataRef.current = formData
+      pendingOnProgressRef.current = onProgress
+      setPendingMismatch(result)
+      return null
+    }
+    setPendingMismatch(null)
+    return uploadMutation.mutateAsync({ formData, onProgress })
+  }
+
+  async function confirm() {
+    const formData = pendingFormDataRef.current
+    if (!formData) return null
+    const onProgress = pendingOnProgressRef.current
+    setPendingMismatch(null)
+    pendingFormDataRef.current = null
+    pendingOnProgressRef.current = undefined
+    return uploadMutation.mutateAsync({ formData, onProgress })
+  }
+
+  function cancel() {
+    setPendingMismatch(null)
+    pendingFormDataRef.current = null
+    pendingOnProgressRef.current = undefined
+  }
+
+  return {
+    submit,
+    confirm,
+    cancel,
+    pendingMismatch,
+    isPreviewing: previewMutation.isPending,
+    uploadMutation,
+  }
 }

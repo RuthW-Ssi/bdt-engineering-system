@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
-import { useUploadBom } from '../../hooks/useBomDispatches'
+import { useUploadBomWithPreview, useLatestRevision } from '../../hooks/useBomDispatches'
+import { JunctionMismatchModal } from './JunctionMismatchModal'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
@@ -78,12 +79,19 @@ interface Props {
 
 export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploadMode, onClose }: Props) {
   const qc = useQueryClient()
-  const uploadMutation = useUploadBom()
+  const uploadFlow = useUploadBomWithPreview()
   const [files, setFiles] = useState<FileEntry[]>([])
   const [mainFiles, setMainFiles] = useState<FileEntry[]>([])
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
+  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
+
+  const { data: latestRevision } = useLatestRevision(projectId, zoneId, subZoneId)
+
+  useEffect(() => {
+    setRevisionChoice('continue')
+  }, [dispatchId, zoneId, subZoneId])
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -96,8 +104,22 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const hasAllCombined = REQUIRED_BOM_TYPES.every(t => validCombined.map(e => e.detectedType).includes(t))
   const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
   const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
-  const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain && hasAllAcc)
-  const canSubmit = bomReady && ncFiles.length >= 1 && !uploadMutation.isPending
+  const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
+  const canSubmit = bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+
+  const handleUploadSuccess = () => {
+    qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
+    qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
+    qc.invalidateQueries({ queryKey: ['dispatches'] })
+    toast.success('BOM uploaded successfully')
+    onClose()
+  }
+
+  const handleUploadError = (e: any) => {
+    toast.error(e?.response?.data?.message ?? 'BOM upload failed — please try again')
+    console.error(e)
+    setProgress(null)
+  }
 
   const handleSubmit = async () => {
     setProgress(0)
@@ -105,8 +127,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     formData.append('project_id', String(projectId))
     formData.append('zone_id', String(zoneId))
     formData.append('upload_mode', uploadMode)
+    formData.append('revision_choice', latestRevision != null ? revisionChoice : 'new')
     if (subZoneId != null) formData.append('sub_zone_id', String(subZoneId))
-    formData.append('dispatch_id', String(dispatchId))
 
     const allValid = uploadMode === 'combined' ? validCombined : [...validMain, ...validAcc]
     allValid.forEach(e => {
@@ -116,16 +138,21 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
-      await uploadMutation.mutateAsync({ formData, onProgress: pct => setProgress(pct) })
-      qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
-      qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
-      qc.invalidateQueries({ queryKey: ['dispatches'] })
-      toast.success('BOM uploaded successfully')
-      onClose()
+      const res = await uploadFlow.submit(formData, pct => setProgress(pct))
+      if (res == null) { setProgress(null); return }
+      handleUploadSuccess()
     } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'BOM upload failed — please try again')
-      console.error(e)
-      setProgress(null)
+      handleUploadError(e)
+    }
+  }
+
+  const handleConfirmUpload = async () => {
+    try {
+      const res = await uploadFlow.confirm()
+      if (res == null) return
+      handleUploadSuccess()
+    } catch (e: any) {
+      handleUploadError(e)
     }
   }
 
@@ -144,9 +171,21 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           </button>
         </div>
 
-        <div style={{ fontSize: 13, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 12px' }}>
-          A new revision will be added — existing files are not deleted, history is preserved
-        </div>
+        {latestRevision != null && (
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Version</label>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
+                Continue version {latestRevision}
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
+                Start new version ({latestRevision + 1})
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Mode badge */}
         <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -242,12 +281,23 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
           >
-            {uploadMutation.isPending
-              ? <><Loader2 size={13} className="animate-spin" />Uploading...</>
-              : <><Upload size={13} />Upload</>}
+            {uploadFlow.isPreviewing
+              ? <><Loader2 size={13} className="animate-spin" />Checking...</>
+              : uploadFlow.uploadMutation.isPending
+                ? <><Loader2 size={13} className="animate-spin" />Uploading...</>
+                : <><Upload size={13} />Upload</>}
           </button>
         </div>
       </div>
+
+      {uploadFlow.pendingMismatch && (
+        <JunctionMismatchModal
+          mismatch={uploadFlow.pendingMismatch}
+          onCancel={uploadFlow.cancel}
+          onConfirm={handleConfirmUpload}
+          isUploading={uploadFlow.uploadMutation.isPending}
+        />
+      )}
     </div>
   )
 }

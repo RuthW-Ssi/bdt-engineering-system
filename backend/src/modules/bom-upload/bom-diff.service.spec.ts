@@ -48,11 +48,32 @@ function buildMockDataFromFixtures() {
   return { p0Asm, p0Part, p0AsmPart, p1Asm, p1Part, p1AsmPart }
 }
 
+// Generic bom_dispatch.findMany mock covering every shape BomDiffService now
+// queries with: `id.in` (exact list), `id.lte`/`id.lt` (resolveEffectiveGroup's
+// bound, combined with project/zone/sub_zone/status filtering), always
+// returned id-descending to match the service's own orderBy.
+function buildDispatchFindMany(dispatches: any[]) {
+  return jest.fn(({ where }: any = {}) => {
+    if (where?.id?.in) {
+      return Promise.resolve(dispatches.filter(d => where.id.in.includes(d.id)))
+    }
+    let rows = dispatches.filter(d =>
+      d.project_id === where.project_id && d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id,
+    )
+    if (where.status?.not) rows = rows.filter(d => d.status !== where.status.not)
+    if (where.revision !== undefined) rows = rows.filter(d => d.revision === where.revision)
+    if (where.id?.lte !== undefined) rows = rows.filter(d => d.id <= where.id.lte)
+    if (where.id?.lt !== undefined) rows = rows.filter(d => d.id < where.id.lt)
+    return Promise.resolve([...rows].sort((a, b) => b.id - a.id))
+  })
+}
+
 function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
   const { p0Asm, p0Part, p0AsmPart, p1Asm, p1Part, p1AsmPart } = fixtures
 
-  const dispatch0 = { id: 1, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), assembly_total: p0Asm?.assemblies.length ?? null, part_total: p0Part?.parts.length ?? null }
-  const dispatch1 = { id: 2, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), assembly_total: p1Asm?.assemblies.length ?? null, part_total: p1Part?.parts.length ?? null }
+  // Both fixture dispatches are plain combined uploads — no Main/Acc split.
+  const dispatch0 = { id: 1, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 0, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: p0Asm?.assemblies.length ?? null, part_total: p0Part?.parts.length ?? null }
+  const dispatch1 = { id: 2, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: p1Asm?.assemblies.length ?? null, part_total: p1Part?.parts.length ?? null }
 
   const asm0Rows = (p0Asm?.assemblies ?? []).map((a, i) => ({ id: i + 1, dispatch_id: 1, assembly_mark: a.assembly_mark, name: a.name ?? null, qty: a.qty ?? null, weight_kg: a.weight_kg ?? null, surface_area_m2: a.surface_area_m2 ?? null }))
   const asm1Rows = (p1Asm?.assemblies ?? []).map((a, i) => ({ id: 1000 + i, dispatch_id: 2, assembly_mark: a.assembly_mark, name: a.name ?? null, qty: a.qty ?? null, weight_kg: a.weight_kg ?? null, surface_area_m2: a.surface_area_m2 ?? null }))
@@ -87,28 +108,36 @@ function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
         if (where.id === 2) return Promise.resolve(dispatch1)
         return Promise.resolve(null)
       }),
-      findFirst: jest.fn(() => Promise.resolve(dispatch0)),
+      findMany: buildDispatchFindMany([dispatch0, dispatch1]),
     },
     bom_assembly: {
       findMany: jest.fn(({ where }: any) => {
-        if (where.dispatch_id === 1) return Promise.resolve(asm0Rows)
-        if (where.dispatch_id === 2) return Promise.resolve(asm1Rows)
+        const ids: number[] = where.dispatch_id.in
+        if (ids.includes(1)) return Promise.resolve(asm0Rows)
+        if (ids.includes(2)) return Promise.resolve(asm1Rows)
         return Promise.resolve([])
       }),
     },
     bom_part: {
       findMany: jest.fn(({ where }: any) => {
-        if (where.dispatch_id === 1) return Promise.resolve(part0Rows)
-        if (where.dispatch_id === 2) return Promise.resolve(part1Rows)
+        const ids: number[] = where.dispatch_id.in
+        if (ids.includes(1)) return Promise.resolve(part0Rows)
+        if (ids.includes(2)) return Promise.resolve(part1Rows)
         return Promise.resolve([])
+      }),
+      count: jest.fn(({ where }: any) => {
+        const ids: number[] = where.dispatch_id.in
+        const rows: any[] = []
+        if (ids.includes(1)) rows.push(...part0Rows)
+        if (ids.includes(2)) rows.push(...part1Rows)
+        return Promise.resolve(rows.length)
       }),
     },
     bom_assembly_part: {
       findMany: jest.fn(({ where }: any) => {
-        // match dispatch via nested assembly filter
-        const dispatchId = where?.assembly?.dispatch_id
-        if (dispatchId === 1) return Promise.resolve(junctions0)
-        if (dispatchId === 2) return Promise.resolve(junctions1)
+        const ids: number[] = where?.assembly?.dispatch_id?.in ?? []
+        if (ids.includes(1)) return Promise.resolve(junctions0)
+        if (ids.includes(2)) return Promise.resolve(junctions1)
         return Promise.resolve([])
       }),
     },
@@ -134,13 +163,14 @@ describe('BomDiffService — fixture-based contract test', () => {
   })
 
   it('returns null when no previous dispatch exists', async () => {
+    const dispatch99 = { id: 99, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), revision: 0, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }
     const noPrevPrisma = {
       bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue({ id: 99, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'pending', uploaded_at: new Date() }),
-        findFirst: jest.fn().mockResolvedValue(null),
+        findUnique: jest.fn().mockResolvedValue(dispatch99),
+        findMany: buildDispatchFindMany([dispatch99]),
       },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
-      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const result = await new BomDiffService(noPrevPrisma as any).computeDiff(99)
@@ -149,9 +179,9 @@ describe('BomDiffService — fixture-based contract test', () => {
 
   it('throws NotFoundException for unknown dispatch', async () => {
     const unknownPrisma = {
-      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(null), findFirst: jest.fn() },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn() },
       bom_assembly: { findMany: jest.fn() },
-      bom_part: { findMany: jest.fn() },
+      bom_part: { findMany: jest.fn(), count: jest.fn() },
       bom_assembly_part: { findMany: jest.fn() },
     }
     await expect(new BomDiffService(unknownPrisma as any).computeDiff(9999)).rejects.toThrow(NotFoundException)
@@ -213,17 +243,18 @@ describe('BomDiffService — fixture-based contract test', () => {
 
 describe('BomDiffService — algorithm unit tests', () => {
   function makeMinimalPrisma() {
-    const prev = { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), assembly_total: 2, part_total: 3 }
-    const curr = { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), assembly_total: 2, part_total: 3 }
+    const prev = { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 0, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: 2, part_total: 3 }
+    const curr = { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: 2, part_total: 3 }
 
     return {
       bom_dispatch: {
         findUnique: jest.fn(({ where }: any) => Promise.resolve(where.id === 1 ? prev : curr)),
-        findFirst: jest.fn().mockResolvedValue(prev),
+        findMany: buildDispatchFindMany([prev, curr]),
       },
       bom_assembly: {
         findMany: jest.fn(({ where }: any) => {
-          if (where.dispatch_id === 1) return Promise.resolve([
+          const ids: number[] = where.dispatch_id.in
+          if (ids.includes(1)) return Promise.resolve([
             { assembly_mark: 'A1', name: 'Assembly 1', qty: 2, weight_kg: 100, surface_area_m2: 5 },
             { assembly_mark: 'A2', name: 'Assembly 2', qty: 1, weight_kg: 50, surface_area_m2: 3 },
           ])
@@ -234,7 +265,10 @@ describe('BomDiffService — algorithm unit tests', () => {
           ])
         }),
       },
-      bom_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: {
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+      },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
     }
   }
@@ -258,5 +292,134 @@ describe('BomDiffService — algorithm unit tests', () => {
     expect(result!.aggregate.weight_kg.prev).toBeCloseTo(150)
     expect(result!.aggregate.weight_kg.curr).toBeCloseTo(200)
     expect(result!.aggregate.weight_kg.delta).toBeCloseTo(50)
+  })
+})
+
+// ── Revision-group aggregation tests ──────────────────────────
+//
+// These cover the actual bug this design fixes: a Main-then-Acc-separately
+// workflow across a revision boundary. Dispatch 1 (Main, rev1) and dispatch 2
+// (Acc, rev1) together form "revision 1." Dispatch 3 (Acc-only, rev2) then
+// advances the revision without re-touching Main — the fix must carry
+// dispatch 1 (Main) forward as still-active and correctly classify it
+// "unchanged" (not "removed"), while dispatch 2 → dispatch 3's real Acc
+// content change is still diffed accurately.
+
+describe('BomDiffService — revision-group aggregation', () => {
+  function buildGroupedPrisma() {
+    const dispatches = [
+      { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 1, doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }] },
+      { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-02'), revision: 1, doc_revisions: [{ doc_type: 'ACC_ASSEMBLY_LIST' }] },
+      { id: 3, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 2, doc_revisions: [{ doc_type: 'ACC_ASSEMBLY_LIST' }] },
+    ]
+    const assembliesByDispatch: Record<number, any[]> = {
+      1: [{ assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 }],
+      2: [{ assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 }],
+      3: [{ assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 }],
+    }
+    return {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: buildDispatchFindMany(dispatches),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => {
+          const ids: number[] = where.dispatch_id.in
+          return Promise.resolve(ids.flatMap(id => assembliesByDispatch[id] ?? []))
+        }),
+      },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+  }
+
+  it('never treats a same-revision sibling as "previous" — Acc(2) viewed against Main(1), both revision 1, is null (nothing before revision 1)', async () => {
+    const svc = new BomDiffService(buildGroupedPrisma() as any)
+    const result = await svc.computeDiff(2) // dispatch 2 = Acc, revision 1 — Main(1)+Acc(2) together are the whole zone's first revision
+
+    // This is the original bug this feature exists to fix: without the
+    // same-revision group boundary, dispatch 1 (lower id, different slot)
+    // would be mistaken for "previous" and produce a nonsense diff. Correct
+    // behavior is null — there is nothing before revision 1.
+    expect(result).toBeNull()
+  })
+
+  it('carries Main forward as unchanged when a later revision only re-uploads Acc — the exact bug this design fixes', async () => {
+    const svc = new BomDiffService(buildGroupedPrisma() as any)
+    const result = await svc.computeDiff(3) // dispatch 3 = Acc-only, revision 2 — Main not re-uploaded
+
+    expect(result).not.toBeNull()
+    const byMark = Object.fromEntries(result!.assembly_diff.map(r => [(r.curr ?? r.prev)!.assembly_mark, r.status]))
+
+    // Main (M1) must NOT show as removed just because revision 2 didn't
+    // re-touch it — it's still active, carried forward from revision 1.
+    expect(byMark['M1']).toBe('unchanged')
+    // The real Acc change (A1 → A2) is still diffed accurately.
+    expect(byMark['A1']).toBe('removed')
+    expect(byMark['A2']).toBe('added')
+  })
+
+  it('returns null when the dispatch is the first-ever revision for its zone/sub-zone (no earlier revision, sibling or not)', async () => {
+    const soloPrisma = buildGroupedPrisma()
+    const svc = new BomDiffService(soloPrisma as any)
+    const result = await svc.computeDiff(1) // dispatch 1 = Main, revision 1, the very first upload
+    expect(result).toBeNull()
+  })
+
+  // A single dispatch can carry BOTH MAIN_* and ACC_* doc_types at once —
+  // the separate-mode upload UI allows submitting Main and Acc files
+  // together in one call (e.g. via UpdateBomModal). This must supersede an
+  // older, separately-uploaded Acc-only dispatch outright, not get unioned
+  // alongside it (which would double-count the Acc content).
+  it('a "both" dispatch (Main+Acc uploaded together) supersedes an older separate Acc dispatch without double-counting', async () => {
+    const dispatches = [
+      { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 1, doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }] },
+      { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-02'), revision: 1, doc_revisions: [{ doc_type: 'ACC_ASSEMBLY_LIST' }] },
+      { id: 3, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 2, doc_revisions: [{ doc_type: 'ACC_ASSEMBLY_LIST' }] },
+      // dispatch 4: both Main and Acc re-uploaded together, same content, same revision as dispatch 3
+      { id: 4, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-02'), revision: 2, doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }, { doc_type: 'ACC_ASSEMBLY_LIST' }] },
+    ]
+    const assembliesByDispatch: Record<number, any[]> = {
+      1: [{ assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 }],
+      2: [{ assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 }],
+      3: [{ assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 }],
+      4: [
+        { assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 },
+        { assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 },
+      ],
+    }
+    const prisma = {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: buildDispatchFindMany(dispatches),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => {
+          const ids: number[] = where.dispatch_id.in
+          return Promise.resolve(ids.flatMap(id => assembliesByDispatch[id] ?? []))
+        }),
+      },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+
+    const svc = new BomDiffService(prisma as any)
+    const result = await svc.computeDiff(4) // dispatch 4 = both Main+Acc, revision 2
+
+    expect(result).not.toBeNull()
+    const byMark = Object.fromEntries(result!.assembly_diff.map(r => [(r.curr ?? r.prev)!.assembly_mark, r.status]))
+
+    // M1 is identical to revision 1's Main — unchanged. A1 (revision 1's
+    // Acc) and A2 (revision 2's Acc) are genuinely different content across
+    // the revision boundary — removed / added, exactly as if dispatch 4
+    // were the sole current dispatch. The key assertion is exactly one A2
+    // row (length 3, not 4): if dispatch 4 were wrongly classified as pure
+    // "main" (matching MAIN_ first), dispatch 3's separate Acc-only data
+    // would still be pulled in as a stale "current Acc" alongside dispatch
+    // 4's own A2, producing a duplicate A2 row.
+    expect(byMark['M1']).toBe('unchanged')
+    expect(byMark['A1']).toBe('removed')
+    expect(byMark['A2']).toBe('added')
+    expect(result!.assembly_diff).toHaveLength(3) // M1 + A1(removed) + A2(added), no duplicate A2 row from double-counting
   })
 })
