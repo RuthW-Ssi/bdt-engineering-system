@@ -405,6 +405,59 @@ describe('BomUploadService.upload()', () => {
     // Should NOT throw — extension override
     await expect(svc.upload([f], [], 1, 2, null, 1)).resolves.toBeDefined()
   })
+
+  it('merges MAIN_* and ACC_* doc types into combined assemblies before insert (separate mode)', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 400)
+    let capturedAssemblies: any[] | undefined
+    innerPrisma.bom_assembly.createManyAndReturn = jest.fn(({ data }: any) => {
+      capturedAssemblies = data
+      return Promise.resolve((data as any[]).map((d: any, i: number) => ({ id: 500 + i, ...d })))
+    })
+
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+
+    const parser = {
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'MAIN_ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'M1' }], parts: [], assemblyParts: [] }
+        if (docType === 'ACC_ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        if (docType === 'MAIN_PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
+        if (docType === 'ACC_PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P2' }], assemblyParts: [] }
+        if (docType === 'MAIN_ASSEMBLY_PART_LIST') return { docType, assemblies: [], parts: [], assemblyParts: [{ assembly_mark: 'M1', part_mark: 'P1', qty: 1, sequence: 1 }] }
+        return { docType, assemblies: [], parts: [], assemblyParts: [{ assembly_mark: 'A1', part_mark: 'P2', qty: 1, sequence: 1 }] }
+      }),
+    }
+
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await svc.upload(
+      [
+        makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' }),
+        makeFileInput({ docType: 'MAIN_ASSEMBLY_PART_LIST', originalname: 'main_assembly_part_list.xlsx' }),
+        makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_part_list.xlsx' }),
+        makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list.xlsx' }),
+        makeFileInput({ docType: 'ACC_ASSEMBLY_PART_LIST', originalname: 'acc_assembly_part_list.xlsx' }),
+        makeFileInput({ docType: 'ACC_PART_LIST', originalname: 'acc_part_list.xlsx' }),
+      ],
+      [makeNcInput('P1', 1), makeNcInput('P2', 1)],
+      1, 2, null, 1, 'separate',
+    )
+
+    expect(capturedAssemblies).toHaveLength(2)
+    expect(capturedAssemblies!.map((a: any) => a.assembly_mark).sort()).toEqual(['A1', 'M1'])
+  })
 })
 
 describe('BomUploadService.list()', () => {

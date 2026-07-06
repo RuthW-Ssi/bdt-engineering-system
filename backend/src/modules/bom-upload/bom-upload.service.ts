@@ -96,22 +96,7 @@ export class BomUploadService {
 
     // 3. If separate mode, merge MAIN+ACC into combined keys before further processing
     if (uploadMode === 'separate') {
-      const merge = (mainKey: BomDocType, accKey: BomDocType, targetKey: BomDocType) => {
-        const main = parsed.get(mainKey)
-        const acc = parsed.get(accKey)
-        if (!main && !acc) return
-        parsed.set(targetKey, {
-          docType: targetKey,
-          assemblies: [...(main?.assemblies ?? []), ...(acc?.assemblies ?? [])],
-          parts: [...(main?.parts ?? []), ...(acc?.parts ?? [])],
-          assemblyParts: [...(main?.assemblyParts ?? []), ...(acc?.assemblyParts ?? [])],
-        })
-        parsed.delete(mainKey)
-        parsed.delete(accKey)
-      }
-      merge('MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST', 'ASSEMBLY_LIST')
-      merge('MAIN_ASSEMBLY_PART_LIST', 'ACC_ASSEMBLY_PART_LIST', 'ASSEMBLY_PART_LIST')
-      merge('MAIN_PART_LIST', 'ACC_PART_LIST', 'PART_LIST')
+      this.mergeSeparateDocTypes(parsed)
     }
 
     // 3. Parse NC files → build canonical map (part_mark → NC data)
@@ -318,6 +303,25 @@ export class BomUploadService {
       }
       throw err
     }
+  }
+
+  private mergeSeparateDocTypes(parsed: Map<BomDocType, ParsedBomFile>): void {
+    const merge = (mainKey: BomDocType, accKey: BomDocType, targetKey: BomDocType) => {
+      const main = parsed.get(mainKey)
+      const acc = parsed.get(accKey)
+      if (!main && !acc) return
+      parsed.set(targetKey, {
+        docType: targetKey,
+        assemblies: [...(main?.assemblies ?? []), ...(acc?.assemblies ?? [])],
+        parts: [...(main?.parts ?? []), ...(acc?.parts ?? [])],
+        assemblyParts: [...(main?.assemblyParts ?? []), ...(acc?.assemblyParts ?? [])],
+      })
+      parsed.delete(mainKey)
+      parsed.delete(accKey)
+    }
+    merge('MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST', 'ASSEMBLY_LIST')
+    merge('MAIN_ASSEMBLY_PART_LIST', 'ACC_ASSEMBLY_PART_LIST', 'ASSEMBLY_PART_LIST')
+    merge('MAIN_PART_LIST', 'ACC_PART_LIST', 'PART_LIST')
   }
 
   // ─── List ─────────────────────────────────────────────────────
