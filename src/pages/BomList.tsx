@@ -160,6 +160,7 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
           <tr>
             <th style={TH}>#</th>
             <th style={TH}>Mark</th>
+            <th style={TH}>Rev</th>
             <th style={TH}>Name</th>
             <th style={{ ...TH, textAlign: 'right' }}>Qty</th>
             <th style={{ ...TH, textAlign: 'right' }}>Area (m²)</th>
@@ -177,6 +178,7 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
             <tr key={asm.id} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
               <td style={{ ...TD, color: '#AAA', width: 32 }}>{i + 1}</td>
               <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{asm.assembly_mark}</td>
+              <td style={{ ...TD, color: '#8E8E8E' }}>{asm.version_label != null ? `v${asm.version_label}` : '—'}</td>
               <td style={{ ...TD, color: '#555', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asm.name ?? '—'}</td>
               <td style={{ ...TD, textAlign: 'right', fontWeight: 500 }}>×{asm.assembly_qty}</td>
               <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.surface_area_m2 != null ? asm.surface_area_m2.toFixed(2) : '—'}</td>
@@ -193,7 +195,7 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
         </tbody>
         <tfoot>
           <tr style={{ background: '#F5F5F5', borderTop: '2px solid #D0D0D0' }}>
-            <td colSpan={3} style={{ ...TD, fontWeight: 600, color: '#555' }}>Total ({assemblies.length})</td>
+            <td colSpan={4} style={{ ...TD, fontWeight: 600, color: '#555' }}>Total ({assemblies.length})</td>
             <td style={{ ...TD, textAlign: 'right', fontWeight: 600 }}>
               {assemblies.reduce((s, a) => s + a.assembly_qty, 0)}
             </td>
@@ -324,7 +326,7 @@ function VersionNode({
   item, version, isFirst, isLatest, isLast, selected, onSelect,
 }: {
   item: DispatchSummaryDto
-  version: number
+  version: string
   isFirst: boolean
   isLatest: boolean
   isLast: boolean
@@ -402,7 +404,7 @@ function DispatchGroup({
 }: {
   group: DispatchSummaryDto[]
   latestIdSet: Set<number>
-  versionMap: Map<number, number>
+  versionMap: Map<number, string>
   selectedId: number | null
   onSelect: (id: number) => void
   onOpen: (id: number) => void
@@ -459,7 +461,7 @@ function DispatchGroup({
         <VersionNode
           key={item.id}
           item={item}
-          version={versionMap.get(item.id) ?? 1}
+          version={versionMap.get(item.id) ?? `${item.revision}.0`}
           isFirst={idx === 0}
           isLatest={latestIdSet.has(item.id)}
           isLast={idx === group.length - 1}
@@ -565,13 +567,29 @@ export function BomList() {
       groups.get(key)!.push(item)
     }
     const latestIdSet = new Set<number>()
-    const versionMap = new Map<number, number>()
+    const versionMap = new Map<number, string>()
     const groupedItems: DispatchSummaryDto[][] = []
     for (const group of groups.values()) {
-      // API returns desc order → reverse gives oldest-first for version numbering
-      const asc = [...group].reverse()
-      asc.forEach((item, i) => versionMap.set(item.id, i + 1))
+      // API returns desc order — group[0] is the most recently uploaded physical dispatch,
+      // regardless of which revision number it carries.
       latestIdSet.add(group[0].id)
+
+      // Sub-group by revision, then rank by upload order within each
+      // revision (oldest = .0) — dispatches sharing a revision via
+      // "Continue revision" read as 1.0, 1.1, 1.2..., and only "Start new
+      // revision" jumps the major number to 2.0.
+      const byRevision = new Map<number, DispatchSummaryDto[]>()
+      for (const item of group) {
+        if (!byRevision.has(item.revision)) byRevision.set(item.revision, [])
+        byRevision.get(item.revision)!.push(item)
+      }
+      for (const revisionItems of byRevision.values()) {
+        const chronological = [...revisionItems].sort((a, b) => a.id - b.id)
+        chronological.forEach((item, minorIndex) => {
+          versionMap.set(item.id, `${item.revision}.${minorIndex}`)
+        })
+      }
+
       groupedItems.push(group)
     }
     return { latestIdSet, versionMap, groupedItems }
