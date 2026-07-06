@@ -94,12 +94,14 @@ function isSeparatorRow(row: unknown[]): boolean {
 }
 
 // Extract Tekla contract number from preamble rows before the data header.
-// Tekla files embed e.g. "ContactNo.00X220-2Date:28.04.2026" in row 2.
+// Different Tekla export templates spell this two ways — the typo'd
+// "ContactNo.00X220-2Date:28.04.2026" and the correctly-spelled
+// "ContractNo:0X221ContractName:...Date:11.05.2026" — so both are matched.
 export function extractContractNo(preambleRows: unknown[][]): string {
   for (const row of preambleRows) {
     for (const cell of row) {
       const s = String(cell ?? '').trim()
-      const m = s.match(/ContactNo\.?\s*([0-9X][0-9X\-]*?)(?=Date)/i)
+      const m = s.match(/Contr?actNo\.?:?\s*([0-9X][0-9X\-]*?)(?=Date|ContractName)/i)
       if (m?.[1]) return m[1].trim()
     }
   }
@@ -117,6 +119,23 @@ export function stripContractPrefix(mark: string, contractNo?: string): string {
   // stopping before the first run of 2+ uppercase letters followed by "-"
   const stripped = mark.replace(/^[A-Z0-9][A-Z0-9\-]*?(?=[A-Z]{2,}-)/, '').trim()
   return stripped !== mark ? stripped : mark
+}
+
+// Strip a contract-number prefix only when confidently detected for this exact
+// file (mark actually starts with the extracted contractNo) — unlike
+// stripContractPrefix, this has NO regex fallback, so it never touches marks
+// from non-Tekla or already-clean sources. Used for Assembly List / Part List /
+// flat Assembly Part List, where marks are normally clean and a heuristic guess
+// risks mangling a legitimate mark (e.g. "WH-CO-001" → "CO-001"). Applying this
+// keeps these three parsers symmetric with parseAssemblyPartListTekla so the
+// same physical mark resolves to the same string everywhere it's read — a
+// mismatch here is what silently drops bom_assembly_part junctions at upload
+// time (see BomUploadService.upload's assemblyIdByMark/partIdByMark lookup).
+export function stripKnownContractPrefix(mark: string, contractNo?: string): string {
+  if (contractNo && mark.startsWith(contractNo)) {
+    return mark.slice(contractNo.length).trim()
+  }
+  return mark
 }
 
 function cellNum(row: unknown[], idx: number): number | undefined {
@@ -141,7 +160,20 @@ function filterDataRows(rows: unknown[][]): unknown[][] {
 export class XlsxParserService {
   private readonly logger = new Logger(XlsxParserService.name)
 
-  parse(buffer: Buffer, docType: BomDocType): ParsedBomFile {
+  // Read just enough of a file to extract its Tekla contract number, without
+  // committing to a docType. Used to derive one contractNo per MAIN/ACC/combined
+  // group from that group's Assembly List file, since sibling Assembly Part
+  // List / Part List files from the same export often omit this preamble
+  // entirely (or spell it differently) — see BomUploadService.parseAllFiles.
+  peekContractNo(buffer: Buffer): string {
+    const workbook = XLSX.read(buffer, { type: 'buffer' })
+    if (!workbook.SheetNames.length) return ''
+    const sheet = workbook.Sheets[workbook.SheetNames[0]]
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' }) as unknown[][]
+    return extractContractNo(rows.slice(0, 15))
+  }
+
+  parse(buffer: Buffer, docType: BomDocType, contractNoOverride?: string): ParsedBomFile {
     const workbook = XLSX.read(buffer, { type: 'buffer' })
     if (!workbook.SheetNames.length) {
       throw new BadRequestException('File has no sheets')
@@ -155,17 +187,18 @@ export class XlsxParserService {
     }
 
     if (docType === 'ASSEMBLY_LIST' || docType === 'MAIN_ASSEMBLY_LIST' || docType === 'ACC_ASSEMBLY_LIST')
-      return this.parseAssemblyList(rows)
+      return this.parseAssemblyList(rows, contractNoOverride)
     if (docType === 'PART_LIST' || docType === 'MAIN_PART_LIST' || docType === 'ACC_PART_LIST')
-      return this.parsePartList(rows)
-    return this.parseAssemblyPartList(rows)
+      return this.parsePartList(rows, contractNoOverride)
+    return this.parseAssemblyPartList(rows, contractNoOverride)
   }
 
-  private parseAssemblyList(rows: unknown[][]): ParsedBomFile {
+  private parseAssemblyList(rows: unknown[][], contractNoOverride?: string): ParsedBomFile {
     const found = findHeaderRow(rows, ASSEMBLY_MARK_COLS)
     if (!found) throw new BadRequestException('Assembly List: cannot find assembly mark column')
 
     const { headerIdx, header } = found
+    const contractNo = contractNoOverride ?? extractContractNo(rows.slice(0, headerIdx))
     const markCol   = findCol(header, ASSEMBLY_MARK_COLS)
     const nameCol   = findCol(header, NAME_COLS)
     const qtyCol    = findCol(header, QTY_COLS)
@@ -181,8 +214,9 @@ export class XlsxParserService {
     const assemblies: ParsedAssembly[] = []
     for (const row of dataRows) {
       const r = row as unknown[]
-      const assembly_mark = cellStr(r, markCol)
-      if (!assembly_mark) continue
+      const rawMark = cellStr(r, markCol)
+      if (!rawMark) continue
+      const assembly_mark = stripKnownContractPrefix(rawMark, contractNo)
       assemblies.push({
         assembly_mark,
         name: cellStr(r, nameCol),
@@ -198,11 +232,12 @@ export class XlsxParserService {
     return { docType: 'ASSEMBLY_LIST', assemblies, parts: [], assemblyParts: [] }
   }
 
-  private parsePartList(rows: unknown[][]): ParsedBomFile {
+  private parsePartList(rows: unknown[][], contractNoOverride?: string): ParsedBomFile {
     const found = findHeaderRow(rows, PART_MARK_COLS)
     if (!found) throw new BadRequestException('Part List: cannot find part mark column')
 
     const { headerIdx, header } = found
+    const contractNo = contractNoOverride ?? extractContractNo(rows.slice(0, headerIdx))
     const markCol = findCol(header, PART_MARK_COLS)
     const descCol = findCol(header, NAME_COLS)
     const profileCol = findCol(header, PROFILE_COLS)
@@ -217,8 +252,9 @@ export class XlsxParserService {
     const parts: ParsedPart[] = []
     for (const row of dataRows) {
       const r = row as unknown[]
-      const part_mark = cellStr(r, markCol)
-      if (!part_mark) continue
+      const rawMark = cellStr(r, markCol)
+      if (!rawMark) continue
+      const part_mark = stripKnownContractPrefix(rawMark, contractNo)
       parts.push({
         part_mark,
         description: cellStr(r, descCol),
@@ -233,7 +269,7 @@ export class XlsxParserService {
     return { docType: 'PART_LIST', assemblies: [], parts, assemblyParts: [] }
   }
 
-  private parseAssemblyPartList(rows: unknown[][]): ParsedBomFile {
+  private parseAssemblyPartList(rows: unknown[][], contractNoOverride?: string): ParsedBomFile {
     const allAliases = [...ASSEMBLY_MARK_COLS, 'assemblypart']
     const found = findHeaderRow(rows, allAliases)
     if (!found) throw new BadRequestException('Assembly Part List: cannot find header row')
@@ -243,10 +279,11 @@ export class XlsxParserService {
     // Tekla nested format: combined "assemblypart" column, assembly header rows
     // interleaved with part rows, separated by "---" lines
     if (header.some(h => h === 'assemblypart')) {
-      return this.parseAssemblyPartListTekla(rows, headerIdx, header)
+      return this.parseAssemblyPartListTekla(rows, headerIdx, header, contractNoOverride)
     }
 
     // Flat format: separate assembly_mark and part_mark columns
+    const contractNo = contractNoOverride ?? extractContractNo(rows.slice(0, headerIdx))
     const asmMarkCol = findCol(header, ASSEMBLY_MARK_COLS)
     const partMarkCol = findCol(header, PART_MARK_COLS)
 
@@ -261,9 +298,11 @@ export class XlsxParserService {
     const assemblyParts: ParsedAssemblyPart[] = []
     for (let i = 0; i < dataRows.length; i++) {
       const r = dataRows[i] as unknown[]
-      const assembly_mark = cellStr(r, asmMarkCol)
-      const part_mark = cellStr(r, partMarkCol)
-      if (!assembly_mark || !part_mark) continue
+      const rawAsmMark = cellStr(r, asmMarkCol)
+      const rawPartMark = cellStr(r, partMarkCol)
+      if (!rawAsmMark || !rawPartMark) continue
+      const assembly_mark = stripKnownContractPrefix(rawAsmMark, contractNo)
+      const part_mark = stripKnownContractPrefix(rawPartMark, contractNo)
       assemblyParts.push({ assembly_mark, part_mark, qty: cellNum(r, qtyCol), sequence: i + 1 })
     }
 
@@ -276,14 +315,23 @@ export class XlsxParserService {
     rows: unknown[][],
     headerIdx: number,
     header: string[],
+    contractNoOverride?: string,
   ): ParsedBomFile {
-    const contractNo = extractContractNo(rows.slice(0, headerIdx))
+    const contractNo = contractNoOverride ?? extractContractNo(rows.slice(0, headerIdx))
     if (!contractNo) {
       this.logger.warn('BOM parse: contract number not found in preamble; falling back to regex prefix strip')
     }
+    // Once contractNo is known, trust it exactly: a mark that doesn't start with
+    // it (e.g. some Tekla templates only prefix assembly headers, not their own
+    // part rows) simply has no prefix to strip — don't let the regex heuristic
+    // guess a different one and mangle it (see stripContractPrefix's fallback).
+    // Only fall back to that heuristic when the contract number is fully unknown.
+    const strip = (mark: string): string =>
+      contractNo ? stripKnownContractPrefix(mark, contractNo) : stripContractPrefix(mark, contractNo)
 
     const markCol = header.findIndex(h => h === 'assemblypart')
     const qtyCol = findCol(header, QTY_COLS)
+    const gradeCol = findCol(header, GRADE_COLS)
 
     const assemblyParts: ParsedAssemblyPart[] = []
     let currentAssemblyMark: string | null = null
@@ -302,18 +350,28 @@ export class XlsxParserService {
       const markVal = cellStr(r, markCol)
       if (!markVal) { lastWasSeparator = false; continue }
 
-      if (lastWasSeparator) {
-        currentAssemblyMark = stripContractPrefix(markVal, contractNo)
-        lastWasSeparator = false
+      // A genuine assembly header row never carries a Grade value — only part
+      // rows do (confirmed 1:1 against real Tekla exports). If the row right
+      // after a separator has one anyway, the real assembly header for this
+      // block is missing from the file (e.g. a dropped/edited row) — treat
+      // this row as a part of the still-open previous assembly instead of
+      // starting a bogus new "assembly" out of what is actually a part mark.
+      const looksLikePart = gradeCol >= 0 && !!cellStr(r, gradeCol)
+
+      if (lastWasSeparator && !looksLikePart) {
+        currentAssemblyMark = strip(markVal)
       } else if (currentAssemblyMark) {
         sequence++
         assemblyParts.push({
           assembly_mark: currentAssemblyMark,
-          part_mark: stripContractPrefix(markVal, contractNo),
+          part_mark: strip(markVal),
           qty: cellNum(r, qtyCol),
           sequence,
         })
+      } else {
+        this.logger.warn(`BOM parse: part-shaped row found with no open assembly (mark="${markVal}") — skipped`)
       }
+      lastWasSeparator = false
     }
 
     return { docType: 'ASSEMBLY_PART_LIST', assemblies: [], parts: [], assemblyParts }

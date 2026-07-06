@@ -14,6 +14,18 @@ function matches(term: string, ...fields: (string | null | undefined)[]): boolea
   return fields.some(f => f?.toLowerCase().includes(term))
 }
 
+// Shows which revision a row's data currently comes from — relevant once a
+// zone's Main and Acc slots can be at different revisions (one re-uploaded
+// more recently than the other).
+function RevisionBadge({ versionLabel }: { versionLabel: string | null }) {
+  if (versionLabel == null) return null
+  return (
+    <span style={{ fontSize: 10, color: '#8E8E8E', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+      v{versionLabel}
+    </span>
+  )
+}
+
 // ── Assembly row ───────────────────────────────────────────────
 function AssemblyRow({
   asm, expanded, onToggle, searchTerm,
@@ -68,6 +80,8 @@ function AssemblyRow({
       <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', minWidth: 110, flexShrink: 0 }}>
         {asm.assembly_mark}
       </span>
+
+      <RevisionBadge versionLabel={asm.version_label} />
 
       {/* Match status */}
 
@@ -162,6 +176,8 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
       <span className="font-mono" style={{ fontSize: 12, fontWeight: 500, color: '#1F1F1F', minWidth: 110, flexShrink: 0 }}>
         {part.part_mark}
       </span>
+
+      <RevisionBadge versionLabel={part.version_label} />
 
       {/* Match status */}
 

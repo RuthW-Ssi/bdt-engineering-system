@@ -80,40 +80,148 @@ function junctionsEqual(a: JunctionDiffItem, b: JunctionDiffItem): boolean {
   return floatEq(a.qty, b.qty)
 }
 
+// ── Slot classification ─────────────────────────────────────────
+//
+// A dispatch's "slot" is derived from its uploaded doc_types, not its
+// revision number: MAIN_* files make it (at least) the Main slot, ACC_*
+// files make it (at least) the Acc slot — a dispatch can be both at once,
+// since the separate-mode upload UI allows submitting Main and Acc files
+// together in one call. Plain doc_types (ASSEMBLY_LIST etc, neither
+// prefix) make it a self-contained Combined snapshot. Revision numbers
+// are a display label only — they never bound which dispatch is
+// "currently active" for a slot.
+
+export type BomSlot = 'main' | 'acc' | 'both' | 'combined'
+
+export function classifyDispatchSlot(docTypes: string[]): BomSlot {
+  const hasMain = docTypes.some(t => t.startsWith('MAIN_'))
+  const hasAcc = docTypes.some(t => t.startsWith('ACC_'))
+  if (hasMain && hasAcc) return 'both'
+  if (hasMain) return 'main'
+  if (hasAcc) return 'acc'
+  return 'combined'
+}
+
 // ── BomDiffService ─────────────────────────────────────────────
 
 @Injectable()
 export class BomDiffService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findPrevious(id: number) {
+  // Resolves the effective Main + Acc dispatch ids for a zone/sub-zone as of
+  // a given id boundary — i.e. "whichever Main and Acc dispatch were most
+  // recently uploaded (in any revision), ignoring anything after the
+  // boundary." A Combined dispatch is a complete snapshot on its own: the
+  // most recent one wins outright unless a more recent Main/Acc pair has
+  // since superseded it. Error-status dispatches are never "active."
+  async resolveEffectiveGroup(
+    projectId: number, zoneId: number, subZoneId: number | null,
+    idBound: { lte: number } | { lt: number },
+  ): Promise<number[]> {
+    const dispatches = await this.prisma.bom_dispatch.findMany({
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, status: { not: 'error' }, id: idBound },
+      select: { id: true, doc_revisions: { select: { doc_type: true } } },
+      orderBy: { id: 'desc' },
+    })
+
+    let mainId: number | null = null
+    let accId: number | null = null
+    for (const d of dispatches) {
+      const slot = classifyDispatchSlot(d.doc_revisions.map(r => r.doc_type))
+      if (slot === 'combined') {
+        if (mainId == null && accId == null) return [d.id]
+        continue // superseded by a more recent Main/Acc pair
+      }
+      // A "both" dispatch (Main+Acc uploaded together) satisfies whichever
+      // of the two slots aren't already covered by something more recent.
+      if ((slot === 'main' || slot === 'both') && mainId == null) mainId = d.id
+      if ((slot === 'acc' || slot === 'both') && accId == null) accId = d.id
+      if (mainId != null && accId != null) break
+    }
+    return [...new Set([mainId, accId].filter((x): x is number => x != null))]
+  }
+
+  async findPreviousRevisionGroup(id: number): Promise<{ currentIds: number[]; previousIds: number[] } | null> {
     const current = await this.prisma.bom_dispatch.findUnique({ where: { id } })
     if (!current) throw new NotFoundException(`Dispatch ${id} not found`)
-    return this.prisma.bom_dispatch.findFirst({
+
+    // Dispatches sharing this exact revision number are a deliberate group
+    // (the user's own continue/new choice at upload time is the sync
+    // signal) — bound both cutoffs by the group's full id range, not just
+    // this one dispatch's id, so a same-revision sibling with a lower id
+    // is never mistaken for "previous."
+    const sameRevision = await this.prisma.bom_dispatch.findMany({
       where: {
-        project_id: current.project_id,
-        zone_id: current.zone_id,
-        sub_zone_id: current.sub_zone_id,
-        uploaded_at: { lt: current.uploaded_at },
-        id: { not: id },
+        project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
+        revision: current.revision, status: { not: 'error' },
       },
-      orderBy: { uploaded_at: 'desc' },
+      select: { id: true },
     })
+    const groupIds = [...sameRevision.map(d => d.id), id]
+    const maxId = Math.max(...groupIds)
+    const minId = Math.min(...groupIds)
+
+    const currentIds = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lte: maxId })
+    const previousIds = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lt: minId })
+    if (previousIds.length === 0) return null
+
+    return { currentIds, previousIds }
+  }
+
+  // "major.minor" display label for a set of dispatches — minor is each
+  // dispatch's 0-indexed position (by upload order) among ALL dispatches
+  // sharing its exact revision number in the same zone/sub-zone (not just
+  // the ones in `dispatchIds`), so "Continue revision" uploads read as
+  // 1.0, 1.1, 1.2... and only "Start new revision" advances the major
+  // number. Purely a read-time label — never used for grouping/comparison.
+  async computeVersionLabels(dispatchIds: number[]): Promise<Map<number, string>> {
+    if (!dispatchIds.length) return new Map()
+
+    const dispatches = await this.prisma.bom_dispatch.findMany({
+      where: { id: { in: dispatchIds } },
+      select: { id: true, project_id: true, zone_id: true, sub_zone_id: true, revision: true },
+    })
+
+    const byGroup = new Map<string, typeof dispatches>()
+    for (const d of dispatches) {
+      const key = `${d.project_id}:${d.zone_id}:${d.sub_zone_id}:${d.revision}`
+      if (!byGroup.has(key)) byGroup.set(key, [])
+      byGroup.get(key)!.push(d)
+    }
+
+    const result = new Map<number, string>()
+    for (const group of byGroup.values()) {
+      const { project_id, zone_id, sub_zone_id, revision } = group[0]
+      const siblings = await this.prisma.bom_dispatch.findMany({
+        where: { project_id, zone_id, sub_zone_id, revision },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      })
+      const minorById = new Map(siblings.map((s, i) => [s.id, i]))
+      for (const d of group) {
+        result.set(d.id, `${d.revision}.${minorById.get(d.id) ?? 0}`)
+      }
+    }
+    return result
   }
 
   async computeDiff(id: number): Promise<DispatchDiffResult | null> {
-    const prev = await this.findPrevious(id)
-    if (!prev) return null
+    const groups = await this.findPreviousRevisionGroup(id)
+    if (!groups) return null
+    const { currentIds, previousIds } = groups
 
     const [currDetail, prevDetail] = await Promise.all([
-      this.loadDispatchData(id),
-      this.loadDispatchData(prev.id),
+      this.loadRevisionGroupData(currentIds),
+      this.loadRevisionGroupData(previousIds),
     ])
 
-    const currDispatch = await this.prisma.bom_dispatch.findUnique({ where: { id } })
-    const prevDispatch = prev
+    const currDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: currentIds } } })
+    const prevDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: previousIds } } })
 
-    const warning = this.computeWarning(prevDispatch.status, currDispatch!.status)
+    const warning = this.computeWarning(
+      prevDispatches.map(d => d.status),
+      currDispatches.map(d => d.status),
+    )
 
     const assembly_diff = diffEntities(
       prevDetail.assemblies, currDetail.assemblies,
@@ -130,11 +238,11 @@ export class BomDiffService {
       j => `${j.assembly_mark}__${j.part_mark}`, junctionsEqual,
     )
 
-    const aggregate = await this.computeAggregate(prev.id, id, assembly_diff, part_diff)
+    const aggregate = await this.computeAggregate(previousIds, currentIds, assembly_diff, part_diff)
 
     return {
-      prev_id: prev.id,
-      curr_id: id,
+      prev_id: previousIds[0],
+      curr_id: currentIds[0],
       warning,
       aggregate,
       assembly_diff,
@@ -145,18 +253,18 @@ export class BomDiffService {
 
   // ── Private helpers ──────────────────────────────────────────
 
-  private async loadDispatchData(id: number) {
+  private async loadRevisionGroupData(ids: number[]) {
     const [assemblies, parts, junctions] = await Promise.all([
       this.prisma.bom_assembly.findMany({
-        where: { dispatch_id: id },
+        where: { dispatch_id: { in: ids } },
         select: { assembly_mark: true, name: true, qty: true, weight_kg: true, surface_area_m2: true },
       }),
       this.prisma.bom_part.findMany({
-        where: { dispatch_id: id },
+        where: { dispatch_id: { in: ids } },
         select: { part_mark: true, description: true, profile: true, grade: true, qty: true, length_mm: true, weight_kg: true },
       }),
       this.prisma.bom_assembly_part.findMany({
-        where: { assembly: { dispatch_id: id } },
+        where: { assembly: { dispatch_id: { in: ids } } },
         select: {
           qty: true,
           assembly: { select: { assembly_mark: true } },
@@ -193,21 +301,21 @@ export class BomDiffService {
   }
 
   private async computeAggregate(
-    prevId: number, currId: number,
+    prevIds: number[], currIds: number[],
     assemblyDiff: DiffRow<AssemblyDiffItem>[],
     partDiff: DiffRow<PartDiffItem>[],
   ): Promise<DiffAggregate> {
     const [prevWeightArea, currWeightArea] = await Promise.all([
-      this.sumWeightArea(prevId),
-      this.sumWeightArea(currId),
+      this.sumWeightArea(prevIds),
+      this.sumWeightArea(currIds),
     ])
 
     const asmPrev = assemblyDiff.filter(r => r.prev != null).length
     const asmCurr = assemblyDiff.filter(r => r.curr != null).length
 
     const [prevPartCount, currPartCount] = await Promise.all([
-      this.prisma.bom_part.count({ where: { dispatch_id: prevId } }),
-      this.prisma.bom_part.count({ where: { dispatch_id: currId } }),
+      this.prisma.bom_part.count({ where: { dispatch_id: { in: prevIds } } }),
+      this.prisma.bom_part.count({ where: { dispatch_id: { in: currIds } } }),
     ])
 
     const countChanges = <T>(rows: DiffRow<T>[]) => ({
@@ -226,9 +334,9 @@ export class BomDiffService {
     }
   }
 
-  private async sumWeightArea(dispatchId: number) {
+  private async sumWeightArea(dispatchIds: number[]) {
     const rows = await this.prisma.bom_assembly.findMany({
-      where: { dispatch_id: dispatchId },
+      where: { dispatch_id: { in: dispatchIds } },
       select: { weight_kg: true, surface_area_m2: true },
     })
     let weight_kg = 0, area_m2 = 0
@@ -242,12 +350,14 @@ export class BomDiffService {
     }
   }
 
-  private computeWarning(prevStatus: string, currStatus: string): string | null {
-    if (prevStatus === 'partial' && currStatus === 'partial') {
+  private computeWarning(prevStatuses: string[], currStatuses: string[]): string | null {
+    const prevPartial = prevStatuses.some(s => s === 'partial')
+    const currPartial = currStatuses.some(s => s === 'partial')
+    if (prevPartial && currPartial) {
       return 'ทั้งสอง dispatch มีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
     }
-    if (prevStatus === 'partial') return 'เวอร์ชันก่อนหน้ามีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
-    if (currStatus === 'partial') return 'เวอร์ชันปัจจุบันมีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
+    if (prevPartial) return 'เวอร์ชันก่อนหน้ามีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
+    if (currPartial) return 'เวอร์ชันปัจจุบันมีสถานะ partial — ข้อมูลอาจไม่ครบถ้วน'
     return null
   }
 }

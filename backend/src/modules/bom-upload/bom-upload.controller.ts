@@ -13,7 +13,7 @@ import { BomDiffService } from './bom-diff.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
-import { QueryDispatchDto } from './dto/dispatch.dto'
+import { QueryDispatchDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
 import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -50,6 +50,7 @@ export class BomUploadController {
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
+        revision_choice: { type: 'string', enum: ['continue', 'new'] },
         bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         doc_types: { type: 'array', items: { type: 'string' } },
@@ -83,7 +84,53 @@ export class BomUploadController {
     // doc_types may arrive as a single string or array
     const rawDocTypes = Array.isArray(body['doc_types']) ? body['doc_types'] : [body['doc_types']]
 
-    const fileInputs: FileInput[] = bomFiles.map((f, i) => {
+    const fileInputs = this.buildFileInputs(bomFiles, rawDocTypes)
+
+    const ncInputs: NcFileInput[] = ncRaw.map(f => ({
+      buffer: f.buffer,
+      originalname: f.originalname,
+    }))
+
+    const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
+    const revisionChoice = (body['revision_choice'] === 'continue' ? 'continue' : 'new') as 'continue' | 'new'
+
+    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode, revisionChoice)
+  }
+
+  @Post('bom/upload/preview')
+  @ApiOperation({ summary: 'Dry-run: check which Assembly Part List rows would fail to match an assembly/part — no DB writes' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['bom_files', 'doc_types'],
+      properties: {
+        upload_mode: { type: 'string', enum: ['combined', 'separate'] },
+        bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        doc_types: { type: 'array', items: { type: 'string' } },
+      },
+    },
+  })
+  @UseInterceptors(FileFieldsInterceptor(
+    [{ name: 'bom_files', maxCount: 6 }],
+    { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
+  ))
+  async previewUpload(
+    @UploadedFiles() uploadedFiles: { bom_files?: MulterFile[] },
+    @Body() body: Record<string, string | string[]>,
+  ) {
+    const bomFiles = uploadedFiles?.bom_files ?? []
+    if (!bomFiles.length) throw new BadRequestException('No BOM files uploaded')
+
+    const rawDocTypes = Array.isArray(body['doc_types']) ? body['doc_types'] : [body['doc_types']]
+    const fileInputs = this.buildFileInputs(bomFiles, rawDocTypes)
+    const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
+
+    return this.svc.previewJunctions(fileInputs, uploadMode)
+  }
+
+  private buildFileInputs(bomFiles: MulterFile[], rawDocTypes: (string | undefined)[]): FileInput[] {
+    return bomFiles.map((f, i) => {
       const docType: BomDocType = (rawDocTypes[i] as BomDocType) ?? classifyFilename(f.originalname)
       if (!docType) {
         throw new BadRequestException(
@@ -98,21 +145,18 @@ export class BomUploadController {
         docType,
       }
     })
-
-    const ncInputs: NcFileInput[] = ncRaw.map(f => ({
-      buffer: f.buffer,
-      originalname: f.originalname,
-    }))
-
-    const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
-
-    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode)
   }
 
   @Get('dispatches')
   @ApiOperation({ summary: 'List BOM dispatches' })
   list(@Query() query: QueryDispatchDto) {
     return this.svc.list(query)
+  }
+
+  @Get('dispatches/latest-revision')
+  @ApiOperation({ summary: 'Get the latest revision number for a zone/sub-zone (null if none exists yet)' })
+  getLatestRevision(@Query() query: QueryLatestRevisionDto) {
+    return this.svc.getLatestRevision(query.project_id, query.zone_id, query.sub_zone_id ?? null)
   }
 
   @Get('dispatches/:id')
