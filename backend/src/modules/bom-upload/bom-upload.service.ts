@@ -7,7 +7,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
-import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart } from './xlsx-parser.service'
+import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService } from './bom-diff.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
@@ -43,6 +43,20 @@ export interface JunctionMismatch {
   part_mark: string
   assembly_found: boolean
   part_found: boolean
+}
+
+// "LPX"/"px"-marked parts are bought-in hardware (procured from an outside
+// vendor), never fabricated in-house from plate — confirmed against SD3A
+// PHASE 2, where they never have an NC file despite a "PL" profile.
+const PROCURED_MARK_PATTERN = /(?:^|-)(?:lpx|px)\d/i
+
+// NC1 files are CNC plate-cutting programs — confirmed against a real Tekla
+// export (SD3A PHASE 2) that every in-house-fabricated part with a "PL"
+// (plate) profile has one, while angle/pipe/round-bar/H-beam sections (cut by
+// saw, not CNC) never do.
+export function requiresNcFile(part: Pick<ParsedPart, 'profile' | 'part_mark'>): boolean {
+  if (PROCURED_MARK_PATTERN.test(part.part_mark)) return false
+  return (part.profile ?? '').trim().toUpperCase().startsWith('PL')
 }
 
 export function findMismatchedJunctions(
@@ -89,10 +103,7 @@ export class BomUploadService {
     this.validateFiles(files)
 
     // 2. Parse all files (fail fast before any DB writes)
-    const parsed = new Map<BomDocType, ParsedBomFile>()
-    for (const f of files) {
-      parsed.set(f.docType, this.parser.parse(f.buffer, f.docType))
-    }
+    const parsed = this.parseAllFiles(files)
 
     // 3. If separate mode, merge MAIN+ACC into combined keys before further processing
     if (uploadMode === 'separate') {
@@ -106,11 +117,16 @@ export class BomUploadService {
       ncMap.set(data.partMark, data)
     }
 
-    // 4. Validate: every unique part_mark in Part List must have a matching NC file
+    // 4. Validate: every unique NC-requiring part_mark in Part List must have a matching NC file
     const rawPartList = parsed.get('PART_LIST')
     if (rawPartList?.parts.length) {
-      const uniqueMarks = [...new Set(rawPartList.parts.map(p => p.part_mark))]
-      const missing = uniqueMarks.filter(m => !ncMap.has(m))
+      const uniquePartsByMark = new Map<string, ParsedPart>()
+      for (const p of rawPartList.parts) {
+        if (!uniquePartsByMark.has(p.part_mark)) uniquePartsByMark.set(p.part_mark, p)
+      }
+      const missing = [...uniquePartsByMark.values()]
+        .filter(p => requiresNcFile(p) && !ncMap.has(p.part_mark))
+        .map(p => p.part_mark)
       if (missing.length > 0) {
         throw new BadRequestException(
           `Missing NC files for part marks: ${missing.join(', ')}`,
@@ -233,15 +249,27 @@ export class BomUploadService {
               `part_mark="${m.part_mark}" (found=${m.part_found})`,
             )
           }
-          const junctions = asmPartList.assemblyParts
-            .filter(ap => !mismatchKeys.has(`${ap.assembly_mark}\0${ap.part_mark}`))
-            .map(ap => ({
-              assembly_id: assemblyIdByMark.get(ap.assembly_mark)!,
-              part_id: partIdByMark.get(ap.part_mark)!,
-              qty: ap.qty ?? 1,
-              sequence: ap.sequence,
-              create_uid: uid,
-            }))
+          // bom_assembly_part has a unique (assembly_id, part_id) constraint —
+          // a duplicate pair here (e.g. the same part legitimately re-listed
+          // twice for one assembly in the source file, or two Assembly Part
+          // List rows resolving to the same pair) would otherwise crash the
+          // whole upload. Keep the first occurrence, log the rest.
+          const seenPairs = new Set<string>()
+          const junctions: { assembly_id: number; part_id: number; qty: number; sequence?: number; create_uid: number }[] = []
+          for (const ap of asmPartList.assemblyParts) {
+            if (mismatchKeys.has(`${ap.assembly_mark}\0${ap.part_mark}`)) continue
+            const assembly_id = assemblyIdByMark.get(ap.assembly_mark)!
+            const part_id = partIdByMark.get(ap.part_mark)!
+            const pairKey = `${assembly_id}\0${part_id}`
+            if (seenPairs.has(pairKey)) {
+              this.logger.warn(
+                `junction duplicate skipped — assembly_mark="${ap.assembly_mark}" already linked to part_mark="${ap.part_mark}"`,
+              )
+              continue
+            }
+            seenPairs.add(pairKey)
+            junctions.push({ assembly_id, part_id, qty: ap.qty ?? 1, sequence: ap.sequence, create_uid: uid })
+          }
           if (junctions.length) await tx.bom_assembly_part.createMany({ data: junctions })
         }
 
@@ -305,6 +333,34 @@ export class BomUploadService {
     }
   }
 
+  // Parse every file, deriving one contract number per MAIN/ACC/combined group
+  // from that group's Assembly List file and reusing it for the sibling
+  // Assembly Part List / Part List files. Those sibling files sometimes omit
+  // the contract-number preamble entirely, or spell it differently, so letting
+  // each file re-extract it independently is unreliable — see xlsx-parser
+  // .service.ts's peekContractNo/extractContractNo.
+  private parseAllFiles(files: FileInput[]): Map<BomDocType, ParsedBomFile> {
+    const groupOf = (docType: BomDocType): 'MAIN' | 'ACC' | 'COMBINED' =>
+      docType.startsWith('MAIN_') ? 'MAIN' : docType.startsWith('ACC_') ? 'ACC' : 'COMBINED'
+    const assemblyListTypeOf = (group: 'MAIN' | 'ACC' | 'COMBINED'): BomDocType =>
+      group === 'MAIN' ? 'MAIN_ASSEMBLY_LIST' : group === 'ACC' ? 'ACC_ASSEMBLY_LIST' : 'ASSEMBLY_LIST'
+
+    const contractNoByGroup = new Map<'MAIN' | 'ACC' | 'COMBINED', string>()
+    for (const f of files) {
+      const group = groupOf(f.docType)
+      if (f.docType === assemblyListTypeOf(group)) {
+        contractNoByGroup.set(group, this.parser.peekContractNo(f.buffer))
+      }
+    }
+
+    const parsed = new Map<BomDocType, ParsedBomFile>()
+    for (const f of files) {
+      const contractNo = contractNoByGroup.get(groupOf(f.docType))
+      parsed.set(f.docType, this.parser.parse(f.buffer, f.docType, contractNo))
+    }
+    return parsed
+  }
+
   private mergeSeparateDocTypes(parsed: Map<BomDocType, ParsedBomFile>): void {
     const merge = (mainKey: BomDocType, accKey: BomDocType, targetKey: BomDocType) => {
       const main = parsed.get(mainKey)
@@ -330,10 +386,7 @@ export class BomUploadService {
   ): Promise<{ unmatchedAssemblyMarks: string[]; unmatchedPartMarks: string[] }> {
     this.validateFiles(files)
 
-    const parsed = new Map<BomDocType, ParsedBomFile>()
-    for (const f of files) {
-      parsed.set(f.docType, this.parser.parse(f.buffer, f.docType))
-    }
+    const parsed = this.parseAllFiles(files)
 
     if (uploadMode === 'separate') {
       this.mergeSeparateDocTypes(parsed)

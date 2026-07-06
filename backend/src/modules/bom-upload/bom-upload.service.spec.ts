@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import { BadRequestException, NotFoundException, Logger } from '@nestjs/common'
-import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions } from './bom-upload.service'
+import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions, requiresNcFile } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
 import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 
@@ -106,8 +106,11 @@ function makeStorage(root = '/tmp/storage') {
   return { storageRoot: jest.fn().mockReturnValue(root) }
 }
 
-function makeParser(parsed: Partial<ParsedBomFile> = {}): Pick<XlsxParserService, 'parse'> {
-  return { parse: jest.fn().mockReturnValue({ ...defaultParsed(), ...parsed }) }
+function makeParser(parsed: Partial<ParsedBomFile> = {}): Pick<XlsxParserService, 'parse' | 'peekContractNo'> {
+  return {
+    parse: jest.fn().mockReturnValue({ ...defaultParsed(), ...parsed }),
+    peekContractNo: jest.fn().mockReturnValue(''),
+  }
 }
 
 function defaultParsed(): ParsedBomFile {
@@ -221,6 +224,48 @@ describe('findMismatchedJunctions', () => {
   })
 })
 
+describe('requiresNcFile', () => {
+  it('requires an NC file for a "PL" (plate) profile', () => {
+    expect(requiresNcFile({ profile: 'PL16x220', part_mark: 'S1-CO1' })).toBe(true)
+  })
+
+  it('is case-insensitive on profile', () => {
+    expect(requiresNcFile({ profile: 'pl16x220', part_mark: 'S1-CO1' })).toBe(true)
+  })
+
+  it('does not require an NC file for an angle profile', () => {
+    expect(requiresNcFile({ profile: 'L50x50x5', part_mark: 'S1-FB1' })).toBe(false)
+  })
+
+  it('does not require an NC file for a round-bar profile', () => {
+    expect(requiresNcFile({ profile: 'RODRB25', part_mark: 'S1-RB1' })).toBe(false)
+  })
+
+  it('does not require an NC file for a pipe profile', () => {
+    expect(requiresNcFile({ profile: 'PIPE139.8x3.6', part_mark: 'S1-m1' })).toBe(false)
+  })
+
+  it('does not require an NC file when profile is missing', () => {
+    expect(requiresNcFile({ profile: undefined, part_mark: 'S1-CO1' })).toBe(false)
+  })
+
+  it('does not require an NC file for a procured "LPX" mark, even with a "PL" profile', () => {
+    expect(requiresNcFile({ profile: 'PL8x75', part_mark: 'S1-LPX1' })).toBe(false)
+  })
+
+  it('does not require an NC file for a procured "px" mark, even with a "PL" profile', () => {
+    expect(requiresNcFile({ profile: 'PL5x72.5', part_mark: 'S1-px1' })).toBe(false)
+  })
+
+  it('is case-insensitive on the procured-mark pattern', () => {
+    expect(requiresNcFile({ profile: 'PL8x75', part_mark: 'S1-lpx1' })).toBe(false)
+  })
+
+  it('does not false-positive on an ordinary "p"-prefixed mark that is not "px"', () => {
+    expect(requiresNcFile({ profile: 'PL10x100', part_mark: 'S1-p6' })).toBe(true)
+  })
+})
+
 describe('BomUploadService.upload()', () => {
   it('calls $transaction and writes file to storage', async () => {
     const prisma = makePrisma()
@@ -260,6 +305,7 @@ describe('BomUploadService.upload()', () => {
     }
 
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
         return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
@@ -307,6 +353,57 @@ describe('BomUploadService.upload()', () => {
     expect(capturedStatus).toBe('partial')
   })
 
+  it('waives the NC-file requirement for a non-plate profile part — upload succeeds with zero NC files', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 400)
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+    const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        return { docType, assemblies: [], parts: [{ part_mark: 'P1', profile: 'L50x50x5' }], assemblyParts: [] }
+      }),
+    }
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    await expect(svc.upload(
+      [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' })],
+      [], // no NC files at all
+      1, 2, null, 1,
+    )).resolves.toBeDefined()
+  })
+
+  it('still requires an NC file for a plate ("PL") profile part', async () => {
+    const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        return { docType, assemblies: [], parts: [{ part_mark: 'P1', profile: 'PL10x100' }], assemblyParts: [] }
+      }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    await expect(svc.upload(
+      [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' })],
+      [],
+      1, 2, null, 1,
+    )).rejects.toThrow('Missing NC files for part marks: P1')
+  })
+
   it('skips unmatched assembly/part mark pairs but still creates junctions for matched ones, logging each skip', async () => {
     const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 300)
     let capturedJunctions: any[] | undefined
@@ -334,6 +431,7 @@ describe('BomUploadService.upload()', () => {
     // A1↔P1 and A2↔P2 match; A1↔P3 doesn't (P3 was never in the Part List) —
     // simulates a mark mismatch between the Assembly Part List and Part List.
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }, { assembly_mark: 'A2' }], parts: [], assemblyParts: [] }
         if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }, { part_mark: 'P2' }], assemblyParts: [] }
@@ -366,6 +464,65 @@ describe('BomUploadService.upload()', () => {
     warnSpy.mockRestore()
   })
 
+  it('drops a duplicate (assembly, part) junction pair instead of crashing on the unique constraint, logging the drop', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 600)
+    let capturedJunctions: any[] | undefined
+    innerPrisma.bom_assembly_part.createMany = jest.fn(({ data }: any) => {
+      capturedJunctions = data
+      return Promise.resolve({ count: data.length })
+    })
+
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+
+    // A1↔P1 listed twice (e.g. the same part legitimately re-listed for one
+    // assembly in the source file, or two rows resolving to the same pair
+    // via the Tekla missing-header recovery) — must not crash the upload.
+    const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
+        return {
+          docType, assemblies: [], parts: [],
+          assemblyParts: [
+            { assembly_mark: 'A1', part_mark: 'P1', qty: 1, sequence: 1 },
+            { assembly_mark: 'A1', part_mark: 'P1', qty: 1, sequence: 2 },
+          ],
+        }
+      }),
+    }
+
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await svc.upload(
+      [
+        makeFileInput({ docType: 'ASSEMBLY_LIST' }),
+        makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+        makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+      ],
+      [makeNcInput('P1', 1)],
+      1, 2, null, 1,
+    )
+
+    expect(capturedJunctions).toHaveLength(1)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('duplicate skipped'))
+    warnSpy.mockRestore()
+  })
+
   it('does not let a delimiter collision between two mark pairs mask a valid junction', async () => {
     const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 500)
     let capturedJunctions: any[] | undefined
@@ -394,6 +551,7 @@ describe('BomUploadService.upload()', () => {
     // assembly (mismatch). Old space-delimited key collided both pairs to
     // "A1 X P1" — this must not happen with the fixed delimiter.
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
         if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'X P1' }], assemblyParts: [] }
@@ -490,6 +648,7 @@ describe('BomUploadService.upload()', () => {
     }
 
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'MAIN_ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'M1' }], parts: [], assemblyParts: [] }
         if (docType === 'ACC_ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
@@ -693,6 +852,7 @@ describe('BomUploadService — getLatestRevision', () => {
 describe('BomUploadService.previewJunctions()', () => {
   it('returns empty arrays when every row matches', async () => {
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
         if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
@@ -713,6 +873,7 @@ describe('BomUploadService.previewJunctions()', () => {
 
   it('returns deduplicated unmatched marks when rows fail to resolve', async () => {
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
         if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
@@ -741,6 +902,7 @@ describe('BomUploadService.previewJunctions()', () => {
 
   it('merges MAIN_*/ACC_* doc types before checking, in separate mode', async () => {
     const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
       parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
         if (docType === 'MAIN_ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'M1' }], parts: [], assemblyParts: [] }
         if (docType === 'MAIN_PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
@@ -765,5 +927,73 @@ describe('BomUploadService.previewJunctions()', () => {
     const prisma = makePrisma()
     const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
     await expect(svc.previewJunctions([makeFileInput()])).resolves.toBeDefined()
+  })
+})
+
+describe('BomUploadService — contractNo threading (parseAllFiles)', () => {
+  it('derives contractNo from the Assembly List file and passes it to Part List / Assembly Part List parsing', async () => {
+    const parser = {
+      peekContractNo: jest.fn().mockReturnValue('0X221'),
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'S1-CO1' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'S1-CO1' }], assemblyParts: [] }
+        return { docType, assemblies: [], parts: [], assemblyParts: [{ assembly_mark: 'S1-CO1', part_mark: 'S1-CO1', qty: 1, sequence: 1 }] }
+      }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    const asmListFile = makeFileInput({ docType: 'ASSEMBLY_LIST' })
+    await svc.previewJunctions([
+      asmListFile,
+      makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+      makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+    ])
+
+    expect(parser.peekContractNo).toHaveBeenCalledTimes(1)
+    expect(parser.peekContractNo).toHaveBeenCalledWith(asmListFile.buffer)
+    // every parse() call — including the Assembly List's own — receives the
+    // contractNo peeked from the Assembly List, not a per-file re-extraction
+    for (const call of parser.parse.mock.calls) {
+      expect(call[2]).toBe('0X221')
+    }
+  })
+
+  it('derives contractNo per MAIN/ACC group independently in separate mode', async () => {
+    const parser = {
+      peekContractNo: jest.fn().mockImplementation((buf: Buffer) => (buf.toString() === 'main-asm-list' ? 'MAIN-NO' : 'ACC-NO')),
+      parse: jest.fn().mockReturnValue({ docType: 'ASSEMBLY_LIST', assemblies: [], parts: [], assemblyParts: [] }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    await svc.previewJunctions(
+      [
+        makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', buffer: Buffer.from('main-asm-list') }),
+        makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_part_list.xlsx', buffer: Buffer.from('main-part-list') }),
+        makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list.xlsx', buffer: Buffer.from('acc-asm-list') }),
+        makeFileInput({ docType: 'ACC_PART_LIST', originalname: 'acc_part_list.xlsx', buffer: Buffer.from('acc-part-list') }),
+      ],
+      'separate',
+    )
+
+    const contractNoFor = (docType: string) =>
+      parser.parse.mock.calls.find((c: unknown[]) => c[1] === docType)?.[2]
+    expect(contractNoFor('MAIN_PART_LIST')).toBe('MAIN-NO')
+    expect(contractNoFor('ACC_PART_LIST')).toBe('ACC-NO')
+  })
+
+  it('falls back to per-file self-extraction (undefined override) when no Assembly List file is present', async () => {
+    const parser = {
+      peekContractNo: jest.fn(),
+      parse: jest.fn().mockReturnValue({ docType: 'PART_LIST', assemblies: [], parts: [], assemblyParts: [] }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    await svc.previewJunctions([makeFileInput({ docType: 'PART_LIST' })])
+
+    expect(parser.peekContractNo).not.toHaveBeenCalled()
+    expect(parser.parse.mock.calls[0][2]).toBeUndefined()
   })
 })
