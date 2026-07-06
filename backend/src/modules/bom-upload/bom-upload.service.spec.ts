@@ -1,6 +1,6 @@
 import * as fs from 'fs'
 import { BadRequestException, NotFoundException, Logger } from '@nestjs/common'
-import { BomUploadService, FileInput, NcFileInput } from './bom-upload.service'
+import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
 import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 
@@ -178,6 +178,48 @@ function makeNcInput(partMark: string, qty = 1): NcFileInput {
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe('findMismatchedJunctions', () => {
+  it('returns empty array when all rows match', () => {
+    const result = findMismatchedJunctions(
+      [{ assembly_mark: 'A1', part_mark: 'P1', qty: 1, sequence: 1 }],
+      new Set(['A1']),
+      new Set(['P1']),
+    )
+    expect(result).toEqual([])
+  })
+
+  it('flags a row whose assembly_mark is not in the assembly set', () => {
+    const result = findMismatchedJunctions(
+      [{ assembly_mark: 'A9', part_mark: 'P1', qty: 1, sequence: 1 }],
+      new Set(['A1']),
+      new Set(['P1']),
+    )
+    expect(result).toEqual([{ assembly_mark: 'A9', part_mark: 'P1', assembly_found: false, part_found: true }])
+  })
+
+  it('flags a row whose part_mark is not in the part set', () => {
+    const result = findMismatchedJunctions(
+      [{ assembly_mark: 'A1', part_mark: 'P9', qty: 1, sequence: 1 }],
+      new Set(['A1']),
+      new Set(['P1']),
+    )
+    expect(result).toEqual([{ assembly_mark: 'A1', part_mark: 'P9', assembly_found: true, part_found: false }])
+  })
+
+  it('flags a row where neither mark matches', () => {
+    const result = findMismatchedJunctions(
+      [{ assembly_mark: 'A9', part_mark: 'P9', qty: 1, sequence: 1 }],
+      new Set(['A1']),
+      new Set(['P1']),
+    )
+    expect(result).toEqual([{ assembly_mark: 'A9', part_mark: 'P9', assembly_found: false, part_found: false }])
+  })
+
+  it('returns empty array for empty input', () => {
+    expect(findMismatchedJunctions([], new Set(), new Set())).toEqual([])
+  })
+})
 
 describe('BomUploadService.upload()', () => {
   it('calls $transaction and writes file to storage', async () => {

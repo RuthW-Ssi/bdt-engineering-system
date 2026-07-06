@@ -7,7 +7,7 @@ import * as path from 'path'
 import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
-import { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
+import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService } from './bom-diff.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
@@ -36,6 +36,29 @@ export interface FileInput {
 export interface NcFileInput {
   buffer: Buffer
   originalname: string
+}
+
+export interface JunctionMismatch {
+  assembly_mark: string
+  part_mark: string
+  assembly_found: boolean
+  part_found: boolean
+}
+
+export function findMismatchedJunctions(
+  assemblyParts: ParsedAssemblyPart[],
+  assemblyMarks: Set<string>,
+  partMarks: Set<string>,
+): JunctionMismatch[] {
+  const mismatches: JunctionMismatch[] = []
+  for (const ap of assemblyParts) {
+    const assembly_found = assemblyMarks.has(ap.assembly_mark)
+    const part_found = partMarks.has(ap.part_mark)
+    if (!assembly_found || !part_found) {
+      mismatches.push({ assembly_mark: ap.assembly_mark, part_mark: ap.part_mark, assembly_found, part_found })
+    }
+  }
+  return mismatches
 }
 
 @Injectable()
@@ -215,19 +238,25 @@ export class BomUploadService {
 
         // bom_assembly_part junctions — batch insert
         if (asmPartList?.assemblyParts.length) {
-          const junctions: { assembly_id: number; part_id: number; qty: number; sequence?: number; create_uid: number }[] = []
-          for (const ap of asmPartList.assemblyParts) {
-            const assembly_id = assemblyIdByMark.get(ap.assembly_mark)
-            const part_id = partIdByMark.get(ap.part_mark)
-            if (!assembly_id || !part_id) {
-              this.logger.warn(
-                `junction skipped — no match for assembly_mark="${ap.assembly_mark}" (found=${!!assembly_id}), ` +
-                `part_mark="${ap.part_mark}" (found=${!!part_id})`,
-              )
-              continue
-            }
-            junctions.push({ assembly_id, part_id, qty: ap.qty ?? 1, sequence: ap.sequence, create_uid: uid })
+          const assemblyMarks = new Set(assemblyIdByMark.keys())
+          const partMarks = new Set(partIdByMark.keys())
+          const mismatches = findMismatchedJunctions(asmPartList.assemblyParts, assemblyMarks, partMarks)
+          const mismatchKeys = new Set(mismatches.map(m => `${m.assembly_mark} ${m.part_mark}`))
+          for (const m of mismatches) {
+            this.logger.warn(
+              `junction skipped — no match for assembly_mark="${m.assembly_mark}" (found=${m.assembly_found}), ` +
+              `part_mark="${m.part_mark}" (found=${m.part_found})`,
+            )
           }
+          const junctions = asmPartList.assemblyParts
+            .filter(ap => !mismatchKeys.has(`${ap.assembly_mark} ${ap.part_mark}`))
+            .map(ap => ({
+              assembly_id: assemblyIdByMark.get(ap.assembly_mark)!,
+              part_id: partIdByMark.get(ap.part_mark)!,
+              qty: ap.qty ?? 1,
+              sequence: ap.sequence,
+              create_uid: uid,
+            }))
           if (junctions.length) await tx.bom_assembly_part.createMany({ data: junctions })
         }
 
