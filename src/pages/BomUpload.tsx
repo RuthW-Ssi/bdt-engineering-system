@@ -7,7 +7,8 @@ import { FilePreviewItem } from '../components/bom/FilePreviewItem'
 import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
-import { useUploadBom, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
+import { useUploadBomWithPreview, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
+import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
@@ -107,7 +108,7 @@ export function BomUpload() {
   const isModeLocked = !!zoneMode
   const effectiveMode = isModeLocked ? zoneMode! : uploadMode
 
-  const uploadMutation = useUploadBom()
+  const uploadFlow = useUploadBomWithPreview()
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -144,7 +145,13 @@ export function BomUpload() {
   const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
 
   const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
-  const canSubmit = !!zoneId && bomReady && ncFiles.length >= 1 && !uploadMutation.isPending
+  const canSubmit = !!zoneId && bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+
+  const handleUploadError = (err: unknown) => {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'BOM upload failed — please try again'))
+    setProgress(null)
+  }
 
   const handleSubmit = async () => {
     if (!activeProject || !canSubmit) return
@@ -165,12 +172,21 @@ export function BomUpload() {
     ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
-      const res = await uploadMutation.mutateAsync({ formData, onProgress: pct => setProgress(pct) })
+      const res = await uploadFlow.submit(formData, pct => setProgress(pct))
+      if (res == null) { setProgress(null); return }
       navigate(`/bom/dispatch/${res.id}/paint`)
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'BOM upload failed — please try again'))
-      setProgress(null)
+      handleUploadError(err)
+    }
+  }
+
+  const handleConfirmUpload = async () => {
+    try {
+      const res = await uploadFlow.confirm()
+      if (res == null) return
+      navigate(`/bom/dispatch/${res.id}/paint`)
+    } catch (err: unknown) {
+      handleUploadError(err)
     }
   }
 
@@ -400,12 +416,23 @@ export function BomUpload() {
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
           >
-            {uploadMutation.isPending
-              ? <><Loader2 size={14} className="animate-spin" />Uploading...</>
-              : <><Upload size={14} />Upload</>}
+            {uploadFlow.isPreviewing
+              ? <><Loader2 size={14} className="animate-spin" />Checking...</>
+              : uploadFlow.uploadMutation.isPending
+                ? <><Loader2 size={14} className="animate-spin" />Uploading...</>
+                : <><Upload size={14} />Upload</>}
           </button>
         </div>
       </div>
+
+      {uploadFlow.pendingMismatch && (
+        <JunctionMismatchModal
+          mismatch={uploadFlow.pendingMismatch}
+          onCancel={uploadFlow.cancel}
+          onConfirm={handleConfirmUpload}
+          isUploading={uploadFlow.uploadMutation.isPending}
+        />
+      )}
     </div>
   )
 }
