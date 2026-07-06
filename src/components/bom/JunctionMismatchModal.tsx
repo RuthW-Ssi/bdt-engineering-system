@@ -34,20 +34,17 @@ export function JunctionMismatchModal({ mismatch, onCancel, onConfirm, isUploadi
     >
       <div style={{ background: 'white', borderRadius: 12, width: '100%', maxWidth: 480, padding: 24, display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontSize: 15, fontWeight: 600, color: '#1F1F1F' }}>
-          พบ {total} mark ที่จับคู่กันไม่ได้
+          Found {total} mark{total === 1 ? '' : 's'} that couldn't be matched
         </div>
-        <div style={{ fontSize: 13, color: '#555' }}>
-          รายการเหล่านี้จะไม่ถูกผูกกับ assembly ใดๆ (กลายเป็น orphan part) ถ้าอัพโหลดต่อ
-        </div>
-        <MarkList label="Assembly mark ที่ไม่พบใน Assembly List" marks={mismatch.unmatchedAssemblyMarks} />
-        <MarkList label="Part mark ที่ไม่พบใน Part List" marks={mismatch.unmatchedPartMarks} />
+        <MarkList label="Assembly marks not found in Assembly List" marks={mismatch.unmatchedAssemblyMarks} />
+        <MarkList label="Part marks not found in Part List" marks={mismatch.unmatchedPartMarks} />
         <div className="flex items-center justify-end gap-2" style={{ marginTop: 8 }}>
           <button
             onClick={onCancel}
             disabled={isUploading}
             style={{ fontSize: 13, color: '#555', padding: '6px 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }}
           >
-            ยกเลิก
+            Cancel
           </button>
           <button
             onClick={onConfirm}
@@ -55,7 +52,7 @@ export function JunctionMismatchModal({ mismatch, onCancel, onConfirm, isUploadi
             className="disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ fontSize: 13, fontWeight: 600, color: 'white', padding: '6px 16px', borderRadius: 6, border: 'none', background: '#C8202A' }}
           >
-            {isUploading ? 'กำลังอัพโหลด...' : 'อัพโหลดต่อ'}
+            {isUploading ? 'Uploading...' : 'Upload anyway'}
           </button>
         </div>
       </div>
