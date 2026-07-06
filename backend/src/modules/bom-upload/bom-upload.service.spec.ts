@@ -1,5 +1,5 @@
 import * as fs from 'fs'
-import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, NotFoundException, Logger } from '@nestjs/common'
 import { BomUploadService, FileInput, NcFileInput } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
 import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
@@ -263,6 +263,65 @@ describe('BomUploadService.upload()', () => {
     await svc.upload([makeFileInput()], [], 1, 2, null, 1)
 
     expect(capturedStatus).toBe('partial')
+  })
+
+  it('skips unmatched assembly/part mark pairs but still creates junctions for matched ones, logging each skip', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 300)
+    let capturedJunctions: any[] | undefined
+    innerPrisma.bom_assembly_part.createMany = jest.fn(({ data }: any) => {
+      capturedJunctions = data
+      return Promise.resolve({ count: data.length })
+    })
+
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+
+    // A1↔P1 and A2↔P2 match; A1↔P3 doesn't (P3 was never in the Part List) —
+    // simulates a mark mismatch between the Assembly Part List and Part List.
+    const parser = {
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }, { assembly_mark: 'A2' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }, { part_mark: 'P2' }], assemblyParts: [] }
+        return {
+          docType,
+          assemblies: [], parts: [],
+          assemblyParts: [
+            { assembly_mark: 'A1', part_mark: 'P1', qty: 1, sequence: 1 },
+            { assembly_mark: 'A2', part_mark: 'P2', qty: 1, sequence: 2 },
+            { assembly_mark: 'A1', part_mark: 'P3', qty: 1, sequence: 3 },
+          ],
+        }
+      }),
+    }
+
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined as any)
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await svc.upload(
+      [
+        makeFileInput({ docType: 'ASSEMBLY_LIST' }),
+        makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+        makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+      ],
+      [makeNcInput('P1', 1), makeNcInput('P2', 1)],
+      1, 2, null, 1,
+    )
+
+    expect(capturedJunctions).toHaveLength(2)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('part_mark="P3"'))
+    warnSpy.mockRestore()
   })
 
   it('rolls back saved files when $transaction throws', async () => {

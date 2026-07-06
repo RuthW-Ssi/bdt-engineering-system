@@ -119,6 +119,23 @@ export function stripContractPrefix(mark: string, contractNo?: string): string {
   return stripped !== mark ? stripped : mark
 }
 
+// Strip a contract-number prefix only when confidently detected for this exact
+// file (mark actually starts with the extracted contractNo) — unlike
+// stripContractPrefix, this has NO regex fallback, so it never touches marks
+// from non-Tekla or already-clean sources. Used for Assembly List / Part List /
+// flat Assembly Part List, where marks are normally clean and a heuristic guess
+// risks mangling a legitimate mark (e.g. "WH-CO-001" → "CO-001"). Applying this
+// keeps these three parsers symmetric with parseAssemblyPartListTekla so the
+// same physical mark resolves to the same string everywhere it's read — a
+// mismatch here is what silently drops bom_assembly_part junctions at upload
+// time (see BomUploadService.upload's assemblyIdByMark/partIdByMark lookup).
+export function stripKnownContractPrefix(mark: string, contractNo?: string): string {
+  if (contractNo && mark.startsWith(contractNo)) {
+    return mark.slice(contractNo.length).trim()
+  }
+  return mark
+}
+
 function cellNum(row: unknown[], idx: number): number | undefined {
   if (idx < 0 || row[idx] === undefined || row[idx] === null || row[idx] === '') return undefined
   const n = Number(row[idx])
@@ -166,6 +183,7 @@ export class XlsxParserService {
     if (!found) throw new BadRequestException('Assembly List: cannot find assembly mark column')
 
     const { headerIdx, header } = found
+    const contractNo = extractContractNo(rows.slice(0, headerIdx))
     const markCol   = findCol(header, ASSEMBLY_MARK_COLS)
     const nameCol   = findCol(header, NAME_COLS)
     const qtyCol    = findCol(header, QTY_COLS)
@@ -181,8 +199,9 @@ export class XlsxParserService {
     const assemblies: ParsedAssembly[] = []
     for (const row of dataRows) {
       const r = row as unknown[]
-      const assembly_mark = cellStr(r, markCol)
-      if (!assembly_mark) continue
+      const rawMark = cellStr(r, markCol)
+      if (!rawMark) continue
+      const assembly_mark = stripKnownContractPrefix(rawMark, contractNo)
       assemblies.push({
         assembly_mark,
         name: cellStr(r, nameCol),
@@ -203,6 +222,7 @@ export class XlsxParserService {
     if (!found) throw new BadRequestException('Part List: cannot find part mark column')
 
     const { headerIdx, header } = found
+    const contractNo = extractContractNo(rows.slice(0, headerIdx))
     const markCol = findCol(header, PART_MARK_COLS)
     const descCol = findCol(header, NAME_COLS)
     const profileCol = findCol(header, PROFILE_COLS)
@@ -217,8 +237,9 @@ export class XlsxParserService {
     const parts: ParsedPart[] = []
     for (const row of dataRows) {
       const r = row as unknown[]
-      const part_mark = cellStr(r, markCol)
-      if (!part_mark) continue
+      const rawMark = cellStr(r, markCol)
+      if (!rawMark) continue
+      const part_mark = stripKnownContractPrefix(rawMark, contractNo)
       parts.push({
         part_mark,
         description: cellStr(r, descCol),
@@ -247,6 +268,7 @@ export class XlsxParserService {
     }
 
     // Flat format: separate assembly_mark and part_mark columns
+    const contractNo = extractContractNo(rows.slice(0, headerIdx))
     const asmMarkCol = findCol(header, ASSEMBLY_MARK_COLS)
     const partMarkCol = findCol(header, PART_MARK_COLS)
 
@@ -261,9 +283,11 @@ export class XlsxParserService {
     const assemblyParts: ParsedAssemblyPart[] = []
     for (let i = 0; i < dataRows.length; i++) {
       const r = dataRows[i] as unknown[]
-      const assembly_mark = cellStr(r, asmMarkCol)
-      const part_mark = cellStr(r, partMarkCol)
-      if (!assembly_mark || !part_mark) continue
+      const rawAsmMark = cellStr(r, asmMarkCol)
+      const rawPartMark = cellStr(r, partMarkCol)
+      if (!rawAsmMark || !rawPartMark) continue
+      const assembly_mark = stripKnownContractPrefix(rawAsmMark, contractNo)
+      const part_mark = stripKnownContractPrefix(rawPartMark, contractNo)
       assemblyParts.push({ assembly_mark, part_mark, qty: cellNum(r, qtyCol), sequence: i + 1 })
     }
 
