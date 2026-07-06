@@ -174,6 +174,11 @@ export interface DispatchMappingDto {
   summary: MappingSummaryDto
 }
 
+export interface PreviewJunctionsResult {
+  unmatchedAssemblyMarks: string[]
+  unmatchedPartMarks: string[]
+}
+
 export const dispatchesApi = {
   list(params?: {
     project_id?: number
