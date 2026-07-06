@@ -324,6 +324,36 @@ export class BomUploadService {
     merge('MAIN_PART_LIST', 'ACC_PART_LIST', 'PART_LIST')
   }
 
+  async previewJunctions(
+    files: FileInput[],
+    uploadMode: 'combined' | 'separate' = 'combined',
+  ): Promise<{ unmatchedAssemblyMarks: string[]; unmatchedPartMarks: string[] }> {
+    this.validateFiles(files)
+
+    const parsed = new Map<BomDocType, ParsedBomFile>()
+    for (const f of files) {
+      parsed.set(f.docType, this.parser.parse(f.buffer, f.docType))
+    }
+
+    if (uploadMode === 'separate') {
+      this.mergeSeparateDocTypes(parsed)
+    }
+
+    const asmList = parsed.get('ASSEMBLY_LIST')
+    const partList = parsed.get('PART_LIST')
+    const asmPartList = parsed.get('ASSEMBLY_PART_LIST')
+
+    const assemblyMarks = new Set((asmList?.assemblies ?? []).map(a => a.assembly_mark))
+    const partMarks = new Set((partList?.parts ?? []).map(p => p.part_mark))
+
+    const mismatches = findMismatchedJunctions(asmPartList?.assemblyParts ?? [], assemblyMarks, partMarks)
+
+    return {
+      unmatchedAssemblyMarks: [...new Set(mismatches.filter(m => !m.assembly_found).map(m => m.assembly_mark))],
+      unmatchedPartMarks: [...new Set(mismatches.filter(m => !m.part_found).map(m => m.part_mark))],
+    }
+  }
+
   // ─── List ─────────────────────────────────────────────────────
 
   async list(query: QueryDispatchDto) {

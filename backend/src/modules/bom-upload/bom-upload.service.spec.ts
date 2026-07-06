@@ -689,3 +689,81 @@ describe('BomUploadService — getLatestRevision', () => {
     }))
   })
 })
+
+describe('BomUploadService.previewJunctions()', () => {
+  it('returns empty arrays when every row matches', async () => {
+    const parser = {
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
+        return { docType, assemblies: [], parts: [], assemblyParts: [{ assembly_mark: 'A1', part_mark: 'P1', qty: 1, sequence: 1 }] }
+      }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    const result = await svc.previewJunctions([
+      makeFileInput({ docType: 'ASSEMBLY_LIST' }),
+      makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+      makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+    ])
+
+    expect(result).toEqual({ unmatchedAssemblyMarks: [], unmatchedPartMarks: [] })
+  })
+
+  it('returns deduplicated unmatched marks when rows fail to resolve', async () => {
+    const parser = {
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
+        return {
+          docType, assemblies: [], parts: [],
+          assemblyParts: [
+            { assembly_mark: 'A1', part_mark: 'P9', qty: 1, sequence: 1 },
+            { assembly_mark: 'A1', part_mark: 'P9', qty: 1, sequence: 2 },
+            { assembly_mark: 'A9', part_mark: 'P1', qty: 1, sequence: 3 },
+          ],
+        }
+      }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    const result = await svc.previewJunctions([
+      makeFileInput({ docType: 'ASSEMBLY_LIST' }),
+      makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+      makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+    ])
+
+    expect(result.unmatchedPartMarks).toEqual(['P9'])
+    expect(result.unmatchedAssemblyMarks).toEqual(['A9'])
+  })
+
+  it('merges MAIN_*/ACC_* doc types before checking, in separate mode', async () => {
+    const parser = {
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'MAIN_ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'M1' }], parts: [], assemblyParts: [] }
+        if (docType === 'MAIN_PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1' }], assemblyParts: [] }
+        if (docType === 'MAIN_ASSEMBLY_PART_LIST') return { docType, assemblies: [], parts: [], assemblyParts: [{ assembly_mark: 'M1', part_mark: 'P1', qty: 1, sequence: 1 }] }
+        return { docType, assemblies: [], parts: [], assemblyParts: [] }
+      }),
+    }
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    const result = await svc.previewJunctions([
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' }),
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_PART_LIST', originalname: 'main_assembly_part_list.xlsx' }),
+      makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_part_list.xlsx' }),
+    ], 'separate')
+
+    expect(result).toEqual({ unmatchedAssemblyMarks: [], unmatchedPartMarks: [] })
+  })
+
+  it('never touches NC-file matching — the method signature has no nc_files parameter', async () => {
+    const parser = makeParser({ assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] })
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await expect(svc.previewJunctions([makeFileInput()])).resolves.toBeDefined()
+  })
+})
