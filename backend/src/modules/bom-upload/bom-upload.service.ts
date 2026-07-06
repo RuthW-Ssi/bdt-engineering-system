@@ -226,7 +226,7 @@ export class BomUploadService {
           const assemblyMarks = new Set(assemblyIdByMark.keys())
           const partMarks = new Set(partIdByMark.keys())
           const mismatches = findMismatchedJunctions(asmPartList.assemblyParts, assemblyMarks, partMarks)
-          const mismatchKeys = new Set(mismatches.map(m => `${m.assembly_mark} ${m.part_mark}`))
+          const mismatchKeys = new Set(mismatches.map(m => `${m.assembly_mark}\0${m.part_mark}`))
           for (const m of mismatches) {
             this.logger.warn(
               `junction skipped — no match for assembly_mark="${m.assembly_mark}" (found=${m.assembly_found}), ` +
@@ -234,7 +234,7 @@ export class BomUploadService {
             )
           }
           const junctions = asmPartList.assemblyParts
-            .filter(ap => !mismatchKeys.has(`${ap.assembly_mark} ${ap.part_mark}`))
+            .filter(ap => !mismatchKeys.has(`${ap.assembly_mark}\0${ap.part_mark}`))
             .map(ap => ({
               assembly_id: assemblyIdByMark.get(ap.assembly_mark)!,
               part_id: partIdByMark.get(ap.part_mark)!,

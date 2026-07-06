@@ -366,6 +366,65 @@ describe('BomUploadService.upload()', () => {
     warnSpy.mockRestore()
   })
 
+  it('does not let a delimiter collision between two mark pairs mask a valid junction', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 500)
+    let capturedJunctions: any[] | undefined
+    innerPrisma.bom_assembly_part.createMany = jest.fn(({ data }: any) => {
+      capturedJunctions = data
+      return Promise.resolve({ count: data.length })
+    })
+
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+
+    // "A1" and "X P1" both exist (valid pair). "A1 X" does NOT exist as an
+    // assembly (mismatch). Old space-delimited key collided both pairs to
+    // "A1 X P1" — this must not happen with the fixed delimiter.
+    const parser = {
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'X P1' }], assemblyParts: [] }
+        return {
+          docType, assemblies: [], parts: [],
+          assemblyParts: [
+            { assembly_mark: 'A1 X', part_mark: 'P1', qty: 1, sequence: 1 },
+            { assembly_mark: 'A1', part_mark: 'X P1', qty: 2, sequence: 2 },
+          ],
+        }
+      }),
+    }
+
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await svc.upload(
+      [
+        makeFileInput({ docType: 'ASSEMBLY_LIST' }),
+        makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+        makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+      ],
+      [makeNcInput('X P1', 2)],
+      1, 2, null, 1,
+    )
+
+    // Only the "A1 X" / "P1" pair is a real mismatch. The "A1" / "X P1" pair
+    // must still produce a junction — this is the assertion that fails on
+    // the old space-delimited key.
+    expect(capturedJunctions).toHaveLength(1)
+    expect(capturedJunctions![0].qty).toBe(2)
+  })
+
   it('rolls back saved files when $transaction throws', async () => {
     const prisma = {
       $transaction: jest.fn().mockRejectedValue(new Error('DB down')),
