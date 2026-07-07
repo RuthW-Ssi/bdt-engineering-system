@@ -7,9 +7,10 @@ export function DiffWarningBanner({ warning }: Props) {
   return (
     <div style={{
       background: '#FFFBEB',
-      borderBottom: '1px solid #FDE68A',
-      padding: '8px 24px',
-      fontSize: 12,
+      border: '1px solid #FDE68A',
+      borderRadius: 10,
+      padding: '12px 16px',
+      fontSize: 13,
       color: '#92400E',
       flexShrink: 0,
     }}>
