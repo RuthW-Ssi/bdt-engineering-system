@@ -622,8 +622,8 @@ export class WorkOrdersService {
    * dispatch for that group and classify the delta (REMOVED / QTY_CHANGED / SPEC_CHANGED)
    * between `assembly` and the matching assembly_mark in the latest dispatch.
    *
-   * Deliberately not `private` — `applyBomChangeHolds()` uses it for both WO holds and
-   * stale-line warnings, and Task 5 (`ManufacturingOrdersService`) calls it directly.
+   * Deliberately not `private` — `applyBomChangeHolds()` uses it for WO holds, and
+   * `ManufacturingOrdersService` (Task 5) calls it directly for stale-assembly warnings.
    */
   async compareAssemblyToLatest(
     assembly: {
