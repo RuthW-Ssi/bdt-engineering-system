@@ -503,6 +503,18 @@ describe('WorkOrdersService.acceptNewVersion', () => {
     expect(prisma.work_order.update).not.toHaveBeenCalled()
   })
 
+  it('throws 400 when qty_reusable exceeds qty_done (server-side upper bound)', async () => {
+    const wo = makeFullWo({ qty_done: 5 })
+    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
+    const prisma = makePrisma(wo, latestAsm)
+    const svc = new WorkOrdersService(prisma)
+
+    await expect(
+      svc.acceptNewVersion(1, 'tester', { note: 'resolving hold', qty_reusable: 10 }), // 10 > qty_done 5
+    ).rejects.toThrow(BadRequestException)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
   it('accepts, writes qty_reusable, restores pre_hold_status, clears it, and appends the note to the event', async () => {
     const wo = makeFullWo({ qty_done: 5, pre_hold_status: 'IN_PROGRESS' })
     const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
@@ -656,6 +668,17 @@ describe('WorkOrdersService.transition — cancel', () => {
     ).rejects.toThrow(BadRequestException)
     expect(prisma.work_order.update).not.toHaveBeenCalled()
     expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('throws 400 cancelling with qty_reusable exceeding qty_done (server-side upper bound)', async () => {
+    const wo = makeWo({ status: 'ON_HOLD', qty_done: 5 })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+
+    await expect(
+      svc.transition(1, 'cancel', { reason: 'cutting the losses', qty_reusable: 10 }, 'tester'), // 10 > qty_done 5
+    ).rejects.toThrow(BadRequestException)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
   })
 
   it('cancels + persists qty_reusable when provided, and clears pre_hold_status', async () => {

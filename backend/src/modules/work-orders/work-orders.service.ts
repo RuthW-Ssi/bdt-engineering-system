@@ -354,6 +354,12 @@ export class WorkOrdersService {
     if (action === 'cancel' && wo.qty_done != null && Number(wo.qty_done) > 0 && body.qty_reusable == null) {
       throw new BadRequestException('qty_reusable is required when cancelling a WO with qty_done > 0')
     }
+    // Server-side upper bound: the frontend caps qty_reusable at qty_done, but a
+    // direct API caller bypasses that — reject here too, regardless of whether
+    // qty_reusable was required above.
+    if (action === 'cancel' && body.qty_reusable != null && wo.qty_done != null && Number(body.qty_reusable) > Number(wo.qty_done)) {
+      throw new BadRequestException('qty_reusable cannot exceed qty_done')
+    }
 
     const data: Prisma.work_orderUpdateInput = { status: spec.to, updated_by: userName }
     const now = new Date()
@@ -498,6 +504,12 @@ export class WorkOrdersService {
             'qty_reusable is required when qty_done already exceeds the newly-adopted qty',
           )
         }
+      }
+      // Server-side upper bound: the frontend caps qty_reusable at qty_done, but a
+      // direct API caller bypasses that — reject here too, regardless of whether
+      // qty_reusable was required above.
+      if (dto.qty_reusable != null && wo.qty_done != null && Number(dto.qty_reusable) > Number(wo.qty_done)) {
+        throw new BadRequestException('qty_reusable cannot exceed qty_done')
       }
     }
 

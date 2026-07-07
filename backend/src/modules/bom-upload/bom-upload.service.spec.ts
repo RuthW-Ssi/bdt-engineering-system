@@ -718,6 +718,41 @@ describe('BomUploadService.upload()', () => {
     // Public shape is finalized to { held_wo_count, held_wo_ids }.
     expect(result.hold_summary).toEqual({ held_wo_count: 1, held_wo_ids: [42] })
   })
+
+  it('upload() still succeeds (files not deleted) when applyBomChangeHolds() throws — hold evaluation is best-effort and must never roll back an already-committed upload', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 950)
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+
+    const workOrders = makeWorkOrders()
+    workOrders.applyBomChangeHolds = jest.fn().mockRejectedValue(new Error('transient DB read error'))
+
+    const unlinkCallsBefore = (fs.unlinkSync as jest.Mock).mock.calls.length
+
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, workOrders as any)
+    const result = await svc.upload([makeFileInput()], [], 1, 2, null, 1)
+
+    expect(workOrders.applyBomChangeHolds).toHaveBeenCalledWith(950)
+    // Falls back to a zero hold_summary rather than propagating the error.
+    expect(result.hold_summary).toEqual({ held_wo_count: 0, held_wo_ids: [] })
+    // The already-committed dispatch's saved files must NOT be rolled back — a
+    // hold-evaluation failure touches a different aggregate (work_order), not
+    // the BOM upload itself.
+    expect((fs.unlinkSync as jest.Mock).mock.calls.length).toBe(unlinkCallsBefore)
+  })
 })
 
 describe('BomUploadService.list()', () => {

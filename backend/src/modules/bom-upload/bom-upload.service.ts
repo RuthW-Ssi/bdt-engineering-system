@@ -328,7 +328,23 @@ export class BomUploadService {
       // WO BOM-Version Hold (T02): flip any WO whose snapshotted assembly this
       // upload changed (removed/spec-changed/qty-decreased) to ON_HOLD. Runs
       // post-commit, mirroring matching/autoCreateCustomProducts/paint carry-forward above.
-      const holdResult = await this.workOrders.applyBomChangeHolds(dispatchId)
+      // Best-effort by design: work_order is a different aggregate than this BOM
+      // upload, and the per-WO write inside applyBomChangeHolds() already isolates
+      // itself — but two reads it performs (the dispatch lookup, and
+      // bomVersionStatus() per candidate) are NOT caught there. If either throws
+      // (e.g. a transient DB error), it must not propagate into this method's
+      // outer try/catch, whose catch deletes the just-saved files and rethrows —
+      // that would erase an already-committed upload over an unrelated WO-side
+      // failure. Swallow here, log loudly, and fall back to a zero summary.
+      let holdResult: { held_wo_ids: number[] } = { held_wo_ids: [] }
+      try {
+        holdResult = await this.workOrders.applyBomChangeHolds(dispatchId)
+      } catch (err) {
+        this.logger.error(
+          `applyBomChangeHolds failed for dispatch ${dispatchId} — upload already committed, continuing with hold_summary={held_wo_count:0}`,
+          err instanceof Error ? err.stack : err,
+        )
+      }
 
       return {
         ...(await this.findOne(dispatchId)),
