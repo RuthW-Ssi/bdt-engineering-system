@@ -18,6 +18,7 @@ import { WorkOrdersService } from './work-orders.service'
 import { ScheduleService } from './schedule.service'
 import { UpdateWoDto } from './dto/update-wo.dto'
 import { WoDoneDto, WoNoteDto, WoReasonDto } from './dto/wo-transition.dto'
+import { AcceptVersionDto } from './dto/accept-version.dto'
 
 @ApiTags('Work Orders')
 @ApiBearerAuth()
@@ -143,9 +144,13 @@ export class WorkOrdersController {
   }
 
   @Post(':id/accept-new-version')
-  @ApiOperation({ summary: 'Move bom_dispatch_id_snapshot to latest + event=ACCEPT_VERSION' })
-  acceptNewVersion(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
-    return this.svc.acceptNewVersion(id, user.login)
+  @ApiOperation({ summary: 'Move bom_dispatch_id_snapshot to latest + event=ACCEPT_VERSION · note required + qty_reusable conditional when resolving ON_HOLD' })
+  acceptNewVersion(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AcceptVersionDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.acceptNewVersion(id, user.login, dto)
   }
 
   // ── Schedule (T-WO.06 · read-only mockup) ────────────────────────────────────

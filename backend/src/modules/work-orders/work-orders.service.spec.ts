@@ -1,4 +1,4 @@
-import { Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Logger, NotFoundException } from '@nestjs/common'
 import { WorkOrdersService } from './work-orders.service'
 
 // Scoped narrowly to bomVersionStatus()/specOf() (T-WO.04 · BOM Version Alert) —
@@ -396,5 +396,153 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     })
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('WO 2'), expect.anything())
     errorSpy.mockRestore()
+  })
+})
+
+// Scoped to acceptNewVersion() (WO BOM-Version Hold, Sprint 20 T03) — note required
+// + conditional qty_reusable when resolving a WO out of ON_HOLD; existing REMOVED
+// 409 guard and non-hold accept behavior must be unaffected.
+describe('WorkOrdersService.acceptNewVersion', () => {
+  function makeFullWo(overrides: Partial<{
+    status: string
+    qty_done: number | null
+    qty_reusable: number | null
+    pre_hold_status: string | null
+    bom_assembly: Record<string, unknown>
+    bom_dispatch_id_snapshot: number
+  }> = {}) {
+    return {
+      id: 1,
+      status: 'ON_HOLD',
+      qty_done: null,
+      qty_reusable: null,
+      pre_hold_status: 'IN_PROGRESS',
+      bom_dispatch_id_snapshot: 10,
+      bom_assembly: {
+        id: 100,
+        dispatch_id: 10,
+        assembly_mark: 'WH-CO-001',
+        qty: 2,
+        weight_kg: 100,
+        surface_area_m2: 5,
+        length_mm: 1000,
+        width_mm: 200,
+        height_mm: 50,
+        attributes: {},
+      },
+      ...overrides,
+    }
+  }
+
+  // latestAsm: null simulates REMOVED (no matching assembly_mark in the latest dispatch).
+  function makePrisma(wo: ReturnType<typeof makeFullWo>, latestAsm: Record<string, unknown> | null) {
+    const snap = makeDispatch(10, new Date('2026-01-01'))
+    const latest = makeDispatch(20, new Date('2026-02-01'))
+    const prisma: any = {
+      work_order: {
+        findUnique: jest.fn().mockResolvedValue(wo),
+        update: jest.fn(),
+      },
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(snap),
+        findFirst: jest.fn().mockResolvedValue(latest), // latestDispatchForGroup
+      },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(latestAsm) },
+      work_order_event: { create: jest.fn() },
+      $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
+    }
+    return prisma
+  }
+
+  it('throws 400 when resolving from ON_HOLD without a note', async () => {
+    const wo = makeFullWo()
+    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 }
+    const prisma = makePrisma(wo, latestAsm)
+    const svc = new WorkOrdersService(prisma)
+
+    await expect(svc.acceptNewVersion(1, 'tester', {} as any)).rejects.toThrow(BadRequestException)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('requires qty_reusable when qty_done exceeds the newly-adopted qty, throws 400 without it', async () => {
+    const wo = makeFullWo({ qty_done: 5 })
+    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5
+    const prisma = makePrisma(wo, latestAsm)
+    const svc = new WorkOrdersService(prisma)
+
+    await expect(
+      svc.acceptNewVersion(1, 'tester', { note: 'resolving hold' }),
+    ).rejects.toThrow(BadRequestException)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('accepts, writes qty_reusable, restores pre_hold_status, clears it, and appends the note to the event', async () => {
+    const wo = makeFullWo({ qty_done: 5, pre_hold_status: 'IN_PROGRESS' })
+    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
+    const prisma = makePrisma(wo, latestAsm)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.acceptNewVersion(1, 'tester', { note: 'reused 2 offcuts', qty_reusable: 2 })
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        bom_assembly_id: 200,
+        bom_dispatch_id_snapshot: 20,
+        updated_by: 'tester',
+        status: 'IN_PROGRESS', // restored from pre_hold_status
+        pre_hold_status: null, // cleared
+        qty_reusable: 2,
+      },
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        work_order_id: 1,
+        event_type: 'ACCEPT_VERSION',
+        notes: expect.stringContaining('reused 2 offcuts'),
+        recorded_by: 'tester',
+      }),
+    })
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('still 409s on REMOVED regardless of note/qty_reusable (existing guard unchanged)', async () => {
+    const wo = makeFullWo({ qty_done: 5 }) // would otherwise also require qty_reusable — REMOVED must win
+    const prisma = makePrisma(wo, null) // REMOVED — no matching assembly_mark in latest dispatch
+
+    const svc = new WorkOrdersService(prisma)
+
+    await expect(
+      svc.acceptNewVersion(1, 'tester', { note: 'doesnt matter', qty_reusable: 999 }),
+    ).rejects.toThrow(ConflictException)
+    await expect(
+      svc.acceptNewVersion(1, 'tester', {} as any), // and with no note/qty_reusable at all
+    ).rejects.toThrow(ConflictException)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('accepting a non-ON_HOLD WO does not require a note (preserves existing behavior)', async () => {
+    const wo = makeFullWo({ status: 'IN_PROGRESS', pre_hold_status: null, qty_done: null })
+    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 } // qty increase, informational only
+    const prisma = makePrisma(wo, latestAsm)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.acceptNewVersion(1, 'tester', {} as any)
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        bom_assembly_id: 200,
+        bom_dispatch_id_snapshot: 20,
+        updated_by: 'tester',
+        status: 'IN_PROGRESS', // pre_hold_status null → current status kept unchanged
+        pre_hold_status: null,
+        qty_reusable: undefined,
+      },
+    })
+    expect(result).toEqual({ id: 1 })
   })
 })

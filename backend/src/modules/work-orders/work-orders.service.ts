@@ -1,7 +1,8 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { Prisma, WoEventType, WoStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { UpdateWoDto } from './dto/update-wo.dto'
+import { AcceptVersionDto } from './dto/accept-version.dto'
 
 /**
  * WO list default sort tiebreak (T-WO.09): active work first, terminal last.
@@ -453,8 +454,20 @@ export class WorkOrdersService {
     return { ...cmp, ...base }
   }
 
-  /** Move the snapshot to the latest version + re-point the assembly + log an event. */
-  async acceptNewVersion(id: number, userName: string) {
+  /**
+   * Move the snapshot to the latest version + re-point the assembly + log an event.
+   *
+   * When resolving a WO out of ON_HOLD (WO BOM-Version Hold, Sprint 20), a `note`
+   * is required, and if `qty_done` already exceeds the newly-adopted qty, so is
+   * `qty_reusable` — both are checked here (not in the DTO) since only the WO's
+   * *current* status determines whether they're mandatory. On success the WO's
+   * status is restored to whatever it was right before the hold (`pre_hold_status`,
+   * set by `applyBomChangeHolds()`), which is then cleared. A WO that was never
+   * held (`pre_hold_status` null) keeps its current status unchanged — today's
+   * pre-existing accept behavior.
+   */
+  async acceptNewVersion(id: number, userName: string, dto: AcceptVersionDto) {
+    const wo = await this.requireWo(id)
     const status = await this.bomVersionStatus(id)
     if (!status.is_outdated || status.latest_dispatch_id === status.snapshot_dispatch_id) {
       throw new ConflictException('Work order is already on the latest BOM version')
@@ -470,6 +483,20 @@ export class WorkOrdersService {
     })
     if (!latestAsm) throw new ConflictException('Matching assembly not found in latest version')
 
+    if (wo.status === 'ON_HOLD') {
+      if (!dto?.note?.trim()) {
+        throw new BadRequestException('A note is required to resolve a work order from ON_HOLD')
+      }
+      const newQty = latestAsm.qty == null ? null : Number(latestAsm.qty)
+      if (wo.qty_done != null && newQty != null && Number(wo.qty_done) > newQty) {
+        if (dto.qty_reusable == null) {
+          throw new BadRequestException(
+            'qty_reusable is required when qty_done already exceeds the newly-adopted qty',
+          )
+        }
+      }
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.work_order.update({
         where: { id },
@@ -477,13 +504,16 @@ export class WorkOrdersService {
           bom_assembly_id: latestAsm.id,
           bom_dispatch_id_snapshot: status.latest_dispatch_id,
           updated_by: userName,
+          status: wo.pre_hold_status ?? wo.status,
+          pre_hold_status: null,
+          qty_reusable: dto?.qty_reusable ?? undefined,
         },
       })
       await tx.work_order_event.create({
         data: {
           work_order_id: id,
           event_type: 'ACCEPT_VERSION',
-          notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id}${status.delta_types.length ? ` (${status.delta_types.join(', ')})` : ''}`,
+          notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id}${status.delta_types.length ? ` (${status.delta_types.join(', ')})` : ''}${dto?.note ? ` — ${dto.note}` : ''}`,
           recorded_by: userName,
         },
       })
