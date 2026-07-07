@@ -28,7 +28,7 @@ export function QtyReusableField({ value, onChange, max }: { value: string; onCh
 export function qtyReusableValid(value: string, max: number): boolean {
   if (value === '') return false
   const n = Number(value)
-  return Number.isFinite(n) && n > 0 && n <= max
+  return Number.isFinite(n) && n >= 0 && n <= max
 }
 
 /**
