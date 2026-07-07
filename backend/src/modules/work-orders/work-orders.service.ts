@@ -33,7 +33,7 @@ export const WO_ACTIONS: Record<WoAction, WoActionSpec> = {
   pause: { from: ['IN_PROGRESS'], to: 'PAUSED', event: 'PAUSE' },
   resume: { from: ['PAUSED'], to: 'IN_PROGRESS', event: 'RESUME' },
   done: { from: ['IN_PROGRESS', 'PAUSED'], to: 'DONE', event: 'DONE' },
-  cancel: { from: ['NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED'], to: 'CANCELLED', event: 'CANCEL' },
+  cancel: { from: ['NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'ON_HOLD'], to: 'CANCELLED', event: 'CANCEL' },
 }
 
 /** Action names valid from a given status — surfaced in the 409 body as allowed_next. */
@@ -339,7 +339,7 @@ export class WorkOrdersService {
   async transition(
     id: number,
     action: WoAction,
-    body: { reason?: string; qty_done?: number; qty_scrapped?: number; notes?: string },
+    body: { reason?: string; qty_done?: number; qty_scrapped?: number; notes?: string; qty_reusable?: number },
     userName: string,
   ) {
     const wo = await this.requireWo(id)
@@ -354,6 +354,14 @@ export class WorkOrdersService {
       })
     }
 
+    // Cancel-only guard (WO BOM-Version Hold, Sprint 20): qty_done-based, not
+    // status-based — applies to any cancel where work has already been done,
+    // not just cancellation out of ON_HOLD. Scoped strictly to 'cancel' so the
+    // other four actions (release/start/pause/resume/done) are untouched.
+    if (action === 'cancel' && wo.qty_done != null && Number(wo.qty_done) > 0 && body.qty_reusable == null) {
+      throw new BadRequestException('qty_reusable is required when cancelling a WO with qty_done > 0')
+    }
+
     const data: Prisma.work_orderUpdateInput = { status: spec.to, updated_by: userName }
     const now = new Date()
     if (action === 'release') {
@@ -365,6 +373,9 @@ export class WorkOrdersService {
       data.actual_end_at = now
       data.qty_done = new Prisma.Decimal(body.qty_done ?? 0)
       if (body.qty_scrapped !== undefined) data.qty_scrapped = new Prisma.Decimal(body.qty_scrapped)
+    } else if (action === 'cancel') {
+      data.qty_reusable = body.qty_reusable ?? undefined
+      data.pre_hold_status = null // terminal status now — clear so a stale value doesn't confuse future debugging
     }
 
     await this.prisma.$transaction(async (tx) => {

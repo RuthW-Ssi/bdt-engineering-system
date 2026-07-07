@@ -579,3 +579,151 @@ describe('WorkOrdersService.acceptNewVersion', () => {
     expect(result).toEqual({ id: 1 })
   })
 })
+
+describe('WorkOrdersService.transition — cancel', () => {
+  function makeWo(overrides: Partial<{
+    status: string
+    qty_done: number | null
+    pre_hold_status: string | null
+  }> = {}) {
+    return {
+      id: 1,
+      status: 'ON_HOLD',
+      qty_done: null,
+      pre_hold_status: 'IN_PROGRESS',
+      ...overrides,
+    }
+  }
+
+  function makePrisma(wo: ReturnType<typeof makeWo>) {
+    const prisma: any = {
+      work_order: {
+        findUnique: jest.fn().mockResolvedValue(wo),
+        update: jest.fn(),
+      },
+      work_order_event: { create: jest.fn() },
+      $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
+    }
+    return prisma
+  }
+
+  it('allows cancel from ON_HOLD (added to WO_ACTIONS.cancel.from)', async () => {
+    const wo = makeWo({ status: 'ON_HOLD', qty_done: null })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    // Previously ON_HOLD was not in cancel.from, so this would 409 (ConflictException).
+    await expect(
+      svc.transition(1, 'cancel', { reason: 'BOM removed this assembly' }, 'tester'),
+    ).resolves.toEqual({ id: 1 })
+    expect(prisma.work_order.update).toHaveBeenCalled()
+  })
+
+  it('throws 400 cancelling an ON_HOLD WO with qty_done > 0 and no qty_reusable', async () => {
+    const wo = makeWo({ status: 'ON_HOLD', qty_done: 5 })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+
+    await expect(
+      svc.transition(1, 'cancel', { reason: 'cutting the losses' }, 'tester'),
+    ).rejects.toThrow(BadRequestException)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('cancels + persists qty_reusable when provided, and clears pre_hold_status', async () => {
+    const wo = makeWo({ status: 'ON_HOLD', qty_done: 5, pre_hold_status: 'IN_PROGRESS' })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.transition(
+      1,
+      'cancel',
+      { reason: 'BOM removed this assembly', qty_reusable: 3 },
+      'tester',
+    )
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        updated_by: 'tester',
+        qty_reusable: 3,
+        pre_hold_status: null,
+      }),
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        work_order_id: 1,
+        event_type: 'CANCEL',
+        notes: 'BOM removed this assembly',
+        recorded_by: 'tester',
+      }),
+    })
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('cancelling with qty_done null does not require qty_reusable (existing behavior unchanged)', async () => {
+    const wo = makeWo({ status: 'RELEASED', qty_done: null, pre_hold_status: null })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.transition(1, 'cancel', { reason: 'no longer needed' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        qty_reusable: undefined,
+        pre_hold_status: null,
+      }),
+    })
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('cancelling with qty_done == 0 does not require qty_reusable (existing behavior unchanged)', async () => {
+    const wo = makeWo({ status: 'IN_PROGRESS', qty_done: 0, pre_hold_status: null })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.transition(1, 'cancel', { reason: 'no longer needed' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({
+        status: 'CANCELLED',
+        qty_reusable: undefined,
+        pre_hold_status: null,
+      }),
+    })
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('a non-cancel action (pause) is completely unaffected by the qty_done guard', async () => {
+    // qty_done > 0 here would trip the guard if it were mistakenly not scoped to 'cancel'.
+    const wo = makeWo({ status: 'IN_PROGRESS', qty_done: 5, pre_hold_status: null })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.transition(1, 'pause', { reason: 'lunch break' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { status: 'PAUSED', updated_by: 'tester' }, // no qty_reusable / pre_hold_status keys — pause is untouched
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        work_order_id: 1,
+        event_type: 'PAUSE',
+        notes: 'lunch break',
+        recorded_by: 'tester',
+      }),
+    })
+    expect(result).toEqual({ id: 1 })
+  })
+})
