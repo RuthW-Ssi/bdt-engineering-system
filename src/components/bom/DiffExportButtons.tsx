@@ -4,7 +4,7 @@ export function DiffExportButtons() {
       <button
         disabled
         style={{
-          height: 30, padding: '0 12px', fontSize: 12, fontWeight: 500,
+          height: 32, padding: '0 14px', fontSize: 13, fontWeight: 500,
           border: '1px solid #D0D5DD', borderRadius: 6, background: 'white',
           color: '#344054', opacity: 0.45, cursor: 'not-allowed',
         }}
@@ -14,7 +14,7 @@ export function DiffExportButtons() {
       <button
         disabled
         style={{
-          height: 30, padding: '0 12px', fontSize: 12, fontWeight: 500,
+          height: 32, padding: '0 14px', fontSize: 13, fontWeight: 500,
           border: '1px solid #D0D5DD', borderRadius: 6, background: 'white',
           color: '#344054', opacity: 0.45, cursor: 'not-allowed',
         }}

@@ -61,7 +61,10 @@ function assembliesEqual(a: AssemblyDiffItem, b: AssemblyDiffItem): boolean {
     a.name === b.name &&
     floatEq(a.qty, b.qty) &&
     floatEq(a.weight_kg, b.weight_kg) &&
-    floatEq(a.surface_area_m2, b.surface_area_m2)
+    floatEq(a.surface_area_m2, b.surface_area_m2) &&
+    floatEq(a.length_mm, b.length_mm) &&
+    floatEq(a.width_mm, b.width_mm) &&
+    floatEq(a.height_mm, b.height_mm)
   )
 }
 
@@ -257,7 +260,10 @@ export class BomDiffService {
     const [assemblies, parts, junctions] = await Promise.all([
       this.prisma.bom_assembly.findMany({
         where: { dispatch_id: { in: ids } },
-        select: { assembly_mark: true, name: true, qty: true, weight_kg: true, surface_area_m2: true },
+        select: {
+          assembly_mark: true, name: true, qty: true, weight_kg: true, surface_area_m2: true,
+          length_mm: true, width_mm: true, height_mm: true,
+        },
       }),
       this.prisma.bom_part.findMany({
         where: { dispatch_id: { in: ids } },
@@ -280,6 +286,9 @@ export class BomDiffService {
         qty: toNum(a.qty),
         weight_kg: toNum(a.weight_kg),
         surface_area_m2: toNum(a.surface_area_m2),
+        length_mm: toNum(a.length_mm),
+        width_mm: toNum(a.width_mm),
+        height_mm: toNum(a.height_mm),
       })) as AssemblyDiffItem[],
 
       parts: parts.map(p => ({

@@ -118,6 +118,9 @@ export interface AssemblyDiffItemDto {
   qty: number | null
   weight_kg: number | null
   surface_area_m2: number | null
+  length_mm: number | null
+  width_mm: number | null
+  height_mm: number | null
 }
 
 export interface PartDiffItemDto {

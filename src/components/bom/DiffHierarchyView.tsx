@@ -114,6 +114,7 @@ const COL = {
   length:    88,
   weight:   100,
   area:     100,
+  dims:     130,
 } as const
 
 function NumCol({ prev, curr, format, width }: {
@@ -131,24 +132,36 @@ function NumCol({ prev, curr, format, width }: {
 
 // ─── Assembly row content ─────────────────────────────────────────────────────
 
+function assemblyDims(a: AssemblyDiffItemDto | null | undefined): string | null {
+  if (!a || (a.length_mm == null && a.width_mm == null && a.height_mm == null)) return null
+  return [a.length_mm, a.width_mm, a.height_mm].map(v => v ?? '—').join(' × ')
+}
+
 function AssemblyRowContent({ row }: { row: DiffRowDto<AssemblyDiffItemDto> }) {
   const p = row.prev, c = row.curr
   const fmtWt   = (v: unknown) => v != null ? `${Number(v).toFixed(1)} kg` : '—'
   const fmtArea  = (v: unknown) => v != null ? `${Number(v).toFixed(2)} m²` : '—'
   const fmtQty   = (v: unknown) => v != null ? `×${Number(v)}` : '—'
   const hasArea  = p?.surface_area_m2 != null || c?.surface_area_m2 != null
+  const pDims = assemblyDims(p), cDims = assemblyDims(c)
+  const hasDims = pDims != null || cDims != null
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, paddingRight: 12 }}>
-      <span style={{ width: COL.asmMark, flexShrink: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: '#111827', paddingRight: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 14, paddingRight: 12 }}>
+      <span style={{ width: COL.asmMark, flexShrink: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <DiffCell prev={p?.assembly_mark} curr={c?.assembly_mark} mono />
       </span>
-      <span style={{ flex: 1, minWidth: 0,  fontSize: 12, color: '#4B5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 16 }}>
+      <span style={{ flex: 1, minWidth: 0,  fontSize: 12, color: '#4B5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <DiffCell prev={p?.name} curr={c?.name} />
       </span>
       <NumCol prev={p?.qty}            curr={c?.qty}            format={fmtQty}  width={COL.qty} />
       <NumCol prev={p?.weight_kg}      curr={c?.weight_kg}      format={fmtWt}   width={COL.weight} />
       {hasArea && <NumCol prev={p?.surface_area_m2} curr={c?.surface_area_m2} format={fmtArea} width={COL.area} />}
+      {hasDims && (
+        <span style={{ width: COL.dims, flexShrink: 0, textAlign: 'right', fontSize: 11, fontFamily: 'monospace' }}>
+          <DiffCell prev={pDims} curr={cDims} mono />
+        </span>
+      )}
     </div>
   )
 }
@@ -169,11 +182,11 @@ function PartRowContent({
   const hasLen = pp?.length_mm != null || cp?.length_mm != null
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, paddingRight: 12 }}>
-      <span style={{ width: COL.partMark, flexShrink: 0, fontFamily: 'monospace', fontSize: 11, color: '#374151', paddingRight: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 14, paddingRight: 12 }}>
+      <span style={{ width: COL.partMark, flexShrink: 0, fontFamily: 'monospace', fontSize: 11, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <DiffCell prev={pj?.part_mark ?? pp?.part_mark} curr={cj?.part_mark ?? cp?.part_mark} mono />
       </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', paddingRight: 16 }}>
+      <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         <DiffCell prev={pp?.description} curr={cp?.description} />
       </span>
       {(pp?.profile != null || cp?.profile != null) && (
@@ -383,7 +396,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
 
       {/* Scrollable data area */}
       <div style={{ overflowX: 'auto', flex: 1 }}>
-        <div style={{ minWidth: 680 }}>
+        <div style={{ minWidth: 700 }}>
 
       {/* Assembly nodes */}
       {visibleNodes.map(node => {

@@ -69,7 +69,7 @@ export function BomDispatchDetail() {
       </div>
 
       {/* Content */}
-      <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '0 24px 24px' }}>
+      <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '20px 24px 24px', background: '#F9FAFB' }}>
         <CompareContent
           isDiffLoading={isDiffLoading}
           isDiffError={isDiffError}
@@ -116,13 +116,14 @@ function CompareContent({
   }
 
   return (
-    <div style={{ overflowY: 'auto', flex: 1 }}>
+    <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
       <DiffWarningBanner warning={diff.warning} />
 
       <DiffAggregateCard aggregate={diff.aggregate} />
 
-      <div style={{ padding: '0 0 24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '4px 16px 6px' }}>
+      <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #F0F0F0' }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>Detailed Changes</span>
           <DiffExportButtons />
         </div>
 
