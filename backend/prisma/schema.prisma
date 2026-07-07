@@ -532,7 +532,7 @@ model drawing_revision {
   change_summary       String?      @db.Text
   file_url             String       @db.VarChar(500)
   file_size_bytes      BigInt?
-  file_mime_type       String?      @db.VarChar(60)
+  file_mime_type       String?      @db.VarChar(100)
   file_checksum_sha256 String?      @db.VarChar(64)
   approved_uid         Int?
   approver             res_users?   @relation("DrawingApprover", fields: [approved_uid], references: [id])
@@ -843,7 +843,7 @@ model bom_doc_revision {
   original_filename    String       @db.VarChar(255)
   storage_key          String       @db.VarChar(500) // path in LocalFileStorageDriver
   file_size_bytes      BigInt?
-  file_mime_type       String?      @db.VarChar(60)
+  file_mime_type       String?      @db.VarChar(100)
   file_checksum_sha256 String?      @db.VarChar(64)
   // Audit (immutable after create)
   create_uid           Int
