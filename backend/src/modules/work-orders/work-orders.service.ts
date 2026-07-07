@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { Prisma, WoEventType, WoStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { UpdateWoDto } from './dto/update-wo.dto'
@@ -86,6 +86,8 @@ export interface StaleLineWarning {
 
 @Injectable()
 export class WorkOrdersService {
+  private readonly logger = new Logger(WorkOrdersService.name)
+
   constructor(private readonly prisma: PrismaService) {}
 
   // ── List (filter status | mo_id | work_center_id | mark_prefix_code · search wo_code) ──
@@ -528,18 +530,32 @@ export class WorkOrdersService {
 
       if (!isRemoved && !isSpecChanged && !isQtyDecrease) continue // qty-increase-only → informational, no hold
 
-      await this.prisma.$transaction(async (tx) => {
-        await tx.work_order.update({ where: { id }, data: { status: 'ON_HOLD', pre_hold_status: currentStatus } })
-        await tx.work_order_event.create({
-          data: {
-            work_order_id: id,
-            event_type: 'HOLD',
-            notes: `Auto-held: BOM upload changed this WO's assembly (${status.delta_types.join(', ')})`,
-            recorded_by: 'system',
-          },
+      // Each candidate's hold-write is isolated: if WO #3 of 5 throws (e.g. a
+      // transient DB error), WOs already held earlier in this loop must stay held
+      // and the remaining candidates must still be evaluated — one bad WO can't be
+      // allowed to abort the whole post-commit phase of a BOM upload (which would
+      // otherwise report the entire upload as failed even though the dispatch was
+      // already committed and some WOs are now silently, permanently on hold).
+      // The failure is still surfaced loudly via the logger, never swallowed.
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.work_order.update({ where: { id }, data: { status: 'ON_HOLD', pre_hold_status: currentStatus } })
+          await tx.work_order_event.create({
+            data: {
+              work_order_id: id,
+              event_type: 'HOLD',
+              notes: `Auto-held: BOM upload changed this WO's assembly (${status.delta_types.join(', ')})`,
+              recorded_by: 'system',
+            },
+          })
         })
-      })
-      held_wo_ids.push(id)
+        held_wo_ids.push(id)
+      } catch (err) {
+        this.logger.error(
+          `applyBomChangeHolds: failed to hold WO ${id} (dispatch ${dispatchId}) — continuing with remaining candidates`,
+          err instanceof Error ? err.stack : err,
+        )
+      }
     }
 
     // mo_assembly_line rows referencing a superseded assembly, belonging to a DRAFT MO.

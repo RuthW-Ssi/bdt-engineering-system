@@ -686,6 +686,37 @@ describe('BomUploadService.upload()', () => {
     expect(capturedAssemblies).toHaveLength(2)
     expect(capturedAssemblies!.map((a: any) => a.assembly_mark).sort()).toEqual(['A1', 'M1'])
   })
+
+  it('calls applyBomChangeHolds() with the new dispatchId and surfaces hold_summary in the returned object', async () => {
+    const innerPrisma = buildInnerPrisma({ id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }, 900)
+    const prisma = {
+      $transaction: jest.fn(async (cb: any) => cb(innerPrisma)),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn(({ select }: any = {}) =>
+          select?.revision
+            ? Promise.resolve([{ id: 1, revision: 1 }])
+            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+        ),
+      },
+      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+
+    const workOrders = makeWorkOrders()
+    const holdFixture = { held_wo_ids: [42], stale_line_warnings: [] }
+    workOrders.applyBomChangeHolds = jest.fn().mockResolvedValue(holdFixture)
+
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, workOrders as any)
+    const result = await svc.upload([makeFileInput()], [], 1, 2, null, 1)
+
+    // 900 is the dispatch id assigned by buildInnerPrisma's create() above (seq=900) —
+    // the same id this test's upload actually created.
+    expect(workOrders.applyBomChangeHolds).toHaveBeenCalledWith(900)
+    expect(result.hold_summary).toEqual(holdFixture)
+  })
 })
 
 describe('BomUploadService.list()', () => {

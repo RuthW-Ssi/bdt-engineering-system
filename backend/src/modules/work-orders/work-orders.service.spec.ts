@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common'
+import { Logger, NotFoundException } from '@nestjs/common'
 import { WorkOrdersService } from './work-orders.service'
 
 // Scoped narrowly to bomVersionStatus()/specOf() (T-WO.04 · BOM Version Alert) —
@@ -357,5 +357,44 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     const result = await svc.applyBomChangeHolds(20)
 
     expect(result).toEqual({ held_wo_ids: [], stale_line_warnings: [] })
+  })
+
+  it('contains a per-WO hold failure — logs it and still holds the other candidates instead of aborting', async () => {
+    // Three REMOVED candidates; WO 2's transaction (work_order.update) throws a
+    // transient error. WO 1 and WO 3 must still end up held, and the method must
+    // not throw — a failure mid-loop must not undo/abort the rest of the run.
+    const wo1 = { ...makeWo(), id: 1, bom_assembly: { ...makeWo().bom_assembly, assembly_mark: 'WH-CO-001' } }
+    const wo2 = { ...makeWo(), id: 2, bom_assembly: { ...makeWo().bom_assembly, assembly_mark: 'WH-CO-002' } }
+    const wo3 = { ...makeWo(), id: 3, bom_assembly: { ...makeWo().bom_assembly, assembly_mark: 'WH-CO-003' } }
+    const prisma = makePrisma({
+      candidates: [
+        { id: 1, status: 'IN_PROGRESS' },
+        { id: 2, status: 'IN_PROGRESS' },
+        { id: 3, status: 'IN_PROGRESS' },
+      ],
+      woById: { 1: wo1, 2: wo2, 3: wo3 },
+      latestAsm: { 1: null, 2: null, 3: null }, // REMOVED for all three — every candidate attempts a hold
+    })
+    prisma.work_order.update = jest.fn().mockImplementation(({ where: { id } }: { where: { id: number } }) => {
+      if (id === 2) throw new Error('transient DB error')
+      return Promise.resolve({ id })
+    })
+    const errorSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined as any)
+
+    const svc = new WorkOrdersService(prisma)
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(result.held_wo_ids).toEqual([1, 3])
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ work_order_id: 1, event_type: 'HOLD' }),
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ work_order_id: 3, event_type: 'HOLD' }),
+    })
+    expect(prisma.work_order_event.create).not.toHaveBeenCalledWith({
+      data: expect.objectContaining({ work_order_id: 2 }),
+    })
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('WO 2'), expect.anything())
+    errorSpy.mockRestore()
   })
 })
