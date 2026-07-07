@@ -192,7 +192,10 @@ export class ManufacturingOrderService {
           zone_id: dispatch.zone_id,
           sub_zone_id: dispatch.sub_zone_id,
         })
-        if (cmp.is_outdated) {
+        // is_outdated alone isn't enough — a re-upload can reintroduce an assembly
+        // with byte-identical qty/weight/dims (delta_types: []), which is not a
+        // meaningful change worth warning about. See isSignificantDelta().
+        if (cmp.is_outdated && this.workOrders.isSignificantDelta(cmp)) {
           staleWarnings.push({
             mo_assembly_line_id: line.id,
             assembly_mark: line.bom_assembly.assembly_mark,

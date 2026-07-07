@@ -51,15 +51,27 @@ function makeMo(status: string, lines: ReturnType<typeof makeLine>[]) {
   }
 }
 
+// Mirrors WorkOrdersService.isSignificantDelta() — a newer dispatch existing for
+// the group (is_outdated: true) is not by itself grounds to warn; only a REMOVED,
+// SPEC_CHANGED, or qty-decrease delta is "significant". Computed from delta_types
+// so individual tests don't need to hard-code the expected significance.
+function computeSignificant(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null }) {
+  const isRemoved = cmp.delta_types.includes('REMOVED')
+  const isSpecChanged = cmp.delta_types.includes('SPEC_CHANGED')
+  const qtyDelta = cmp.delta_details?.qty as { from: number; to: number } | undefined
+  const isQtyDecrease = cmp.delta_types.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
+  return isRemoved || isSpecChanged || isQtyDecrease
+}
+
 function makeService(mo: unknown, cmpResult: { is_outdated: boolean; delta_types: string[] }) {
   const prisma = {
     manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
     activity_consume: { findMany: jest.fn().mockResolvedValue([]) },
   }
+  const fullCmp = { ...cmpResult, delta_details: null, latest_dispatch_id: 20 }
   const workOrders = {
-    compareAssemblyToLatest: jest
-      .fn()
-      .mockResolvedValue({ ...cmpResult, delta_details: null, latest_dispatch_id: 20 }),
+    compareAssemblyToLatest: jest.fn().mockResolvedValue(fullCmp),
+    isSignificantDelta: jest.fn().mockImplementation((cmp: any) => computeSignificant(cmp)),
   }
   const svc = new ManufacturingOrderService(
     prisma as any, // prisma
@@ -105,6 +117,23 @@ describe('ManufacturingOrderService.findOne — stale_assembly_warnings', () => 
     const result = await svc.findOne(1)
 
     expect(workOrders.compareAssemblyToLatest).toHaveBeenCalled()
+    expect((result as any).stale_assembly_warnings).toEqual([])
+  })
+
+  // Bugfix regression test: is_outdated is true (a newer dispatch exists for the
+  // group) but the matching assembly in the latest dispatch is byte-identical
+  // (same qty/weight/dims) — a real, reachable case (e.g. a re-upload that
+  // reintroduces an assembly with unchanged specs), confirmed via live manual
+  // verification. delta_types is genuinely empty in that case, so no warning
+  // should be shown — this previously false-positived because findOne() only
+  // checked cmp.is_outdated with no significance filter.
+  it('DRAFT MO with an assembly line that is_outdated: true but delta_types is empty (byte-identical re-upload) → no warning', async () => {
+    const mo = makeMo('DRAFT', [makeLine()])
+    const { svc, workOrders } = makeService(mo, { is_outdated: true, delta_types: [] })
+
+    const result = await svc.findOne(1)
+
+    expect(workOrders.isSignificantDelta).toHaveBeenCalled()
     expect((result as any).stale_assembly_warnings).toEqual([])
   })
 })

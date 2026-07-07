@@ -176,6 +176,40 @@ describe('WorkOrdersService.bomVersionStatus', () => {
   })
 })
 
+// Scoped to WorkOrdersService.isSignificantDelta() — the shared significance filter
+// extracted from applyBomChangeHolds()'s WO-hold loop (bugfix, WO BOM-Version Hold
+// follow-up). A newer dispatch existing for the group (is_outdated: true) is NOT by
+// itself grounds to hold a WO or warn on a DRAFT MO line — only a REMOVED,
+// SPEC_CHANGED, or qty-decrease delta is "significant". A byte-identical re-upload
+// (is_outdated: true, delta_types: []) must be treated as insignificant.
+describe('WorkOrdersService.isSignificantDelta', () => {
+  const svc = new WorkOrdersService({} as any)
+
+  it('returns true for REMOVED', () => {
+    expect(svc.isSignificantDelta({ delta_types: ['REMOVED'], delta_details: null })).toBe(true)
+  })
+
+  it('returns true for SPEC_CHANGED', () => {
+    expect(svc.isSignificantDelta({ delta_types: ['SPEC_CHANGED'], delta_details: null })).toBe(true)
+  })
+
+  it('returns true for QTY_CHANGED when qty decreased', () => {
+    expect(
+      svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 3, to: 2 } } }),
+    ).toBe(true)
+  })
+
+  it('returns false for QTY_CHANGED when qty increased (informational only)', () => {
+    expect(
+      svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 1, to: 2 } } }),
+    ).toBe(false)
+  })
+
+  it('returns false when delta_types is empty (byte-identical re-upload)', () => {
+    expect(svc.isSignificantDelta({ delta_types: [], delta_details: null })).toBe(false)
+  })
+})
+
 // Scoped to applyBomChangeHolds() (WO BOM-Version Hold, Sprint 20 T02) — the
 // hold-trigger logic invoked post-commit from BomUploadService.upload().
 //
@@ -190,8 +224,6 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     candidates?: { id: number; status: string }[]
     woById?: Record<number, ReturnType<typeof makeWo>>
     latestAsm?: Record<number, unknown> // keyed by wo id, for bomVersionStatus's comparison
-    draftLines?: any[]
-    draftLatestAsm?: unknown // for the stale_line_warnings comparison (single line per test)
   } = {}) {
     const newDispatch = makeDispatch(20, new Date('2026-02-01'))
     const snap = makeDispatch(10, new Date('2026-01-01'))
@@ -219,16 +251,14 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
       bom_assembly: {
         findFirst: jest.fn().mockImplementation(({ where }: { where: { dispatch_id: number; assembly_mark: string } }) => {
           if (where.dispatch_id !== 20) return Promise.resolve(null)
-          // Candidate-WO comparisons key by wo id; the stale-line comparison uses draftLatestAsm.
           for (const wo of Object.values(woById)) {
             if (wo.bom_assembly.assembly_mark === where.assembly_mark && latestAsm[wo.id] !== undefined) {
               return Promise.resolve(latestAsm[wo.id])
             }
           }
-          return Promise.resolve(overrides.draftLatestAsm ?? null)
+          return Promise.resolve(null)
         }),
       },
-      mo_assembly_line: { findMany: jest.fn().mockResolvedValue(overrides.draftLines ?? []) },
       $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
     }
     return prisma
@@ -322,41 +352,37 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     expect(result.held_wo_ids).toEqual([])
   })
 
-  it('collects stale_line_warnings for mo_assembly_line rows with no WO yet', async () => {
-    const lineAssembly = {
-      id: 300,
-      dispatch_id: 10,
-      assembly_mark: 'WH-CO-002',
-      qty: 2,
-      weight_kg: 100,
-      surface_area_m2: 5,
-      length_mm: 1000,
-      width_mm: 200,
-      height_mm: 50,
-      attributes: {},
-    }
+  // This is the bugfix regression test: is_outdated is true (a newer dispatch
+  // exists for the group) but the matching assembly in the latest dispatch is
+  // byte-identical (same qty/weight/dims) — a real, reachable case (e.g. a
+  // re-upload that reintroduces an assembly with unchanged specs). delta_types
+  // is genuinely empty, so this must NOT hold the WO. This already passed before
+  // the isSignificantDelta refactor (the inline isRemoved/isSpecChanged/isQtyDecrease
+  // computation was already correct here) — it exists to confirm the refactor
+  // doesn't regress it.
+  it('does NOT hold when is_outdated is true but delta_types is empty (byte-identical re-upload)', async () => {
+    const wo = makeWo()
     const prisma = makePrisma({
-      candidates: [],
-      draftLines: [{ id: 500, mo_id: 1, bom_assembly_id: 300, bom_assembly: lineAssembly }],
-      draftLatestAsm: null, // REMOVED — no matching mark in dispatch 20
+      candidates: [{ id: 1, status: 'IN_PROGRESS' }],
+      woById: { 1: wo },
+      latestAsm: { 1: { ...wo.bom_assembly, id: 200 } }, // same qty/spec — only id/dispatch differ
     })
     const svc = new WorkOrdersService(prisma)
 
     const result = await svc.applyBomChangeHolds(20)
 
-    expect(result.stale_line_warnings).toEqual([
-      { mo_assembly_line_id: 500, assembly_mark: 'WH-CO-002', delta_types: ['REMOVED'] },
-    ])
+    expect(result.held_wo_ids).not.toContain(1)
     expect(prisma.work_order.update).not.toHaveBeenCalled()
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
   })
 
-  it('returns empty arrays when nothing in the group is affected', async () => {
-    const prisma = makePrisma({ candidates: [], draftLines: [] })
+  it('returns held_wo_ids: [] when nothing in the group is affected', async () => {
+    const prisma = makePrisma({ candidates: [] })
     const svc = new WorkOrdersService(prisma)
 
     const result = await svc.applyBomChangeHolds(20)
 
-    expect(result).toEqual({ held_wo_ids: [], stale_line_warnings: [] })
+    expect(result).toEqual({ held_wo_ids: [] })
   })
 
   it('contains a per-WO hold failure — logs it and still holds the other candidates instead of aborting', async () => {

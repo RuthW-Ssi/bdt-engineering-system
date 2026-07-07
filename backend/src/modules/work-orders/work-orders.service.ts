@@ -78,13 +78,6 @@ export interface SourceRoutingOp {
   duration_breakdown: DurationBreakdownRow[]
 }
 
-/** applyBomChangeHolds() · a DRAFT MO's assembly_line referencing a superseded assembly (no WO yet to hold). */
-export interface StaleLineWarning {
-  mo_assembly_line_id: number
-  assembly_mark: string
-  delta_types: string[]
-}
-
 @Injectable()
 export class WorkOrdersService {
   private readonly logger = new Logger(WorkOrdersService.name)
@@ -532,18 +525,33 @@ export class WorkOrdersService {
     return this.findOne(id)
   }
 
+  /**
+   * Shared significance filter: a newer dispatch existing for the group
+   * (`is_outdated: true`) is NOT by itself grounds to hold a WO or warn on a
+   * DRAFT MO line — e.g. a re-upload can reintroduce an assembly with byte-identical
+   * qty/weight/dims, in which case `delta_types` is genuinely empty. Only a REMOVED,
+   * SPEC_CHANGED, or qty-decrease delta is "significant" (qty-increase-only is
+   * informational, not a hold/warning). Shared by `applyBomChangeHolds()`'s WO-hold
+   * loop and `ManufacturingOrdersService.findOne()`'s stale-line-warning check.
+   */
+  isSignificantDelta(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null }): boolean {
+    const isRemoved = cmp.delta_types.includes('REMOVED')
+    const isSpecChanged = cmp.delta_types.includes('SPEC_CHANGED')
+    const qtyDelta = cmp.delta_details?.qty as { from: number; to: number } | undefined
+    const isQtyDecrease = cmp.delta_types.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
+    return isRemoved || isSpecChanged || isQtyDecrease
+  }
+
   // ── BOM Change Hold (T-WO.10-ish · WO BOM-Version Hold) ──────────────────────
   /**
    * Called after a BOM upload commits. Any active (non-terminal, non-already-held)
    * WO whose snapshotted assembly lives in the same (project, zone, sub_zone) group
-   * as the new dispatch gets re-checked via `bomVersionStatus()`; a REMOVED,
-   * SPEC_CHANGED, or qty-decrease delta flips it to ON_HOLD (qty-increase-only is
-   * informational, not a hold). Also collects `stale_line_warnings` for DRAFT MO
-   * assembly lines referencing a superseded assembly (no WO exists yet to hold).
+   * as the new dispatch gets re-checked via `bomVersionStatus()`; a significant delta
+   * (see `isSignificantDelta()`) flips it to ON_HOLD.
    */
   async applyBomChangeHolds(dispatchId: number) {
     const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id: dispatchId } })
-    if (!dispatch) return { held_wo_ids: [] as number[], stale_line_warnings: [] as StaleLineWarning[] }
+    if (!dispatch) return { held_wo_ids: [] as number[] }
 
     const candidates = await this.prisma.work_order.findMany({
       where: {
@@ -563,13 +571,7 @@ export class WorkOrdersService {
     for (const { id, status: currentStatus } of candidates) {
       const status = await this.bomVersionStatus(id)
       if (!status.is_outdated) continue
-
-      const isRemoved = status.delta_types.includes('REMOVED')
-      const isSpecChanged = status.delta_types.includes('SPEC_CHANGED')
-      const qtyDelta = status.delta_details?.qty as { from: number; to: number } | undefined
-      const isQtyDecrease = status.delta_types.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
-
-      if (!isRemoved && !isSpecChanged && !isQtyDecrease) continue // qty-increase-only → informational, no hold
+      if (!this.isSignificantDelta(status)) continue // qty-increase-only or byte-identical → informational, no hold
 
       // Each candidate's hold-write is isolated: if WO #3 of 5 throws (e.g. a
       // transient DB error), WOs already held earlier in this loop must stay held
@@ -599,37 +601,7 @@ export class WorkOrdersService {
       }
     }
 
-    // mo_assembly_line rows referencing a superseded assembly, belonging to a DRAFT MO.
-    // No WO-existence check needed: WO auto-create only ever runs atomically inside the
-    // MO-confirm transaction, so a DRAFT MO always has zero WOs (mo_assembly_line has no
-    // relation to work_order at all).
-    const draftLines = await this.prisma.mo_assembly_line.findMany({
-      where: {
-        bom_assembly: {
-          dispatch: {
-            project_id: dispatch.project_id,
-            zone_id: dispatch.zone_id,
-            sub_zone_id: dispatch.sub_zone_id,
-          },
-        },
-        mo: { status: 'DRAFT' },
-      },
-      include: { bom_assembly: true },
-    })
-
-    const stale_line_warnings: StaleLineWarning[] = []
-    for (const line of draftLines) {
-      const cmp = await this.compareAssemblyToLatest(line.bom_assembly, dispatch) // shared helper, extracted from bomVersionStatus()
-      if (cmp.is_outdated) {
-        stale_line_warnings.push({
-          mo_assembly_line_id: line.id,
-          assembly_mark: line.bom_assembly.assembly_mark,
-          delta_types: cmp.delta_types,
-        })
-      }
-    }
-
-    return { held_wo_ids, stale_line_warnings }
+    return { held_wo_ids }
   }
 
   // ── BOM-version helpers ─────────────────────────────────────────────────────
