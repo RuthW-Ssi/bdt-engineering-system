@@ -7,6 +7,7 @@ export type WoStatus =
   | 'RELEASED'
   | 'IN_PROGRESS'
   | 'PAUSED'
+  | 'ON_HOLD'
   | 'DONE'
   | 'CANCELLED'
 
@@ -170,7 +171,7 @@ export async function updateWo(
 export async function woTransition(
   id: number,
   action: WoAction,
-  body?: { reason?: string; qty_done?: number; qty_scrapped?: number; notes?: string },
+  body?: { reason?: string; qty_done?: number; qty_scrapped?: number; notes?: string; qty_reusable?: number },
 ): Promise<WoDetail> {
   return (await apiClient.post(`/wo/${id}/${action}`, body ?? {})).data
 }
@@ -180,8 +181,11 @@ export async function getBomVersionStatus(id: number): Promise<BomVersionStatus>
   return (await apiClient.get(`/wo/${id}/bom-version-status`)).data
 }
 
-export async function acceptNewVersion(id: number): Promise<WoDetail> {
-  return (await apiClient.post(`/wo/${id}/accept-new-version`)).data
+export async function acceptNewVersion(
+  id: number,
+  body?: { note?: string; qty_reusable?: number },
+): Promise<WoDetail> {
+  return (await apiClient.post(`/wo/${id}/accept-new-version`, body ?? {})).data
 }
 
 // ── Schedule (read-only) ────────────────────────────────────────────────────

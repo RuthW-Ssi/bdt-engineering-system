@@ -118,7 +118,7 @@ export function WoDetail() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => acceptVersion.mutate()}
+              onClick={() => acceptVersion.mutate({})}
               disabled={acceptVersion.isPending || bom.delta_types.includes('REMOVED')}
               title={bom.delta_types.includes('REMOVED') ? 'Assembly removed — cancel the WO instead' : ''}
               style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: 'none', cursor: 'pointer', background: bom.delta_types.includes('REMOVED') ? '#C2C2C2' : '#1E6B36', color: '#fff' }}

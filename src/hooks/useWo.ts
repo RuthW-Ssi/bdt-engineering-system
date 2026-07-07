@@ -90,5 +90,8 @@ export function useUpdateWo(id: number) {
 
 export function useAcceptNewVersion(id: number) {
   const invalidate = useWoInvalidate(id)
-  return useMutation({ mutationFn: () => acceptNewVersion(id), onSuccess: invalidate })
+  return useMutation({
+    mutationFn: (body?: Parameters<typeof acceptNewVersion>[1]) => acceptNewVersion(id, body),
+    onSuccess: invalidate,
+  })
 }
