@@ -8,12 +8,13 @@ import { UpdateWoDto } from './dto/update-wo.dto'
  * Primary sort is earliest_start_at asc (nulls last); this is the secondary key.
  */
 export const WO_STATUS_PRIORITY: Record<WoStatus, number> = {
-  IN_PROGRESS: 0,
-  PAUSED: 1,
-  RELEASED: 2,
-  NOT_STARTED: 3,
-  DONE: 4,
-  CANCELLED: 5,
+  ON_HOLD: 0,
+  IN_PROGRESS: 1,
+  PAUSED: 2,
+  RELEASED: 3,
+  NOT_STARTED: 4,
+  DONE: 5,
+  CANCELLED: 6,
 }
 
 export type WoAction = 'release' | 'start' | 'pause' | 'resume' | 'done' | 'cancel'
