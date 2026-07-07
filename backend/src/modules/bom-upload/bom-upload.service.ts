@@ -10,6 +10,7 @@ import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService } from './bom-diff.service'
+import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcFile } from './nc-parser'
@@ -85,6 +86,7 @@ export class BomUploadService {
     private readonly parser: XlsxParserService,
     private readonly matching: BomMatchingService,
     private readonly diffService: BomDiffService,
+    private readonly workOrders: WorkOrdersService,
   ) {}
 
   // ─── Upload ──────────────────────────────────────────────────
@@ -323,7 +325,12 @@ export class BomUploadService {
       // Carry forward paint config from previous version (same zone)
       await this.carryForwardPaintConfig(dispatchId, projectId, zoneId, subZoneId, assemblyIdByMark)
 
-      return this.findOne(dispatchId)
+      // WO BOM-Version Hold (T02): flip any WO whose snapshotted assembly this
+      // upload changed (removed/spec-changed/qty-decreased) to ON_HOLD. Runs
+      // post-commit, mirroring matching/autoCreateCustomProducts/paint carry-forward above.
+      const holdResult = await this.workOrders.applyBomChangeHolds(dispatchId)
+
+      return { ...(await this.findOne(dispatchId)), hold_summary: holdResult }
     } catch (err) {
       // Rollback: delete saved files
       for (const { key } of savedKeys) {

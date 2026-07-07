@@ -13,6 +13,7 @@ function makeWo(overrides: Partial<{
     bom_dispatch_id_snapshot: 10,
     bom_assembly: {
       id: 100,
+      dispatch_id: 10, // always in sync with bom_dispatch_id_snapshot (see wo-auto-create.service.ts / acceptNewVersion)
       assembly_mark: 'WH-CO-001',
       qty: 2,
       weight_kg: 100,
@@ -172,5 +173,189 @@ describe('WorkOrdersService.bomVersionStatus', () => {
     const svc = new WorkOrdersService(prisma as any)
 
     await expect(svc.bomVersionStatus(999)).rejects.toThrow(NotFoundException)
+  })
+})
+
+// Scoped to applyBomChangeHolds() (WO BOM-Version Hold, Sprint 20 T02) — the
+// hold-trigger logic invoked post-commit from BomUploadService.upload().
+//
+// dispatchId 20 is always the just-uploaded dispatch (the "new" group head);
+// dispatch 10 is a candidate WO's/line's pre-existing (now superseded) snapshot.
+// Both share the same (project_id:1, zone_id:1, sub_zone_id:null) group, so
+// bom_dispatch.findFirst (latestDispatchForGroup) always resolves to dispatch 20
+// regardless of which call site (bomVersionStatus vs compareAssemblyToLatest)
+// triggered the lookup.
+describe('WorkOrdersService.applyBomChangeHolds', () => {
+  function makePrisma(overrides: {
+    candidates?: { id: number; status: string }[]
+    woById?: Record<number, ReturnType<typeof makeWo>>
+    latestAsm?: Record<number, unknown> // keyed by wo id, for bomVersionStatus's comparison
+    draftLines?: any[]
+    draftLatestAsm?: unknown // for the stale_line_warnings comparison (single line per test)
+  } = {}) {
+    const newDispatch = makeDispatch(20, new Date('2026-02-01'))
+    const snap = makeDispatch(10, new Date('2026-01-01'))
+    const candidates = overrides.candidates ?? []
+    const woById = overrides.woById ?? {}
+    const latestAsm = overrides.latestAsm ?? {}
+
+    const prisma: any = {
+      bom_dispatch: {
+        findUnique: jest.fn().mockImplementation(({ where: { id } }: { where: { id: number } }) => {
+          if (id === 20) return Promise.resolve(newDispatch)
+          if (id === 10) return Promise.resolve(snap)
+          return Promise.resolve(null)
+        }),
+        findFirst: jest.fn().mockResolvedValue(newDispatch), // latestDispatchForGroup → dispatch 20 is always latest
+      },
+      work_order: {
+        findMany: jest.fn().mockResolvedValue(candidates),
+        findUnique: jest.fn().mockImplementation(({ where: { id } }: { where: { id: number } }) =>
+          Promise.resolve(woById[id] ?? null),
+        ),
+        update: jest.fn(),
+      },
+      work_order_event: { create: jest.fn() },
+      bom_assembly: {
+        findFirst: jest.fn().mockImplementation(({ where }: { where: { dispatch_id: number; assembly_mark: string } }) => {
+          if (where.dispatch_id !== 20) return Promise.resolve(null)
+          // Candidate-WO comparisons key by wo id; the stale-line comparison uses draftLatestAsm.
+          for (const wo of Object.values(woById)) {
+            if (wo.bom_assembly.assembly_mark === where.assembly_mark && latestAsm[wo.id] !== undefined) {
+              return Promise.resolve(latestAsm[wo.id])
+            }
+          }
+          return Promise.resolve(overrides.draftLatestAsm ?? null)
+        }),
+      },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue(overrides.draftLines ?? []) },
+      $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
+    }
+    return prisma
+  }
+
+  it('sets ON_HOLD + writes a HOLD event for a WO whose assembly was REMOVED in the new dispatch', async () => {
+    const wo = makeWo() // bom_assembly.dispatch_id: 10, assembly_mark: 'WH-CO-001'
+    const prisma = makePrisma({
+      candidates: [{ id: 1, status: 'IN_PROGRESS' }],
+      woById: { 1: wo },
+      latestAsm: { 1: null }, // REMOVED — no matching mark in dispatch 20
+    })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { status: 'ON_HOLD', pre_hold_status: 'IN_PROGRESS' },
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ work_order_id: 1, event_type: 'HOLD' }),
+    })
+    expect(result.held_wo_ids).toEqual([1])
+  })
+
+  it('sets ON_HOLD when qty decreased (e.g. 3 → 2)', async () => {
+    const wo = makeWo({ bom_assembly: { ...makeWo().bom_assembly, qty: 3 } })
+    const prisma = makePrisma({
+      candidates: [{ id: 1, status: 'RELEASED' }],
+      woById: { 1: wo },
+      latestAsm: { 1: { ...wo.bom_assembly, id: 200, qty: 2 } },
+    })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { status: 'ON_HOLD', pre_hold_status: 'RELEASED' },
+    })
+    expect(result.held_wo_ids).toEqual([1])
+  })
+
+  it('does NOT hold when qty increased (e.g. 1 → 2)', async () => {
+    const wo = makeWo({ bom_assembly: { ...makeWo().bom_assembly, qty: 1 } })
+    const prisma = makePrisma({
+      candidates: [{ id: 1, status: 'IN_PROGRESS' }],
+      woById: { 1: wo },
+      latestAsm: { 1: { ...wo.bom_assembly, id: 200, qty: 2 } },
+    })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(result.held_wo_ids).not.toContain(1)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('sets ON_HOLD when SPEC_CHANGED (dimension differs)', async () => {
+    const wo = makeWo()
+    const prisma = makePrisma({
+      candidates: [{ id: 1, status: 'IN_PROGRESS' }],
+      woById: { 1: wo },
+      latestAsm: { 1: { ...wo.bom_assembly, id: 200, length_mm: 1200 } }, // qty unchanged, length resized
+    })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { status: 'ON_HOLD', pre_hold_status: 'IN_PROGRESS' },
+    })
+    expect(result.held_wo_ids).toEqual([1])
+  })
+
+  it('skips WOs already DONE or CANCELLED', async () => {
+    const prisma = makePrisma({ candidates: [] }) // DB-level filter excludes them — assert the filter is applied
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(prisma.work_order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ status: { notIn: ['DONE', 'CANCELLED', 'ON_HOLD'] } }),
+      }),
+    )
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+    expect(result.held_wo_ids).toEqual([])
+  })
+
+  it('collects stale_line_warnings for mo_assembly_line rows with no WO yet', async () => {
+    const lineAssembly = {
+      id: 300,
+      dispatch_id: 10,
+      assembly_mark: 'WH-CO-002',
+      qty: 2,
+      weight_kg: 100,
+      surface_area_m2: 5,
+      length_mm: 1000,
+      width_mm: 200,
+      height_mm: 50,
+      attributes: {},
+    }
+    const prisma = makePrisma({
+      candidates: [],
+      draftLines: [{ id: 500, mo_id: 1, bom_assembly_id: 300, bom_assembly: lineAssembly }],
+      draftLatestAsm: null, // REMOVED — no matching mark in dispatch 20
+    })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(result.stale_line_warnings).toEqual([
+      { mo_assembly_line_id: 500, assembly_mark: 'WH-CO-002', delta_types: ['REMOVED'] },
+    ])
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('returns empty arrays when nothing in the group is affected', async () => {
+    const prisma = makePrisma({ candidates: [], draftLines: [] })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(result).toEqual({ held_wo_ids: [], stale_line_warnings: [] })
   })
 })

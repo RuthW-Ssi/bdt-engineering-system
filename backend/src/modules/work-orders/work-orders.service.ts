@@ -77,6 +77,13 @@ export interface SourceRoutingOp {
   duration_breakdown: DurationBreakdownRow[]
 }
 
+/** applyBomChangeHolds() · a DRAFT MO's assembly_line referencing a superseded assembly (no WO yet to hold). */
+export interface StaleLineWarning {
+  mo_assembly_line_id: number
+  assembly_mark: string
+  delta_types: string[]
+}
+
 @Injectable()
 export class WorkOrdersService {
   constructor(private readonly prisma: PrismaService) {}
@@ -409,6 +416,10 @@ export class WorkOrdersService {
   /**
    * Compare the WO's snapshot dispatch against the latest dispatch for the same
    * (project, zone, sub_zone) group, classifying the delta on this WO's assembly.
+   *
+   * Thin wrapper: loads the WO's assembly + snapshot dispatch, then delegates the
+   * actual comparison to `compareAssemblyToLatest()` (shared with `applyBomChangeHolds()`
+   * and, per Task 5, `ManufacturingOrdersService`).
    */
   async bomVersionStatus(id: number) {
     const wo = await this.prisma.work_order.findUnique({
@@ -417,50 +428,27 @@ export class WorkOrdersService {
     })
     if (!wo) throw new NotFoundException(`WO ${id} not found`)
 
+    const base = {
+      snapshot_dispatch_id: wo.bom_dispatch_id_snapshot,
+      assembly_mark: wo.bom_assembly.assembly_mark,
+    }
+
     const snap = await this.prisma.bom_dispatch.findUnique({
       where: { id: wo.bom_dispatch_id_snapshot },
     })
-    const latest = snap ? await this.latestDispatchForGroup(snap) : null
-
-    const base = {
-      snapshot_dispatch_id: wo.bom_dispatch_id_snapshot,
-      latest_dispatch_id: latest?.id ?? wo.bom_dispatch_id_snapshot,
-      assembly_mark: wo.bom_assembly.assembly_mark,
-    }
-    // On the latest version already → nothing to alert.
-    if (!snap || !latest || latest.id === snap.id) {
-      return { is_outdated: false, delta_types: [] as string[], delta_details: null, ...base }
-    }
-
-    const latestAsm = await this.prisma.bom_assembly.findFirst({
-      where: { dispatch_id: latest.id, assembly_mark: wo.bom_assembly.assembly_mark },
-    })
-
-    const delta_types: string[] = []
-    const delta_details: Record<string, unknown> = {}
-    if (!latestAsm) {
-      delta_types.push('REMOVED')
-    } else {
-      const fromQty = Number(wo.bom_assembly.qty ?? 0)
-      const toQty = Number(latestAsm.qty ?? 0)
-      if (fromQty !== toQty) {
-        delta_types.push('QTY_CHANGED')
-        delta_details.qty = { from: fromQty, to: toQty }
-      }
-      const fromSpec = this.specOf(wo.bom_assembly)
-      const toSpec = this.specOf(latestAsm)
-      if (JSON.stringify(fromSpec) !== JSON.stringify(toSpec)) {
-        delta_types.push('SPEC_CHANGED')
-        delta_details.spec = { from: fromSpec, to: toSpec }
+    // Snapshot dispatch row no longer exists → nothing to compare against.
+    if (!snap) {
+      return {
+        is_outdated: false,
+        delta_types: [] as string[],
+        delta_details: null,
+        latest_dispatch_id: wo.bom_dispatch_id_snapshot,
+        ...base,
       }
     }
 
-    return {
-      is_outdated: true, // a newer dispatch exists for this group
-      delta_types,
-      delta_details: Object.keys(delta_details).length ? delta_details : null,
-      ...base,
-    }
+    const cmp = await this.compareAssemblyToLatest(wo.bom_assembly, snap)
+    return { ...cmp, ...base }
   }
 
   /** Move the snapshot to the latest version + re-point the assembly + log an event. */
@@ -501,6 +489,92 @@ export class WorkOrdersService {
     return this.findOne(id)
   }
 
+  // ── BOM Change Hold (T-WO.10-ish · WO BOM-Version Hold) ──────────────────────
+  /**
+   * Called after a BOM upload commits. Any active (non-terminal, non-already-held)
+   * WO whose snapshotted assembly lives in the same (project, zone, sub_zone) group
+   * as the new dispatch gets re-checked via `bomVersionStatus()`; a REMOVED,
+   * SPEC_CHANGED, or qty-decrease delta flips it to ON_HOLD (qty-increase-only is
+   * informational, not a hold). Also collects `stale_line_warnings` for DRAFT MO
+   * assembly lines referencing a superseded assembly (no WO exists yet to hold).
+   */
+  async applyBomChangeHolds(dispatchId: number) {
+    const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id: dispatchId } })
+    if (!dispatch) return { held_wo_ids: [] as number[], stale_line_warnings: [] as StaleLineWarning[] }
+
+    const candidates = await this.prisma.work_order.findMany({
+      where: {
+        status: { notIn: ['DONE', 'CANCELLED', 'ON_HOLD'] },
+        bom_assembly: {
+          dispatch: {
+            project_id: dispatch.project_id,
+            zone_id: dispatch.zone_id,
+            sub_zone_id: dispatch.sub_zone_id,
+          },
+        },
+      },
+      select: { id: true, status: true }, // status needed to populate pre_hold_status
+    })
+
+    const held_wo_ids: number[] = []
+    for (const { id, status: currentStatus } of candidates) {
+      const status = await this.bomVersionStatus(id)
+      if (!status.is_outdated) continue
+
+      const isRemoved = status.delta_types.includes('REMOVED')
+      const isSpecChanged = status.delta_types.includes('SPEC_CHANGED')
+      const qtyDelta = status.delta_details?.qty as { from: number; to: number } | undefined
+      const isQtyDecrease = status.delta_types.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
+
+      if (!isRemoved && !isSpecChanged && !isQtyDecrease) continue // qty-increase-only → informational, no hold
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.work_order.update({ where: { id }, data: { status: 'ON_HOLD', pre_hold_status: currentStatus } })
+        await tx.work_order_event.create({
+          data: {
+            work_order_id: id,
+            event_type: 'HOLD',
+            notes: `Auto-held: BOM upload changed this WO's assembly (${status.delta_types.join(', ')})`,
+            recorded_by: 'system',
+          },
+        })
+      })
+      held_wo_ids.push(id)
+    }
+
+    // mo_assembly_line rows referencing a superseded assembly, belonging to a DRAFT MO.
+    // No WO-existence check needed: WO auto-create only ever runs atomically inside the
+    // MO-confirm transaction, so a DRAFT MO always has zero WOs (mo_assembly_line has no
+    // relation to work_order at all).
+    const draftLines = await this.prisma.mo_assembly_line.findMany({
+      where: {
+        bom_assembly: {
+          dispatch: {
+            project_id: dispatch.project_id,
+            zone_id: dispatch.zone_id,
+            sub_zone_id: dispatch.sub_zone_id,
+          },
+        },
+        mo: { status: 'DRAFT' },
+      },
+      include: { bom_assembly: true },
+    })
+
+    const stale_line_warnings: StaleLineWarning[] = []
+    for (const line of draftLines) {
+      const cmp = await this.compareAssemblyToLatest(line.bom_assembly, dispatch) // shared helper, extracted from bomVersionStatus()
+      if (cmp.is_outdated) {
+        stale_line_warnings.push({
+          mo_assembly_line_id: line.id,
+          assembly_mark: line.bom_assembly.assembly_mark,
+          delta_types: cmp.delta_types,
+        })
+      }
+    }
+
+    return { held_wo_ids, stale_line_warnings }
+  }
+
   // ── BOM-version helpers ─────────────────────────────────────────────────────
   private async latestDispatchForGroup(d: {
     project_id: number
@@ -511,6 +585,68 @@ export class WorkOrdersService {
       where: { project_id: d.project_id, zone_id: d.zone_id, sub_zone_id: d.sub_zone_id },
       orderBy: [{ uploaded_at: 'desc' }, { id: 'desc' }],
     })
+  }
+
+  /**
+   * Shared comparison extracted from `bomVersionStatus()`: given an already-loaded
+   * assembly and the (project, zone, sub_zone) group it belongs to, find the latest
+   * dispatch for that group and classify the delta (REMOVED / QTY_CHANGED / SPEC_CHANGED)
+   * between `assembly` and the matching assembly_mark in the latest dispatch.
+   *
+   * Deliberately not `private` — `applyBomChangeHolds()` uses it for both WO holds and
+   * stale-line warnings, and Task 5 (`ManufacturingOrdersService`) calls it directly.
+   */
+  async compareAssemblyToLatest(
+    assembly: {
+      dispatch_id: number
+      assembly_mark: string
+      qty: Prisma.Decimal | number | null
+      weight_kg: Prisma.Decimal | null
+      surface_area_m2: Prisma.Decimal | null
+      length_mm: Prisma.Decimal | null
+      width_mm: Prisma.Decimal | null
+      height_mm: Prisma.Decimal | null
+      attributes: Prisma.JsonValue
+    },
+    group: { project_id: number; zone_id: number; sub_zone_id: number | null },
+  ) {
+    const latest = await this.latestDispatchForGroup(group)
+    const latest_dispatch_id = latest?.id ?? assembly.dispatch_id
+
+    // Already on the latest version for this group → nothing to alert.
+    if (!latest || latest.id === assembly.dispatch_id) {
+      return { is_outdated: false, delta_types: [] as string[], delta_details: null as Record<string, unknown> | null, latest_dispatch_id }
+    }
+
+    const latestAsm = await this.prisma.bom_assembly.findFirst({
+      where: { dispatch_id: latest.id, assembly_mark: assembly.assembly_mark },
+    })
+
+    const delta_types: string[] = []
+    const delta_details: Record<string, unknown> = {}
+    if (!latestAsm) {
+      delta_types.push('REMOVED')
+    } else {
+      const fromQty = Number(assembly.qty ?? 0)
+      const toQty = Number(latestAsm.qty ?? 0)
+      if (fromQty !== toQty) {
+        delta_types.push('QTY_CHANGED')
+        delta_details.qty = { from: fromQty, to: toQty }
+      }
+      const fromSpec = this.specOf(assembly)
+      const toSpec = this.specOf(latestAsm)
+      if (JSON.stringify(fromSpec) !== JSON.stringify(toSpec)) {
+        delta_types.push('SPEC_CHANGED')
+        delta_details.spec = { from: fromSpec, to: toSpec }
+      }
+    }
+
+    return {
+      is_outdated: true, // a newer dispatch exists for this group
+      delta_types,
+      delta_details: Object.keys(delta_details).length ? delta_details : null,
+      latest_dispatch_id,
+    }
   }
 
   private specOf(a: {
