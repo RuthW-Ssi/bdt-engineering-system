@@ -88,6 +88,14 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   write_date: string
   create_user?: { id: number; name: string; login: string }
   write_user?: { id: number; name: string; login: string }
+  /**
+   * Stale-BOM-version warnings for this MO's assembly lines (WO BOM-Version
+   * Hold, Sprint 20 · S20-T05). Always present but only ever non-empty while
+   * `status === 'DRAFT'` — the backend recomputes it on every `findOne()` and
+   * hardcodes `[]` once the MO leaves DRAFT (WOs exist by then and carry the
+   * ON_HOLD banner instead, per design Q22).
+   */
+  stale_assembly_warnings: { mo_assembly_line_id: number; assembly_mark: string; delta_types: string[] }[]
 }
 
 export interface CreateMoPayload {

@@ -166,6 +166,29 @@ function Chips({ items }: { items: string[] }) {
   )
 }
 
+// Non-blocking, informational — mirrors DiffWarningBanner.tsx's amber styling
+// (components/bom) but supports a per-line list since an MO can have several
+// stale assembly lines at once. Only ever non-empty while mo.status ===
+// 'DRAFT' (backend gate — see MoDetail type in api/mo.ts), so no extra
+// frontend status check is needed here.
+function StaleAssemblyWarningsBanner({ warnings }: { warnings: import('../api/mo').MoDetail['stale_assembly_warnings'] }) {
+  if (!warnings.length) return null
+  return (
+    <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#92400E', marginBottom: 16 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>
+        ⚠ Newer BOM version available for {warnings.length} assembly line{warnings.length > 1 ? 's' : ''}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {warnings.map(w => (
+          <div key={w.mo_assembly_line_id}>
+            <strong>{w.assembly_mark}</strong>: {w.delta_types.join(' · ') || 'change'}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function ConsumeSummaryCard({ moId }: { moId: number }) {
   const { data, isLoading } = useMoConsumeSummary(moId)
   return (
@@ -200,6 +223,8 @@ function ConsumeSummaryCard({ moId }: { moId: number }) {
 function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
   return (
     <>
+      <StaleAssemblyWarningsBanner warnings={mo.stale_assembly_warnings} />
+
       {/* Order info */}
       <Card title="Order">
         <Row k="MO Code" v={mo.mo_code} />
