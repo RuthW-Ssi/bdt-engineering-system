@@ -6,12 +6,16 @@ import {
   useWoTransition, useAcceptNewVersion,
 } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
+import { QtyReusableField, WoHoldResolutionModal, qtyReusableValid } from '../components/wo/WoHoldResolutionModal'
 import type { WoAction, WoStatus, WoDetail as WoDetailT, SourceRoutingOp } from '../api/wo'
 
 const TABS = ['Overview', 'Schedule', 'Events'] as const
 type Tab = (typeof TABS)[number]
 
-type ActionDef = { action: WoAction; label: string; danger?: boolean; needs?: 'reason' | 'qty' }
+// 'accept-hold' is a frontend-only pseudo-action (ON_HOLD resolution, opens
+// WoHoldResolutionModal) — it doesn't map to a woTransition() WoAction; the
+// real endpoint is acceptNewVersion() (POST /wo/:id/accept-new-version).
+type ActionDef = { action: WoAction | 'accept-hold'; label: string; danger?: boolean; needs?: 'reason' | 'qty' }
 
 // Context-aware actions per status (T-WO.05 mirror · sticky header buttons)
 const ACTIONS: Record<WoStatus, ActionDef[]> = {
@@ -19,6 +23,10 @@ const ACTIONS: Record<WoStatus, ActionDef[]> = {
   RELEASED: [{ action: 'start', label: 'Start' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
   IN_PROGRESS: [{ action: 'pause', label: 'Pause', needs: 'reason' }, { action: 'done', label: 'Complete', needs: 'qty' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
   PAUSED: [{ action: 'resume', label: 'Resume' }, { action: 'done', label: 'Complete', needs: 'qty' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
+  // ON_HOLD (WO BOM-Version Hold, Sprint 20): only Accept or Cancel — no passive
+  // dismiss. Accept is hidden at render time when delta_types includes REMOVED
+  // (see headerActions below) — the backend 409s on accept for a removed assembly.
+  ON_HOLD: [{ action: 'accept-hold', label: 'Accept' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
   DONE: [],
   CANCELLED: [],
 }
@@ -39,7 +47,9 @@ export function WoDetail() {
   const [reason, setReason] = useState('')
   const [qtyDone, setQtyDone] = useState('')
   const [qtyScrap, setQtyScrap] = useState('')
+  const [qtyReusable, setQtyReusable] = useState('')
   const [dismissedBanner, setDismissedBanner] = useState(false)
+  const [showAcceptModal, setShowAcceptModal] = useState(false)
 
   const { data: wo, isLoading } = useWo(woId)
   const { data: bom } = useBomVersionStatus(woId)
@@ -50,19 +60,37 @@ export function WoDetail() {
     return <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}><Loader2 size={22} className="animate-spin" style={{ color: '#C2C2C2' }} /></div>
   }
 
+  const qtyDoneNum = wo.qty_done != null ? Number(wo.qty_done) : 0
+  // Cancel-with-qty_reusable is a general rule (any status, whenever qty_done > 0)
+  // — not ON_HOLD-specific — matching the backend guard in transition().
+  const cancelNeedsQtyReusable = qtyDoneNum > 0
+
   function runAction(def: ActionDef) {
+    if (def.action === 'accept-hold') {
+      setShowAcceptModal(true)
+      return
+    }
+    // `def.action` narrowed to WoAction here (accept-hold excluded above).
     if (def.needs) {
-      setReason(''); setQtyDone(''); setQtyScrap(''); setModal(def)
+      setReason(''); setQtyDone(''); setQtyScrap(''); setQtyReusable(''); setModal(def)
     } else {
       transition.mutate({ action: def.action })
     }
   }
 
   async function submitModal() {
-    if (!modal) return
+    if (!modal || modal.action === 'accept-hold') return
     if (modal.needs === 'reason') {
       if (!reason.trim()) return
-      await transition.mutateAsync({ action: modal.action, body: { reason: reason.trim() } })
+      const isCancel = modal.action === 'cancel'
+      if (isCancel && cancelNeedsQtyReusable && !qtyReusableValid(qtyReusable, qtyDoneNum)) return
+      await transition.mutateAsync({
+        action: modal.action,
+        body: {
+          reason: reason.trim(),
+          ...(isCancel && cancelNeedsQtyReusable ? { qty_reusable: Number(qtyReusable) } : {}),
+        },
+      })
     } else if (modal.needs === 'qty') {
       if (qtyDone === '') return
       await transition.mutateAsync({
@@ -73,7 +101,13 @@ export function WoDetail() {
     setModal(null)
   }
 
-  const showBanner = bom?.is_outdated && !dismissedBanner && wo.status !== 'CANCELLED' && wo.status !== 'DONE'
+  // Informational stale-version banner — only for WOs that are NOT (yet/still)
+  // ON_HOLD. ON_HOLD gets its own blocking banner below (distinct treatment:
+  // no dismiss, no "continue with snapshot" escape hatch).
+  const showBanner = bom?.is_outdated && !dismissedBanner && wo.status !== 'CANCELLED' && wo.status !== 'DONE' && wo.status !== 'ON_HOLD'
+  // Accept is unavailable once the assembly was REMOVED in the latest version
+  // (backend 409s) — hide it entirely rather than show a disabled button.
+  const headerActions = ACTIONS[wo.status].filter((a) => a.action !== 'accept-hold' || !bom?.delta_types.includes('REMOVED'))
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
@@ -90,15 +124,16 @@ export function WoDetail() {
         )}
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
-          {ACTIONS[wo.status].map((a) => (
+          {headerActions.map((a) => (
             <button
               key={a.action}
               onClick={() => runAction(a)}
-              disabled={transition.isPending}
+              disabled={transition.isPending || acceptVersion.isPending}
               style={{
                 height: 34, padding: '0 16px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
                 border: a.danger ? '1px solid #E8A0A0' : 'none',
-                background: a.danger ? '#fff' : '#C8202A', color: a.danger ? '#C8202A' : '#fff',
+                background: a.action === 'accept-hold' ? '#1E6B36' : a.danger ? '#fff' : '#C8202A',
+                color: a.danger ? '#C8202A' : '#fff',
               }}
             >
               {a.label}
@@ -107,7 +142,40 @@ export function WoDetail() {
         </div>
       </div>
 
-      {/* BOM Version Alert banner */}
+      {/* ON_HOLD blocking banner — system-imposed, cannot proceed without resolving.
+          Distinct from the informational stale-version banner below (no dismiss,
+          no "continue with snapshot" escape hatch): the WO is genuinely stuck. */}
+      {wo.status === 'ON_HOLD' && bom && (
+        <div style={{ background: '#FDEAE3', borderBottom: '2px solid #C8202A', padding: '14px 24px', flexShrink: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: '#8A2A0D', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <AlertTriangle size={16} /> ON HOLD — BOM change requires resolution
+          </div>
+          <div style={{ fontSize: 12, color: '#6B3417', marginBottom: 8 }}>
+            Assembly <strong>{bom.assembly_mark}</strong> changed in dispatch #{bom.latest_dispatch_id}: {bom.delta_types.join(' · ') || 'unspecified change'}.
+            This work order cannot proceed until you accept the new BOM version or cancel it.
+            {bom.delta_types.includes('REMOVED') && ' The assembly was removed from the latest BOM version — accepting is unavailable; cancel is the only option.'}
+          </div>
+          <div className="flex items-center gap-2">
+            {!bom.delta_types.includes('REMOVED') && (
+              <button
+                onClick={() => setShowAcceptModal(true)}
+                disabled={acceptVersion.isPending}
+                style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: 'none', cursor: 'pointer', background: '#1E6B36', color: '#fff' }}
+              >
+                Accept new version
+              </button>
+            )}
+            <button
+              onClick={() => runAction({ action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' })}
+              style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: '1px solid #E8A0A0', background: '#fff', color: '#C8202A', cursor: 'pointer' }}
+            >
+              Cancel WO
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* BOM Version Alert banner (informational — non-ON_HOLD stale WOs only) */}
       {showBanner && bom && (
         <div style={{ background: '#FFEBEE', borderBottom: '1px solid #EF9A9A', padding: '14px 24px', flexShrink: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, color: '#C62828', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -160,7 +228,7 @@ export function WoDetail() {
       </div>
 
       {/* Action modal (reason / qty) */}
-      {modal && (
+      {modal && modal.action !== 'accept-hold' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 420 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{modal.label} · {wo.wo_code}</h2>
@@ -169,6 +237,9 @@ export function WoDetail() {
                 <p style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>A reason is required.</p>
                 <textarea value={reason} onChange={(e) => setReason(e.target.value)} autoFocus rows={3} placeholder="Reason…"
                   style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, resize: 'vertical' }} />
+                {modal.action === 'cancel' && cancelNeedsQtyReusable && (
+                  <QtyReusableField value={qtyReusable} onChange={setQtyReusable} max={qtyDoneNum} />
+                )}
               </>
             ) : (
               <>
@@ -185,7 +256,12 @@ export function WoDetail() {
               <button onClick={() => setModal(null)} style={{ padding: '7px 16px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button
                 onClick={submitModal}
-                disabled={transition.isPending || (modal.needs === 'reason' ? !reason.trim() : qtyDone === '')}
+                disabled={
+                  transition.isPending ||
+                  (modal.needs === 'reason'
+                    ? !reason.trim() || (modal.action === 'cancel' && cancelNeedsQtyReusable && !qtyReusableValid(qtyReusable, qtyDoneNum))
+                    : qtyDone === '')
+                }
                 style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: '#C8202A', color: '#fff', cursor: 'pointer', opacity: transition.isPending ? 0.6 : 1 }}
               >
                 {transition.isPending ? 'Saving…' : 'Confirm'}
@@ -193,6 +269,20 @@ export function WoDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Accept-new-version resolution form (ON_HOLD only — note required, qty_reusable conditional) */}
+      {showAcceptModal && bom && (
+        <WoHoldResolutionModal
+          wo={wo}
+          bom={bom}
+          isPending={acceptVersion.isPending}
+          onClose={() => setShowAcceptModal(false)}
+          onSubmit={async (body) => {
+            await acceptVersion.mutateAsync(body)
+            setShowAcceptModal(false)
+          }}
+        />
       )}
     </div>
   )
