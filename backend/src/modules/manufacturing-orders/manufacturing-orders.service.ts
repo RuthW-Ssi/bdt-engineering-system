@@ -10,6 +10,7 @@ import { MailMessageService } from '../mail/mail-message.service'
 import { MoCodeGenerator } from './mo-code.generator'
 import { MoAllocationService, ALLOCATING_STATUSES } from './mo-allocation.service'
 import { WorkOrderAutoCreateService } from '../work-orders/wo-auto-create.service'
+import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { CreateMoDto, MoAssemblyLineInputDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
@@ -104,6 +105,10 @@ export class ManufacturingOrderService {
     private readonly codeGen: MoCodeGenerator,
     private readonly alloc: MoAllocationService,
     private readonly woAutoCreate: WorkOrderAutoCreateService,
+    // Task 5 (WO BOM-Version Hold, Sprint 20): reuses WorkOrdersService.compareAssemblyToLatest()
+    // for stale_assembly_warnings — see findOne(). WorkOrdersModule already imports one-way
+    // into ManufacturingOrdersModule (no cycle: WorkOrdersModule never imports back).
+    private readonly workOrders: WorkOrdersService,
   ) {}
 
   // ── List (filter status | mark_prefix | project · search mo_code) ──────────
@@ -163,6 +168,11 @@ export class ManufacturingOrderService {
     const projectsMap = new Map<number, { id: number; project_code: string; name: string }>()
     const zonesMap = new Map<number, { id: number; label: string }>()
     const subZonesMap = new Map<number, { id: number; name: string }>()
+    // Task 5 (WO BOM-Version Hold, Sprint 20): DRAFT MOs have no WOs yet (auto-create only
+    // runs on confirm), so a superseded bom_assembly on a line has nothing to hold — surface
+    // it here instead. Once CONFIRMED, the WO-level ON_HOLD banner is the correct surface
+    // (design Q22), so this stays [] there even if the underlying line is stale.
+    const staleWarnings: { mo_assembly_line_id: number; assembly_mark: string; delta_types: string[] }[] = []
     for (const line of mo.assembly_lines) {
       const dispatch = line.bom_assembly.dispatch
       const project = dispatch.project
@@ -175,6 +185,21 @@ export class ManufacturingOrderService {
       }
       if (dispatch.zone) zonesMap.set(dispatch.zone.id, { id: dispatch.zone.id, label: dispatch.zone.label })
       if (dispatch.sub_zone) subZonesMap.set(dispatch.sub_zone.id, { id: dispatch.sub_zone.id, name: dispatch.sub_zone.name })
+
+      if (mo.status === 'DRAFT') {
+        const cmp = await this.workOrders.compareAssemblyToLatest(line.bom_assembly, {
+          project_id: dispatch.project_id,
+          zone_id: dispatch.zone_id,
+          sub_zone_id: dispatch.sub_zone_id,
+        })
+        if (cmp.is_outdated) {
+          staleWarnings.push({
+            mo_assembly_line_id: line.id,
+            assembly_mark: line.bom_assembly.assembly_mark,
+            delta_types: cmp.delta_types,
+          })
+        }
+      }
     }
 
     // Collect source_activity_ids for consumable lookup across all ops
@@ -249,6 +274,7 @@ export class ManufacturingOrderService {
       zones_involved: [...zonesMap.values()],
       sub_zones_involved: [...subZonesMap.values()],
       routing_template: { ...mo.routing_template, operations: enrichedOperations },
+      stale_assembly_warnings: mo.status === 'DRAFT' ? staleWarnings : [],
     }
   }
 
