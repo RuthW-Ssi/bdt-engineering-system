@@ -9,7 +9,7 @@ import type { WoStatus } from '../api/wo'
 const LIMIT = 10
 
 const STATUSES: (WoStatus | 'ALL')[] = [
-  'ALL', 'NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'DONE', 'CANCELLED',
+  'ALL', 'NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'ON_HOLD', 'DONE', 'CANCELLED',
 ]
 
 function fmtDay(d: string | null) {
