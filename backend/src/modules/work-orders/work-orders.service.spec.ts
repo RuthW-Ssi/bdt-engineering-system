@@ -501,7 +501,40 @@ describe('WorkOrdersService.acceptNewVersion', () => {
       data: expect.objectContaining({
         work_order_id: 1,
         event_type: 'ACCEPT_VERSION',
-        notes: expect.stringContaining('reused 2 offcuts'),
+        // Must both preserve the auto-generated delta-description prefix (append,
+        // not replace) and append the user's note after it, in that order.
+        notes: expect.stringMatching(/^Accepted BOM version.*reused 2 offcuts$/),
+        recorded_by: 'tester',
+      }),
+    })
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('resolves ON_HOLD with a note when qty_reusable is not required and is correctly omitted (succeeds, not 400)', async () => {
+    const wo = makeFullWo({ qty_done: null, pre_hold_status: 'IN_PROGRESS' }) // qty_done null → qty_reusable never required
+    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 } // qty increase, informational only
+    const prisma = makePrisma(wo, latestAsm)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.acceptNewVersion(1, 'tester', { note: 'resolving hold, no reuse needed' })
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        bom_assembly_id: 200,
+        bom_dispatch_id_snapshot: 20,
+        updated_by: 'tester',
+        status: 'IN_PROGRESS', // restored from pre_hold_status
+        pre_hold_status: null, // cleared
+        qty_reusable: undefined, // correctly omitted — qty_done was null, so never required
+      },
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        work_order_id: 1,
+        event_type: 'ACCEPT_VERSION',
+        notes: expect.stringMatching(/^Accepted BOM version.*resolving hold, no reuse needed$/),
         recorded_by: 'tester',
       }),
     })
