@@ -330,7 +330,10 @@ export class BomUploadService {
       // post-commit, mirroring matching/autoCreateCustomProducts/paint carry-forward above.
       const holdResult = await this.workOrders.applyBomChangeHolds(dispatchId)
 
-      return { ...(await this.findOne(dispatchId)), hold_summary: holdResult }
+      return {
+        ...(await this.findOne(dispatchId)),
+        hold_summary: { held_wo_count: holdResult.held_wo_ids.length, held_wo_ids: holdResult.held_wo_ids },
+      }
     } catch (err) {
       // Rollback: delete saved files
       for (const { key } of savedKeys) {

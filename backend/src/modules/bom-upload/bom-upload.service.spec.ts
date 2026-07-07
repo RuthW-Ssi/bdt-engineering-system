@@ -706,7 +706,7 @@ describe('BomUploadService.upload()', () => {
     }
 
     const workOrders = makeWorkOrders()
-    const holdFixture = { held_wo_ids: [42], stale_line_warnings: [] }
+    const holdFixture = { held_wo_ids: [42], stale_line_warnings: [{ line: 'stub' }] }
     workOrders.applyBomChangeHolds = jest.fn().mockResolvedValue(holdFixture)
 
     const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, workOrders as any)
@@ -715,7 +715,9 @@ describe('BomUploadService.upload()', () => {
     // 900 is the dispatch id assigned by buildInnerPrisma's create() above (seq=900) —
     // the same id this test's upload actually created.
     expect(workOrders.applyBomChangeHolds).toHaveBeenCalledWith(900)
-    expect(result.hold_summary).toEqual(holdFixture)
+    // Public shape is finalized to { held_wo_count, held_wo_ids } — the raw
+    // internal result (including stale_line_warnings) must NOT leak through.
+    expect(result.hold_summary).toEqual({ held_wo_count: 1, held_wo_ids: [42] })
   })
 })
 
