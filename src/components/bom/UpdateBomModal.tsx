@@ -115,9 +115,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     onClose()
   }
 
-  const handleUploadError = (e: any) => {
-    toast.error(e?.response?.data?.message ?? 'BOM upload failed — please try again')
-    console.error(e)
+  const handleUploadError = (err: unknown) => {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'BOM upload failed — please try again'))
     setProgress(null)
   }
 
@@ -141,8 +141,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
       const res = await uploadFlow.submit(formData, pct => setProgress(pct))
       if (res == null) { setProgress(null); return }
       handleUploadSuccess()
-    } catch (e: any) {
-      handleUploadError(e)
+    } catch (err: unknown) {
+      handleUploadError(err)
     }
   }
 
@@ -151,8 +151,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
       const res = await uploadFlow.confirm()
       if (res == null) return
       handleUploadSuccess()
-    } catch (e: any) {
-      handleUploadError(e)
+    } catch (err: unknown) {
+      handleUploadError(err)
     }
   }
 
