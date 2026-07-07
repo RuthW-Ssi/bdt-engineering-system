@@ -293,6 +293,42 @@ describe('BomDiffService — algorithm unit tests', () => {
     expect(result!.aggregate.weight_kg.curr).toBeCloseTo(200)
     expect(result!.aggregate.weight_kg.delta).toBeCloseTo(50)
   })
+
+  it('classifies a dimension-only change (length_mm) as "changed", not "unchanged"', async () => {
+    function makeDimensionChangePrisma() {
+      const prev = { id: 1, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-01'), revision: 0, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: 1, part_total: 0 }
+      const curr = { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: 1, part_total: 0 }
+      return {
+        bom_dispatch: {
+          findUnique: jest.fn(({ where }: any) => Promise.resolve(where.id === 1 ? prev : curr)),
+          findMany: buildDispatchFindMany([prev, curr]),
+        },
+        bom_assembly: {
+          findMany: jest.fn(({ where }: any) => {
+            const ids: number[] = where.dispatch_id.in
+            if (ids.includes(1)) return Promise.resolve([
+              { assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50 },
+            ])
+            // curr: A1 — same name/qty/weight/area, only length_mm resized
+            return Promise.resolve([
+              { assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1200, width_mm: 200, height_mm: 50 },
+            ])
+          }),
+        },
+        bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+        bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      }
+    }
+
+    const svc = new BomDiffService(makeDimensionChangePrisma() as any)
+    const result = await svc.computeDiff(2)
+
+    expect(result).not.toBeNull()
+    const a1 = result!.assembly_diff.find(r => r.curr?.assembly_mark === 'A1')
+    expect(a1!.status).toBe('changed')
+    expect(a1!.prev!.length_mm).toBe(1000)
+    expect(a1!.curr!.length_mm).toBe(1200)
+  })
 })
 
 // ── Revision-group aggregation tests ──────────────────────────
