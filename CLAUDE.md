@@ -91,6 +91,7 @@ cleaned → `wiki/` · plan & live status → Notion (mirrored to `pm/_snapshots
 | `/blocking-questions` | Surface blocking questions/contradictions before coding |
 | `/new-project` | Scaffold a new project in the knowledge-base |
 | `/test-bom-diff` | Run BOM Diff end-to-end test + generate report |
+| `/test-wo-bom-hold` | Run WO BOM-Version Hold end-to-end test + generate report (Sprint 20 — requires all 12 tasks in `wo-bom-hold-plan.md` implemented first) |
 | `/bdt-session-driver` | Drive a full work session P0–P5 (recap→gate→select→implement→backfill→close) |
 | `/release-gate` | Release-readiness gate + post-ship doc cascade — dispatches `qa` + `security` in parallel before `devops` commits/pushes. After commit, cascades doc updates via `wiki-integrator` (wiki pages) + `notion-mirror` (Task → Feature → Sprint rollup) + sign-off + log.md + `/sync-sprint` + `/wiki-doctor` verification. Critical/High = BLOCK · Medium = WARN · Low = INFO. Emergency: `--force-ship reason="..."` (logged) |
 
