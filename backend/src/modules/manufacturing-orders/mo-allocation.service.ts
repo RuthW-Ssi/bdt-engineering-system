@@ -13,10 +13,11 @@ export interface AllocationEntry {
 /**
  * Shared allocation + mark-prefix-resolution logic, reused by:
  *  - ManufacturingOrderService  (qty validation P13, assemblies tab)
- *  - mark-prefix `with-pending-count` (T-MO.03)
- *  - boms `bom-assemblies?mark_prefix_id` (T-MO.04)
+ *  - mark-prefix `with-pending-count` (T-MO.03) — allocation lookup + prefix resolution
+ *  - boms `bom-assemblies?mark_prefix_id` (T-MO.04) — allocation lookup + prefix resolution
  *
  * remaining(assembly) = bom_assembly.qty − Σ(allocated qty on non-CANCELLED MOs).
+ * Dispatch scoping (via status='ACTIVE' filtering) no longer uses this class.
  */
 @Injectable()
 export class MoAllocationService {
@@ -47,32 +48,6 @@ export class MoAllocationService {
       orderBy: { mo_id: 'asc' },
     })
     return lines.map((l) => ({ mo_code: l.mo.mo_code, qty: Number(l.qty) }))
-  }
-
-  /**
-   * Latest bom_dispatch per (project, zone, sub_zone) with a computed version
-   * number (1-based by upload order). Each BOM upload creates a new dispatch;
-   * older ones are superseded. Returns Map<latestDispatchId, {version, total}>.
-   */
-  async latestDispatchMap(): Promise<Map<number, { version: number; total: number; uploaded_at: Date }>> {
-    const dispatches = await this.prisma.bom_dispatch.findMany({
-      select: { id: true, project_id: true, zone_id: true, sub_zone_id: true, uploaded_at: true },
-      orderBy: [{ uploaded_at: 'asc' }, { id: 'asc' }], // ascending → upload order = version index
-    })
-    const groups = new Map<string, { id: number; uploaded_at: Date }[]>()
-    for (const d of dispatches) {
-      const key = `${d.project_id}/${d.zone_id}/${d.sub_zone_id ?? 'null'}`
-      const arr = groups.get(key) ?? []
-      arr.push({ id: d.id, uploaded_at: d.uploaded_at })
-      groups.set(key, arr)
-    }
-    const map = new Map<number, { version: number; total: number; uploaded_at: Date }>()
-    for (const arr of groups.values()) {
-      const total = arr.length
-      const latest = arr[arr.length - 1] // ascending → last = newest
-      map.set(latest.id, { version: total, total, uploaded_at: latest.uploaded_at })
-    }
-    return map
   }
 
   /** Map<bom_assembly_id, allocatedQty> across all non-CANCELLED MOs (one query). */
