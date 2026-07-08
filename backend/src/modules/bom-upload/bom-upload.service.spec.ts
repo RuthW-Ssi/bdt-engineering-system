@@ -64,11 +64,18 @@ function buildInnerPrisma(baseDispatch: any, seq: number) {
       createManyAndReturn: jest.fn(({ data }: any) =>
         Promise.resolve((data as any[]).map((d: any) => ({ id: id++, ...d }))),
       ),
+      // Pre-insert supersession step (Task 2) — a no-op fixture here since
+      // most tests in this file only cover a single upload() call with
+      // nothing pre-existing to deactivate. Multi-upload supersession
+      // behavior is covered by its own describe block below, which uses a
+      // stateful prisma mock instead of this one.
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     bom_part: {
       createManyAndReturn: jest.fn(({ data }: any) =>
         Promise.resolve((data as any[]).map((d: any) => ({ id: id++, ...d }))),
       ),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     bom_assembly_part: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
   }
@@ -857,8 +864,14 @@ describe('BomUploadService — revision resolution', () => {
           update: jest.fn(({ data }: any) => Promise.resolve({ ...dispatch, ...data })),
         },
         bom_doc_revision: { create: jest.fn().mockResolvedValue({ id: 1 }) },
-        bom_assembly: { createManyAndReturn: jest.fn().mockResolvedValue([]) },
-        bom_part: { createManyAndReturn: jest.fn().mockResolvedValue([]) },
+        bom_assembly: {
+          createManyAndReturn: jest.fn().mockResolvedValue([]),
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
+        bom_part: {
+          createManyAndReturn: jest.fn().mockResolvedValue([]),
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        },
         bom_assembly_part: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
       })),
       bom_dispatch: {
@@ -1072,5 +1085,307 @@ describe('BomUploadService — contractNo threading (parseAllFiles)', () => {
 
     expect(parser.peekContractNo).not.toHaveBeenCalled()
     expect(parser.parse.mock.calls[0][2]).toBeUndefined()
+  })
+})
+
+// ── Slot-scoped status supersession (write path) ────────────────────────────
+// Unlike buildInnerPrisma() (a fresh in-memory tx per upload() call), these
+// tests need bom_assembly/bom_part rows to persist ACROSS multiple upload()
+// calls so a second upload's deactivation step can see — and correctly scope
+// around — rows a first upload created. $transaction always hands the
+// callback the SAME tx object, backed by arrays living in the closure below,
+// so state survives from one svc.upload() call to the next.
+function makePersistentPrisma() {
+  let dispatchIdSeq = 1
+  let assemblyIdSeq = 1
+  let partIdSeq = 1
+  const dispatches: any[] = []
+  const assemblies: any[] = []
+  const parts: any[] = []
+
+  const dispatchMatches = (d: any, where: any) =>
+    (where.project_id === undefined || d.project_id === where.project_id) &&
+    (where.zone_id === undefined || d.zone_id === where.zone_id) &&
+    (!('sub_zone_id' in where) || d.sub_zone_id === where.sub_zone_id)
+
+  const updateManyFor = (rows: any[]) => jest.fn(({ where, data }: any) => {
+    let count = 0
+    for (const row of rows) {
+      if (where.status !== undefined && row.status !== where.status) continue
+      if (where.dispatch) {
+        const d = dispatches.find(x => x.id === row.dispatch_id)
+        if (!d || !dispatchMatches(d, where.dispatch)) continue
+      }
+      if (where.slot?.in && !where.slot.in.includes(row.slot)) continue
+      Object.assign(row, data)
+      count++
+    }
+    return Promise.resolve({ count })
+  })
+
+  const tx = {
+    bom_dispatch: {
+      findFirst: jest.fn(({ where }: any) => {
+        const matches = dispatches.filter(d => dispatchMatches(d, where))
+        if (!matches.length) return Promise.resolve(null)
+        const latest = matches.reduce((a, b) => (b.revision > a.revision ? b : a))
+        return Promise.resolve({ revision: latest.revision })
+      }),
+      create: jest.fn(({ data }: any) => {
+        const row = { id: dispatchIdSeq++, revision: 1, ...data }
+        dispatches.push(row)
+        return Promise.resolve(row)
+      }),
+      update: jest.fn(({ where, data }: any) => {
+        const row = dispatches.find(d => d.id === where.id)
+        Object.assign(row, data)
+        return Promise.resolve(row)
+      }),
+    },
+    bom_doc_revision: { create: jest.fn().mockResolvedValue({ id: 1 }) },
+    bom_assembly: {
+      createManyAndReturn: jest.fn(({ data }: any) => {
+        const rows = (data as any[]).map(d => ({ id: assemblyIdSeq++, status: 'ACTIVE', ...d }))
+        assemblies.push(...rows)
+        return Promise.resolve(rows)
+      }),
+      updateMany: updateManyFor(assemblies),
+    },
+    bom_part: {
+      createManyAndReturn: jest.fn(({ data }: any) => {
+        const rows = (data as any[]).map(d => ({ id: partIdSeq++, status: 'ACTIVE', ...d }))
+        parts.push(...rows)
+        return Promise.resolve(rows)
+      }),
+      updateMany: updateManyFor(parts),
+    },
+    bom_assembly_part: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+  }
+
+  const prisma = {
+    $transaction: jest.fn(async (cb: any) => cb(tx)),
+    bom_dispatch: {
+      findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+      // Always null → short-circuits carryForwardPaintConfig (a different
+      // concern from this suite; exercised elsewhere).
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn(({ select }: any = {}) =>
+        select?.revision
+          ? Promise.resolve([{ id: 1, revision: 1 }])
+          : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
+      ),
+    },
+    bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
+    bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
+    bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+  }
+
+  return { prisma, assemblies, parts, dispatches }
+}
+
+// Parser stub whose parse() branches purely on docType — same convention as
+// the rest of this file's separate-mode tests.
+function makeBranchingParser(byDocType: Record<string, Partial<ParsedBomFile>>) {
+  return {
+    peekContractNo: jest.fn().mockReturnValue(''),
+    parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => ({
+      docType,
+      assemblies: [],
+      parts: [],
+      assemblyParts: [],
+      ...byDocType[docType],
+    })),
+  }
+}
+
+describe('BomUploadService — slot-scoped status supersession (write path)', () => {
+  it('combined-mode re-upload: dropped marks flip INACTIVE, restated marks keep an INACTIVE+ACTIVE pair, new marks are ACTIVE — all with slot=null', async () => {
+    const store = makePersistentPrisma()
+    const storage = makeStorage()
+    const matching = makeMatching()
+    const workOrders = makeWorkOrders()
+
+    const parserA = makeBranchingParser({
+      ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'X' }, { assembly_mark: 'Y' }] },
+    })
+    const svcA = new BomUploadService(store.prisma as any, storage as any, parserA as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcA.upload([makeFileInput({ docType: 'ASSEMBLY_LIST' })], [], 1, 2, null, 1)
+
+    const parserB = makeBranchingParser({
+      ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'Y' }, { assembly_mark: 'Z' }] },
+    })
+    const svcB = new BomUploadService(store.prisma as any, storage as any, parserB as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcB.upload([makeFileInput({ docType: 'ASSEMBLY_LIST' })], [], 1, 2, null, 1)
+
+    const byMark = (mark: string) => store.assemblies.filter(a => a.assembly_mark === mark)
+
+    expect(byMark('X')).toHaveLength(1)
+    expect(byMark('X')[0].status).toBe('INACTIVE')
+    expect(byMark('X')[0].slot).toBeNull()
+
+    const ys = byMark('Y')
+    expect(ys).toHaveLength(2)
+    expect(ys.filter(r => r.status === 'INACTIVE')).toHaveLength(1)
+    expect(ys.filter(r => r.status === 'ACTIVE')).toHaveLength(1)
+    expect(ys.every(r => r.slot === null)).toBe(true)
+
+    expect(byMark('Z')).toHaveLength(1)
+    expect(byMark('Z')[0].status).toBe('ACTIVE')
+    expect(byMark('Z')[0].slot).toBeNull()
+  })
+
+  it('separate-mode Acc-only upload never touches Main-slot rows (the production bug this plan fixes)', async () => {
+    const store = makePersistentPrisma()
+    const storage = makeStorage()
+    const matching = makeMatching()
+    const workOrders = makeWorkOrders()
+
+    // Upload A — "both": Main marks X/Y + Acc marks P/Q in one submission.
+    const parserA = makeBranchingParser({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'X' }, { assembly_mark: 'Y' }] },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'P' }, { assembly_mark: 'Q' }] },
+    })
+    const svcA = new BomUploadService(store.prisma as any, storage as any, parserA as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcA.upload(
+      [
+        makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' }),
+        makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list.xlsx' }),
+      ],
+      [], 1, 2, null, 1, 'separate',
+    )
+
+    // Upload B — Acc-only: mark P only (Q is dropped, X/Y aren't restated at all).
+    const parserB = makeBranchingParser({
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'P' }] },
+    })
+    const svcB = new BomUploadService(store.prisma as any, storage as any, parserB as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcB.upload(
+      [makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list_2.xlsx' })],
+      [], 1, 2, null, 1, 'separate',
+    )
+
+    const byMark = (mark: string) => store.assemblies.filter(a => a.assembly_mark === mark)
+
+    // Main-slot rows: completely untouched by the Acc-only upload.
+    expect(byMark('X')).toHaveLength(1)
+    expect(byMark('X')[0].status).toBe('ACTIVE')
+    expect(byMark('X')[0].slot).toBe('MAIN')
+    expect(byMark('Y')).toHaveLength(1)
+    expect(byMark('Y')[0].status).toBe('ACTIVE')
+    expect(byMark('Y')[0].slot).toBe('MAIN')
+
+    // Acc-slot rows: P restated (old row superseded, fresh row active); Q dropped (superseded, nothing new).
+    const ps = byMark('P')
+    expect(ps).toHaveLength(2)
+    expect(ps.filter(r => r.status === 'INACTIVE')).toHaveLength(1)
+    expect(ps.filter(r => r.status === 'ACTIVE')).toHaveLength(1)
+    expect(ps.every(r => r.slot === 'ACC')).toBe(true)
+
+    expect(byMark('Q')).toHaveLength(1)
+    expect(byMark('Q')[0].status).toBe('INACTIVE')
+    expect(byMark('Q')[0].slot).toBe('ACC')
+  })
+
+  it('separate-mode Main+Acc submitted together: both slots stamped correctly on assemblies AND parts in one transaction', async () => {
+    const store = makePersistentPrisma()
+    const storage = makeStorage()
+    const matching = makeMatching()
+    const workOrders = makeWorkOrders()
+
+    const parser = makeBranchingParser({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }] },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1' }] },
+      MAIN_PART_LIST: { parts: [{ part_mark: 'MP1' }] },
+      ACC_PART_LIST: { parts: [{ part_mark: 'AP1' }] },
+    })
+    const svc = new BomUploadService(store.prisma as any, storage as any, parser as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svc.upload(
+      [
+        makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' }),
+        makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list.xlsx' }),
+        makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_part_list.xlsx' }),
+        makeFileInput({ docType: 'ACC_PART_LIST', originalname: 'acc_part_list.xlsx' }),
+      ],
+      [], 1, 2, null, 1, 'separate',
+    )
+
+    const asmByMark = (mark: string) => store.assemblies.find(a => a.assembly_mark === mark)
+    const partByMark = (mark: string) => store.parts.find(p => p.part_mark === mark)
+
+    expect(asmByMark('M1')?.slot).toBe('MAIN')
+    expect(asmByMark('M1')?.status).toBe('ACTIVE')
+    expect(asmByMark('A1')?.slot).toBe('ACC')
+    expect(asmByMark('A1')?.status).toBe('ACTIVE')
+    expect(partByMark('MP1')?.slot).toBe('MAIN')
+    expect(partByMark('MP1')?.status).toBe('ACTIVE')
+    expect(partByMark('AP1')?.slot).toBe('ACC')
+    expect(partByMark('AP1')?.status).toBe('ACTIVE')
+  })
+
+  it('an assembly-only re-upload (no Part List this round) leaves existing ACTIVE part rows untouched', async () => {
+    const store = makePersistentPrisma()
+    const storage = makeStorage()
+    const matching = makeMatching()
+    const workOrders = makeWorkOrders()
+
+    const parserA = makeBranchingParser({
+      ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'X' }] },
+      PART_LIST: { parts: [{ part_mark: 'P1' }] }, // no profile → no NC file required
+    })
+    const svcA = new BomUploadService(store.prisma as any, storage as any, parserA as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcA.upload(
+      [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' })],
+      [], 1, 2, null, 1,
+    )
+
+    // Upload B: assembly list only — no PART_LIST file at all this round.
+    const parserB = makeBranchingParser({
+      ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'Y' }] },
+    })
+    const svcB = new BomUploadService(store.prisma as any, storage as any, parserB as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcB.upload([makeFileInput({ docType: 'ASSEMBLY_LIST' })], [], 1, 2, null, 1)
+
+    expect(store.assemblies.find(a => a.assembly_mark === 'X')?.status).toBe('INACTIVE')
+    expect(store.assemblies.find(a => a.assembly_mark === 'Y')?.status).toBe('ACTIVE')
+    // The part row from upload A must survive untouched — upload B carried no
+    // part rows, so dedupedParts.length was 0 and the part-side deactivation
+    // block must have been skipped entirely.
+    expect(store.parts).toHaveLength(1)
+    expect(store.parts[0].part_mark).toBe('P1')
+    expect(store.parts[0].status).toBe('ACTIVE')
+  })
+
+  it('a part-only re-upload (no Assembly List this round) leaves existing ACTIVE assembly rows untouched', async () => {
+    const store = makePersistentPrisma()
+    const storage = makeStorage()
+    const matching = makeMatching()
+    const workOrders = makeWorkOrders()
+
+    const parserA = makeBranchingParser({
+      ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'X' }] },
+      PART_LIST: { parts: [{ part_mark: 'P1' }] },
+    })
+    const svcA = new BomUploadService(store.prisma as any, storage as any, parserA as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcA.upload(
+      [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' })],
+      [], 1, 2, null, 1,
+    )
+
+    // Upload B: part list only — no ASSEMBLY_LIST file at all this round.
+    const parserB = makeBranchingParser({
+      PART_LIST: { parts: [{ part_mark: 'P2' }] },
+    })
+    const svcB = new BomUploadService(store.prisma as any, storage as any, parserB as any, matching as any, makeDiffService(store.prisma) as any, workOrders as any)
+    await svcB.upload([makeFileInput({ docType: 'PART_LIST' })], [], 1, 2, null, 1)
+
+    // Assembly row from upload A must survive untouched — upload B carried no
+    // assembly rows, so the assembly-side deactivation block must have been
+    // skipped entirely.
+    expect(store.assemblies).toHaveLength(1)
+    expect(store.assemblies[0].assembly_mark).toBe('X')
+    expect(store.assemblies[0].status).toBe('ACTIVE')
+
+    expect(store.parts.find(p => p.part_mark === 'P1')?.status).toBe('INACTIVE')
+    expect(store.parts.find(p => p.part_mark === 'P2')?.status).toBe('ACTIVE')
   })
 })

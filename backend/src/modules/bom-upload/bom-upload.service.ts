@@ -198,6 +198,48 @@ export class BomUploadService {
           })
         }
 
+        // Deactivate whatever this upload's slot(s) supersede, BEFORE inserting
+        // the new rows below — new rows default to status='ACTIVE', so running
+        // this first means they can never accidentally match their own
+        // deactivation query.
+        // - combined mode: this upload IS the whole current truth for the
+        //   group — wipe everything currently ACTIVE in scope.
+        // - separate mode: only touch the slot(s) this upload actually
+        //   contains (MAIN and/or ACC) — an Acc-only upload must never
+        //   deactivate Main-slot rows, and vice versa (the bug this whole
+        //   plan exists to fix).
+        // Assemblies and parts are superseded independently: an
+        // assembly-only re-upload must not touch part rows, and vice versa.
+        if (asmList?.assemblies.length) {
+          const slotsTouched = uploadMode === 'combined'
+            ? null
+            : [...new Set(asmList.assemblies.map(a => a.slot).filter((s): s is 'MAIN' | 'ACC' => s != null))]
+
+          await tx.bom_assembly.updateMany({
+            where: {
+              status: 'ACTIVE',
+              dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+              ...(slotsTouched ? { slot: { in: slotsTouched } } : {}),
+            },
+            data: { status: 'INACTIVE' },
+          })
+        }
+
+        if (dedupedParts.length) {
+          const slotsTouched = uploadMode === 'combined'
+            ? null
+            : [...new Set(dedupedParts.map(p => p.slot).filter((s): s is 'MAIN' | 'ACC' => s != null))]
+
+          await tx.bom_part.updateMany({
+            where: {
+              status: 'ACTIVE',
+              dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+              ...(slotsTouched ? { slot: { in: slotsTouched } } : {}),
+            },
+            data: { status: 'INACTIVE' },
+          })
+        }
+
         // bom_assembly rows — batch insert, get IDs back in one round-trip
         const assemblyIdByMark = new Map<string, number>()
         if (asmList?.assemblies.length) {
@@ -212,6 +254,7 @@ export class BomUploadService {
               length_mm: a.length_mm,
               width_mm: a.width_mm,
               height_mm: a.height_mm,
+              slot: a.slot ?? null,
               create_uid: uid,
               write_uid: uid,
             })),
@@ -232,6 +275,7 @@ export class BomUploadService {
               qty: p.qty,
               length_mm: p.length_mm,
               weight_kg: p.weight_kg,
+              slot: p.slot ?? null,
               create_uid: uid,
               write_uid: uid,
             })),
@@ -394,8 +438,19 @@ export class BomUploadService {
       if (!main && !acc) return
       parsed.set(targetKey, {
         docType: targetKey,
-        assemblies: [...(main?.assemblies ?? []), ...(acc?.assemblies ?? [])],
-        parts: [...(main?.parts ?? []), ...(acc?.parts ?? [])],
+        // Tag each row with which slot it came from — downstream (insert +
+        // supersession) needs this to scope an Acc-only re-upload so it never
+        // deactivates Main-slot rows, and vice versa. Junction rows
+        // (assemblyParts) don't get a slot — they inherit validity implicitly
+        // via their assembly_id/part_id FKs.
+        assemblies: [
+          ...(main?.assemblies ?? []).map(a => ({ ...a, slot: 'MAIN' as const })),
+          ...(acc?.assemblies ?? []).map(a => ({ ...a, slot: 'ACC' as const })),
+        ],
+        parts: [
+          ...(main?.parts ?? []).map(p => ({ ...p, slot: 'MAIN' as const })),
+          ...(acc?.parts ?? []).map(p => ({ ...p, slot: 'ACC' as const })),
+        ],
         assemblyParts: [...(main?.assemblyParts ?? []), ...(acc?.assemblyParts ?? [])],
       })
       parsed.delete(mainKey)
