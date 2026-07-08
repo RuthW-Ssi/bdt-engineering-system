@@ -1,10 +1,30 @@
 import * as path from 'path'
 import * as fs from 'fs'
 import { NotFoundException } from '@nestjs/common'
-import { BomDiffService } from './bom-diff.service'
+import { BomDiffService, EffectiveGroup } from './bom-diff.service'
 import { XlsxParserService } from './xlsx-parser.service'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// Mirrors BomDiffService's own slotAwareWhere() shape: either a sole-contributor
+// `{ dispatch_id: X }` (no slot filter needed) or `{ OR: [{dispatch_id, OR:[{slot},{slot:null}]}, ...] }`.
+// Rows with no `slot` set (undefined) behave like `slot: null` (pre-Task-1 /
+// Combined-mode rows), matching Prisma's actual `slot IS NULL` semantics.
+function matchesSlotAwareWhere(row: { dispatch_id: number; slot?: string | null }, where: any): boolean {
+  if (where == null) return false
+  if (where.OR == null) return row.dispatch_id === where.dispatch_id
+  return (where.OR as any[]).some(clause => {
+    if (row.dispatch_id !== clause.dispatch_id) return false
+    if (clause.OR == null) return true
+    return (clause.OR as any[]).some(sc =>
+      sc.slot === null ? (row.slot ?? null) === null : row.slot === sc.slot,
+    )
+  })
+}
+
+function filterBySlotAwareWhere<T extends { dispatch_id: number; slot?: string | null }>(rows: T[], where: any): T[] {
+  return rows.filter(r => matchesSlotAwareWhere(r, where))
+}
 
 function toNum(v: unknown): number | null {
   if (v == null) return null
@@ -87,19 +107,26 @@ function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
   const part0ByMark = new Map(part0Rows.map(p => [p.part_mark, p]))
   const part1ByMark = new Map(part1Rows.map(p => [p.part_mark, p]))
 
+  // Junction rows carry a synthetic `dispatch_id` (their assembly's) purely
+  // so the mock can filter them the same way Prisma would filter on
+  // `assembly: <slotAwareWhere>` — it isn't part of the real select/output.
   const junctions0 = (p0AsmPart?.assemblyParts ?? []).flatMap(j => {
     const a = asm0ByMark.get(j.assembly_mark)
     const p = part0ByMark.get(j.part_mark)
     if (!a || !p) return []
-    return [{ assembly: { assembly_mark: a.assembly_mark }, part: { part_mark: p.part_mark }, qty: j.qty ?? 1 }]
+    return [{ dispatch_id: 1, assembly: { assembly_mark: a.assembly_mark }, part: { part_mark: p.part_mark }, qty: j.qty ?? 1 }]
   })
 
   const junctions1 = (p1AsmPart?.assemblyParts ?? []).flatMap(j => {
     const a = asm1ByMark.get(j.assembly_mark)
     const p = part1ByMark.get(j.part_mark)
     if (!a || !p) return []
-    return [{ assembly: { assembly_mark: a.assembly_mark }, part: { part_mark: p.part_mark }, qty: j.qty ?? 1 }]
+    return [{ dispatch_id: 2, assembly: { assembly_mark: a.assembly_mark }, part: { part_mark: p.part_mark }, qty: j.qty ?? 1 }]
   })
+
+  const allAsmRows = [...asm0Rows, ...asm1Rows]
+  const allPartRows = [...part0Rows, ...part1Rows]
+  const allJunctionRows = [...junctions0, ...junctions1]
 
   return {
     bom_dispatch: {
@@ -111,35 +138,14 @@ function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
       findMany: buildDispatchFindMany([dispatch0, dispatch1]),
     },
     bom_assembly: {
-      findMany: jest.fn(({ where }: any) => {
-        const ids: number[] = where.dispatch_id.in
-        if (ids.includes(1)) return Promise.resolve(asm0Rows)
-        if (ids.includes(2)) return Promise.resolve(asm1Rows)
-        return Promise.resolve([])
-      }),
+      findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allAsmRows, where))),
     },
     bom_part: {
-      findMany: jest.fn(({ where }: any) => {
-        const ids: number[] = where.dispatch_id.in
-        if (ids.includes(1)) return Promise.resolve(part0Rows)
-        if (ids.includes(2)) return Promise.resolve(part1Rows)
-        return Promise.resolve([])
-      }),
-      count: jest.fn(({ where }: any) => {
-        const ids: number[] = where.dispatch_id.in
-        const rows: any[] = []
-        if (ids.includes(1)) rows.push(...part0Rows)
-        if (ids.includes(2)) rows.push(...part1Rows)
-        return Promise.resolve(rows.length)
-      }),
+      findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allPartRows, where))),
+      count: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allPartRows, where).length)),
     },
     bom_assembly_part: {
-      findMany: jest.fn(({ where }: any) => {
-        const ids: number[] = where?.assembly?.dispatch_id?.in ?? []
-        if (ids.includes(1)) return Promise.resolve(junctions0)
-        if (ids.includes(2)) return Promise.resolve(junctions1)
-        return Promise.resolve([])
-      }),
+      findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allJunctionRows, where?.assembly))),
     },
   }
 }
@@ -253,16 +259,17 @@ describe('BomDiffService — algorithm unit tests', () => {
       },
       bom_assembly: {
         findMany: jest.fn(({ where }: any) => {
-          const ids: number[] = where.dispatch_id.in
-          if (ids.includes(1)) return Promise.resolve([
-            { assembly_mark: 'A1', name: 'Assembly 1', qty: 2, weight_kg: 100, surface_area_m2: 5 },
-            { assembly_mark: 'A2', name: 'Assembly 2', qty: 1, weight_kg: 50, surface_area_m2: 3 },
-          ])
-          // curr: A1 changed weight, A2 removed, A3 added
-          return Promise.resolve([
-            { assembly_mark: 'A1', name: 'Assembly 1', qty: 2, weight_kg: 120, surface_area_m2: 5 },
-            { assembly_mark: 'A3', name: 'Assembly 3', qty: 1, weight_kg: 80, surface_area_m2: 4 },
-          ])
+          // Both dispatches are plain combined (ASSEMBLY_LIST) uploads, so
+          // resolveEffectiveGroup always resolves a sole contributor
+          // (mainId === accId) here — where is `{ dispatch_id: X }`, no OR.
+          const rows = [
+            { dispatch_id: 1, assembly_mark: 'A1', name: 'Assembly 1', qty: 2, weight_kg: 100, surface_area_m2: 5 },
+            { dispatch_id: 1, assembly_mark: 'A2', name: 'Assembly 2', qty: 1, weight_kg: 50, surface_area_m2: 3 },
+            // curr: A1 changed weight, A2 removed, A3 added
+            { dispatch_id: 2, assembly_mark: 'A1', name: 'Assembly 1', qty: 2, weight_kg: 120, surface_area_m2: 5 },
+            { dispatch_id: 2, assembly_mark: 'A3', name: 'Assembly 3', qty: 1, weight_kg: 80, surface_area_m2: 4 },
+          ]
+          return Promise.resolve(filterBySlotAwareWhere(rows, where))
         }),
       },
       bom_part: {
@@ -305,14 +312,13 @@ describe('BomDiffService — algorithm unit tests', () => {
         },
         bom_assembly: {
           findMany: jest.fn(({ where }: any) => {
-            const ids: number[] = where.dispatch_id.in
-            if (ids.includes(1)) return Promise.resolve([
-              { assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50 },
-            ])
-            // curr: A1 — same name/qty/weight/area, only length_mm resized
-            return Promise.resolve([
-              { assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1200, width_mm: 200, height_mm: 50 },
-            ])
+            // Both plain combined uploads — sole-contributor `{ dispatch_id: X }` where.
+            const rows = [
+              { dispatch_id: 1, assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50 },
+              // curr: A1 — same name/qty/weight/area, only length_mm resized
+              { dispatch_id: 2, assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1200, width_mm: 200, height_mm: 50 },
+            ]
+            return Promise.resolve(filterBySlotAwareWhere(rows, where))
           }),
         },
         bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
@@ -348,21 +354,22 @@ describe('BomDiffService — revision-group aggregation', () => {
       { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-01-02'), revision: 1, doc_revisions: [{ doc_type: 'ACC_ASSEMBLY_LIST' }] },
       { id: 3, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 2, doc_revisions: [{ doc_type: 'ACC_ASSEMBLY_LIST' }] },
     ]
-    const assembliesByDispatch: Record<number, any[]> = {
-      1: [{ assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 }],
-      2: [{ assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 }],
-      3: [{ assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 }],
-    }
+    // Tagged with the same slot each dispatch's own doc_type implies (MAIN_*
+    // → slot 'MAIN', ACC_* → slot 'ACC') — mirrors what the real upload write
+    // path (Task 2) stamps, so slotAwareWhere's filtering is exercised for
+    // real rather than trivially passing on an untagged fixture.
+    const allAsmRows = [
+      { dispatch_id: 1, slot: 'MAIN', assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 },
+      { dispatch_id: 2, slot: 'ACC', assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 },
+      { dispatch_id: 3, slot: 'ACC', assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 },
+    ]
     return {
       bom_dispatch: {
         findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
         findMany: buildDispatchFindMany(dispatches),
       },
       bom_assembly: {
-        findMany: jest.fn(({ where }: any) => {
-          const ids: number[] = where.dispatch_id.in
-          return Promise.resolve(ids.flatMap(id => assembliesByDispatch[id] ?? []))
-        }),
+        findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allAsmRows, where))),
       },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
@@ -415,25 +422,22 @@ describe('BomDiffService — revision-group aggregation', () => {
       // dispatch 4: both Main and Acc re-uploaded together, same content, same revision as dispatch 3
       { id: 4, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-02'), revision: 2, doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }, { doc_type: 'ACC_ASSEMBLY_LIST' }] },
     ]
-    const assembliesByDispatch: Record<number, any[]> = {
-      1: [{ assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 }],
-      2: [{ assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 }],
-      3: [{ assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 }],
-      4: [
-        { assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 },
-        { assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 },
-      ],
-    }
+    // Slot-tagged the same way the real upload write path (Task 2) would:
+    // MAIN_* content → slot 'MAIN', ACC_* content → slot 'ACC'.
+    const allAsmRows = [
+      { dispatch_id: 1, slot: 'MAIN', assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 },
+      { dispatch_id: 2, slot: 'ACC', assembly_mark: 'A1', name: 'Acc 1', qty: 1, weight_kg: 20, surface_area_m2: 1 },
+      { dispatch_id: 3, slot: 'ACC', assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 },
+      { dispatch_id: 4, slot: 'MAIN', assembly_mark: 'M1', name: 'Main 1', qty: 1, weight_kg: 80, surface_area_m2: 4 },
+      { dispatch_id: 4, slot: 'ACC', assembly_mark: 'A2', name: 'Acc 2', qty: 1, weight_kg: 25, surface_area_m2: 1.2 },
+    ]
     const prisma = {
       bom_dispatch: {
         findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
         findMany: buildDispatchFindMany(dispatches),
       },
       bom_assembly: {
-        findMany: jest.fn(({ where }: any) => {
-          const ids: number[] = where.dispatch_id.in
-          return Promise.resolve(ids.flatMap(id => assembliesByDispatch[id] ?? []))
-        }),
+        findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allAsmRows, where))),
       },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
@@ -457,5 +461,120 @@ describe('BomDiffService — revision-group aggregation', () => {
     expect(byMark['A1']).toBe('removed')
     expect(byMark['A2']).toBe('added')
     expect(result!.assembly_diff).toHaveLength(3) // M1 + A1(removed) + A2(added), no duplicate A2 row from double-counting
+  })
+})
+
+// ── Slot-aware group loading (Task 3) ──────────────────────────
+//
+// resolveEffectiveGroup() correctly resolves which dispatch fills the Main
+// role vs the Acc role, but a blind `dispatch_id: { in: ids } }` filter on
+// top of that still pulls a reused "both"-slot dispatch's ENTIRE content —
+// including the now-stale half a newer single-role upload superseded. These
+// tests cover loadRevisionGroupData()'s slot-precise filtering directly.
+
+describe('BomDiffService — slot-aware group loading', () => {
+  function buildSlotPrisma(dispatches: any[], assemblyRows: any[]) {
+    return {
+      bom_dispatch: {
+        findMany: buildDispatchFindMany(dispatches),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(assemblyRows, where))),
+      },
+      bom_part: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      bom_assembly_part: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere([] as any[], where?.assembly))),
+      },
+    }
+  }
+
+  it('core reproduction: a newer Main-only upload (B) reused alongside an older "both" dispatch (A) for the Acc role excludes A\'s now-stale Main content', async () => {
+    // Dispatch A (id 10): both Main (X, Y) and Acc (P, Q) uploaded together.
+    // Dispatch B (id 20, newer): Main-only (Z) — supersedes A on the Main role.
+    const dispatchA = { id: 10, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }, { doc_type: 'ACC_ASSEMBLY_LIST' }] }
+    const dispatchB = { id: 20, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }] }
+    const assemblyRows = [
+      { dispatch_id: 10, slot: 'MAIN', assembly_mark: 'X' },
+      { dispatch_id: 10, slot: 'MAIN', assembly_mark: 'Y' },
+      { dispatch_id: 10, slot: 'ACC', assembly_mark: 'P' },
+      { dispatch_id: 10, slot: 'ACC', assembly_mark: 'Q' },
+      { dispatch_id: 20, slot: 'MAIN', assembly_mark: 'Z' },
+    ]
+    const prisma = buildSlotPrisma([dispatchA, dispatchB], assemblyRows)
+    const svc = new BomDiffService(prisma as any)
+
+    const group = await svc.resolveEffectiveGroup(1, 1, null, { lte: 20 })
+    expect(group).toEqual({ mainId: 20, accId: 10 })
+
+    const data = await (svc as any).loadRevisionGroupData(group)
+    const marks = data.assemblies.map((a: any) => a.assembly_mark).sort()
+
+    // X/Y are dispatch A's Main-slot marks — A is now superseded on the Main
+    // role by B, so they must NOT appear. Z (B's own Main content) and P/Q
+    // (A's Acc-slot content, untouched by B) must appear.
+    expect(marks).toEqual(['P', 'Q', 'Z'])
+  })
+
+  it('mainId === accId (sole contributor — Combined snapshot or single dispatch satisfying both roles): all its rows included regardless of slot', async () => {
+    const dispatchC = { id: 30, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }
+    // Deliberately mixed/inconsistent slot tags — proves the sole-contributor
+    // path bypasses slot filtering entirely rather than accidentally passing.
+    const assemblyRows = [
+      { dispatch_id: 30, slot: 'MAIN', assembly_mark: 'M' },
+      { dispatch_id: 30, slot: 'ACC', assembly_mark: 'A' },
+      { dispatch_id: 30, slot: null, assembly_mark: 'N' },
+    ]
+    const prisma = buildSlotPrisma([dispatchC], assemblyRows)
+    const svc = new BomDiffService(prisma as any)
+
+    const group = await svc.resolveEffectiveGroup(1, 1, null, { lte: 30 })
+    expect(group).toEqual({ mainId: 30, accId: 30 })
+
+    const data = await (svc as any).loadRevisionGroupData(group)
+    const marks = data.assemblies.map((a: any) => a.assembly_mark).sort()
+    expect(marks).toEqual(['A', 'M', 'N'])
+  })
+
+  it('one of mainId/accId is null (e.g. no Acc dispatch has ever existed): only the non-null side\'s rows appear, no crash', async () => {
+    const dispatchB = { id: 20, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', doc_revisions: [{ doc_type: 'MAIN_ASSEMBLY_LIST' }] }
+    const assemblyRows = [
+      { dispatch_id: 20, slot: 'MAIN', assembly_mark: 'Z' },
+    ]
+    const prisma = buildSlotPrisma([dispatchB], assemblyRows)
+    const svc = new BomDiffService(prisma as any)
+
+    const group = await svc.resolveEffectiveGroup(1, 1, null, { lte: 20 })
+    expect(group).toEqual({ mainId: 20, accId: null })
+
+    const data = await (svc as any).loadRevisionGroupData(group)
+    expect(data.assemblies.map((a: any) => a.assembly_mark)).toEqual(['Z'])
+  })
+
+  it('both mainId and accId null (previous state before any upload ever happened): empty result, no query issued', async () => {
+    const prisma = buildSlotPrisma([], [])
+    const svc = new BomDiffService(prisma as any)
+
+    const data = await (svc as any).loadRevisionGroupData({ mainId: null, accId: null })
+    expect(data).toEqual({ assemblies: [], parts: [], junctions: [] })
+    expect(prisma.bom_assembly.findMany).not.toHaveBeenCalled()
+    expect(prisma.bom_part.findMany).not.toHaveBeenCalled()
+    expect(prisma.bom_assembly_part.findMany).not.toHaveBeenCalled()
+  })
+
+  it('computeDiff on the very first dispatch in a group still returns null (findPreviousRevisionGroup unchanged behavior)', async () => {
+    const dispatchA = { id: 10, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', revision: 0, uploaded_at: new Date('2025-01-01'), doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }
+    const prisma = {
+      ...buildSlotPrisma([dispatchA], []),
+      bom_dispatch: {
+        findUnique: jest.fn().mockResolvedValue(dispatchA),
+        findMany: buildDispatchFindMany([dispatchA]),
+      },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    }
+    const svc = new BomDiffService(prisma as any)
+    const result = await svc.computeDiff(10)
+    expect(result).toBeNull()
   })
 })

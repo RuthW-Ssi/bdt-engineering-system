@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
-import { BomDiffService } from './bom-diff.service'
+import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
 import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
@@ -553,13 +553,21 @@ export class BomUploadService {
     // must still show whichever sibling slot is currently active, carried
     // forward from wherever it was last uploaded (possibly an earlier
     // revision), so the content view never silently drops half the BOM.
-    const effectiveIds = await this.diffService.resolveEffectiveGroup(
+    const effectiveGroup = await this.diffService.resolveEffectiveGroup(
       d.project_id, d.zone_id, d.sub_zone_id, { lte: id },
     )
+    const effectiveIds = groupToIds(effectiveGroup)
+    // `d` itself is always a member of the walked group (it's the highest
+    // id within the `{ lte: id }` bound), so this can never genuinely be
+    // empty here — the null branch below is defensive only, mirroring
+    // BomDiffService's own handling of slotAwareWhere()'s null case.
+    const markWhere = slotAwareWhere(effectiveGroup)
 
     const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
 
     const [docRevisions, assemblies, orphans, partCount] = await Promise.all([
+      // Doc revisions are dispatch-level, not mark-level — each one belongs
+      // to exactly one dispatch, nothing to supersede — blind IN is correct.
       this.prisma.bom_doc_revision.findMany({
         where: { dispatch_id: { in: effectiveIds } },
         select: {
@@ -568,8 +576,8 @@ export class BomUploadService {
         },
         orderBy: { create_date: 'asc' },
       }),
-      this.prisma.bom_assembly.findMany({
-        where: { dispatch_id: { in: effectiveIds } },
+      markWhere == null ? Promise.resolve([]) : this.prisma.bom_assembly.findMany({
+        where: markWhere,
         orderBy: { assembly_mark: 'asc' },
         select: {
           id: true, dispatch_id: true, assembly_mark: true, name: true, qty: true,
@@ -592,12 +600,12 @@ export class BomUploadService {
         },
       }),
       // Parts with no assembly junction (orphans)
-      this.prisma.bom_part.findMany({
-        where: { dispatch_id: { in: effectiveIds }, assembly_parts: { none: {} } },
+      markWhere == null ? Promise.resolve([]) : this.prisma.bom_part.findMany({
+        where: { ...markWhere, assembly_parts: { none: {} } },
         orderBy: { part_mark: 'asc' },
         select: { id: true, dispatch_id: true, part_mark: true, description: true, profile: true, grade: true, length_mm: true, qty: true, weight_kg: true, match_status: true },
       }),
-      this.prisma.bom_part.count({ where: { dispatch_id: { in: effectiveIds } } }),
+      markWhere == null ? Promise.resolve(0) : this.prisma.bom_part.count({ where: markWhere }),
     ])
 
     return {
