@@ -57,6 +57,25 @@ const WO_DETAIL_INCLUDE = {
   },
 } satisfies Prisma.work_orderInclude
 
+/**
+ * Structural shape shared by `compareAssemblyToLatest()` / `classifyAssemblyDelta()` /
+ * `specOf()` — anything with these fields can be compared, whether it's a WO's own
+ * snapshotted `bom_assembly` (loaded via `WO_DETAIL_INCLUDE`) or a candidate "currently
+ * ACTIVE row" fetched separately (single lookup or batched).
+ */
+type BomAssemblyLike = {
+  id: number
+  dispatch_id: number
+  assembly_mark: string
+  qty: Prisma.Decimal | number | null
+  weight_kg: Prisma.Decimal | null
+  surface_area_m2: Prisma.Decimal | null
+  length_mm: Prisma.Decimal | null
+  width_mm: Prisma.Decimal | null
+  height_mm: Prisma.Decimal | null
+  attributes: Prisma.JsonValue
+}
+
 export interface EnrichedActivity {
   name: string; measure: string | null; per_minute: number | null; formula_code: string | null
   tools: { id: number; code: string; name: string; qty: number }[]
@@ -107,8 +126,8 @@ export class WorkOrdersService {
       include: WO_DETAIL_INCLUDE,
     })
 
-    const outdated = await this.outdatedSnapshotDispatchIds()
-    const mapped = rows.map((r) => this.toListRow(r, outdated.has(r.bom_dispatch_id_snapshot)))
+    const outdatedWoIds = await this.computeOutdatedWoIds(rows)
+    const mapped = rows.map((r) => this.toListRow(r, outdatedWoIds.has(r.id)))
     // Default sort: earliest_start_at asc (nulls last), then status priority (T-WO.09).
     return mapped.sort((a, b) => {
       const ax = a.earliest_start_at ? a.earliest_start_at.getTime() : Number.POSITIVE_INFINITY
@@ -421,7 +440,11 @@ export class WorkOrdersService {
       qty_done: r.qty_done,
       qty_scrapped: r.qty_scrapped,
       assigned_to: r.assigned_to,
-      is_outdated: isOutdated, // T-WO.04 · BOM Version Alert badge (newer dispatch exists for the snapshot's group)
+      // T-WO.09 · WO list "Newer BOM version available" badge. Mirrors bomVersionStatus()'s
+      // is_outdated && isSignificantDelta(...) semantics per-WO (Task 8) — computed in a
+      // batch by computeOutdatedWoIds(), not one query per row. Field name/shape is a
+      // frontend contract (WoList.tsx reads `w.is_outdated` directly) — do not rename.
+      is_outdated: isOutdated,
     }
   }
 
@@ -645,18 +668,7 @@ export class WorkOrdersService {
    * `ManufacturingOrdersService` (Task 5) calls it directly for stale-assembly warnings.
    */
   async compareAssemblyToLatest(
-    assembly: {
-      id: number
-      dispatch_id: number
-      assembly_mark: string
-      qty: Prisma.Decimal | number | null
-      weight_kg: Prisma.Decimal | null
-      surface_area_m2: Prisma.Decimal | null
-      length_mm: Prisma.Decimal | null
-      width_mm: Prisma.Decimal | null
-      height_mm: Prisma.Decimal | null
-      attributes: Prisma.JsonValue
-    },
+    assembly: BomAssemblyLike,
     group: { project_id: number; zone_id: number; sub_zone_id: number | null },
   ) {
     const latestAsm = await this.prisma.bom_assembly.findFirst({
@@ -666,15 +678,31 @@ export class WorkOrdersService {
         dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id },
       },
     })
+    return this.classifyAssemblyDelta(assembly, latestAsm)
+  }
 
+  /**
+   * Pure delta classifier extracted from `compareAssemblyToLatest()` (Task 8, Sprint 20 WO
+   * BOM-Version Hold): given a WO's own snapshotted assembly and the assembly currently
+   * ACTIVE for the same mark+group (or `null` if none exists), classifies is_outdated /
+   * delta_types / delta_details. No DB access — this is the ONE place "what counts as a
+   * meaningful BOM change" is defined. Shared by `compareAssemblyToLatest()` (single-WO
+   * path: one `findFirst` per call — `bomVersionStatus()`, `applyBomChangeHolds()`,
+   * `ManufacturingOrdersService.findOne()`) and `computeOutdatedWoIds()` (list path: one
+   * batched query for every WO on the page, no per-row lookups).
+   */
+  private classifyAssemblyDelta(
+    assembly: BomAssemblyLike,
+    latestAsm: BomAssemblyLike | null,
+  ): { is_outdated: boolean; delta_types: string[]; delta_details: Record<string, unknown> | null; latest_dispatch_id: number } {
     // No ACTIVE row anywhere in the group for this mark → genuinely removed.
     // (No "latest dispatch for the group" concept survives this fix to report here —
     // fall back to the WO's own dispatch, mirroring the pre-Task-6 fallback shape.)
     if (!latestAsm) {
       return {
         is_outdated: true,
-        delta_types: ['REMOVED'] as string[],
-        delta_details: null as Record<string, unknown> | null,
+        delta_types: ['REMOVED'],
+        delta_details: null,
         latest_dispatch_id: assembly.dispatch_id,
       }
     }
@@ -684,8 +712,8 @@ export class WorkOrdersService {
     if (latestAsm.id === assembly.id) {
       return {
         is_outdated: false,
-        delta_types: [] as string[],
-        delta_details: null as Record<string, unknown> | null,
+        delta_types: [],
+        delta_details: null,
         latest_dispatch_id: latestAsm.dispatch_id,
       }
     }
@@ -732,23 +760,83 @@ export class WorkOrdersService {
   }
 
   /**
-   * Set of dispatch ids that are NOT the newest in their (project, zone, sub_zone)
-   * group — i.e. any WO snapshotting one of these has a newer version available.
-   * One pass over bom_dispatch; used to flag list rows (T-WO.09 badge).
+   * Set of WO ids whose snapshotted assembly is significantly behind the currently
+   * ACTIVE row for its mark — i.e. `is_outdated: true` badge on the list (T-WO.09).
+   *
+   * Replaces the old `outdatedSnapshotDispatchIds()` (Task 8, Sprint 20 WO BOM-Version
+   * Hold — 6th consumer of the same bug class Tasks 1-7 fixed): that method picked a
+   * single most-recently-uploaded `bom_dispatch` per (project, zone, sub_zone) group and
+   * flagged every WO NOT snapshotted on it — blind to independent Main/Acc uploads, so
+   * an Acc-only upload falsely badged every untouched Main-slot WO as outdated on the
+   * list even though the (already-fixed) detail page correctly showed no issue.
+   *
+   * This is a batched, mark-level equivalent of `bomVersionStatus()` /
+   * `compareAssemblyToLatest()`: it does NOT issue one `bom_assembly` query per WO row
+   * (`findAll()` is unpaginated — dozens-to-hundreds of rows per call). Instead:
+   *   1. Collect each row's distinct (assembly_mark, project_id, zone_id, sub_zone_id)
+   *      tuple from the already-loaded `bom_assembly.dispatch` (WO_DETAIL_INCLUDE already
+   *      carries everything this needs — no extra fields required).
+   *   2. ONE query fetches the currently-ACTIVE bom_assembly row for every such tuple.
+   *   3. Each row is classified in-memory via `classifyAssemblyDelta()` — the same pure
+   *      comparison `compareAssemblyToLatest()` uses, so there is exactly one place that
+   *      defines "what counts as a meaningful BOM change" — and gated through
+   *      `isSignificantDelta()`, mirroring the MO `stale_assembly_warnings` pattern
+   *      (`is_outdated && isSignificantDelta(...)`, not raw `is_outdated`): a re-upload
+   *      that reintroduces a byte-identical assembly under a new dispatch_id must not
+   *      re-trigger the same false-positive class this whole plan has been fixing.
    */
-  private async outdatedSnapshotDispatchIds(): Promise<Set<number>> {
-    const dispatches = await this.prisma.bom_dispatch.findMany({
-      select: { id: true, project_id: true, zone_id: true, sub_zone_id: true, uploaded_at: true },
-      orderBy: [{ uploaded_at: 'asc' }, { id: 'asc' }],
-    })
-    const latestPerGroup = new Map<string, number>()
-    for (const d of dispatches) {
-      latestPerGroup.set(`${d.project_id}/${d.zone_id}/${d.sub_zone_id ?? 'null'}`, d.id) // ascending → last wins
+  private async computeOutdatedWoIds(
+    rows: Prisma.work_orderGetPayload<{ include: typeof WO_DETAIL_INCLUDE }>[],
+  ): Promise<Set<number>> {
+    const keyOf = (mark: string, projectId: number, zoneId: number, subZoneId: number | null) =>
+      `${mark}::${projectId}/${zoneId}/${subZoneId ?? 'null'}`
+
+    const tuples = new Map<
+      string,
+      { assembly_mark: string; project_id: number; zone_id: number; sub_zone_id: number | null }
+    >()
+    for (const r of rows) {
+      const d = r.bom_assembly.dispatch
+      const key = keyOf(r.bom_assembly.assembly_mark, d.project_id, d.zone_id, d.sub_zone_id)
+      if (!tuples.has(key)) {
+        tuples.set(key, {
+          assembly_mark: r.bom_assembly.assembly_mark,
+          project_id: d.project_id,
+          zone_id: d.zone_id,
+          sub_zone_id: d.sub_zone_id,
+        })
+      }
     }
+    if (tuples.size === 0) return new Set()
+
+    // Single batched query — NOT one per row. `dispatch` is included (not just
+    // dispatch_id) because the currently-ACTIVE row for a tuple may live on a dispatch
+    // none of `rows` reference at all (e.g. a brand-new upload nobody has snapshotted yet).
+    const activeRows = await this.prisma.bom_assembly.findMany({
+      where: {
+        status: 'ACTIVE',
+        OR: [...tuples.values()].map((t) => ({
+          assembly_mark: t.assembly_mark,
+          dispatch: { project_id: t.project_id, zone_id: t.zone_id, sub_zone_id: t.sub_zone_id },
+        })),
+      },
+      include: { dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
+
+    // At most one ACTIVE row is expected per (mark, group) by design (supersession stamps
+    // the old row INACTIVE on re-upload) — same assumption compareAssemblyToLatest()'s
+    // findFirst() already makes. Last-wins here is no worse than that arbitrary pick.
+    const activeByKey = new Map<string, (typeof activeRows)[number]>()
+    for (const a of activeRows) {
+      activeByKey.set(keyOf(a.assembly_mark, a.dispatch.project_id, a.dispatch.zone_id, a.dispatch.sub_zone_id), a)
+    }
+
     const outdated = new Set<number>()
-    for (const d of dispatches) {
-      const key = `${d.project_id}/${d.zone_id}/${d.sub_zone_id ?? 'null'}`
-      if (latestPerGroup.get(key) !== d.id) outdated.add(d.id)
+    for (const r of rows) {
+      const d = r.bom_assembly.dispatch
+      const key = keyOf(r.bom_assembly.assembly_mark, d.project_id, d.zone_id, d.sub_zone_id)
+      const cmp = this.classifyAssemblyDelta(r.bom_assembly, activeByKey.get(key) ?? null)
+      if (cmp.is_outdated && this.isSignificantDelta(cmp)) outdated.add(r.id)
     }
     return outdated
   }

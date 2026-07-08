@@ -242,6 +242,184 @@ describe('WorkOrdersService.isSignificantDelta', () => {
   })
 })
 
+// Scoped to findAll()'s is_outdated badge (T-WO.09 · Task 8, Sprint 20 WO BOM-Version
+// Hold — 6th consumer of the bug class Tasks 1-7 fixed): computeOutdatedWoIds() replaces
+// the old outdatedSnapshotDispatchIds() (dispatch-recency-per-group, blind to independent
+// Main/Acc uploads) with a batched, mark-level lookup that reuses classifyAssemblyDelta()
+// (the same pure comparator compareAssemblyToLatest() uses) + isSignificantDelta().
+describe('WorkOrdersService.findAll — is_outdated badge (batched)', () => {
+  function makeWoRow(overrides: Partial<{
+    id: number
+    wo_code: string
+    status: string
+    earliest_start_at: Date | null
+    bom_assembly: Record<string, unknown>
+  }> = {}) {
+    return {
+      id: 1,
+      wo_code: 'WO-0001',
+      status: 'NOT_STARTED',
+      sequence: 1,
+      manufacturing_order: {
+        id: 1, mo_code: 'MO-0001', status: 'CONFIRMED',
+        primary_mark_prefix_code: 'WH', primary_mark_prefix: { id: 1, code: 'WH' },
+      },
+      mrp_workcenter: { id: 1, code: 'WC1', name: 'Workcenter 1', machine: null },
+      bom_assembly: {
+        id: 100,
+        dispatch_id: 10,
+        assembly_mark: 'WH-MA-001',
+        qty: 2,
+        weight_kg: 100,
+        surface_area_m2: 5,
+        length_mm: 1000,
+        width_mm: 200,
+        height_mm: 50,
+        attributes: {},
+        dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+      },
+      earliest_start_at: null,
+      actual_start_at: null,
+      actual_end_at: null,
+      target_end_at: null,
+      qty_done: null,
+      qty_scrapped: null,
+      assigned_to: null,
+      bom_dispatch_id_snapshot: 10,
+      ...overrides,
+    }
+  }
+
+  // Simulates the currently-ACTIVE bom_assembly rows across the whole system. The mock
+  // filters by the batched `where.OR` tuples exactly like a real mark+group query would,
+  // so a test can assert the call count independent of how many WO rows are passed in.
+  function makePrisma(rows: ReturnType<typeof makeWoRow>[], activeAssemblies: Record<string, any>[]) {
+    const bomAssemblyFindMany = jest.fn().mockImplementation(({ where }: any) => {
+      const matches = activeAssemblies.filter((a) =>
+        (where.OR as any[]).some(
+          (cond) =>
+            a.assembly_mark === cond.assembly_mark &&
+            a.dispatch.project_id === cond.dispatch.project_id &&
+            a.dispatch.zone_id === cond.dispatch.zone_id &&
+            a.dispatch.sub_zone_id === cond.dispatch.sub_zone_id,
+        ),
+      )
+      return Promise.resolve(matches)
+    })
+    return {
+      work_order: { findMany: jest.fn().mockResolvedValue(rows) },
+      bom_assembly: { findMany: bomAssemblyFindMany },
+    }
+  }
+
+  // Direct reproduction of the bug this task fixes (mirrors Task 6's WO-hold regression
+  // test): a Main-slot WO's assembly ('WH-MA-001', dispatch 10) is genuinely untouched.
+  // The old outdatedSnapshotDispatchIds() picked the single most-recently-uploaded
+  // dispatch per (project, zone, sub_zone) group — an unrelated Acc-only upload (dispatch
+  // 30, mark 'WH-AC-001') would become that "newest" dispatch and falsely flag every WO
+  // snapshotted on dispatch 10, including this untouched Main-slot one. The batched
+  // mark-level lookup ignores which dispatch is newest entirely.
+  it('does NOT flag an untouched Main-slot WO as outdated after an unrelated Acc-only upload to the same group', async () => {
+    const row = makeWoRow() // bom_assembly id 100, dispatch_id 10, mark 'WH-MA-001'
+    const activeAssemblies = [
+      // 'WH-MA-001' is still owned by the WO's own row — untouched.
+      { id: 100, dispatch_id: 10, assembly_mark: 'WH-MA-001', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } },
+      // Unrelated Acc-only upload — different mark, newer dispatch — must not affect the row above.
+      { id: 300, dispatch_id: 30, assembly_mark: 'WH-AC-001', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } },
+    ]
+    const prisma = makePrisma([row], activeAssemblies)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.findAll({})
+
+    expect(result.find((w) => w.id === 1)?.is_outdated).toBe(false)
+  })
+
+  it('flags a WO as outdated when its mark genuinely changed (qty decreased on the currently-ACTIVE row)', async () => {
+    const row = makeWoRow() // bom_assembly id 100, dispatch_id 10, mark 'WH-MA-001', qty 2
+    const activeAssemblies = [
+      // A different, newer row now owns 'WH-MA-001' with a decreased qty — significant.
+      {
+        id: 200, dispatch_id: 20, assembly_mark: 'WH-MA-001', qty: 1,
+        weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {},
+        dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+      },
+    ]
+    const prisma = makePrisma([row], activeAssemblies)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.findAll({})
+
+    expect(result.find((w) => w.id === 1)?.is_outdated).toBe(true)
+  })
+
+  it('flags a WO as outdated when its mark was genuinely removed (no ACTIVE row anywhere in the group)', async () => {
+    const row = makeWoRow()
+    const prisma = makePrisma([row], []) // no ACTIVE rows at all → REMOVED
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.findAll({})
+
+    expect(result.find((w) => w.id === 1)?.is_outdated).toBe(true)
+  })
+
+  // Same false-positive class the whole plan guards against (mirrors MO's
+  // stale_assembly_warnings guard): a re-upload can reintroduce a byte-identical
+  // assembly under a new dispatch_id/id. is_outdated must NOT fire on that alone —
+  // isSignificantDelta() must gate the batched path exactly like the single-WO path.
+  it('does NOT flag a WO when a different ACTIVE row exists for the mark but it is byte-identical (re-upload, no meaningful change)', async () => {
+    const row = makeWoRow() // qty 2, weight_kg 100, surface_area_m2 5, length/width/height 1000/200/50
+    const activeAssemblies = [
+      {
+        id: 200, dispatch_id: 20, assembly_mark: 'WH-MA-001', qty: 2,
+        weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {},
+        dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+      },
+    ]
+    const prisma = makePrisma([row], activeAssemblies)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.findAll({})
+
+    expect(result.find((w) => w.id === 1)?.is_outdated).toBe(false)
+  })
+
+  // The core performance constraint: findAll() is unpaginated (dozens-to-hundreds of WOs
+  // per real call), so the ACTIVE-row lookup must be ONE batched query regardless of how
+  // many rows (or distinct groups) are present — never one query per row.
+  it('issues exactly one batched bom_assembly query regardless of WO row count (no N+1)', async () => {
+    const rows = [
+      makeWoRow({ id: 1, bom_assembly: { ...makeWoRow().bom_assembly, id: 100, assembly_mark: 'WH-MA-001' } }),
+      makeWoRow({ id: 2, bom_assembly: { ...makeWoRow().bom_assembly, id: 101, dispatch_id: 11, assembly_mark: 'WH-MA-002' } }),
+      makeWoRow({ id: 3, bom_assembly: { ...makeWoRow().bom_assembly, id: 102, dispatch_id: 12, assembly_mark: 'WH-MA-003' } }),
+      makeWoRow({ id: 4, bom_assembly: { ...makeWoRow().bom_assembly, id: 103, dispatch_id: 13, assembly_mark: 'WH-MA-004' } }),
+      makeWoRow({ id: 5, bom_assembly: { ...makeWoRow().bom_assembly, id: 104, dispatch_id: 14, assembly_mark: 'WH-MA-005' } }),
+    ]
+    const activeAssemblies = rows.map((r) => ({
+      ...(r.bom_assembly as Record<string, unknown>),
+      dispatch: (r.bom_assembly as any).dispatch,
+    }))
+    const prisma = makePrisma(rows, activeAssemblies)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.findAll({})
+
+    expect(result).toHaveLength(5)
+    expect(prisma.bom_assembly.findMany).toHaveBeenCalledTimes(1) // one batched call, not five
+    result.forEach((w) => expect(w.is_outdated).toBe(false)) // each WO owns its own mark's ACTIVE row untouched
+  })
+
+  it('returns an empty outdated set (and skips the query entirely) when findAll() returns no rows', async () => {
+    const prisma = makePrisma([], [])
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.findAll({})
+
+    expect(result).toEqual([])
+    expect(prisma.bom_assembly.findMany).not.toHaveBeenCalled()
+  })
+})
+
 // Scoped to applyBomChangeHolds() (WO BOM-Version Hold, Sprint 20 T02) — the
 // hold-trigger logic invoked post-commit from BomUploadService.upload().
 //
