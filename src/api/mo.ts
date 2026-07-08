@@ -124,7 +124,7 @@ export interface AssemblyPickerItem {
   project_due_date: string | null
   zone_end_date: string | null
   sub_zone_due_date: string | null
-  bom_version: number
+  bom_version: string
   total: number
   allocated: number
   remaining: number
@@ -134,7 +134,7 @@ export interface AssemblyPickerItem {
 export interface AssemblyPickerGroup {
   key: Record<string, string | null> | null
   label: string
-  bom_version: number | null
+  bom_version: string | null
   project_due_date: string | null
   zone_end_date: string | null
   sub_zone_due_date: string | null

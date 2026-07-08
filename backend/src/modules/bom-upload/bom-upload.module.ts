@@ -14,5 +14,6 @@ import { WorkOrdersModule } from '../work-orders/work-orders.module'
   imports: [FileStorageModule, ProductDerivationModule, ProductsModule, WorkOrdersModule],
   controllers: [BomUploadController],
   providers: [BomUploadService, BomDiffService, BomMatchingService, XlsxParserService, PaintConfigService],
+  exports: [BomDiffService],
 })
 export class BomUploadModule {}
