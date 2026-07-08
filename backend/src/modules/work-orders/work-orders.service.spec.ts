@@ -32,15 +32,80 @@ function makeDispatch(id: number, uploaded_at: Date) {
 }
 
 describe('WorkOrdersService.bomVersionStatus', () => {
-  it('returns is_outdated: false when the snapshot dispatch is already the latest', async () => {
+  // Task 6 (Sprint 20 WO BOM-Version Hold false-positive bugfix): compareAssemblyToLatest()
+  // now finds "the latest" via a single direct `bom_assembly.findFirst({ status: 'ACTIVE',
+  // assembly_mark, dispatch: { project_id, zone_id, sub_zone_id } })` query — not via a
+  // dispatch-level "most recently uploaded dispatch in the group" lookup (the old, buggy
+  // latestDispatchForGroup() mechanism, deleted in this task). bom_dispatch.findFirst is
+  // no longer called anywhere in this flow.
+
+  it('returns is_outdated: false when the currently ACTIVE row for the mark is the WO\'s own snapshotted row', async () => {
     const wo = makeWo()
     const snap = makeDispatch(10, new Date('2026-01-01'))
     const prisma = {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(snap),
-        findFirst: jest.fn().mockResolvedValue(snap), // latestDispatchForGroup — same dispatch
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
+      // The mark-scoped ACTIVE lookup finds the WO's own row (id 100) — untouched.
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(wo.bom_assembly) },
+    }
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.bomVersionStatus(1)
+
+    expect(result).toMatchObject({ is_outdated: false, delta_types: [], delta_details: null })
+    expect(prisma.bom_assembly.findFirst).toHaveBeenCalledWith({
+      where: {
+        assembly_mark: 'WH-CO-001',
+        status: 'ACTIVE',
+        dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
       },
+    })
+  })
+
+  // This is the direct regression test for the confirmed production bug: a Main-slot
+  // WO's assembly ('WH-MA-001', dispatch 10) is genuinely untouched, but an unrelated
+  // Acc-only upload (dispatch 30, mark 'WH-AC-001') is the group's most-recently-uploaded
+  // dispatch. A dispatch-scoped "latest dispatch" lookup (the old, deleted
+  // latestDispatchForGroup() mechanism) would search dispatch 30 for 'WH-MA-001', find
+  // nothing, and wrongly classify REMOVED — auto-holding an untouched WO. The mark-scoped
+  // ACTIVE lookup ignores which dispatch is "newest" entirely and correctly finds the WO's
+  // own still-ACTIVE row regardless of what else was uploaded to the group afterwards.
+  it('does NOT classify REMOVED when the newest dispatch in the group is an unrelated Acc-only upload that never touched this mark (Task 6 false-positive repro)', async () => {
+    const wo = makeWo({ bom_assembly: { ...makeWo().bom_assembly, assembly_mark: 'WH-MA-001' } }) // Main-slot mark, dispatch 10
+    const snap = makeDispatch(10, new Date('2026-01-01'))
+    // Simulated group state: dispatch 10 (Main, older) still owns the only ACTIVE row for
+    // 'WH-MA-001'; dispatch 30 (Acc, newer — the group's overall most-recent upload) only
+    // touched a different mark, 'WH-AC-001'. A per-mark ACTIVE query must find the former
+    // and never get confused by the latter simply being "more recent".
+    const groupRows = [
+      { ...wo.bom_assembly, id: 100, dispatch_id: 10, assembly_mark: 'WH-MA-001', status: 'ACTIVE' },
+      {
+        id: 300, dispatch_id: 30, assembly_mark: 'WH-AC-001', status: 'ACTIVE',
+        qty: 1, weight_kg: 1, surface_area_m2: 1, length_mm: 1, width_mm: 1, height_mm: 1, attributes: {},
+      },
+    ]
+    const prisma = {
+      work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
+      bom_assembly: {
+        findFirst: jest.fn().mockImplementation(({ where }: { where: { assembly_mark: string; status: string } }) =>
+          Promise.resolve(groupRows.find((r) => r.assembly_mark === where.assembly_mark && r.status === where.status) ?? null),
+        ),
+      },
+    }
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.bomVersionStatus(1)
+
+    expect(result.is_outdated).toBe(false)
+    expect(result.delta_types).toEqual([])
+  })
+
+  it('returns is_outdated: false when the snapshot dispatch row no longer exists', async () => {
+    const wo = makeWo()
+    const prisma = {
+      work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(null) }, // snapshot row deleted
       bom_assembly: { findFirst: jest.fn() },
     }
     const svc = new WorkOrdersService(prisma as any)
@@ -51,35 +116,13 @@ describe('WorkOrdersService.bomVersionStatus', () => {
     expect(prisma.bom_assembly.findFirst).not.toHaveBeenCalled()
   })
 
-  it('returns is_outdated: false when the snapshot dispatch row no longer exists', async () => {
-    const wo = makeWo()
-    const prisma = {
-      work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(null), // snapshot row deleted
-        findFirst: jest.fn(),
-      },
-      bom_assembly: { findFirst: jest.fn() },
-    }
-    const svc = new WorkOrdersService(prisma as any)
-
-    const result = await svc.bomVersionStatus(1)
-
-    expect(result).toMatchObject({ is_outdated: false, delta_types: [], delta_details: null })
-    expect(prisma.bom_dispatch.findFirst).not.toHaveBeenCalled()
-  })
-
-  it('classifies REMOVED when the assembly mark no longer exists in the latest dispatch', async () => {
+  it('classifies REMOVED when no ACTIVE row for the mark exists anywhere in the group', async () => {
     const wo = makeWo()
     const snap = makeDispatch(10, new Date('2026-01-01'))
-    const latest = makeDispatch(20, new Date('2026-02-01'))
     const prisma = {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(snap),
-        findFirst: jest.fn().mockResolvedValue(latest),
-      },
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null) }, // mark not found in latest
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null) }, // no ACTIVE row for this mark in the group
     }
     const svc = new WorkOrdersService(prisma as any)
 
@@ -93,14 +136,10 @@ describe('WorkOrdersService.bomVersionStatus', () => {
   it('classifies QTY_CHANGED with delta_details.qty when only qty differs', async () => {
     const wo = makeWo()
     const snap = makeDispatch(10, new Date('2026-01-01'))
-    const latest = makeDispatch(20, new Date('2026-02-01'))
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 } // qty 2 -> 5, spec unchanged
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 5 } // qty 2 -> 5, spec unchanged
     const prisma = {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(snap),
-        findFirst: jest.fn().mockResolvedValue(latest),
-      },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(latestAsm) },
     }
     const svc = new WorkOrdersService(prisma as any)
@@ -110,19 +149,16 @@ describe('WorkOrdersService.bomVersionStatus', () => {
     expect(result.is_outdated).toBe(true)
     expect(result.delta_types).toEqual(['QTY_CHANGED'])
     expect(result.delta_details).toEqual({ qty: { from: 2, to: 5 } })
+    expect(result.latest_dispatch_id).toBe(20)
   })
 
   it('classifies SPEC_CHANGED with delta_details.spec when only a dimension (length_mm) differs', async () => {
     const wo = makeWo()
     const snap = makeDispatch(10, new Date('2026-01-01'))
-    const latest = makeDispatch(20, new Date('2026-02-01'))
-    const latestAsm = { ...wo.bom_assembly, id: 200, length_mm: 1200 } // qty unchanged, length resized
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, length_mm: 1200 } // qty unchanged, length resized
     const prisma = {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(snap),
-        findFirst: jest.fn().mockResolvedValue(latest),
-      },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(latestAsm) },
     }
     const svc = new WorkOrdersService(prisma as any)
@@ -142,14 +178,10 @@ describe('WorkOrdersService.bomVersionStatus', () => {
   it('classifies both QTY_CHANGED and SPEC_CHANGED when qty and a dimension both differ', async () => {
     const wo = makeWo()
     const snap = makeDispatch(10, new Date('2026-01-01'))
-    const latest = makeDispatch(20, new Date('2026-02-01'))
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3, width_mm: 250 }
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 3, width_mm: 250 }
     const prisma = {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(snap),
-        findFirst: jest.fn().mockResolvedValue(latest),
-      },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(latestAsm) },
     }
     const svc = new WorkOrdersService(prisma as any)
@@ -167,7 +199,7 @@ describe('WorkOrdersService.bomVersionStatus', () => {
   it('throws NotFoundException when the work order does not exist', async () => {
     const prisma = {
       work_order: { findUnique: jest.fn().mockResolvedValue(null) },
-      bom_dispatch: { findUnique: jest.fn(), findFirst: jest.fn() },
+      bom_dispatch: { findUnique: jest.fn() },
       bom_assembly: { findFirst: jest.fn() },
     }
     const svc = new WorkOrdersService(prisma as any)
@@ -213,23 +245,24 @@ describe('WorkOrdersService.isSignificantDelta', () => {
 // Scoped to applyBomChangeHolds() (WO BOM-Version Hold, Sprint 20 T02) — the
 // hold-trigger logic invoked post-commit from BomUploadService.upload().
 //
-// dispatchId 20 is always the just-uploaded dispatch (the "new" group head);
-// dispatch 10 is a candidate WO's/line's pre-existing (now superseded) snapshot.
-// Both share the same (project_id:1, zone_id:1, sub_zone_id:null) group, so
-// bom_dispatch.findFirst (latestDispatchForGroup) always resolves to dispatch 20
-// regardless of which call site (bomVersionStatus vs compareAssemblyToLatest)
-// triggered the lookup.
+// dispatchId 20 is always the just-uploaded dispatch that triggered the check;
+// dispatch 10 is a candidate WO's/line's pre-existing (now potentially superseded)
+// snapshot. Task 6: bom_assembly.findFirst is now keyed by assembly_mark + status
+// ('ACTIVE') — NOT by dispatch_id — so `activeByMark` below simulates "the row
+// currently ACTIVE for this mark anywhere in the group", independent of which
+// dispatch is newest. bom_dispatch.findFirst (the old latestDispatchForGroup()
+// mechanism) is gone — no longer mocked here.
 describe('WorkOrdersService.applyBomChangeHolds', () => {
   function makePrisma(overrides: {
     candidates?: { id: number; status: string }[]
     woById?: Record<number, ReturnType<typeof makeWo>>
-    latestAsm?: Record<number, unknown> // keyed by wo id, for bomVersionStatus's comparison
+    activeByMark?: Record<string, unknown | null> // keyed by assembly_mark
   } = {}) {
     const newDispatch = makeDispatch(20, new Date('2026-02-01'))
     const snap = makeDispatch(10, new Date('2026-01-01'))
     const candidates = overrides.candidates ?? []
     const woById = overrides.woById ?? {}
-    const latestAsm = overrides.latestAsm ?? {}
+    const activeByMark = overrides.activeByMark ?? {}
 
     const prisma: any = {
       bom_dispatch: {
@@ -238,7 +271,6 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
           if (id === 10) return Promise.resolve(snap)
           return Promise.resolve(null)
         }),
-        findFirst: jest.fn().mockResolvedValue(newDispatch), // latestDispatchForGroup → dispatch 20 is always latest
       },
       work_order: {
         findMany: jest.fn().mockResolvedValue(candidates),
@@ -249,27 +281,25 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
       },
       work_order_event: { create: jest.fn() },
       bom_assembly: {
-        findFirst: jest.fn().mockImplementation(({ where }: { where: { dispatch_id: number; assembly_mark: string } }) => {
-          if (where.dispatch_id !== 20) return Promise.resolve(null)
-          for (const wo of Object.values(woById)) {
-            if (wo.bom_assembly.assembly_mark === where.assembly_mark && latestAsm[wo.id] !== undefined) {
-              return Promise.resolve(latestAsm[wo.id])
-            }
-          }
-          return Promise.resolve(null)
-        }),
+        findFirst: jest.fn().mockImplementation(({ where }: { where: { assembly_mark: string; status: string } }) =>
+          Promise.resolve(
+            Object.prototype.hasOwnProperty.call(activeByMark, where.assembly_mark)
+              ? activeByMark[where.assembly_mark]
+              : null,
+          ),
+        ),
       },
       $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
     }
     return prisma
   }
 
-  it('sets ON_HOLD + writes a HOLD event for a WO whose assembly was REMOVED in the new dispatch', async () => {
+  it('sets ON_HOLD + writes a HOLD event for a WO whose assembly was REMOVED', async () => {
     const wo = makeWo() // bom_assembly.dispatch_id: 10, assembly_mark: 'WH-CO-001'
     const prisma = makePrisma({
       candidates: [{ id: 1, status: 'IN_PROGRESS' }],
       woById: { 1: wo },
-      latestAsm: { 1: null }, // REMOVED — no matching mark in dispatch 20
+      activeByMark: { 'WH-CO-001': null }, // REMOVED — no ACTIVE row for this mark anywhere in the group
     })
     const svc = new WorkOrdersService(prisma)
 
@@ -290,7 +320,7 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     const prisma = makePrisma({
       candidates: [{ id: 1, status: 'RELEASED' }],
       woById: { 1: wo },
-      latestAsm: { 1: { ...wo.bom_assembly, id: 200, qty: 2 } },
+      activeByMark: { 'WH-CO-001': { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 2 } },
     })
     const svc = new WorkOrdersService(prisma)
 
@@ -308,7 +338,7 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     const prisma = makePrisma({
       candidates: [{ id: 1, status: 'IN_PROGRESS' }],
       woById: { 1: wo },
-      latestAsm: { 1: { ...wo.bom_assembly, id: 200, qty: 2 } },
+      activeByMark: { 'WH-CO-001': { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 2 } },
     })
     const svc = new WorkOrdersService(prisma)
 
@@ -324,7 +354,7 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     const prisma = makePrisma({
       candidates: [{ id: 1, status: 'IN_PROGRESS' }],
       woById: { 1: wo },
-      latestAsm: { 1: { ...wo.bom_assembly, id: 200, length_mm: 1200 } }, // qty unchanged, length resized
+      activeByMark: { 'WH-CO-001': { ...wo.bom_assembly, id: 200, dispatch_id: 20, length_mm: 1200 } }, // qty unchanged, length resized
     })
     const svc = new WorkOrdersService(prisma)
 
@@ -352,12 +382,12 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     expect(result.held_wo_ids).toEqual([])
   })
 
-  // This is the bugfix regression test: is_outdated is true (a newer dispatch
-  // exists for the group) but the matching assembly in the latest dispatch is
-  // byte-identical (same qty/weight/dims) — a real, reachable case (e.g. a
-  // re-upload that reintroduces an assembly with unchanged specs). delta_types
-  // is genuinely empty, so this must NOT hold the WO. This already passed before
-  // the isSignificantDelta refactor (the inline isRemoved/isSpecChanged/isQtyDecrease
+  // This is the bugfix regression test: is_outdated is true (a different ACTIVE
+  // row exists for this mark elsewhere in the group) but it is byte-identical
+  // (same qty/weight/dims) — a real, reachable case (e.g. a re-upload that
+  // reintroduces an assembly with unchanged specs). delta_types is genuinely
+  // empty, so this must NOT hold the WO. This already passed before the
+  // isSignificantDelta refactor (the inline isRemoved/isSpecChanged/isQtyDecrease
   // computation was already correct here) — it exists to confirm the refactor
   // doesn't regress it.
   it('does NOT hold when is_outdated is true but delta_types is empty (byte-identical re-upload)', async () => {
@@ -365,7 +395,7 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     const prisma = makePrisma({
       candidates: [{ id: 1, status: 'IN_PROGRESS' }],
       woById: { 1: wo },
-      latestAsm: { 1: { ...wo.bom_assembly, id: 200 } }, // same qty/spec — only id/dispatch differ
+      activeByMark: { 'WH-CO-001': { ...wo.bom_assembly, id: 200, dispatch_id: 20 } }, // same qty/spec — only id/dispatch differ
     })
     const svc = new WorkOrdersService(prisma)
 
@@ -374,6 +404,57 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
     expect(result.held_wo_ids).not.toContain(1)
     expect(prisma.work_order.update).not.toHaveBeenCalled()
     expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  // Task 6: the confirmed production bug, reproduced end-to-end through the exact
+  // entry point BomUploadService.upload() calls post-commit. dispatch 20 is an
+  // Acc-only upload that only superseded 'WH-AC-002' (Acc slot). WO 1 (Main slot,
+  // mark 'WH-MA-001') is a candidate purely because it's in the same (project,
+  // zone, sub_zone) group — its own assembly is completely untouched by dispatch
+  // 20. The old dispatch-scoped "latest dispatch" lookup would have searched
+  // dispatch 20 for 'WH-MA-001', found nothing, classified REMOVED, and
+  // auto-flipped WO 1 to ON_HOLD — the exact bug. WO 2 (Acc slot, mark
+  // 'WH-AC-002') genuinely was superseded (qty decreased) and must still be held,
+  // proving the fix doesn't over-correct into never holding anything.
+  it('does NOT auto-hold an untouched Main-slot WO when an unrelated Acc-only upload triggers the group check (false-positive-hold regression)', async () => {
+    const mainWo = {
+      ...makeWo(),
+      id: 1,
+      bom_assembly: { ...makeWo().bom_assembly, id: 100, dispatch_id: 10, assembly_mark: 'WH-MA-001' },
+    }
+    const accWo = {
+      ...makeWo(),
+      id: 2,
+      bom_assembly: { ...makeWo().bom_assembly, id: 150, dispatch_id: 15, assembly_mark: 'WH-AC-002', qty: 4 },
+    }
+    const prisma = makePrisma({
+      candidates: [
+        { id: 1, status: 'IN_PROGRESS' }, // Main — untouched
+        { id: 2, status: 'RELEASED' }, // Acc — genuinely superseded
+      ],
+      woById: { 1: mainWo, 2: accWo },
+      activeByMark: {
+        // Main mark's ACTIVE row is still WO 1's own row — dispatch 20 never touched it.
+        'WH-MA-001': mainWo.bom_assembly,
+        // Acc mark's ACTIVE row moved to dispatch 20 with a decreased qty.
+        'WH-AC-002': { ...accWo.bom_assembly, id: 250, dispatch_id: 20, qty: 2 },
+      },
+    })
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.applyBomChangeHolds(20)
+
+    expect(result.held_wo_ids).toEqual([2])
+    expect(result.held_wo_ids).not.toContain(1)
+    expect(prisma.work_order.update).toHaveBeenCalledTimes(1)
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { status: 'ON_HOLD', pre_hold_status: 'RELEASED' },
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1)
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ work_order_id: 2, event_type: 'HOLD' }),
+    })
   })
 
   it('returns held_wo_ids: [] when nothing in the group is affected', async () => {
@@ -399,7 +480,7 @@ describe('WorkOrdersService.applyBomChangeHolds', () => {
         { id: 3, status: 'IN_PROGRESS' },
       ],
       woById: { 1: wo1, 2: wo2, 3: wo3 },
-      latestAsm: { 1: null, 2: null, 3: null }, // REMOVED for all three — every candidate attempts a hold
+      activeByMark: { 'WH-CO-001': null, 'WH-CO-002': null, 'WH-CO-003': null }, // REMOVED for all three — every candidate attempts a hold
     })
     prisma.work_order.update = jest.fn().mockImplementation(({ where: { id } }: { where: { id: number } }) => {
       if (id === 2) throw new Error('transient DB error')
@@ -460,19 +541,19 @@ describe('WorkOrdersService.acceptNewVersion', () => {
     }
   }
 
-  // latestAsm: null simulates REMOVED (no matching assembly_mark in the latest dispatch).
+  // latestAsm: null simulates REMOVED (no ACTIVE row for this mark anywhere in the
+  // group). Task 6: bom_assembly.findFirst is now the sole lookup (no more
+  // bom_dispatch.findFirst / latestDispatchForGroup) — fixtures set dispatch_id: 20
+  // to represent "the dispatch that owns the currently ACTIVE row for this mark",
+  // which is what latest_dispatch_id / bom_dispatch_id_snapshot get set to on accept.
   function makePrisma(wo: ReturnType<typeof makeFullWo>, latestAsm: Record<string, unknown> | null) {
     const snap = makeDispatch(10, new Date('2026-01-01'))
-    const latest = makeDispatch(20, new Date('2026-02-01'))
     const prisma: any = {
       work_order: {
         findUnique: jest.fn().mockResolvedValue(wo),
         update: jest.fn(),
       },
-      bom_dispatch: {
-        findUnique: jest.fn().mockResolvedValue(snap),
-        findFirst: jest.fn().mockResolvedValue(latest), // latestDispatchForGroup
-      },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(latestAsm) },
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
@@ -482,7 +563,7 @@ describe('WorkOrdersService.acceptNewVersion', () => {
 
   it('throws 400 when resolving from ON_HOLD without a note', async () => {
     const wo = makeFullWo()
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 }
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 5 }
     const prisma = makePrisma(wo, latestAsm)
     const svc = new WorkOrdersService(prisma)
 
@@ -493,7 +574,7 @@ describe('WorkOrdersService.acceptNewVersion', () => {
 
   it('requires qty_reusable when qty_done exceeds the newly-adopted qty, throws 400 without it', async () => {
     const wo = makeFullWo({ qty_done: 5 })
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 3 } // newQty 3 < qty_done 5
     const prisma = makePrisma(wo, latestAsm)
     const svc = new WorkOrdersService(prisma)
 
@@ -505,7 +586,7 @@ describe('WorkOrdersService.acceptNewVersion', () => {
 
   it('throws 400 when qty_reusable exceeds qty_done (server-side upper bound)', async () => {
     const wo = makeFullWo({ qty_done: 5 })
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
     const prisma = makePrisma(wo, latestAsm)
     const svc = new WorkOrdersService(prisma)
 
@@ -517,7 +598,7 @@ describe('WorkOrdersService.acceptNewVersion', () => {
 
   it('accepts, writes qty_reusable, restores pre_hold_status, clears it, and appends the note to the event', async () => {
     const wo = makeFullWo({ qty_done: 5, pre_hold_status: 'IN_PROGRESS' })
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 3 } // newQty 3 < qty_done 5 → qty_reusable required
     const prisma = makePrisma(wo, latestAsm)
     const svc = new WorkOrdersService(prisma)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
@@ -550,7 +631,7 @@ describe('WorkOrdersService.acceptNewVersion', () => {
 
   it('resolves ON_HOLD with a note when qty_reusable is not required and is correctly omitted (succeeds, not 400)', async () => {
     const wo = makeFullWo({ qty_done: null, pre_hold_status: 'IN_PROGRESS' }) // qty_done null → qty_reusable never required
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 } // qty increase, informational only
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 5 } // qty increase, informational only
     const prisma = makePrisma(wo, latestAsm)
     const svc = new WorkOrdersService(prisma)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
@@ -579,15 +660,24 @@ describe('WorkOrdersService.acceptNewVersion', () => {
     expect(result).toEqual({ id: 1 })
   })
 
-  it('still 409s on REMOVED regardless of note/qty_reusable (existing guard unchanged)', async () => {
+  // Task 6: compareAssemblyToLatest()'s REMOVED branch falls back to
+  // latest_dispatch_id: assembly.dispatch_id (there's no "latest dispatch for the
+  // group" concept left once the lookup is mark-scoped), which equals
+  // snapshot_dispatch_id — the same value the "already on latest version" guard
+  // checks. Without checking REMOVED first, that guard would fire instead and mask
+  // the more specific, correct error below. Assert on the actual response shape
+  // (not just the exception type) to lock in the fix.
+  it('still 409s on REMOVED regardless of note/qty_reusable, with the specific REMOVED message (not the generic "already latest" guard)', async () => {
     const wo = makeFullWo({ qty_done: 5 }) // would otherwise also require qty_reusable — REMOVED must win
-    const prisma = makePrisma(wo, null) // REMOVED — no matching assembly_mark in latest dispatch
+    const prisma = makePrisma(wo, null) // REMOVED — no ACTIVE row for this mark anywhere in the group
 
     const svc = new WorkOrdersService(prisma)
 
     await expect(
       svc.acceptNewVersion(1, 'tester', { note: 'doesnt matter', qty_reusable: 999 }),
-    ).rejects.toThrow(ConflictException)
+    ).rejects.toMatchObject({
+      message: expect.stringContaining('REMOVED'),
+    })
     await expect(
       svc.acceptNewVersion(1, 'tester', {} as any), // and with no note/qty_reusable at all
     ).rejects.toThrow(ConflictException)
@@ -596,7 +686,7 @@ describe('WorkOrdersService.acceptNewVersion', () => {
 
   it('accepting a non-ON_HOLD WO does not require a note (preserves existing behavior)', async () => {
     const wo = makeFullWo({ status: 'IN_PROGRESS', pre_hold_status: null, qty_done: null })
-    const latestAsm = { ...wo.bom_assembly, id: 200, qty: 5 } // qty increase, informational only
+    const latestAsm = { ...wo.bom_assembly, id: 200, dispatch_id: 20, qty: 5 } // qty increase, informational only
     const prisma = makePrisma(wo, latestAsm)
     const svc = new WorkOrdersService(prisma)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)

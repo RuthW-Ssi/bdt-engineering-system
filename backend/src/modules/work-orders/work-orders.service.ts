@@ -479,14 +479,20 @@ export class WorkOrdersService {
   async acceptNewVersion(id: number, userName: string, dto: AcceptVersionDto) {
     const wo = await this.requireWo(id)
     const status = await this.bomVersionStatus(id)
-    if (!status.is_outdated || status.latest_dispatch_id === status.snapshot_dispatch_id) {
-      throw new ConflictException('Work order is already on the latest BOM version')
-    }
+    // REMOVED is checked first (Task 6): compareAssemblyToLatest()'s mark-scoped
+    // ACTIVE lookup has no "latest dispatch for the group" left to report for a
+    // genuinely-removed mark, so latest_dispatch_id falls back to the WO's own
+    // snapshot dispatch id in that case — which would otherwise equal
+    // snapshot_dispatch_id and trip the "already on latest version" guard below,
+    // masking the more specific REMOVED error.
     if (status.delta_types.includes('REMOVED')) {
       throw new ConflictException({
         message: 'Assembly was REMOVED in the new version — cancel the WO instead of accepting',
         delta_types: status.delta_types,
       })
+    }
+    if (!status.is_outdated || status.latest_dispatch_id === status.snapshot_dispatch_id) {
+      throw new ConflictException('Work order is already on the latest BOM version')
     }
     const latestAsm = await this.prisma.bom_assembly.findFirst({
       where: { dispatch_id: status.latest_dispatch_id, assembly_mark: status.assembly_mark },
@@ -617,28 +623,30 @@ export class WorkOrdersService {
   }
 
   // ── BOM-version helpers ─────────────────────────────────────────────────────
-  private async latestDispatchForGroup(d: {
-    project_id: number
-    zone_id: number
-    sub_zone_id: number | null
-  }) {
-    return this.prisma.bom_dispatch.findFirst({
-      where: { project_id: d.project_id, zone_id: d.zone_id, sub_zone_id: d.sub_zone_id },
-      orderBy: [{ uploaded_at: 'desc' }, { id: 'desc' }],
-    })
-  }
-
   /**
    * Shared comparison extracted from `bomVersionStatus()`: given an already-loaded
-   * assembly and the (project, zone, sub_zone) group it belongs to, find the latest
-   * dispatch for that group and classify the delta (REMOVED / QTY_CHANGED / SPEC_CHANGED)
-   * between `assembly` and the matching assembly_mark in the latest dispatch.
+   * assembly and the (project, zone, sub_zone) group it belongs to, find the
+   * currently ACTIVE assembly row for the same assembly_mark anywhere in the group
+   * and classify the delta (REMOVED / QTY_CHANGED / SPEC_CHANGED) against it.
+   *
+   * Task 6 (Sprint 20 WO BOM-Version Hold false-positive bugfix): the lookup is a
+   * direct `status: 'ACTIVE'` query scoped to the mark + group, NOT to "the single
+   * most-recently-uploaded dispatch in the group" (the old `latestDispatchForGroup()`
+   * mechanism, deleted here). Main and Acc slots — and, more generally, any two
+   * dispatches in the same group — are uploaded independently, so the newest
+   * dispatch overall is not necessarily the dispatch that owns this mark's current
+   * active row. Scoping the mark lookup to "the latest dispatch" was blind to that
+   * and produced a false REMOVED (and, via `applyBomChangeHolds()`, a false
+   * ON_HOLD) for an untouched Main-slot WO whenever an unrelated Acc-only upload
+   * happened to be the newest dispatch in the group — same bug class already fixed
+   * in Tasks 4/5 for BOM Diff and the mark-prefix/assembly-picker endpoints.
    *
    * Deliberately not `private` — `applyBomChangeHolds()` uses it for WO holds, and
    * `ManufacturingOrdersService` (Task 5) calls it directly for stale-assembly warnings.
    */
   async compareAssemblyToLatest(
     assembly: {
+      id: number
       dispatch_id: number
       assembly_mark: string
       qty: Prisma.Decimal | number | null
@@ -651,42 +659,57 @@ export class WorkOrdersService {
     },
     group: { project_id: number; zone_id: number; sub_zone_id: number | null },
   ) {
-    const latest = await this.latestDispatchForGroup(group)
-    const latest_dispatch_id = latest?.id ?? assembly.dispatch_id
+    const latestAsm = await this.prisma.bom_assembly.findFirst({
+      where: {
+        assembly_mark: assembly.assembly_mark,
+        status: 'ACTIVE',
+        dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id },
+      },
+    })
 
-    // Already on the latest version for this group → nothing to alert.
-    if (!latest || latest.id === assembly.dispatch_id) {
-      return { is_outdated: false, delta_types: [] as string[], delta_details: null as Record<string, unknown> | null, latest_dispatch_id }
+    // No ACTIVE row anywhere in the group for this mark → genuinely removed.
+    // (No "latest dispatch for the group" concept survives this fix to report here —
+    // fall back to the WO's own dispatch, mirroring the pre-Task-6 fallback shape.)
+    if (!latestAsm) {
+      return {
+        is_outdated: true,
+        delta_types: ['REMOVED'] as string[],
+        delta_details: null as Record<string, unknown> | null,
+        latest_dispatch_id: assembly.dispatch_id,
+      }
     }
 
-    const latestAsm = await this.prisma.bom_assembly.findFirst({
-      where: { dispatch_id: latest.id, assembly_mark: assembly.assembly_mark },
-    })
+    // The currently ACTIVE row for this mark IS this WO's own snapshotted row →
+    // already on the latest version for this group, nothing to alert.
+    if (latestAsm.id === assembly.id) {
+      return {
+        is_outdated: false,
+        delta_types: [] as string[],
+        delta_details: null as Record<string, unknown> | null,
+        latest_dispatch_id: latestAsm.dispatch_id,
+      }
+    }
 
     const delta_types: string[] = []
     const delta_details: Record<string, unknown> = {}
-    if (!latestAsm) {
-      delta_types.push('REMOVED')
-    } else {
-      const fromQty = Number(assembly.qty ?? 0)
-      const toQty = Number(latestAsm.qty ?? 0)
-      if (fromQty !== toQty) {
-        delta_types.push('QTY_CHANGED')
-        delta_details.qty = { from: fromQty, to: toQty }
-      }
-      const fromSpec = this.specOf(assembly)
-      const toSpec = this.specOf(latestAsm)
-      if (JSON.stringify(fromSpec) !== JSON.stringify(toSpec)) {
-        delta_types.push('SPEC_CHANGED')
-        delta_details.spec = { from: fromSpec, to: toSpec }
-      }
+    const fromQty = Number(assembly.qty ?? 0)
+    const toQty = Number(latestAsm.qty ?? 0)
+    if (fromQty !== toQty) {
+      delta_types.push('QTY_CHANGED')
+      delta_details.qty = { from: fromQty, to: toQty }
+    }
+    const fromSpec = this.specOf(assembly)
+    const toSpec = this.specOf(latestAsm)
+    if (JSON.stringify(fromSpec) !== JSON.stringify(toSpec)) {
+      delta_types.push('SPEC_CHANGED')
+      delta_details.spec = { from: fromSpec, to: toSpec }
     }
 
     return {
-      is_outdated: true, // a newer dispatch exists for this group
+      is_outdated: true, // a different ACTIVE row exists for this mark elsewhere in the group
       delta_types,
       delta_details: Object.keys(delta_details).length ? delta_details : null,
-      latest_dispatch_id,
+      latest_dispatch_id: latestAsm.dispatch_id,
     }
   }
 
