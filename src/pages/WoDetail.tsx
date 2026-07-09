@@ -12,10 +12,7 @@ import type { WoAction, WoStatus, WoDetail as WoDetailT, SourceRoutingOp } from 
 const TABS = ['Overview', 'Schedule', 'Events'] as const
 type Tab = (typeof TABS)[number]
 
-// 'accept-hold' is a frontend-only pseudo-action (ON_HOLD resolution, opens
-// WoHoldResolutionModal) — it doesn't map to a woTransition() WoAction; the
-// real endpoint is acceptNewVersion() (POST /wo/:id/accept-new-version).
-type ActionDef = { action: WoAction | 'accept-hold'; label: string; danger?: boolean; needs?: 'reason' | 'qty' }
+type ActionDef = { action: WoAction; label: string; danger?: boolean; needs?: 'reason' | 'qty' }
 
 // Context-aware actions per status (T-WO.05 mirror · sticky header buttons)
 const ACTIONS: Record<WoStatus, ActionDef[]> = {
@@ -23,10 +20,10 @@ const ACTIONS: Record<WoStatus, ActionDef[]> = {
   RELEASED: [{ action: 'start', label: 'Start' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
   IN_PROGRESS: [{ action: 'pause', label: 'Pause', needs: 'reason' }, { action: 'done', label: 'Complete', needs: 'qty' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
   PAUSED: [{ action: 'resume', label: 'Resume' }, { action: 'done', label: 'Complete', needs: 'qty' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
-  // ON_HOLD (WO BOM-Version Hold, Sprint 20): only Accept or Cancel — no passive
-  // dismiss. Accept is hidden at render time when delta_types includes REMOVED
-  // (see headerActions below) — the backend 409s on accept for a removed assembly.
-  ON_HOLD: [{ action: 'accept-hold', label: 'Accept' }, { action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' }],
+  // ON_HOLD (WO BOM-Version Hold, Sprint 20): no header actions — Accept/Cancel
+  // live only in the blocking banner below (same handlers, avoids showing the
+  // same two actions twice on screen).
+  ON_HOLD: [],
   DONE: [],
   CANCELLED: [],
 }
@@ -78,11 +75,6 @@ export function WoDetail() {
   const hasCancelSiblings = toCancelSiblings.length > 0 || needsDispositionSiblings.length > 0
 
   function runAction(def: ActionDef) {
-    if (def.action === 'accept-hold') {
-      setShowAcceptModal(true)
-      return
-    }
-    // `def.action` narrowed to WoAction here (accept-hold excluded above).
     if (def.needs) {
       setReason(''); setQtyDone(''); setQtyScrap(''); setQtyReusable(''); setModal(def)
     } else {
@@ -91,7 +83,7 @@ export function WoDetail() {
   }
 
   async function submitModal() {
-    if (!modal || modal.action === 'accept-hold') return
+    if (!modal) return
     if (modal.needs === 'reason') {
       if (!reason.trim()) return
       const isCancel = modal.action === 'cancel'
@@ -117,9 +109,7 @@ export function WoDetail() {
   // ON_HOLD. ON_HOLD gets its own blocking banner below (distinct treatment:
   // no dismiss, no "continue with snapshot" escape hatch).
   const showBanner = bom?.is_outdated && !dismissedBanner && wo.status !== 'CANCELLED' && wo.status !== 'DONE' && wo.status !== 'ON_HOLD'
-  // Accept is unavailable once the assembly was REMOVED in the latest version
-  // (backend 409s) — hide it entirely rather than show a disabled button.
-  const headerActions = ACTIONS[wo.status].filter((a) => a.action !== 'accept-hold' || !bom?.delta_types.includes('REMOVED'))
+  const headerActions = ACTIONS[wo.status]
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
@@ -144,7 +134,7 @@ export function WoDetail() {
               style={{
                 height: 34, padding: '0 16px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
                 border: a.danger ? '1px solid #E8A0A0' : 'none',
-                background: a.action === 'accept-hold' ? '#1E6B36' : a.danger ? '#fff' : '#C8202A',
+                background: a.danger ? '#fff' : '#C8202A',
                 color: a.danger ? '#C8202A' : '#fff',
               }}
             >
@@ -240,7 +230,7 @@ export function WoDetail() {
       </div>
 
       {/* Action modal (reason / qty) */}
-      {modal && modal.action !== 'accept-hold' && (
+      {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: modal.action === 'cancel' && hasCancelSiblings ? 480 : 420 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{modal.label} · {wo.wo_code}</h2>
