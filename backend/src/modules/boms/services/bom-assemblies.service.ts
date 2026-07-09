@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { MoAllocationService } from '../../manufacturing-orders/mo-allocation.service'
+import { BomDiffService } from '../../bom-upload/bom-diff.service'
 
 type GroupDim = 'project' | 'zone' | 'subzone'
 
@@ -15,7 +16,7 @@ export interface AssemblyPickerItem {
   project_due_date: string | null    // project.target_handover as YYYY-MM-DD
   zone_end_date: string | null       // project_zone.target_erection_end as YYYY-MM-DD
   sub_zone_due_date: string | null  // sub_zone.due_date as YYYY-MM-DD
-  bom_version: number // BOM upload version of this assembly's dispatch (latest)
+  bom_version: string // "revision.minor" label from BomDiffService.computeVersionLabels()
   total: number
   allocated: number
   remaining: number
@@ -33,6 +34,7 @@ export class BomAssembliesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alloc: MoAllocationService,
+    private readonly bomDiff: BomDiffService,
   ) {}
 
   async byMarkPrefix(opts: {
@@ -46,17 +48,15 @@ export class BomAssembliesService {
     const prefixes = await this.prisma.mark_prefix_master.findMany({ select: { code: true } })
     const codes = prefixes.map((p) => p.code).sort((a, b) => b.length - a.length)
 
-    // only the latest BOM version per project/zone/sub-zone (supersede older uploads)
-    const latestMap = await this.alloc.latestDispatchMap()
-
     const assemblies = await this.prisma.bom_assembly.findMany({
-      where: { dispatch_id: { in: [...latestMap.keys()] } },
+      where: { status: 'ACTIVE' },
       include: {
         product: { select: { mark_prefix: true } },
         dispatch: { include: { project: true, zone: true, sub_zone: true } },
       },
       orderBy: { assembly_mark: 'asc' },
     })
+    const versionLabelById = await this.bomDiff.computeVersionLabels([...new Set(assemblies.map((a) => a.dispatch_id))])
     const allocMap = await this.alloc.allocationMap()
     const breakdownMap = await this.alloc.allocationBreakdownMap()
 
@@ -81,7 +81,7 @@ export class BomAssembliesService {
         project_due_date: a.dispatch.project?.target_handover?.toISOString().slice(0, 10) ?? null,
         zone_end_date: a.dispatch.zone?.target_erection_end?.toISOString().slice(0, 10) ?? null,
         sub_zone_due_date: a.dispatch.sub_zone?.due_date?.toISOString().slice(0, 10) ?? null,
-        bom_version: latestMap.get(a.dispatch_id)?.version ?? 1,
+        bom_version: versionLabelById.get(a.dispatch_id) ?? '1.0',
         total,
         allocated,
         remaining,
@@ -113,7 +113,7 @@ export class BomAssembliesService {
   }
 
   private group(items: AssemblyPickerItem[], dims: GroupDim[]) {
-    const buckets = new Map<string, { key: Record<string, string | null>; label: string; bom_version: number | null; project_due_date: string | null; zone_end_date: string | null; sub_zone_due_date: string | null; items: AssemblyPickerItem[] }>()
+    const buckets = new Map<string, { key: Record<string, string | null>; label: string; bom_version: string | null; project_due_date: string | null; zone_end_date: string | null; sub_zone_due_date: string | null; items: AssemblyPickerItem[] }>()
     for (const item of items) {
       const key: Record<string, string | null> = {}
       for (const d of dims) {

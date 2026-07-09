@@ -105,6 +105,43 @@ export function classifyDispatchSlot(docTypes: string[]): BomSlot {
   return 'combined'
 }
 
+// The Main/Acc dispatch ids resolved "as of" a given id boundary — see
+// resolveEffectiveGroup(). `mainId === accId` means a single dispatch (a
+// Combined snapshot, or a "both" Main+Acc-together upload) is the sole
+// contributor for both roles.
+export interface EffectiveGroup {
+  mainId: number | null
+  accId: number | null
+}
+
+// Flattens a resolved group to a plain id array — only for call sites that
+// are genuinely dispatch-level (not mark-level), where blind `id: { in }`
+// is correct (e.g. fetching dispatch.status, or computeVersionLabels()).
+export function groupToIds(g: EffectiveGroup): number[] {
+  return [...new Set([g.mainId, g.accId].filter((x): x is number => x != null))]
+}
+
+// Turns a resolved group into a precise Prisma `where` clause for
+// `bom_assembly`/`bom_part` (both carry `dispatch_id` + `slot`, Task 1):
+// the Main-role dispatch contributes only its `slot='MAIN'` (or `null`, for
+// a Combined snapshot) rows, the Acc-role dispatch only its `slot='ACC'`
+// (or `null`) rows — never the other slot, even if the two roles happen to
+// be filled by the same "both" dispatch reused to cover just one side.
+//
+// Returns null if the group is genuinely empty (no dispatch at all — e.g.
+// "previous" state before any upload ever happened). Callers must handle
+// null by treating it as zero rows, not by passing it into a Prisma `where`
+// clause.
+export function slotAwareWhere(group: EffectiveGroup): Record<string, unknown> | null {
+  const { mainId, accId } = group
+  if (mainId == null && accId == null) return null
+  if (mainId === accId) return { dispatch_id: mainId! } // sole contributor — no cross-contamination possible, no slot filter needed
+  const clauses: Record<string, unknown>[] = []
+  if (mainId != null) clauses.push({ dispatch_id: mainId, OR: [{ slot: 'MAIN' }, { slot: null }] })
+  if (accId != null) clauses.push({ dispatch_id: accId, OR: [{ slot: 'ACC' }, { slot: null }] })
+  return { OR: clauses }
+}
+
 // ── BomDiffService ─────────────────────────────────────────────
 
 @Injectable()
@@ -120,7 +157,7 @@ export class BomDiffService {
   async resolveEffectiveGroup(
     projectId: number, zoneId: number, subZoneId: number | null,
     idBound: { lte: number } | { lt: number },
-  ): Promise<number[]> {
+  ): Promise<EffectiveGroup> {
     const dispatches = await this.prisma.bom_dispatch.findMany({
       where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, status: { not: 'error' }, id: idBound },
       select: { id: true, doc_revisions: { select: { doc_type: true } } },
@@ -132,7 +169,7 @@ export class BomDiffService {
     for (const d of dispatches) {
       const slot = classifyDispatchSlot(d.doc_revisions.map(r => r.doc_type))
       if (slot === 'combined') {
-        if (mainId == null && accId == null) return [d.id]
+        if (mainId == null && accId == null) return { mainId: d.id, accId: d.id }
         continue // superseded by a more recent Main/Acc pair
       }
       // A "both" dispatch (Main+Acc uploaded together) satisfies whichever
@@ -141,10 +178,10 @@ export class BomDiffService {
       if ((slot === 'acc' || slot === 'both') && accId == null) accId = d.id
       if (mainId != null && accId != null) break
     }
-    return [...new Set([mainId, accId].filter((x): x is number => x != null))]
+    return { mainId, accId }
   }
 
-  async findPreviousRevisionGroup(id: number): Promise<{ currentIds: number[]; previousIds: number[] } | null> {
+  async findPreviousRevisionGroup(id: number): Promise<{ current: EffectiveGroup; previous: EffectiveGroup } | null> {
     const current = await this.prisma.bom_dispatch.findUnique({ where: { id } })
     if (!current) throw new NotFoundException(`Dispatch ${id} not found`)
 
@@ -164,11 +201,11 @@ export class BomDiffService {
     const maxId = Math.max(...groupIds)
     const minId = Math.min(...groupIds)
 
-    const currentIds = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lte: maxId })
-    const previousIds = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lt: minId })
-    if (previousIds.length === 0) return null
+    const currentGroup = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lte: maxId })
+    const previousGroup = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lt: minId })
+    if (previousGroup.mainId == null && previousGroup.accId == null) return null
 
-    return { currentIds, previousIds }
+    return { current: currentGroup, previous: previousGroup }
   }
 
   // "major.minor" display label for a set of dispatches — minor is each
@@ -211,13 +248,17 @@ export class BomDiffService {
   async computeDiff(id: number): Promise<DispatchDiffResult | null> {
     const groups = await this.findPreviousRevisionGroup(id)
     if (!groups) return null
-    const { currentIds, previousIds } = groups
+    const { current, previous } = groups
+    const currentIds = groupToIds(current)
+    const previousIds = groupToIds(previous)
 
     const [currDetail, prevDetail] = await Promise.all([
-      this.loadRevisionGroupData(currentIds),
-      this.loadRevisionGroupData(previousIds),
+      this.loadRevisionGroupData(current),
+      this.loadRevisionGroupData(previous),
     ])
 
+    // Dispatch-level info (status, for computeWarning()) — not mark-level,
+    // blind `id: { in }` is correct here, no slot-awareness needed.
     const currDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: currentIds } } })
     const prevDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: previousIds } } })
 
@@ -241,7 +282,7 @@ export class BomDiffService {
       j => `${j.assembly_mark}__${j.part_mark}`, junctionsEqual,
     )
 
-    const aggregate = await this.computeAggregate(previousIds, currentIds, assembly_diff, part_diff)
+    const aggregate = await this.computeAggregate(previous, current, assembly_diff, part_diff)
 
     return {
       prev_id: previousIds[0],
@@ -256,21 +297,24 @@ export class BomDiffService {
 
   // ── Private helpers ──────────────────────────────────────────
 
-  private async loadRevisionGroupData(ids: number[]) {
+  private async loadRevisionGroupData(group: EffectiveGroup) {
+    const where = slotAwareWhere(group)
+    if (where == null) return { assemblies: [], parts: [], junctions: [] }
+
     const [assemblies, parts, junctions] = await Promise.all([
       this.prisma.bom_assembly.findMany({
-        where: { dispatch_id: { in: ids } },
+        where,
         select: {
           assembly_mark: true, name: true, qty: true, weight_kg: true, surface_area_m2: true,
           length_mm: true, width_mm: true, height_mm: true,
         },
       }),
       this.prisma.bom_part.findMany({
-        where: { dispatch_id: { in: ids } },
+        where,
         select: { part_mark: true, description: true, profile: true, grade: true, qty: true, length_mm: true, weight_kg: true },
       }),
       this.prisma.bom_assembly_part.findMany({
-        where: { assembly: { dispatch_id: { in: ids } } },
+        where: { assembly: where },
         select: {
           qty: true,
           assembly: { select: { assembly_mark: true } },
@@ -310,21 +354,23 @@ export class BomDiffService {
   }
 
   private async computeAggregate(
-    prevIds: number[], currIds: number[],
+    prevGroup: EffectiveGroup, currGroup: EffectiveGroup,
     assemblyDiff: DiffRow<AssemblyDiffItem>[],
     partDiff: DiffRow<PartDiffItem>[],
   ): Promise<DiffAggregate> {
     const [prevWeightArea, currWeightArea] = await Promise.all([
-      this.sumWeightArea(prevIds),
-      this.sumWeightArea(currIds),
+      this.sumWeightArea(prevGroup),
+      this.sumWeightArea(currGroup),
     ])
 
     const asmPrev = assemblyDiff.filter(r => r.prev != null).length
     const asmCurr = assemblyDiff.filter(r => r.curr != null).length
 
+    const prevPartWhere = slotAwareWhere(prevGroup)
+    const currPartWhere = slotAwareWhere(currGroup)
     const [prevPartCount, currPartCount] = await Promise.all([
-      this.prisma.bom_part.count({ where: { dispatch_id: { in: prevIds } } }),
-      this.prisma.bom_part.count({ where: { dispatch_id: { in: currIds } } }),
+      prevPartWhere == null ? 0 : this.prisma.bom_part.count({ where: prevPartWhere }),
+      currPartWhere == null ? 0 : this.prisma.bom_part.count({ where: currPartWhere }),
     ])
 
     const countChanges = <T>(rows: DiffRow<T>[]) => ({
@@ -343,9 +389,10 @@ export class BomDiffService {
     }
   }
 
-  private async sumWeightArea(dispatchIds: number[]) {
-    const rows = await this.prisma.bom_assembly.findMany({
-      where: { dispatch_id: { in: dispatchIds } },
+  private async sumWeightArea(group: EffectiveGroup) {
+    const where = slotAwareWhere(group)
+    const rows = where == null ? [] : await this.prisma.bom_assembly.findMany({
+      where,
       select: { weight_kg: true, surface_area_m2: true },
     })
     let weight_kg = 0, area_m2 = 0
