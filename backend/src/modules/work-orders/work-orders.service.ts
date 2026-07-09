@@ -408,9 +408,83 @@ export class WorkOrdersService {
           },
         })
       }
+
+      // Cascade-cancel (Task 10, Sprint 20): one BOM mark → many WOs (one per
+      // routing op, all sharing mo_id + bom_assembly_id). Cancelling one WO
+      // abandons the mark's production, so sibling WOs with zero output are
+      // meaningless (nothing to weld if the cut was cancelled) — auto-cancel
+      // them in the same transaction. Siblings with real output (DONE, or
+      // qty_done > 0) are left untouched — see loadCancelSiblings().
+      if (action === 'cancel') {
+        const { to_cancel } = await this.loadCancelSiblings(tx, wo.mo_id, wo.bom_assembly_id, id)
+        for (const sibling of to_cancel) {
+          // Defensive: to_cancel is filtered to status !== 'CANCELLED' && !== 'DONE'
+          // with no output, and cancel.from covers every non-DONE/non-CANCELLED
+          // status — so this should be structurally unreachable. Fail loudly
+          // (rolls back the whole cascade) rather than silently skip a sibling.
+          if (!WO_ACTIONS.cancel.from.includes(sibling.status)) {
+            throw new Error(
+              `Cascade-cancel: sibling WO ${sibling.id} (${sibling.wo_code}) has status ${sibling.status}, not a valid 'cancel' source status`,
+            )
+          }
+          await tx.work_order.update({
+            where: { id: sibling.id },
+            data: { status: 'CANCELLED', pre_hold_status: null, updated_by: userName },
+          })
+          await tx.work_order_event.create({
+            data: {
+              work_order_id: sibling.id,
+              event_type: 'CANCEL',
+              // wo.wo_code already carries the "WO-" prefix (WO-NNNNNNNN) — don't
+              // double it up into "sibling of WO-WO-00000001".
+              notes: `Cascade-cancelled: sibling of ${wo.wo_code}`,
+              recorded_by: userName,
+            },
+          })
+        }
+      }
     })
 
     return this.findOne(id)
+  }
+
+  // ── Cancel preview (Task 10, Sprint 20 · cascade-cancel siblings) ────────────
+  /**
+   * Preview for the cancel confirmation UI: splits non-CANCELLED sibling WOs
+   * (same mo_id + bom_assembly_id — i.e. other routing-op WOs for the same
+   * mark within the same MO) into `to_cancel` (no output — will be
+   * auto-cascade-cancelled alongside the primary WO by `transition()`) and
+   * `needs_disposition` (DONE, or qty_done > 0 — real output exists, left
+   * untouched; UI shows a non-functional "Move to Stock" placeholder — no
+   * stock/inventory concept exists in this codebase yet).
+   */
+  async cancelSiblings(id: number) {
+    const wo = await this.requireWo(id)
+    return this.loadCancelSiblings(this.prisma, wo.mo_id, wo.bom_assembly_id, id)
+  }
+
+  /**
+   * Shared by `cancelSiblings()` (preview, reads via `this.prisma`) and
+   * `transition()`'s cancel cascade (reads inside the same `tx` as the
+   * writes, so the split is computed against the same snapshot it acts on).
+   * Already-CANCELLED siblings are excluded entirely — terminal, nothing to
+   * do with them either way.
+   */
+  private async loadCancelSiblings(
+    client: PrismaService | Prisma.TransactionClient,
+    mo_id: number,
+    bom_assembly_id: number,
+    excludeWoId: number,
+  ) {
+    const siblings = await client.work_order.findMany({
+      where: { mo_id, bom_assembly_id, id: { not: excludeWoId }, status: { not: 'CANCELLED' } },
+      select: { id: true, wo_code: true, sequence: true, status: true, qty_done: true, source_routing_op_id: true },
+    })
+    const hasOutput = (s: (typeof siblings)[number]) => s.status === 'DONE' || (s.qty_done != null && Number(s.qty_done) > 0)
+    return {
+      to_cancel: siblings.filter((s) => !hasOutput(s)),
+      needs_disposition: siblings.filter(hasOutput),
+    }
   }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────

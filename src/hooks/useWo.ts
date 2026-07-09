@@ -4,6 +4,7 @@ import {
   getBomVersionStatus,
   getScheduleVersions,
   getWo,
+  getWoCancelSiblings,
   getWoEvents,
   getWos,
   getWoSchedule,
@@ -47,6 +48,16 @@ export function useBomVersionStatus(id: number) {
   })
 }
 
+// Cancel cascade preview (Task 10, Sprint 20) — only fetch while the cancel
+// modal is actually open (`enabled`), not on every WoDetail page load.
+export function useWoCancelSiblings(id: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ['wo', 'cancel-siblings', id],
+    queryFn: () => getWoCancelSiblings(id),
+    enabled: enabled && !!id,
+  })
+}
+
 export function useWoSchedule(id: number) {
   return useQuery({
     queryKey: ['wo', 'schedule', id],
@@ -67,6 +78,7 @@ function useWoInvalidate(id: number) {
     qc.invalidateQueries({ queryKey: ['wo', 'detail', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'events', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'bom-version', id] })
+    qc.invalidateQueries({ queryKey: ['wo', 'cancel-siblings', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'list'] })
   }
 }

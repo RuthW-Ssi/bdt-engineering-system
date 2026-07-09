@@ -906,6 +906,9 @@ describe('WorkOrdersService.transition — cancel', () => {
       work_order: {
         findUnique: jest.fn().mockResolvedValue(wo),
         update: jest.fn(),
+        // Task 10 cascade-cancel: transition('cancel') always looks up siblings —
+        // these pre-existing tests aren't exercising the cascade, so no siblings.
+        findMany: jest.fn().mockResolvedValue([]),
       },
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
@@ -1042,5 +1045,188 @@ describe('WorkOrdersService.transition — cancel', () => {
       }),
     })
     expect(result).toEqual({ id: 1 })
+  })
+})
+
+describe('WorkOrdersService.transition — cancel cascades to sibling WOs (Task 10)', () => {
+  // One BOM mark → many WOs (one per routing op), all sharing mo_id + bom_assembly_id.
+  function makeWo(overrides: Partial<{
+    status: string
+    qty_done: number | null
+    mo_id: number
+    bom_assembly_id: number
+    wo_code: string
+  }> = {}) {
+    return {
+      id: 1,
+      status: 'RELEASED',
+      qty_done: null,
+      mo_id: 10,
+      bom_assembly_id: 100,
+      wo_code: 'WO-00000001',
+      pre_hold_status: null,
+      ...overrides,
+    }
+  }
+
+  function makePrisma(wo: ReturnType<typeof makeWo>, siblings: unknown[] = []) {
+    const prisma: any = {
+      work_order: {
+        findUnique: jest.fn().mockResolvedValue(wo),
+        update: jest.fn(),
+        findMany: jest.fn().mockResolvedValue(siblings),
+      },
+      work_order_event: { create: jest.fn() },
+      $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
+    }
+    return prisma
+  }
+
+  it('1. cancelling a WO with zero siblings behaves exactly as before (no regression)', async () => {
+    const wo = makeWo()
+    const prisma = makePrisma(wo, [])
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    const result = await svc.transition(1, 'cancel', { reason: 'no longer needed' }, 'tester')
+
+    expect(prisma.work_order.findMany).toHaveBeenCalledWith({
+      where: { mo_id: 10, bom_assembly_id: 100, id: { not: 1 }, status: { not: 'CANCELLED' } },
+      select: { id: true, wo_code: true, sequence: true, status: true, qty_done: true, source_routing_op_id: true },
+    })
+    expect(prisma.work_order.update).toHaveBeenCalledTimes(1) // primary only
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('2. cascades cancel to to_cancel siblings (no output) — each gets status=CANCELLED + its own work_order_event', async () => {
+    const wo = makeWo()
+    const siblings = [
+      { id: 2, wo_code: 'WO-00000002', sequence: 2, status: 'NOT_STARTED', qty_done: null, source_routing_op_id: 20 },
+      { id: 3, wo_code: 'WO-00000003', sequence: 3, status: 'RELEASED', qty_done: 0, source_routing_op_id: 30 },
+    ]
+    const prisma = makePrisma(wo, siblings)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.transition(1, 'cancel', { reason: 'abandoning mark' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledTimes(3) // primary + 2 siblings
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { status: 'CANCELLED', pre_hold_status: null, updated_by: 'tester' },
+    })
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 3 },
+      data: { status: 'CANCELLED', pre_hold_status: null, updated_by: 'tester' },
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(3) // primary CANCEL + 2 cascade CANCELs
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: { work_order_id: 2, event_type: 'CANCEL', notes: 'Cascade-cancelled: sibling of WO-00000001', recorded_by: 'tester' },
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: { work_order_id: 3, event_type: 'CANCEL', notes: 'Cascade-cancelled: sibling of WO-00000001', recorded_by: 'tester' },
+    })
+  })
+
+  it('3. leaves a needs_disposition sibling (status=DONE) completely untouched', async () => {
+    const wo = makeWo()
+    const siblings = [
+      { id: 2, wo_code: 'WO-00000002', sequence: 2, status: 'DONE', qty_done: 12, source_routing_op_id: 20 },
+    ]
+    const prisma = makePrisma(wo, siblings)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.transition(1, 'cancel', { reason: 'abandoning mark' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledTimes(1) // primary only — DONE sibling never written
+    expect(prisma.work_order.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 2 } }))
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1) // only the primary CANCEL event
+  })
+
+  it('4. leaves a needs_disposition sibling (PAUSED, qty_done > 0) untouched — has-output rule, not just is-DONE', async () => {
+    const wo = makeWo()
+    const siblings = [
+      { id: 2, wo_code: 'WO-00000002', sequence: 2, status: 'PAUSED', qty_done: 4, source_routing_op_id: 20 },
+    ]
+    const prisma = makePrisma(wo, siblings)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.transition(1, 'cancel', { reason: 'abandoning mark' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledTimes(1)
+    expect(prisma.work_order.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 2 } }))
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('mixed to_cancel + needs_disposition siblings in one cancel — only to_cancel gets written', async () => {
+    const wo = makeWo()
+    const siblings = [
+      { id: 2, wo_code: 'WO-00000002', sequence: 2, status: 'NOT_STARTED', qty_done: null, source_routing_op_id: 20 }, // to_cancel
+      { id: 3, wo_code: 'WO-00000003', sequence: 3, status: 'DONE', qty_done: 8, source_routing_op_id: 30 }, // needs_disposition
+    ]
+    const prisma = makePrisma(wo, siblings)
+    const svc = new WorkOrdersService(prisma)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.transition(1, 'cancel', { reason: 'abandoning mark' }, 'tester')
+
+    expect(prisma.work_order.update).toHaveBeenCalledTimes(2) // primary + WO 2 only
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { status: 'CANCELLED', pre_hold_status: null, updated_by: 'tester' },
+    })
+    expect(prisma.work_order.update).not.toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3 } }))
+  })
+})
+
+describe('WorkOrdersService.cancelSiblings — preview endpoint (Task 10)', () => {
+  function makePrisma(wo: { id: number; mo_id: number; bom_assembly_id: number }, siblings: unknown[]) {
+    const prisma: any = {
+      work_order: {
+        findUnique: jest.fn().mockResolvedValue(wo),
+        findMany: jest.fn().mockResolvedValue(siblings),
+      },
+    }
+    return prisma
+  }
+
+  it('5. returns the correct to_cancel / needs_disposition split for a mixed scenario', async () => {
+    const wo = { id: 1, mo_id: 10, bom_assembly_id: 100 }
+    // Already-CANCELLED siblings are excluded at the DB layer (status: { not: 'CANCELLED' }
+    // in the query) — the mock only returns what a real query would already have filtered.
+    const siblings = [
+      { id: 2, wo_code: 'WO-00000002', sequence: 2, status: 'NOT_STARTED', qty_done: null, source_routing_op_id: 20 },
+      { id: 3, wo_code: 'WO-00000003', sequence: 3, status: 'RELEASED', qty_done: '0', source_routing_op_id: 30 },
+      { id: 4, wo_code: 'WO-00000004', sequence: 4, status: 'DONE', qty_done: 8, source_routing_op_id: 40 },
+      { id: 5, wo_code: 'WO-00000005', sequence: 5, status: 'PAUSED', qty_done: 3, source_routing_op_id: 50 },
+    ]
+    const prisma = makePrisma(wo, siblings)
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.cancelSiblings(1)
+
+    expect(prisma.work_order.findMany).toHaveBeenCalledWith({
+      where: { mo_id: 10, bom_assembly_id: 100, id: { not: 1 }, status: { not: 'CANCELLED' } },
+      select: { id: true, wo_code: true, sequence: true, status: true, qty_done: true, source_routing_op_id: true },
+    })
+    expect(result.to_cancel.map((s: any) => s.id)).toEqual([2, 3])
+    expect(result.needs_disposition.map((s: any) => s.id)).toEqual([4, 5])
+  })
+
+  it('returns empty arrays when the WO has no siblings', async () => {
+    const wo = { id: 1, mo_id: 10, bom_assembly_id: 100 }
+    const prisma = makePrisma(wo, [])
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.cancelSiblings(1)
+
+    expect(result).toEqual({ to_cancel: [], needs_disposition: [] })
   })
 })

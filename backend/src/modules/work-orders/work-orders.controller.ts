@@ -127,13 +127,19 @@ export class WorkOrdersController {
   }
 
   @Post(':id/cancel')
-  @ApiOperation({ summary: 'any ≠ DONE → CANCELLED · requires reason · event=CANCEL' })
+  @ApiOperation({ summary: 'any ≠ DONE → CANCELLED · requires reason · event=CANCEL · cascades to no-output sibling WOs (same mo_id+bom_assembly_id)' })
   cancel(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoReasonDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.svc.transition(id, 'cancel', dto, user.login)
+  }
+
+  @Get(':id/cancel-siblings')
+  @ApiOperation({ summary: 'Preview cascade-cancel: to_cancel (no output, auto-cancelled) vs needs_disposition (real output, left untouched)' })
+  cancelSiblings(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.cancelSiblings(id)
   }
 
   // ── BOM Version Alert (T-WO.04) ──────────────────────────────────────────────

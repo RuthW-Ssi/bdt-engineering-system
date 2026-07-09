@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, AlertTriangle, Cpu, Wrench, FlaskConical, Users, Clock } from 'lucide-react'
 import {
   useWo, useWoEvents, useWoSchedule, useBomVersionStatus,
-  useWoTransition, useAcceptNewVersion,
+  useWoTransition, useAcceptNewVersion, useWoCancelSiblings,
 } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { QtyReusableField, WoHoldResolutionModal, qtyReusableValid } from '../components/wo/WoHoldResolutionModal'
@@ -56,6 +56,11 @@ export function WoDetail() {
   const transition = useWoTransition(woId)
   const acceptVersion = useAcceptNewVersion(woId)
 
+  // Cascade-cancel preview (Task 10, Sprint 20) — only fetches while the
+  // cancel modal is open, not on every page load.
+  const cancelModalOpen = modal?.action === 'cancel'
+  const { data: cancelSiblings } = useWoCancelSiblings(woId, cancelModalOpen)
+
   if (isLoading || !wo) {
     return <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}><Loader2 size={22} className="animate-spin" style={{ color: '#C2C2C2' }} /></div>
   }
@@ -64,6 +69,13 @@ export function WoDetail() {
   // Cancel-with-qty_reusable is a general rule (any status, whenever qty_done > 0)
   // — not ON_HOLD-specific — matching the backend guard in transition().
   const cancelNeedsQtyReusable = qtyDoneNum > 0
+
+  // Sibling WOs (same mo_id + bom_assembly_id) affected by cancelling this WO.
+  // Common case (single-operation routing, no siblings) → both empty, the
+  // modal stays exactly as it was before this feature.
+  const toCancelSiblings = cancelSiblings?.to_cancel ?? []
+  const needsDispositionSiblings = cancelSiblings?.needs_disposition ?? []
+  const hasCancelSiblings = toCancelSiblings.length > 0 || needsDispositionSiblings.length > 0
 
   function runAction(def: ActionDef) {
     if (def.action === 'accept-hold') {
@@ -230,7 +242,7 @@ export function WoDetail() {
       {/* Action modal (reason / qty) */}
       {modal && modal.action !== 'accept-hold' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
-          <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 420 }}>
+          <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: modal.action === 'cancel' && hasCancelSiblings ? 480 : 420 }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{modal.label} · {wo.wo_code}</h2>
             {modal.needs === 'reason' ? (
               <>
@@ -239,6 +251,51 @@ export function WoDetail() {
                   style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, resize: 'vertical' }} />
                 {modal.action === 'cancel' && cancelNeedsQtyReusable && (
                   <QtyReusableField value={qtyReusable} onChange={setQtyReusable} max={qtyDoneNum} />
+                )}
+                {/* Cascade-cancel preview (Task 10, Sprint 20) — only shown when this WO
+                    has siblings (same mo_id + bom_assembly_id, other routing ops for the
+                    same mark). Common case (single-op routing) leaves the modal untouched. */}
+                {modal.action === 'cancel' && hasCancelSiblings && (
+                  <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {toCancelSiblings.length > 0 && (
+                      <div style={{ background: '#FFF5F5', border: '1px solid #F3C6C6', borderRadius: 6, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#8A2A0D', marginBottom: 6 }}>
+                          This will also cancel {toCancelSiblings.length} related work order{toCancelSiblings.length > 1 ? 's' : ''}:
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          {toCancelSiblings.map((s) => (
+                            <li key={s.id} style={{ fontSize: 12, color: '#6B3417' }}>
+                              <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.wo_code}</span> · seq {s.sequence} · {s.status}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {needsDispositionSiblings.length > 0 && (
+                      <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#92400E', marginBottom: 6 }}>
+                          Already produced — not cancelled:
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {needsDispositionSiblings.map((s) => (
+                            <div key={s.id} className="flex items-center justify-between" style={{ fontSize: 12, color: '#6B4A17' }}>
+                              <span>
+                                <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{s.wo_code}</span> · qty done {s.qty_done ?? 0}
+                              </span>
+                              <button
+                                disabled
+                                title="Disposition not yet supported"
+                                style={{ height: 24, padding: '0 10px', fontSize: 11, fontWeight: 600, borderRadius: 4, border: '1px solid #DDD', background: '#F0F0F0', color: '#AAA', cursor: 'not-allowed' }}
+                              >
+                                Move to Stock
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#92400E', marginTop: 6 }}>Already produced — disposition not yet supported.</div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </>
             ) : (
