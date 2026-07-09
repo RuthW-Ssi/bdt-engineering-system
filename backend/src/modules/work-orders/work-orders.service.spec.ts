@@ -1340,6 +1340,11 @@ describe('WorkOrdersService.loadCancelSiblings — resolves by mark+group (Task 
                 if (where.mo_id !== undefined && w.mo_id !== where.mo_id) return false
                 if (where.id?.not !== undefined && w.id === where.id.not) return false
                 if (where.status?.not !== undefined && w.status === where.status.not) return false
+                // Scalar bom_assembly_id equality — a real Prisma client enforces this filter
+                // key just like any other scalar column; the fake must too, or a query that
+                // (incorrectly) filters on the raw FK looks like it "still works" here even
+                // though the fixtures below are specifically designed to prove it shouldn't.
+                if (where.bom_assembly_id !== undefined && w.bom_assembly_id !== where.bom_assembly_id) return false
                 if (where.bom_assembly) {
                   const a = assemblies.find((x) => x.id === w.bom_assembly_id)
                   if (!a) return false
