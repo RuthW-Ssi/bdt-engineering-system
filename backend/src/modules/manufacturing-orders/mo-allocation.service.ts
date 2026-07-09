@@ -10,13 +10,30 @@ export interface AllocationEntry {
   qty: number
 }
 
+type DispatchGroup = { project_id: number; zone_id: number; sub_zone_id: number | null }
+
+/** Composite key for "same physical mark" across bom_assembly row history (P2 full-slot-replace
+ *  gives every re-uploaded mark a brand-new row id, even when content is unchanged). */
+function markGroupKey(mark: string, dispatch: DispatchGroup): string {
+  return `${mark}|${dispatch.project_id}|${dispatch.zone_id}|${dispatch.sub_zone_id ?? 'null'}`
+}
+
 /**
  * Shared allocation + mark-prefix-resolution logic, reused by:
  *  - ManufacturingOrderService  (qty validation P13, assemblies tab)
- *  - mark-prefix `with-pending-count` (T-MO.03)
- *  - boms `bom-assemblies?mark_prefix_id` (T-MO.04)
+ *  - mark-prefix `with-pending-count` (T-MO.03) — allocation lookup + prefix resolution
+ *  - boms `bom-assemblies?mark_prefix_id` (T-MO.04) — allocation lookup + prefix resolution
  *
  * remaining(assembly) = bom_assembly.qty − Σ(allocated qty on non-CANCELLED MOs).
+ * Dispatch scoping (via status='ACTIVE' filtering) no longer uses this class.
+ *
+ * Allocation is resolved by (assembly_mark, project_id, zone_id, sub_zone_id) — the physical
+ * mark's identity — not by the raw bom_assembly_id FK. Task 2's full-slot-replace upload path
+ * creates a brand-new bom_assembly row (new id) for EVERY mark on every re-upload, even marks
+ * whose content is unchanged, flipping the old row to INACTIVE. Existing mo_assembly_line rows
+ * still point at the old (now-INACTIVE) id, so a raw-FK lookup would report 0 allocated against
+ * the new row even though real MOs/WOs already exist for that mark — resolving by mark+group
+ * instead lets allocation survive across that re-point.
  */
 @Injectable()
 export class MoAllocationService {
@@ -29,10 +46,22 @@ export class MoAllocationService {
   }
 
   async allocatedFor(bomAssemblyId: number, excludeMoId?: number): Promise<number> {
+    const assembly = await this.prisma.bom_assembly.findUnique({
+      where: { id: bomAssemblyId },
+      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
+    if (!assembly) return 0
     const agg = await this.prisma.mo_assembly_line.aggregate({
       _sum: { qty: true },
       where: {
-        bom_assembly_id: bomAssemblyId,
+        bom_assembly: {
+          assembly_mark: assembly.assembly_mark,
+          dispatch: {
+            project_id: assembly.dispatch.project_id,
+            zone_id: assembly.dispatch.zone_id,
+            sub_zone_id: assembly.dispatch.sub_zone_id,
+          },
+        },
         mo: { status: { in: ALLOCATING_STATUSES } },
         ...(excludeMoId ? { mo_id: { not: excludeMoId } } : {}),
       },
@@ -41,8 +70,23 @@ export class MoAllocationService {
   }
 
   async allocationBreakdown(bomAssemblyId: number): Promise<AllocationEntry[]> {
+    const assembly = await this.prisma.bom_assembly.findUnique({
+      where: { id: bomAssemblyId },
+      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
+    if (!assembly) return []
     const lines = await this.prisma.mo_assembly_line.findMany({
-      where: { bom_assembly_id: bomAssemblyId, mo: { status: { in: ALLOCATING_STATUSES } } },
+      where: {
+        bom_assembly: {
+          assembly_mark: assembly.assembly_mark,
+          dispatch: {
+            project_id: assembly.dispatch.project_id,
+            zone_id: assembly.dispatch.zone_id,
+            sub_zone_id: assembly.dispatch.sub_zone_id,
+          },
+        },
+        mo: { status: { in: ALLOCATING_STATUSES } },
+      },
       include: { mo: { select: { mo_code: true } } },
       orderBy: { mo_id: 'asc' },
     })
@@ -50,53 +94,69 @@ export class MoAllocationService {
   }
 
   /**
-   * Latest bom_dispatch per (project, zone, sub_zone) with a computed version
-   * number (1-based by upload order). Each BOM upload creates a new dispatch;
-   * older ones are superseded. Returns Map<latestDispatchId, {version, total}>.
+   * Map<bom_assembly_id, allocatedQty> across all non-CANCELLED MOs, keyed by currently-ACTIVE
+   * bom_assembly.id (the only ids any caller will ever `.get()`), but the value sums allocation
+   * across the mark's FULL row history (active + inactive) — see class doc for why.
    */
-  async latestDispatchMap(): Promise<Map<number, { version: number; total: number; uploaded_at: Date }>> {
-    const dispatches = await this.prisma.bom_dispatch.findMany({
-      select: { id: true, project_id: true, zone_id: true, sub_zone_id: true, uploaded_at: true },
-      orderBy: [{ uploaded_at: 'asc' }, { id: 'asc' }], // ascending → upload order = version index
+  async allocationMap(): Promise<Map<number, number>> {
+    const lines = await this.prisma.mo_assembly_line.findMany({
+      where: { mo: { status: { in: ALLOCATING_STATUSES } } },
+      select: {
+        qty: true,
+        bom_assembly: {
+          select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+        },
+      },
     })
-    const groups = new Map<string, { id: number; uploaded_at: Date }[]>()
-    for (const d of dispatches) {
-      const key = `${d.project_id}/${d.zone_id}/${d.sub_zone_id ?? 'null'}`
-      const arr = groups.get(key) ?? []
-      arr.push({ id: d.id, uploaded_at: d.uploaded_at })
-      groups.set(key, arr)
+    const sumByMarkGroup = new Map<string, number>()
+    for (const l of lines) {
+      const key = markGroupKey(l.bom_assembly.assembly_mark, l.bom_assembly.dispatch)
+      sumByMarkGroup.set(key, (sumByMarkGroup.get(key) ?? 0) + Number(l.qty))
     }
-    const map = new Map<number, { version: number; total: number; uploaded_at: Date }>()
-    for (const arr of groups.values()) {
-      const total = arr.length
-      const latest = arr[arr.length - 1] // ascending → last = newest
-      map.set(latest.id, { version: total, total, uploaded_at: latest.uploaded_at })
+
+    const activeAssemblies = await this.prisma.bom_assembly.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
+    const map = new Map<number, number>()
+    for (const a of activeAssemblies) {
+      const total = sumByMarkGroup.get(markGroupKey(a.assembly_mark, a.dispatch))
+      if (total) map.set(a.id, total)
     }
     return map
   }
 
-  /** Map<bom_assembly_id, allocatedQty> across all non-CANCELLED MOs (one query). */
-  async allocationMap(): Promise<Map<number, number>> {
-    const grouped = await this.prisma.mo_assembly_line.groupBy({
-      by: ['bom_assembly_id'],
-      _sum: { qty: true },
-      where: { mo: { status: { in: ALLOCATING_STATUSES } } },
-    })
-    return new Map(grouped.map((g) => [g.bom_assembly_id, Number(g._sum.qty ?? 0)]))
-  }
-
-  /** Map<bom_assembly_id, AllocationEntry[]> for tooltip breakdowns (one query). */
+  /**
+   * Map<bom_assembly_id, AllocationEntry[]> for tooltip breakdowns, keyed by currently-ACTIVE
+   * bom_assembly.id — same mark+group broadcast pattern as allocationMap() above.
+   */
   async allocationBreakdownMap(): Promise<Map<number, AllocationEntry[]>> {
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: { mo: { status: { in: ALLOCATING_STATUSES } } },
-      include: { mo: { select: { mo_code: true } } },
+      include: {
+        mo: { select: { mo_code: true } },
+        bom_assembly: {
+          select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+        },
+      },
       orderBy: { mo_id: 'asc' },
     })
-    const map = new Map<number, AllocationEntry[]>()
+    const entriesByMarkGroup = new Map<string, AllocationEntry[]>()
     for (const l of lines) {
-      const arr = map.get(l.bom_assembly_id) ?? []
+      const key = markGroupKey(l.bom_assembly.assembly_mark, l.bom_assembly.dispatch)
+      const arr = entriesByMarkGroup.get(key) ?? []
       arr.push({ mo_code: l.mo.mo_code, qty: Number(l.qty) })
-      map.set(l.bom_assembly_id, arr)
+      entriesByMarkGroup.set(key, arr)
+    }
+
+    const activeAssemblies = await this.prisma.bom_assembly.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
+    const map = new Map<number, AllocationEntry[]>()
+    for (const a of activeAssemblies) {
+      const entries = entriesByMarkGroup.get(markGroupKey(a.assembly_mark, a.dispatch))
+      if (entries) map.set(a.id, entries)
     }
     return map
   }

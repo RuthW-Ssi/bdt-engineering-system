@@ -3,6 +3,7 @@ import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUploadBomWithPreview, useLatestRevision } from '../../hooks/useBomDispatches'
+import type { DispatchDetailDto } from '../../api/dispatches'
 import { JunctionMismatchModal } from './JunctionMismatchModal'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
@@ -107,11 +108,15 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
   const canSubmit = bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
-  const handleUploadSuccess = () => {
+  const handleUploadSuccess = (res: DispatchDetailDto) => {
     qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatches'] })
     toast.success('BOM uploaded successfully')
+    // WO BOM-Version Hold (Sprint 20, T10): surface WOs the upload put on hold.
+    if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
+      toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
+    }
     onClose()
   }
 
@@ -140,7 +145,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     try {
       const res = await uploadFlow.submit(formData, pct => setProgress(pct))
       if (res == null) { setProgress(null); return }
-      handleUploadSuccess()
+      handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
@@ -150,7 +155,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     try {
       const res = await uploadFlow.confirm()
       if (res == null) return
-      handleUploadSuccess()
+      handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }

@@ -7,6 +7,7 @@ export type WoStatus =
   | 'RELEASED'
   | 'IN_PROGRESS'
   | 'PAUSED'
+  | 'ON_HOLD'
   | 'DONE'
   | 'CANCELLED'
 
@@ -111,6 +112,26 @@ export interface WoEvent {
   recorded_at: string
 }
 
+// ── Cancel cascade preview (Task 10, Sprint 20) ─────────────────────────────
+// One BOM mark → many WOs (one per routing op, sharing mo_id + bom_assembly_id).
+// Cancelling one WO previews its non-CANCELLED siblings split into siblings
+// with no output (auto-cascade-cancelled alongside the primary WO) and
+// siblings with real output (left untouched — "Move to Stock" is a UI
+// placeholder only, no stock/inventory concept exists in this codebase).
+export interface WoCancelSibling {
+  id: number
+  wo_code: string
+  sequence: number
+  status: WoStatus
+  qty_done: string | number | null
+  source_routing_op_id: number | null
+}
+
+export interface WoCancelSiblingsPreview {
+  to_cancel: WoCancelSibling[]
+  needs_disposition: WoCancelSibling[]
+}
+
 export interface BomVersionStatus {
   is_outdated: boolean
   delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED')[]
@@ -170,9 +191,14 @@ export async function updateWo(
 export async function woTransition(
   id: number,
   action: WoAction,
-  body?: { reason?: string; qty_done?: number; qty_scrapped?: number; notes?: string },
+  body?: { reason?: string; qty_done?: number; qty_scrapped?: number; notes?: string; qty_reusable?: number },
 ): Promise<WoDetail> {
   return (await apiClient.post(`/wo/${id}/${action}`, body ?? {})).data
+}
+
+// ── Cancel cascade preview ──────────────────────────────────────────────────
+export async function getWoCancelSiblings(id: number): Promise<WoCancelSiblingsPreview> {
+  return (await apiClient.get(`/wo/${id}/cancel-siblings`)).data
 }
 
 // ── BOM Version Alert ───────────────────────────────────────────────────────
@@ -180,8 +206,11 @@ export async function getBomVersionStatus(id: number): Promise<BomVersionStatus>
   return (await apiClient.get(`/wo/${id}/bom-version-status`)).data
 }
 
-export async function acceptNewVersion(id: number): Promise<WoDetail> {
-  return (await apiClient.post(`/wo/${id}/accept-new-version`)).data
+export async function acceptNewVersion(
+  id: number,
+  body?: { note?: string; qty_reusable?: number },
+): Promise<WoDetail> {
+  return (await apiClient.post(`/wo/${id}/accept-new-version`, body ?? {})).data
 }
 
 // ── Schedule (read-only) ────────────────────────────────────────────────────

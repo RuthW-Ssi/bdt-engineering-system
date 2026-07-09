@@ -12,6 +12,7 @@ import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
+import type { DispatchDetailDto } from '../api/dispatches'
 
 const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 const NC_FORMATS = ['.nc1']
@@ -153,6 +154,15 @@ export function BomUpload() {
     setProgress(null)
   }
 
+  // WO BOM-Version Hold (Sprint 20, T10): surface WOs the upload put on hold,
+  // mirroring UpdateBomModal.tsx's handleUploadSuccess (same condition, same copy).
+  const handleUploadSuccess = (res: DispatchDetailDto) => {
+    if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
+      toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
+    }
+    navigate(`/bom/dispatch/${res.id}/paint`)
+  }
+
   const handleSubmit = async () => {
     if (!activeProject || !canSubmit) return
     setProgress(0)
@@ -174,7 +184,7 @@ export function BomUpload() {
     try {
       const res = await uploadFlow.submit(formData, pct => setProgress(pct))
       if (res == null) { setProgress(null); return }
-      navigate(`/bom/dispatch/${res.id}/paint`)
+      handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
@@ -184,7 +194,7 @@ export function BomUpload() {
     try {
       const res = await uploadFlow.confirm()
       if (res == null) return
-      navigate(`/bom/dispatch/${res.id}/paint`)
+      handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }

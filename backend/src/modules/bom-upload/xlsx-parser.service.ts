@@ -11,6 +11,10 @@ export interface ParsedAssembly {
   length_mm?: number
   width_mm?: number
   height_mm?: number
+  // Which upload slot this row came from in separate (MAIN/ACC) mode — stamped
+  // by BomUploadService.mergeSeparateDocTypes(). Combined-mode rows never set
+  // this (stays undefined → persisted as null).
+  slot?: 'MAIN' | 'ACC' | null
 }
 
 export interface ParsedPart {
@@ -21,6 +25,8 @@ export interface ParsedPart {
   qty?: number
   length_mm?: number
   weight_kg?: number
+  // See ParsedAssembly.slot.
+  slot?: 'MAIN' | 'ACC' | null
 }
 
 export interface ParsedAssemblyPart {

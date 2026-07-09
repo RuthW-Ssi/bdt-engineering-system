@@ -9,7 +9,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
-import { BomDiffService } from './bom-diff.service'
+import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
+import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcFile } from './nc-parser'
@@ -85,6 +86,7 @@ export class BomUploadService {
     private readonly parser: XlsxParserService,
     private readonly matching: BomMatchingService,
     private readonly diffService: BomDiffService,
+    private readonly workOrders: WorkOrdersService,
   ) {}
 
   // ─── Upload ──────────────────────────────────────────────────
@@ -196,6 +198,48 @@ export class BomUploadService {
           })
         }
 
+        // Deactivate whatever this upload's slot(s) supersede, BEFORE inserting
+        // the new rows below — new rows default to status='ACTIVE', so running
+        // this first means they can never accidentally match their own
+        // deactivation query.
+        // - combined mode: this upload IS the whole current truth for the
+        //   group — wipe everything currently ACTIVE in scope.
+        // - separate mode: only touch the slot(s) this upload actually
+        //   contains (MAIN and/or ACC) — an Acc-only upload must never
+        //   deactivate Main-slot rows, and vice versa (the bug this whole
+        //   plan exists to fix).
+        // Assemblies and parts are superseded independently: an
+        // assembly-only re-upload must not touch part rows, and vice versa.
+        if (asmList?.assemblies.length) {
+          const slotsTouched = uploadMode === 'combined'
+            ? null
+            : [...new Set(asmList.assemblies.map(a => a.slot).filter((s): s is 'MAIN' | 'ACC' => s != null))]
+
+          await tx.bom_assembly.updateMany({
+            where: {
+              status: 'ACTIVE',
+              dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+              ...(slotsTouched ? { slot: { in: slotsTouched } } : {}),
+            },
+            data: { status: 'INACTIVE' },
+          })
+        }
+
+        if (dedupedParts.length) {
+          const slotsTouched = uploadMode === 'combined'
+            ? null
+            : [...new Set(dedupedParts.map(p => p.slot).filter((s): s is 'MAIN' | 'ACC' => s != null))]
+
+          await tx.bom_part.updateMany({
+            where: {
+              status: 'ACTIVE',
+              dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+              ...(slotsTouched ? { slot: { in: slotsTouched } } : {}),
+            },
+            data: { status: 'INACTIVE' },
+          })
+        }
+
         // bom_assembly rows — batch insert, get IDs back in one round-trip
         const assemblyIdByMark = new Map<string, number>()
         if (asmList?.assemblies.length) {
@@ -210,6 +254,7 @@ export class BomUploadService {
               length_mm: a.length_mm,
               width_mm: a.width_mm,
               height_mm: a.height_mm,
+              slot: a.slot ?? null,
               create_uid: uid,
               write_uid: uid,
             })),
@@ -230,6 +275,7 @@ export class BomUploadService {
               qty: p.qty,
               length_mm: p.length_mm,
               weight_kg: p.weight_kg,
+              slot: p.slot ?? null,
               create_uid: uid,
               write_uid: uid,
             })),
@@ -323,7 +369,31 @@ export class BomUploadService {
       // Carry forward paint config from previous version (same zone)
       await this.carryForwardPaintConfig(dispatchId, projectId, zoneId, subZoneId, assemblyIdByMark)
 
-      return this.findOne(dispatchId)
+      // WO BOM-Version Hold (T02): flip any WO whose snapshotted assembly this
+      // upload changed (removed/spec-changed/qty-decreased) to ON_HOLD. Runs
+      // post-commit, mirroring matching/autoCreateCustomProducts/paint carry-forward above.
+      // Best-effort by design: work_order is a different aggregate than this BOM
+      // upload, and the per-WO write inside applyBomChangeHolds() already isolates
+      // itself — but two reads it performs (the dispatch lookup, and
+      // bomVersionStatus() per candidate) are NOT caught there. If either throws
+      // (e.g. a transient DB error), it must not propagate into this method's
+      // outer try/catch, whose catch deletes the just-saved files and rethrows —
+      // that would erase an already-committed upload over an unrelated WO-side
+      // failure. Swallow here, log loudly, and fall back to a zero summary.
+      let holdResult: { held_wo_ids: number[] } = { held_wo_ids: [] }
+      try {
+        holdResult = await this.workOrders.applyBomChangeHolds(dispatchId)
+      } catch (err) {
+        this.logger.error(
+          `applyBomChangeHolds failed for dispatch ${dispatchId} — upload already committed, continuing with hold_summary={held_wo_count:0}`,
+          err instanceof Error ? err.stack : err,
+        )
+      }
+
+      return {
+        ...(await this.findOne(dispatchId)),
+        hold_summary: { held_wo_count: holdResult.held_wo_ids.length, held_wo_ids: holdResult.held_wo_ids },
+      }
     } catch (err) {
       // Rollback: delete saved files
       for (const { key } of savedKeys) {
@@ -368,8 +438,19 @@ export class BomUploadService {
       if (!main && !acc) return
       parsed.set(targetKey, {
         docType: targetKey,
-        assemblies: [...(main?.assemblies ?? []), ...(acc?.assemblies ?? [])],
-        parts: [...(main?.parts ?? []), ...(acc?.parts ?? [])],
+        // Tag each row with which slot it came from — downstream (insert +
+        // supersession) needs this to scope an Acc-only re-upload so it never
+        // deactivates Main-slot rows, and vice versa. Junction rows
+        // (assemblyParts) don't get a slot — they inherit validity implicitly
+        // via their assembly_id/part_id FKs.
+        assemblies: [
+          ...(main?.assemblies ?? []).map(a => ({ ...a, slot: 'MAIN' as const })),
+          ...(acc?.assemblies ?? []).map(a => ({ ...a, slot: 'ACC' as const })),
+        ],
+        parts: [
+          ...(main?.parts ?? []).map(p => ({ ...p, slot: 'MAIN' as const })),
+          ...(acc?.parts ?? []).map(p => ({ ...p, slot: 'ACC' as const })),
+        ],
         assemblyParts: [...(main?.assemblyParts ?? []), ...(acc?.assemblyParts ?? [])],
       })
       parsed.delete(mainKey)
@@ -472,13 +553,21 @@ export class BomUploadService {
     // must still show whichever sibling slot is currently active, carried
     // forward from wherever it was last uploaded (possibly an earlier
     // revision), so the content view never silently drops half the BOM.
-    const effectiveIds = await this.diffService.resolveEffectiveGroup(
+    const effectiveGroup = await this.diffService.resolveEffectiveGroup(
       d.project_id, d.zone_id, d.sub_zone_id, { lte: id },
     )
+    const effectiveIds = groupToIds(effectiveGroup)
+    // `d` itself is always a member of the walked group (it's the highest
+    // id within the `{ lte: id }` bound), so this can never genuinely be
+    // empty here — the null branch below is defensive only, mirroring
+    // BomDiffService's own handling of slotAwareWhere()'s null case.
+    const markWhere = slotAwareWhere(effectiveGroup)
 
     const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
 
     const [docRevisions, assemblies, orphans, partCount] = await Promise.all([
+      // Doc revisions are dispatch-level, not mark-level — each one belongs
+      // to exactly one dispatch, nothing to supersede — blind IN is correct.
       this.prisma.bom_doc_revision.findMany({
         where: { dispatch_id: { in: effectiveIds } },
         select: {
@@ -487,8 +576,8 @@ export class BomUploadService {
         },
         orderBy: { create_date: 'asc' },
       }),
-      this.prisma.bom_assembly.findMany({
-        where: { dispatch_id: { in: effectiveIds } },
+      markWhere == null ? Promise.resolve([]) : this.prisma.bom_assembly.findMany({
+        where: markWhere,
         orderBy: { assembly_mark: 'asc' },
         select: {
           id: true, dispatch_id: true, assembly_mark: true, name: true, qty: true,
@@ -511,12 +600,12 @@ export class BomUploadService {
         },
       }),
       // Parts with no assembly junction (orphans)
-      this.prisma.bom_part.findMany({
-        where: { dispatch_id: { in: effectiveIds }, assembly_parts: { none: {} } },
+      markWhere == null ? Promise.resolve([]) : this.prisma.bom_part.findMany({
+        where: { ...markWhere, assembly_parts: { none: {} } },
         orderBy: { part_mark: 'asc' },
         select: { id: true, dispatch_id: true, part_mark: true, description: true, profile: true, grade: true, length_mm: true, qty: true, weight_kg: true, match_status: true },
       }),
-      this.prisma.bom_part.count({ where: { dispatch_id: { in: effectiveIds } } }),
+      markWhere == null ? Promise.resolve(0) : this.prisma.bom_part.count({ where: markWhere }),
     ])
 
     return {

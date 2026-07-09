@@ -32,10 +32,8 @@ export class MarkPrefixService {
     // longest-first so greedy startsWith prefers the most specific code
     const codes = prefixes.map((p) => p.code).sort((a, b) => b.length - a.length)
 
-    // only count assemblies from the latest BOM version per project/zone/sub-zone
-    const latestDispatchIds = [...(await this.alloc.latestDispatchMap()).keys()]
     const assemblies = await this.prisma.bom_assembly.findMany({
-      where: { dispatch_id: { in: latestDispatchIds } },
+      where: { status: 'ACTIVE' },
       select: {
         id: true,
         assembly_mark: true,

@@ -63,7 +63,7 @@ export function MoNew() {
           name: l.bom_assembly.name,
           mark_prefix: null, project: null, zone: null, sub_zone: null,
           project_due_date: null, zone_end_date: null, sub_zone_due_date: null,
-          bom_version: 1,
+          bom_version: '1.0',
           total: 0, allocated: 0, remaining: Number(l.qty),
           allocation_breakdown: [],
         },

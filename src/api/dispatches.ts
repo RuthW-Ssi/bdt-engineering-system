@@ -62,6 +62,8 @@ export interface DispatchDetailDto extends DispatchSummaryDto {
   doc_revisions: RevisionHistoryDto[]
   assemblies?: AssemblyDto[]
   orphan_parts?: AssemblyPartDto[]
+  /** Present on `POST /bom/upload` responses only (WO BOM-Version Hold, Sprint 20). */
+  hold_summary?: { held_wo_count: number; held_wo_ids: number[] }
 }
 
 export interface RevisionHistoryDto {
