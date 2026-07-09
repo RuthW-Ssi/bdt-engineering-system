@@ -476,8 +476,32 @@ export class WorkOrdersService {
     bom_assembly_id: number,
     excludeWoId: number,
   ) {
+    // Resolve siblings by (assembly_mark, project_id, zone_id, sub_zone_id) — not the raw
+    // bom_assembly_id FK. acceptNewVersion() re-points a WO's bom_assembly_id to the newest
+    // active row for its mark once accepted, so a WO that already resolved its ON_HOLD ends up
+    // with a different bom_assembly_id than sibling WOs of the exact same physical mark that are
+    // still ON_HOLD (and still reference the old, now-INACTIVE row) — a raw-FK filter would drop
+    // it from the result entirely. Same pattern as MoAllocationService.allocatedFor().
+    const target = await client.bom_assembly.findUnique({
+      where: { id: bom_assembly_id },
+      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
+    if (!target) return { to_cancel: [], needs_disposition: [] }
+
     const siblings = await client.work_order.findMany({
-      where: { mo_id, bom_assembly_id, id: { not: excludeWoId }, status: { not: 'CANCELLED' } },
+      where: {
+        mo_id,
+        id: { not: excludeWoId },
+        status: { not: 'CANCELLED' },
+        bom_assembly: {
+          assembly_mark: target.assembly_mark,
+          dispatch: {
+            project_id: target.dispatch.project_id,
+            zone_id: target.dispatch.zone_id,
+            sub_zone_id: target.dispatch.sub_zone_id,
+          },
+        },
+      },
       select: { id: true, wo_code: true, sequence: true, status: true, qty_done: true, source_routing_op_id: true },
     })
     const hasOutput = (s: (typeof siblings)[number]) => s.status === 'DONE' || (s.qty_done != null && Number(s.qty_done) > 0)

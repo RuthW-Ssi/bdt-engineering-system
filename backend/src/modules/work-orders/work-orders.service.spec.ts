@@ -910,6 +910,11 @@ describe('WorkOrdersService.transition — cancel', () => {
         // these pre-existing tests aren't exercising the cascade, so no siblings.
         findMany: jest.fn().mockResolvedValue([]),
       },
+      // Task 11: loadCancelSiblings() resolves the target's mark+group first — no
+      // bom_assembly row here (these tests don't exercise the cascade), so it
+      // short-circuits to { to_cancel: [], needs_disposition: [] } before ever
+      // reaching work_order.findMany's where-clause.
+      bom_assembly: { findUnique: jest.fn().mockResolvedValue(null) },
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
     }
@@ -1069,12 +1074,20 @@ describe('WorkOrdersService.transition — cancel cascades to sibling WOs (Task 
     }
   }
 
+  // Task 11: loadCancelSiblings() now resolves the target's mark+group via bom_assembly.findUnique
+  // before querying siblings — mirrors MoAllocationService.allocatedFor()'s pattern.
   function makePrisma(wo: ReturnType<typeof makeWo>, siblings: unknown[] = []) {
     const prisma: any = {
       work_order: {
         findUnique: jest.fn().mockResolvedValue(wo),
         update: jest.fn(),
         findMany: jest.fn().mockResolvedValue(siblings),
+      },
+      bom_assembly: {
+        findUnique: jest.fn().mockResolvedValue({
+          assembly_mark: 'TC-CO1',
+          dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+        }),
       },
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: (tx: unknown) => Promise<void>) => cb(prisma)),
@@ -1090,8 +1103,20 @@ describe('WorkOrdersService.transition — cancel cascades to sibling WOs (Task 
 
     const result = await svc.transition(1, 'cancel', { reason: 'no longer needed' }, 'tester')
 
+    expect(prisma.bom_assembly.findUnique).toHaveBeenCalledWith({
+      where: { id: 100 },
+      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
     expect(prisma.work_order.findMany).toHaveBeenCalledWith({
-      where: { mo_id: 10, bom_assembly_id: 100, id: { not: 1 }, status: { not: 'CANCELLED' } },
+      where: {
+        mo_id: 10,
+        id: { not: 1 },
+        status: { not: 'CANCELLED' },
+        bom_assembly: {
+          assembly_mark: 'TC-CO1',
+          dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+        },
+      },
       select: { id: true, wo_code: true, sequence: true, status: true, qty_done: true, source_routing_op_id: true },
     })
     expect(prisma.work_order.update).toHaveBeenCalledTimes(1) // primary only
@@ -1187,11 +1212,19 @@ describe('WorkOrdersService.transition — cancel cascades to sibling WOs (Task 
 })
 
 describe('WorkOrdersService.cancelSiblings — preview endpoint (Task 10)', () => {
+  // Task 11: loadCancelSiblings() now resolves the target's mark+group via bom_assembly.findUnique
+  // before querying siblings — mirrors MoAllocationService.allocatedFor()'s pattern.
   function makePrisma(wo: { id: number; mo_id: number; bom_assembly_id: number }, siblings: unknown[]) {
     const prisma: any = {
       work_order: {
         findUnique: jest.fn().mockResolvedValue(wo),
         findMany: jest.fn().mockResolvedValue(siblings),
+      },
+      bom_assembly: {
+        findUnique: jest.fn().mockResolvedValue({
+          assembly_mark: 'TC-CO1',
+          dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+        }),
       },
     }
     return prisma
@@ -1212,8 +1245,20 @@ describe('WorkOrdersService.cancelSiblings — preview endpoint (Task 10)', () =
 
     const result = await svc.cancelSiblings(1)
 
+    expect(prisma.bom_assembly.findUnique).toHaveBeenCalledWith({
+      where: { id: 100 },
+      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+    })
     expect(prisma.work_order.findMany).toHaveBeenCalledWith({
-      where: { mo_id: 10, bom_assembly_id: 100, id: { not: 1 }, status: { not: 'CANCELLED' } },
+      where: {
+        mo_id: 10,
+        id: { not: 1 },
+        status: { not: 'CANCELLED' },
+        bom_assembly: {
+          assembly_mark: 'TC-CO1',
+          dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null },
+        },
+      },
       select: { id: true, wo_code: true, sequence: true, status: true, qty_done: true, source_routing_op_id: true },
     })
     expect(result.to_cancel.map((s: any) => s.id)).toEqual([2, 3])
@@ -1228,5 +1273,145 @@ describe('WorkOrdersService.cancelSiblings — preview endpoint (Task 10)', () =
     const result = await svc.cancelSiblings(1)
 
     expect(result).toEqual({ to_cancel: [], needs_disposition: [] })
+  })
+
+  it('returns empty arrays (not a throw) when the target bom_assembly row itself no longer exists', async () => {
+    const wo = { id: 1, mo_id: 10, bom_assembly_id: 100 }
+    const prisma = makePrisma(wo, [])
+    prisma.bom_assembly.findUnique = jest.fn().mockResolvedValue(null)
+    const svc = new WorkOrdersService(prisma)
+
+    const result = await svc.cancelSiblings(1)
+
+    expect(result).toEqual({ to_cancel: [], needs_disposition: [] })
+    expect(prisma.work_order.findMany).not.toHaveBeenCalled()
+  })
+})
+
+// ── Task 11 (Sprint 20 · live bug found post-Task-10 ship) ──────────────────
+// loadCancelSiblings() used to scope siblings by the literal bom_assembly_id FK.
+// acceptNewVersion() re-points a WO's bom_assembly_id to the newest ACTIVE row
+// for its mark once accepted, so a WO that already resolved its ON_HOLD ends up
+// with a DIFFERENT bom_assembly_id than sibling WOs of the exact same physical
+// mark that are still ON_HOLD (and still reference the old, now-INACTIVE row) —
+// the raw-FK filter silently dropped it from BOTH to_cancel and needs_disposition.
+// Fix mirrors MoAllocationService.allocatedFor(): resolve by
+// (assembly_mark, project_id, zone_id, sub_zone_id), not the raw FK.
+//
+// This suite uses a behavioral fake (not just where-clause assertions) so the
+// group-scoping is actually exercised, matching mo-allocation.service.spec.ts's style.
+describe('WorkOrdersService.loadCancelSiblings — resolves by mark+group (Task 11)', () => {
+  type FakeDispatch = { project_id: number; zone_id: number; sub_zone_id: number | null }
+  type FakeAssembly = { id: number; assembly_mark: string; dispatch: FakeDispatch }
+  type FakeWo = {
+    id: number
+    mo_id: number
+    bom_assembly_id: number
+    status: string
+    qty_done: number | null
+    wo_code: string
+    sequence: number
+    source_routing_op_id: number
+  }
+
+  function matchesDispatch(where: any, d: FakeDispatch): boolean {
+    if (!where) return true
+    if (where.project_id !== undefined && where.project_id !== d.project_id) return false
+    if (where.zone_id !== undefined && where.zone_id !== d.zone_id) return false
+    if (where.sub_zone_id !== undefined && where.sub_zone_id !== d.sub_zone_id) return false
+    return true
+  }
+
+  function makeFakePrisma(assemblies: FakeAssembly[], wos: FakeWo[]) {
+    return {
+      bom_assembly: {
+        findUnique: jest.fn(({ where: { id } }: any) => {
+          const a = assemblies.find((x) => x.id === id)
+          if (!a) return Promise.resolve(null)
+          return Promise.resolve({ assembly_mark: a.assembly_mark, dispatch: a.dispatch })
+        }),
+      },
+      work_order: {
+        findUnique: jest.fn(({ where: { id } }: any) => Promise.resolve(wos.find((w) => w.id === id) ?? null)),
+        findMany: jest.fn(({ where }: any) =>
+          Promise.resolve(
+            wos
+              .filter((w) => {
+                if (where.mo_id !== undefined && w.mo_id !== where.mo_id) return false
+                if (where.id?.not !== undefined && w.id === where.id.not) return false
+                if (where.status?.not !== undefined && w.status === where.status.not) return false
+                if (where.bom_assembly) {
+                  const a = assemblies.find((x) => x.id === w.bom_assembly_id)
+                  if (!a) return false
+                  if (where.bom_assembly.assembly_mark !== undefined && a.assembly_mark !== where.bom_assembly.assembly_mark) return false
+                  if (!matchesDispatch(where.bom_assembly.dispatch, a.dispatch)) return false
+                }
+                return true
+              })
+              .map((w) => ({
+                id: w.id,
+                wo_code: w.wo_code,
+                sequence: w.sequence,
+                status: w.status,
+                qty_done: w.qty_done,
+                source_routing_op_id: w.source_routing_op_id,
+              })),
+          ),
+        ),
+      },
+    }
+  }
+
+  it('1. reproduction: a sibling that already accepted a version update (different bom_assembly_id, same mark+group) is found, not silently dropped', async () => {
+    // WO-1,2,4,5,6 (mark TC-CO1, all ON_HOLD) all have bom_assembly_id=1 (the old INACTIVE row).
+    // WO-3 (same mark TC-CO1, already Accepted → DONE) now has bom_assembly_id=51 (the new ACTIVE row).
+    const oldRow: FakeAssembly = { id: 1, assembly_mark: 'TC-CO1', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const newRow: FakeAssembly = { id: 51, assembly_mark: 'TC-CO1', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const wos: FakeWo[] = [
+      { id: 2, mo_id: 10, bom_assembly_id: 1, status: 'ON_HOLD', qty_done: null, wo_code: 'WO-00000002', sequence: 2, source_routing_op_id: 20 }, // the WO whose preview we're loading
+      { id: 3, mo_id: 10, bom_assembly_id: 51, status: 'DONE', qty_done: 12, wo_code: 'WO-00000003', sequence: 3, source_routing_op_id: 30 }, // accepted + walked to DONE — used to vanish entirely
+      { id: 5, mo_id: 10, bom_assembly_id: 1, status: 'ON_HOLD', qty_done: null, wo_code: 'WO-00000005', sequence: 5, source_routing_op_id: 50 },
+      { id: 6, mo_id: 10, bom_assembly_id: 1, status: 'ON_HOLD', qty_done: null, wo_code: 'WO-00000006', sequence: 6, source_routing_op_id: 60 },
+    ]
+    const prisma = makeFakePrisma([oldRow, newRow], wos)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.cancelSiblings(2)
+
+    // WO-3 must now show up — as needs_disposition (status DONE), not silently absent from both lists.
+    expect(result.needs_disposition.map((s: any) => s.id)).toEqual([3])
+    expect(result.to_cancel.map((s: any) => s.id).sort()).toEqual([5, 6])
+  })
+
+  it('2. common case still works: siblings genuinely sharing the same bom_assembly_id FK are found and split correctly', async () => {
+    const row: FakeAssembly = { id: 100, assembly_mark: 'TC-CO1', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const wos: FakeWo[] = [
+      { id: 1, mo_id: 10, bom_assembly_id: 100, status: 'RELEASED', qty_done: null, wo_code: 'WO-00000001', sequence: 1, source_routing_op_id: 10 },
+      { id: 2, mo_id: 10, bom_assembly_id: 100, status: 'NOT_STARTED', qty_done: null, wo_code: 'WO-00000002', sequence: 2, source_routing_op_id: 20 },
+      { id: 3, mo_id: 10, bom_assembly_id: 100, status: 'DONE', qty_done: 8, wo_code: 'WO-00000003', sequence: 3, source_routing_op_id: 30 },
+    ]
+    const prisma = makeFakePrisma([row], wos)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.cancelSiblings(1)
+
+    expect(result.to_cancel.map((s: any) => s.id)).toEqual([2])
+    expect(result.needs_disposition.map((s: any) => s.id)).toEqual([3])
+  })
+
+  it('3. cross-contamination: same assembly_mark in a DIFFERENT (project, zone, sub_zone) group is not picked up as a sibling', async () => {
+    const groupOne: FakeAssembly = { id: 1, assembly_mark: 'TC-CO1', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const groupTwo: FakeAssembly = { id: 99, assembly_mark: 'TC-CO1', dispatch: { project_id: 2, zone_id: 1, sub_zone_id: null } } // same mark, different project
+    const wos: FakeWo[] = [
+      { id: 2, mo_id: 10, bom_assembly_id: 1, status: 'ON_HOLD', qty_done: null, wo_code: 'WO-00000002', sequence: 2, source_routing_op_id: 20 }, // target
+      { id: 9, mo_id: 10, bom_assembly_id: 99, status: 'NOT_STARTED', qty_done: null, wo_code: 'WO-00000009', sequence: 9, source_routing_op_id: 90 }, // same mark, wrong group
+    ]
+    const prisma = makeFakePrisma([groupOne, groupTwo], wos)
+    const svc = new WorkOrdersService(prisma as any)
+
+    const result = await svc.cancelSiblings(2)
+
+    expect(result.to_cancel).toEqual([])
+    expect(result.needs_disposition).toEqual([])
   })
 })
