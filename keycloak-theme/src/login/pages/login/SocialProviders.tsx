@@ -20,15 +20,21 @@ export function SocialProviders() {
     }
 
     return (
-        <div id="kc-social-providers" className="mt-2">
+        <div id="kc-social-providers" className="mt-6">
             <ul className="flex flex-col gap-3">
                 {kcContext.social.providers.map(p => (
                     <li key={p.alias}>
                         <a
                             id={`social-${p.alias}`}
                             href={p.loginUrl}
-                            className="flex items-center justify-center gap-2 w-full py-3 rounded bg-ssi-600 text-white font-sans font-semibold hover:bg-ssi-800"
+                            className="flex items-center justify-center gap-2 w-full py-3 rounded-lg border-2 border-ssi-600 bg-white text-ssi-600 font-sans font-semibold hover:bg-ssi-600 hover:text-white transition-all"
                         >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21" className="w-5 h-5 flex-shrink-0" aria-hidden>
+                                <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+                                <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                                <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                                <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                            </svg>
                             <span dangerouslySetInnerHTML={{ __html: kcSanitize(p.displayName) }} />
                         </a>
                     </li>

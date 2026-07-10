@@ -1,6 +1,7 @@
 # This file is managed by Keycloakify, do not edit it manually.
 
 # === Owned files start ===
+# login/components/PasswordWrapper.tsx
 # login/components/Template/Template.tsx
 # login/pages/login/Form.tsx
 # login/pages/login/Page.tsx
@@ -14,7 +15,6 @@
 /login/KcPage.tsx
 /login/styleLevelCustomization.tsx
 /login/components/LogoutOtherSessions.tsx
-/login/components/PasswordWrapper.tsx
 /login/mocks/getKcContextMock.ts
 /login/pages/PageIndex.tsx
 /login/components/Template/index.ts

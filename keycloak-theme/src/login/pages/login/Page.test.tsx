@@ -62,17 +62,10 @@ describe("Login page — Microsoft CTA + break-glass form", () => {
         expect(screen.getByRole("link", { name: /microsoft/i })).toBeInTheDocument();
     });
 
-    it("does not show the username/password inputs by default", () => {
+    it("shows the username/password inputs for local testing", () => {
         renderLoginPage();
         // `selector: "input"` disambiguates from PasswordWrapper's "Show password"
         // visibility-toggle button, which also has an accessible name matching /password/i.
-        expect(screen.queryByLabelText(/password/i, { selector: "input" })).not.toBeVisible();
-    });
-
-    it("reveals the username/password form when the break-glass toggle is opened", async () => {
-        renderLoginPage();
-        const toggle = screen.getByText(/ใช้บัญชี local/i);
-        toggle.click();
-        expect(await screen.findByLabelText(/password/i, { selector: "input" })).toBeVisible();
+        expect(screen.getByLabelText(/password/i, { selector: "input" })).toBeVisible();
     });
 });

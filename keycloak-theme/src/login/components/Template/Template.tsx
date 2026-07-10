@@ -28,12 +28,8 @@ export function Template(props: {
     children: ReactNode;
 }) {
     const {
-        displayInfo = false,
         displayMessage = true,
-        displayRequiredFields = false,
-        headerNode,
         socialProvidersNode = null,
-        infoNode = null,
         documentTitle,
         bodyClassName,
         children
@@ -41,7 +37,7 @@ export function Template(props: {
 
     const { kcContext } = useKcContext();
 
-    const { msg, msgStr, currentLanguage, enabledLanguages } = useI18n();
+    const { msg, msgStr } = useI18n();
 
     const { kcClsx } = useKcClsx();
 
@@ -67,118 +63,19 @@ export function Template(props: {
     }
 
     return (
-        <div className="min-h-screen flex items-stretch bg-chrome-50 font-sans">
-            <div className="hidden md:flex md:w-2/5 bg-ssi-600 flex-col items-center justify-center gap-6 p-10 text-white">
-                <img src={mascotWai} alt="" className="w-40 h-40" />
-                <div className="text-center">
-                    <p className="text-2xl font-bold">ยินดีต้อนรับ</p>
-                    <p className="text-sm opacity-80 mt-1">BDT Engineering System</p>
+        <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-ssi-50 font-sans p-6">
+            <div className="absolute -top-[56rem] left-[70%] -translate-x-1/2 w-[112rem] h-[112rem] rounded-full bg-ssi-100" />
+            <div className="absolute -top-[23rem] left-[70%] -translate-x-1/2 w-[34rem] h-[34rem] rounded-full bg-ssi-800" />
+            <div className="absolute -top-[41rem] left-[70%] -translate-x-1/2 w-[82rem] h-[82rem] rounded-full bg-ssi-200" />
+            <div className="absolute -top-[22rem] left-[70%] -translate-x-1/2 w-[44rem] h-[44rem] rounded-full bg-ssi-400" />
+            <div className="relative w-full max-w-md bg-white rounded-lg border border-ssi-400 shadow-[0_8px_24px_rgba(200,32,42,0.25)] p-8">
+                <div className="flex flex-col items-center text-center mb-6">
+                    <img src={mascotWai} alt="" className="w-36 h-36" />
+                    <p className="text-lg font-semibold text-chrome-800 mt-2">BDT Engineering System</p>
                 </div>
-            </div>
-            <div className="flex-1 flex items-center justify-center p-6">
-                <div className="w-full max-w-md bg-white rounded-lg shadow-modal p-8">
-                    <div id="kc-header" className={kcClsx("kcHeaderClass")}>
-                        <div id="kc-header-wrapper" className={kcClsx("kcHeaderWrapperClass")}>
-                            {msg("loginTitleHtml", kcContext.realm.displayNameHtml || kcContext.realm.name)}
-                        </div>
-                    </div>
-                    <div className={kcClsx("kcFormCardClass")}>
-                        <header className={kcClsx("kcFormHeaderClass")}>
-                            {enabledLanguages.length > 1 && (
-                                <div className={kcClsx("kcLocaleMainClass")} id="kc-locale">
-                                    <div id="kc-locale-wrapper" className={kcClsx("kcLocaleWrapperClass")}>
-                                        <div
-                                            id="kc-locale-dropdown"
-                                            className={clsx(
-                                                "menu-button-links",
-                                                kcClsx("kcLocaleDropDownClass")
-                                            )}
-                                        >
-                                            <button
-                                                tabIndex={1}
-                                                id="kc-current-locale-link"
-                                                aria-label={msgStr("languages")}
-                                                aria-haspopup="true"
-                                                aria-expanded="false"
-                                                aria-controls="language-switch1"
-                                            >
-                                                {currentLanguage.label}
-                                            </button>
-                                            <ul
-                                                role="menu"
-                                                tabIndex={-1}
-                                                aria-labelledby="kc-current-locale-link"
-                                                aria-activedescendant=""
-                                                id="language-switch1"
-                                                className={kcClsx("kcLocaleListClass")}
-                                            >
-                                                {enabledLanguages.map(({ languageTag, label, href }, i) => (
-                                                    <li
-                                                        key={languageTag}
-                                                        className={kcClsx("kcLocaleListItemClass")}
-                                                        role="none"
-                                                    >
-                                                        <a
-                                                            role="menuitem"
-                                                            id={`language-${i + 1}`}
-                                                            className={kcClsx("kcLocaleItemClass")}
-                                                            href={href}
-                                                        >
-                                                            {label}
-                                                        </a>
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                            {(() => {
-                                const node = !(
-                                    kcContext.auth !== undefined &&
-                                    kcContext.auth.showUsername &&
-                                    !kcContext.auth.showResetCredentials
-                                ) ? (
-                                    <h1 id="kc-page-title">{headerNode}</h1>
-                                ) : (
-                                    <div id="kc-username" className={kcClsx("kcFormGroupClass")}>
-                                        <label id="kc-attempted-username">
-                                            {kcContext.auth.attemptedUsername}
-                                        </label>
-                                        <a
-                                            id="reset-login"
-                                            href={kcContext.url.loginRestartFlowUrl}
-                                            aria-label={msgStr("restartLoginTooltip")}
-                                        >
-                                            <div className="kc-login-tooltip">
-                                                <i className={kcClsx("kcResetFlowIcon")}></i>
-                                                <span className="kc-tooltip-text">
-                                                    {msg("restartLoginTooltip")}
-                                                </span>
-                                            </div>
-                                        </a>
-                                    </div>
-                                );
-
-                                if (displayRequiredFields) {
-                                    return (
-                                        <div className={kcClsx("kcContentWrapperClass")}>
-                                            <div className={clsx(kcClsx("kcLabelWrapperClass"), "subtitle")}>
-                                                <span className="subtitle">
-                                                    <span className="required">*</span>
-                                                    {msg("requiredFields")}
-                                                </span>
-                                            </div>
-                                            <div className="col-md-10">{node}</div>
-                                        </div>
-                                    );
-                                }
-
-                                return node;
-                            })()}
-                        </header>
-                        <div id="kc-content">
-                            <div id="kc-content-wrapper">
+                <div>
+                    <div id="kc-content">
+                        <div id="kc-content-wrapper">
                                 {/* App-initiated actions should not see warning messages about the need to complete the action during login. */}
                                 {displayMessage &&
                                     kcContext.message !== undefined &&
@@ -213,8 +110,8 @@ export function Template(props: {
                                             />
                                         </div>
                                     )}
-                                {socialProvidersNode}
                                 {children}
+                                {socialProvidersNode}
                                 {kcContext.auth !== undefined && kcContext.auth.showTryAnotherWayLink && (
                                     <form
                                         id="kc-select-try-another-way-form"
@@ -240,18 +137,10 @@ export function Template(props: {
                                         </div>
                                     </form>
                                 )}
-                                {displayInfo && (
-                                    <div id="kc-info" className={kcClsx("kcSignUpClass")}>
-                                        <div id="kc-info-wrapper" className={kcClsx("kcInfoAreaWrapperClass")}>
-                                            {infoNode}
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
     );
 }

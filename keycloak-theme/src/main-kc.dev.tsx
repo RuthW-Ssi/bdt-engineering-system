@@ -13,7 +13,13 @@ const kcContext = getKcContextMock({
                 {
                     alias: "Oidc_o365",
                     displayName: "Microsoft",
-                    loginUrl: "https://example.com/broker/Oidc_o365/login",
+                    // NOTE: this is a manual approximation for local dev preview only.
+                    // In the real deployed theme, Keycloak generates this URL itself
+                    // per-provider (already a direct broker link, no kc_idp_hint needed).
+                    // This manual version may still hit a PKCE error since it's not going
+                    // through keycloak-js — that part of the integration is separate,
+                    // still-blocked work, not something this theme branch can fully test.
+                    loginUrl: "https://dev-iam.ssi-steel.com/realms/ssi-realm-test/protocol/openid-connect/auth?client_id=auth-bdt-engineer-system&redirect_uri=http%3A%2F%2Flocalhost%3A5173%2F&response_type=code&scope=openid&kc_idp_hint=Oidc_o365",
                     iconClasses: ""
                 }
             ]
