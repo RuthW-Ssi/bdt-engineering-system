@@ -213,6 +213,7 @@ export function Template(props: {
                                             />
                                         </div>
                                     )}
+                                {socialProvidersNode}
                                 {children}
                                 {kcContext.auth !== undefined && kcContext.auth.showTryAnotherWayLink && (
                                     <form
@@ -239,7 +240,6 @@ export function Template(props: {
                                         </div>
                                     </form>
                                 )}
-                                {socialProvidersNode}
                                 {displayInfo && (
                                     <div id="kc-info" className={kcClsx("kcSignUpClass")}>
                                         <div id="kc-info-wrapper" className={kcClsx("kcInfoAreaWrapperClass")}>
