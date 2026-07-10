@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ssi-600: #C8202A;
+  --color-ssi-800: #8A1520;
+  --color-chrome-50: #F5F5F5;
+  --color-chrome-800: #3A3A3A;
+
+  --font-sans: "Noto Sans Thai", system-ui, sans-serif;
+
+  --shadow-modal: 0 8px 24px rgba(0,0,0,0.12);
+}

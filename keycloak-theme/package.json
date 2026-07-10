@@ -12,9 +12,11 @@
   },
   "dependencies": {
     "@keycloakify/login-ui": "^250004.7.2",
+    "@tailwindcss/vite": "^4.3.2",
     "keycloakify": "^11.15.11",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "tailwindcss": "^4.3.2",
     "tsafe": "^1.8.5"
   },
   "devDependencies": {
