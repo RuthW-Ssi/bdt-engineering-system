@@ -1,7 +1,7 @@
 /**
  * This file has been claimed for ownership from @keycloakify/login-ui version 250004.7.2.
  * To relinquish ownership and restore this file to its original content, run the following command:
- * 
+ *
  * $ npx keycloakify own --path "login/pages/login/Form.tsx" --revert
  */
 
@@ -33,150 +33,156 @@ export function Form() {
             <div id="kc-form">
                 <div id="kc-form-wrapper">
                     {kcContext.realm.password && (
-                        <form
-                            id="kc-form-login"
-                            onSubmit={() => {
-                                setIsLoginButtonDisabled(true);
-                                return true;
-                            }}
-                            action={kcContext.url.loginAction}
-                            method="post"
-                        >
-                            {!kcContext.usernameHidden && (
+                        <details className="mt-4">
+                            <summary className="text-sm text-chrome-800 cursor-pointer select-none">
+                                ใช้บัญชี local แทน
+                            </summary>
+                            <form
+                                id="kc-form-login"
+                                className="mt-3"
+                                onSubmit={() => {
+                                    setIsLoginButtonDisabled(true);
+                                    return true;
+                                }}
+                                action={kcContext.url.loginAction}
+                                method="post"
+                            >
+                                {!kcContext.usernameHidden && (
+                                    <div className={kcClsx("kcFormGroupClass")}>
+                                        <label htmlFor="username" className={kcClsx("kcLabelClass")}>
+                                            {!kcContext.realm.loginWithEmailAllowed
+                                                ? msg("username")
+                                                : !kcContext.realm.registrationEmailAsUsername
+                                                  ? msg("usernameOrEmail")
+                                                  : msg("email")}
+                                        </label>
+                                        <input
+                                            tabIndex={2}
+                                            id="username"
+                                            className={kcClsx("kcInputClass")}
+                                            name="username"
+                                            defaultValue={kcContext.login.username ?? ""}
+                                            type="text"
+                                            autoFocus
+                                            autoComplete={
+                                                kcContext.enableWebAuthnConditionalUI
+                                                    ? "username webauthn"
+                                                    : "username"
+                                            }
+                                            aria-invalid={kcContext.messagesPerField.existsError(
+                                                "username",
+                                                "password"
+                                            )}
+                                        />
+                                        {kcContext.messagesPerField.existsError("username", "password") && (
+                                            <span
+                                                id="input-error"
+                                                className={kcClsx("kcInputErrorMessageClass")}
+                                                aria-live="polite"
+                                                dangerouslySetInnerHTML={{
+                                                    __html: kcSanitize(
+                                                        kcContext.messagesPerField.getFirstError(
+                                                            "username",
+                                                            "password"
+                                                        )
+                                                    )
+                                                }}
+                                            />
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className={kcClsx("kcFormGroupClass")}>
-                                    <label htmlFor="username" className={kcClsx("kcLabelClass")}>
-                                        {!kcContext.realm.loginWithEmailAllowed
-                                            ? msg("username")
-                                            : !kcContext.realm.registrationEmailAsUsername
-                                              ? msg("usernameOrEmail")
-                                              : msg("email")}
+                                    <label htmlFor="password" className={kcClsx("kcLabelClass")}>
+                                        {msg("password")}
                                     </label>
-                                    <input
-                                        tabIndex={2}
-                                        id="username"
-                                        className={kcClsx("kcInputClass")}
-                                        name="username"
-                                        defaultValue={kcContext.login.username ?? ""}
-                                        type="text"
-                                        autoFocus
-                                        autoComplete={
-                                            kcContext.enableWebAuthnConditionalUI
-                                                ? "username webauthn"
-                                                : "username"
-                                        }
-                                        aria-invalid={kcContext.messagesPerField.existsError(
-                                            "username",
-                                            "password"
-                                        )}
-                                    />
-                                    {kcContext.messagesPerField.existsError("username", "password") && (
-                                        <span
-                                            id="input-error"
-                                            className={kcClsx("kcInputErrorMessageClass")}
-                                            aria-live="polite"
-                                            dangerouslySetInnerHTML={{
-                                                __html: kcSanitize(
-                                                    kcContext.messagesPerField.getFirstError(
-                                                        "username",
-                                                        "password"
-                                                    )
-                                                )
-                                            }}
+                                    <PasswordWrapper passwordInputId="password">
+                                        <input
+                                            tabIndex={3}
+                                            id="password"
+                                            className={kcClsx("kcInputClass")}
+                                            name="password"
+                                            type="password"
+                                            autoComplete="current-password"
+                                            aria-invalid={kcContext.messagesPerField.existsError(
+                                                "username",
+                                                "password"
+                                            )}
                                         />
-                                    )}
-                                </div>
-                            )}
-
-                            <div className={kcClsx("kcFormGroupClass")}>
-                                <label htmlFor="password" className={kcClsx("kcLabelClass")}>
-                                    {msg("password")}
-                                </label>
-                                <PasswordWrapper passwordInputId="password">
-                                    <input
-                                        tabIndex={3}
-                                        id="password"
-                                        className={kcClsx("kcInputClass")}
-                                        name="password"
-                                        type="password"
-                                        autoComplete="current-password"
-                                        aria-invalid={kcContext.messagesPerField.existsError(
-                                            "username",
-                                            "password"
-                                        )}
-                                    />
-                                </PasswordWrapper>
-                                {kcContext.usernameHidden &&
-                                    kcContext.messagesPerField.existsError("username", "password") && (
-                                        <span
-                                            id="input-error"
-                                            className={kcClsx("kcInputErrorMessageClass")}
-                                            aria-live="polite"
-                                            dangerouslySetInnerHTML={{
-                                                __html: kcSanitize(
-                                                    kcContext.messagesPerField.getFirstError(
-                                                        "username",
-                                                        "password"
+                                    </PasswordWrapper>
+                                    {kcContext.usernameHidden &&
+                                        kcContext.messagesPerField.existsError("username", "password") && (
+                                            <span
+                                                id="input-error"
+                                                className={kcClsx("kcInputErrorMessageClass")}
+                                                aria-live="polite"
+                                                dangerouslySetInnerHTML={{
+                                                    __html: kcSanitize(
+                                                        kcContext.messagesPerField.getFirstError(
+                                                            "username",
+                                                            "password"
+                                                        )
                                                     )
-                                                )
-                                            }}
-                                        />
-                                    )}
-                            </div>
-
-                            <div className={kcClsx("kcFormGroupClass", "kcFormSettingClass")}>
-                                <div id="kc-form-options">
-                                    {kcContext.realm.rememberMe && !kcContext.usernameHidden && (
-                                        <div className="checkbox">
-                                            <label>
-                                                <input
-                                                    tabIndex={5}
-                                                    id="rememberMe"
-                                                    name="rememberMe"
-                                                    type="checkbox"
-                                                    defaultChecked={!!kcContext.login.rememberMe}
-                                                />{" "}
-                                                {msg("rememberMe")}
-                                            </label>
-                                        </div>
-                                    )}
+                                                }}
+                                            />
+                                        )}
                                 </div>
-                                <div className={kcClsx("kcFormOptionsWrapperClass")}>
-                                    {kcContext.realm.resetPasswordAllowed && (
-                                        <span>
-                                            <a
-                                                tabIndex={6}
-                                                href={kcContext.url.loginResetCredentialsUrl}
-                                            >
-                                                {msg("doForgotPassword")}
-                                            </a>
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
 
-                            <div id="kc-form-buttons" className={kcClsx("kcFormGroupClass")}>
-                                <input
-                                    type="hidden"
-                                    id="id-hidden-input"
-                                    name="credentialId"
-                                    value={kcContext.auth.selectedCredential}
-                                />
-                                <input
-                                    tabIndex={7}
-                                    disabled={isLoginButtonDisabled}
-                                    className={kcClsx(
-                                        "kcButtonClass",
-                                        "kcButtonPrimaryClass",
-                                        "kcButtonBlockClass",
-                                        "kcButtonLargeClass"
-                                    )}
-                                    name="login"
-                                    id="kc-login"
-                                    type="submit"
-                                    value={msgStr("doLogIn")}
-                                />
-                            </div>
-                        </form>
+                                <div className={kcClsx("kcFormGroupClass", "kcFormSettingClass")}>
+                                    <div id="kc-form-options">
+                                        {kcContext.realm.rememberMe && !kcContext.usernameHidden && (
+                                            <div className="checkbox">
+                                                <label>
+                                                    <input
+                                                        tabIndex={5}
+                                                        id="rememberMe"
+                                                        name="rememberMe"
+                                                        type="checkbox"
+                                                        defaultChecked={!!kcContext.login.rememberMe}
+                                                    />{" "}
+                                                    {msg("rememberMe")}
+                                                </label>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className={kcClsx("kcFormOptionsWrapperClass")}>
+                                        {kcContext.realm.resetPasswordAllowed && (
+                                            <span>
+                                                <a
+                                                    tabIndex={6}
+                                                    href={kcContext.url.loginResetCredentialsUrl}
+                                                >
+                                                    {msg("doForgotPassword")}
+                                                </a>
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div id="kc-form-buttons" className={kcClsx("kcFormGroupClass")}>
+                                    <input
+                                        type="hidden"
+                                        id="id-hidden-input"
+                                        name="credentialId"
+                                        value={kcContext.auth.selectedCredential}
+                                    />
+                                    <input
+                                        tabIndex={7}
+                                        disabled={isLoginButtonDisabled}
+                                        className={kcClsx(
+                                            "kcButtonClass",
+                                            "kcButtonPrimaryClass",
+                                            "kcButtonBlockClass",
+                                            "kcButtonLargeClass"
+                                        )}
+                                        name="login"
+                                        id="kc-login"
+                                        type="submit"
+                                        value={msgStr("doLogIn")}
+                                    />
+                                </div>
+                            </form>
+                        </details>
                     )}
                 </div>
             </div>
