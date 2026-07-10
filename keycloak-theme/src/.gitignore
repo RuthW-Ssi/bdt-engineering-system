@@ -1,6 +1,10 @@
 # This file is managed by Keycloakify, do not edit it manually.
 
 # === Owned files start ===
+# login/components/Template/Template.tsx
+# login/pages/login/Form.tsx
+# login/pages/login/Page.tsx
+# login/pages/login/SocialProviders.tsx
 # login/pages/login-passkeys-conditional-authenticate/Page.tsx
 # === Owned files end =====
 
@@ -14,7 +18,6 @@
 /login/mocks/getKcContextMock.ts
 /login/pages/PageIndex.tsx
 /login/components/Template/index.ts
-/login/components/Template/Template.tsx
 /login/components/Template/useInitializeTemplate.ts
 /login/components/UserProfileFormFields/AddRemoveButtonsMultiValuedAttribute.tsx
 /login/components/UserProfileFormFields/DO_MAKE_USER_CONFIRM_PASSWORD.ts
@@ -44,11 +47,8 @@
 /login/pages/info/Page.tsx
 /login/pages/link-idp-action/index.ts
 /login/pages/link-idp-action/Page.tsx
-/login/pages/login/Form.tsx
 /login/pages/login/index.ts
 /login/pages/login/Info.tsx
-/login/pages/login/Page.tsx
-/login/pages/login/SocialProviders.tsx
 /login/pages/login/useScript.tsx
 /login/pages/login-config-totp/index.ts
 /login/pages/login-config-totp/Page.tsx
