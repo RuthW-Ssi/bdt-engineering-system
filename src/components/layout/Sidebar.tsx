@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
-  ClipboardList,
+  ClipboardList, Scissors,
 } from 'lucide-react'
 
 interface NavItem {
@@ -45,6 +45,12 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
         ],
       },
       { label: 'ECO', icon: <FileWarning size={18} />, path: '/eco', badge: 3 },
+    ],
+  },
+  {
+    title: 'Supply Chain',
+    items: [
+      { label: 'Cutting Plan', icon: <Scissors size={18} />, path: '/cutting-plan' },
     ],
   },
   {

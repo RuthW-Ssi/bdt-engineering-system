@@ -120,6 +120,7 @@ export default function App() {
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />
+            <Route path="/cutting-plan" element={<Placeholder title="Cutting Plan" />} />
           </Route>
         </Routes>
       </BrowserRouter>
