@@ -72,9 +72,19 @@ interface Props {
 }
 
 export function Sidebar({ mobileOpen, onClose, collapsed, onToggleCollapse }: Props) {
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ '/routings': true, '/mo': true })
   const navigate = useNavigate()
   const location = useLocation()
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {}
+    for (const section of SECTIONS) {
+      for (const item of section.items) {
+        if (item.children?.some(c => location.pathname.startsWith(c.path))) {
+          initial[item.path] = true
+        }
+      }
+    }
+    return initial
+  })
 
   const handleNav = (path: string) => {
     navigate(path)
