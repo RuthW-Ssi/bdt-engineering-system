@@ -45,6 +45,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "expr-eval": "^2.0.2",
+    "google-auth-library": "^10.9.0",
     "jwt-decode": "^4.0.0",
     "multer": "^2.1.1",
     "reflect-metadata": "^0.2.2",

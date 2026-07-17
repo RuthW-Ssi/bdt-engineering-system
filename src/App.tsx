@@ -34,6 +34,9 @@ import { MoNew } from './pages/MoNew'
 import { MoDetail } from './pages/MoDetail'
 import { OrderHub } from './pages/OrderHub'
 import { WoDetail } from './pages/WoDetail'
+import { CuttingPlanList } from './pages/CuttingPlanList'
+import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
+import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -120,7 +123,9 @@ export default function App() {
             <Route path="/eco" element={<Placeholder title="ECO" />} />
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />
-            <Route path="/cutting-plan" element={<Placeholder title="Cutting Plan" />} />
+            <Route path="/cutting-plan" element={<CuttingPlanList />} />
+            <Route path="/cutting-plan/upload" element={<CuttingPlanUpload />} />
+            <Route path="/cutting-plan/:id" element={<CuttingPlanDetail />} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -30,6 +30,10 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   GCP_PROJECT_ID: string
+
+  @IsOptional()
+  @IsString()
+  CUTTING_PLAN_API_URL: string
 }
 
 export function validate(config: Record<string, unknown>) {

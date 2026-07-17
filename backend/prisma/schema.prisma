@@ -74,6 +74,9 @@ model res_users {
   // Sprint 13: Manufacturing Order audit
   mos_created manufacturing_order[] @relation("mo_create")
   mos_written manufacturing_order[] @relation("mo_write")
+
+  // Cutting Plan audit
+  cutting_plan_uploads_created  cutting_plan_upload[] @relation("cutting_plan_upload_create")
 }
 
 model uom_uom {
@@ -105,61 +108,61 @@ model product_category {
   active            Boolean            @default(true)
   odoo_ref_id       String?            @db.VarChar(40)
 
-  materials              materials[]
-  products               products[]
-  routing_templates      routing_template[]
-  activity_consumables   activity_required_consumable[]
+  materials            materials[]
+  products             products[]
+  routing_templates    routing_template[]
+  activity_consumables activity_required_consumable[]
 }
 
 // ── 🟦/🟨/🟥 materials ────────────────────────────────────────
 model materials {
-  id               Int              @id @default(autoincrement())
-  default_code     String           @unique @db.VarChar(40)
-  name             String           @db.VarChar(200)
-  description_sale String?          @default("") @db.VarChar(200)
-  categ_id         Int
-  category         product_category @relation(fields: [categ_id], references: [id])
-  uom_id           Int
-  uom              uom_uom          @relation("uom", fields: [uom_id], references: [id])
-  uom_po_id        Int?
-  uom_po           uom_uom?         @relation("uom_po", fields: [uom_po_id], references: [id])
-  type             String           @default("product") @db.VarChar(20)
-  state            String           @default("draft") @db.VarChar(20)
-  active           Boolean          @default(true)
-  version          String?          @db.VarChar(10)
-  substitute_for   Int?
-  substitute_ref   materials?       @relation("SubstituteMaterials", fields: [substitute_for], references: [id])
-  substitutes      materials[]      @relation("SubstituteMaterials")
-  substitute_seq   Int?             @db.SmallInt
-  criticality      String?          @db.VarChar(2)
-  attributes       Json             @default("{}")
-  drawing_ref      String?          @db.VarChar(60)
-  bim_object_id    String?          @db.VarChar(80)
-  total_weight_kg  Decimal?         @db.Decimal(12, 3)
-  odoo_ref_id      String?          @db.VarChar(40)
+  id                            Int              @id @default(autoincrement())
+  default_code                  String           @unique @db.VarChar(40)
+  name                          String           @db.VarChar(200)
+  description_sale              String?          @default("") @db.VarChar(200)
+  categ_id                      Int
+  category                      product_category @relation(fields: [categ_id], references: [id])
+  uom_id                        Int
+  uom                           uom_uom          @relation("uom", fields: [uom_id], references: [id])
+  uom_po_id                     Int?
+  uom_po                        uom_uom?         @relation("uom_po", fields: [uom_po_id], references: [id])
+  type                          String           @default("product") @db.VarChar(20)
+  state                         String           @default("draft") @db.VarChar(20)
+  active                        Boolean          @default(true)
+  version                       String?          @db.VarChar(10)
+  substitute_for                Int?
+  substitute_ref                materials?       @relation("SubstituteMaterials", fields: [substitute_for], references: [id])
+  substitutes                   materials[]      @relation("SubstituteMaterials")
+  substitute_seq                Int?             @db.SmallInt
+  criticality                   String?          @db.VarChar(2)
+  attributes                    Json             @default("{}")
+  drawing_ref                   String?          @db.VarChar(60)
+  bim_object_id                 String?          @db.VarChar(80)
+  total_weight_kg               Decimal?         @db.Decimal(12, 3)
+  odoo_ref_id                   String?          @db.VarChar(40)
   // Steel-specific physical dimensions & pricing (added directly on Supabase)
-  grade            String?
-  thickness_mm     Decimal?
-  width_ft         Decimal?
-  width_mm         Decimal?
-  length_mm        Decimal?
-  sales_price      Decimal?
-  cost             Decimal?
+  grade                         String?
+  thickness_mm                  Decimal?
+  width_ft                      Decimal?
+  width_mm                      Decimal?
+  length_mm                     Decimal?
+  sales_price                   Decimal?
+  cost                          Decimal?
   // Audit trail
   audit_status                  String?
-  audited_date                  DateTime? @db.Timestamptz
+  audited_date                  DateTime?        @db.Timestamptz
   audited_by                    String?
   activity_exception_decoration String?
-  create_uid       Int
-  create_user      res_users        @relation("create_user", fields: [create_uid], references: [id])
-  create_date      DateTime         @default(now()) @db.Timestamptz
-  write_uid        Int
-  write_user       res_users        @relation("write_user", fields: [write_uid], references: [id])
-  write_date       DateTime         @default(now()) @db.Timestamptz
+  create_uid                    Int
+  create_user                   res_users        @relation("create_user", fields: [create_uid], references: [id])
+  create_date                   DateTime         @default(now()) @db.Timestamptz
+  write_uid                     Int
+  write_user                    res_users        @relation("write_user", fields: [write_uid], references: [id])
+  write_date                    DateTime         @default(now()) @db.Timestamptz
 
-  bom_lines         product_bom_line[]     @relation("BomLineMaterial")
-  assembly_paint    mbom_assembly_paint[]  @relation("PaintMaterial")
-  activity_consumes activity_consume[]     @relation("activity_consume_material")
+  bom_lines         product_bom_line[]    @relation("BomLineMaterial")
+  assembly_paint    mbom_assembly_paint[] @relation("PaintMaterial")
+  activity_consumes activity_consume[]    @relation("activity_consume_material")
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -272,11 +275,11 @@ model project {
   write_user      res_users    @relation("project_write", fields: [write_uid], references: [id])
   write_date      DateTime     @default(now()) @db.Timestamptz
 
-  zones      project_zone[]
-  products   products[]
-  boms       product_bom[]  @relation("ProjectBom")
-  drawings   shop_drawing[] @relation("ProjectDrawings")
-  dispatches bom_dispatch[] @relation("ProjectDispatches")
+  zones         project_zone[]
+  products      products[]
+  boms          product_bom[]         @relation("ProjectBom")
+  drawings      shop_drawing[]        @relation("ProjectDrawings")
+  dispatches    bom_dispatch[]        @relation("ProjectDispatches")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -293,9 +296,9 @@ model project_zone {
   notes                 String?   @db.Text
   active                Boolean   @default(true)
 
-  products   products[]
-  sub_zones  sub_zone[]
-  dispatches bom_dispatch[] @relation("ZoneDispatches")
+  products      products[]
+  sub_zones     sub_zone[]
+  dispatches    bom_dispatch[]        @relation("ZoneDispatches")
 
   @@unique([project_id, code])
 }
@@ -315,7 +318,7 @@ model sub_zone {
   create_date DateTime     @default(now()) @db.Timestamptz
   write_date  DateTime     @updatedAt @db.Timestamptz
 
-  dispatches bom_dispatch[] @relation("SubZoneDispatches")
+  dispatches    bom_dispatch[]        @relation("SubZoneDispatches")
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -611,9 +614,9 @@ model mrp_workcenter {
   write_user               res_users        @relation("wc_write", fields: [write_uid], references: [id])
   write_date               DateTime         @default(now()) @db.Timestamptz
 
-  routing_workcenters mrp_routing_workcenter[]
-  op_types            mrp_op_type[]
-  operation_templates operation_template[]
+  routing_workcenters   mrp_routing_workcenter[]
+  op_types              mrp_op_type[]
+  operation_templates   operation_template[]
   work_orders           work_order[]             @relation("wo_workcenter") // Sprint 14: WO op snapshot
   workcenter_lines      mrp_workcenter_line[]
   work_center_calendars work_center_calendar[]
@@ -624,45 +627,45 @@ model mrp_workcenter {
 
 // ── 🟦 Routing Operation (Odoo mrp.routing.workcenter — Sprint 4.2: bound to template) ──
 model mrp_routing_workcenter {
-  id                  Int              @id @default(autoincrement())
+  id                    Int                 @id @default(autoincrement())
   // Sprint 4.2: bound to routing_template (no more per-product rows)
-  template_id         Int
-  template            routing_template @relation(fields: [template_id], references: [id], onDelete: Cascade)
-  name                String           @db.VarChar(60)
-  op_code             String           @db.VarChar(30)
-  sequence            Int              @default(10)
-  workcenter_id       Int
-  workcenter          mrp_workcenter   @relation(fields: [workcenter_id], references: [id])
+  template_id           Int
+  template              routing_template    @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  name                  String              @db.VarChar(60)
+  op_code               String              @db.VarChar(30)
+  sequence              Int                 @default(10)
+  workcenter_id         Int
+  workcenter            mrp_workcenter      @relation(fields: [workcenter_id], references: [id])
   // Time (Odoo-compat)
-  time_cycle          Decimal          @default(0) @db.Decimal(10, 4)
-  time_cycle_manual   Decimal?         @db.Decimal(10, 4)
-  time_mode           String           @default("formula") @db.VarChar(10)
+  time_cycle            Decimal             @default(0) @db.Decimal(10, 4)
+  time_cycle_manual     Decimal?            @db.Decimal(10, 4)
+  time_mode             String              @default("formula") @db.VarChar(10)
   // BDT-custom
-  routing_view        String           @default("eRoute") @db.VarChar(10)
-  method              String?          @db.VarChar(20)
-  formula_expr        String?          @db.VarChar(400)
-  op_type_id          Int?
-  op_type             mrp_op_type?     @relation(fields: [op_type_id], references: [id])
+  routing_view          String              @default("eRoute") @db.VarChar(10)
+  method                String?             @db.VarChar(20)
+  formula_expr          String?             @db.VarChar(400)
+  op_type_id            Int?
+  op_type               mrp_op_type?        @relation(fields: [op_type_id], references: [id])
   // Computed cache (template-level — averaged across all bound products)
-  last_computed_at    DateTime?        @db.Timestamptz
-  cache_key           String?          @db.VarChar(64)
+  last_computed_at      DateTime?           @db.Timestamptz
+  cache_key             String?             @db.VarChar(64)
   // Canvas position (RoutingBuilder)
-  canvas_x            Float?
-  canvas_y            Float?
+  canvas_x              Float?
+  canvas_y              Float?
   // Operation template FK — links this routing op to the Operation Library
   operation_template_id Int?
   operation_template    operation_template? @relation(fields: [operation_template_id], references: [id], onDelete: SetNull)
   // Activities snapshot (JSON array saved by RoutingBuilder canvas)
-  activities_snapshot Json?
+  activities_snapshot   Json?
   // Dependencies (Sprint 5+)
-  blocked_by_op_ids   Int[]            @default([])
+  blocked_by_op_ids     Int[]               @default([])
   // Audit
-  create_uid          Int
-  create_user         res_users        @relation("rwc_create", fields: [create_uid], references: [id])
-  create_date         DateTime         @default(now()) @db.Timestamptz
-  write_uid           Int
-  write_user          res_users        @relation("rwc_write", fields: [write_uid], references: [id])
-  write_date          DateTime         @default(now()) @db.Timestamptz
+  create_uid            Int
+  create_user           res_users           @relation("rwc_create", fields: [create_uid], references: [id])
+  create_date           DateTime            @default(now()) @db.Timestamptz
+  write_uid             Int
+  write_user            res_users           @relation("rwc_write", fields: [write_uid], references: [id])
+  write_date            DateTime            @default(now()) @db.Timestamptz
 
   bom_lines product_bom_line[] @relation("BomLineOp")
 
@@ -823,10 +826,10 @@ model bom_dispatch {
   write_user            res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
   write_date            DateTime     @default(now()) @db.Timestamptz
 
-  doc_revisions  bom_doc_revision[]
-  assemblies     bom_assembly[]
-  parts          bom_part[]
-  paint_configs  mbom_assembly_paint[] @relation("DispatchPaint")
+  doc_revisions bom_doc_revision[]
+  assemblies    bom_assembly[]
+  parts         bom_part[]
+  paint_configs mbom_assembly_paint[] @relation("DispatchPaint")
 
   @@index([project_id, status])
   @@index([zone_id])
@@ -869,7 +872,7 @@ model bom_assembly {
   height_mm       Decimal?     @db.Decimal(12, 2)
   attributes      Json         @default("{}")
   status          String       @default("ACTIVE") @db.VarChar(10) // ACTIVE | INACTIVE — superseded by a later upload
-  slot            String?      @db.VarChar(4)                     // MAIN | ACC | null (combined-mode zones never set this)
+  slot            String?      @db.VarChar(4) // MAIN | ACC | null (combined-mode zones never set this)
   // Sprint 8: eBOM ↔ mBOM mapping
   product_id      Int?
   product         products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
@@ -883,8 +886,8 @@ model bom_assembly {
   write_date      DateTime     @default(now()) @db.Timestamptz
 
   assembly_parts    bom_assembly_part[]
-  mo_assembly_lines mo_assembly_line[]   // Sprint 13: MO allocation (P17)
-  work_orders       work_order[]         // Sprint 14: WO execution (F-WO)
+  mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
+  work_orders       work_order[] // Sprint 14: WO execution (F-WO)
   paint_configs     mbom_assembly_paint[]
 
   @@unique([dispatch_id, assembly_mark])
@@ -907,7 +910,7 @@ model bom_part {
   weight_kg    Decimal?     @db.Decimal(12, 3)
   attributes   Json         @default("{}")
   status       String       @default("ACTIVE") @db.VarChar(10) // ACTIVE | INACTIVE — superseded by a later upload
-  slot         String?      @db.VarChar(4)                     // MAIN | ACC | null (combined-mode zones never set this)
+  slot         String?      @db.VarChar(4) // MAIN | ACC | null (combined-mode zones never set this)
   // Sprint 8: eBOM ↔ mBOM mapping
   product_id   Int?
   product      products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
@@ -986,22 +989,22 @@ model operation_template {
   write_uid     Int             @default(1)
   write_date    DateTime        @default(now()) @db.Timestamptz
 
-  activities       operation_template_activity[]
-  routing_ops      mrp_routing_workcenter[]
+  activities  operation_template_activity[]
+  routing_ops mrp_routing_workcenter[]
 }
 
 model operation_template_activity {
-  id                    Int                 @id @default(autoincrement())
+  id                    Int                @id @default(autoincrement())
   operation_template_id Int
-  operation_template    operation_template  @relation(fields: [operation_template_id], references: [id], onDelete: Cascade)
-  sequence              Int                 @default(10)
-  name                  String              @db.VarChar(200)
-  measure               String              @db.VarChar(40)
-  unit                  String?             @db.VarChar(20)
-  per_minute            Decimal?            @db.Decimal(10, 4)
+  operation_template    operation_template @relation(fields: [operation_template_id], references: [id], onDelete: Cascade)
+  sequence              Int                @default(10)
+  name                  String             @db.VarChar(200)
+  measure               String             @db.VarChar(40)
+  unit                  String?            @db.VarChar(20)
+  per_minute            Decimal?           @db.Decimal(10, 4)
   source_activity_id    Int?
-  source_activity       activity?           @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
-  snapshot_at           DateTime?           @db.Timestamptz
+  source_activity       activity?          @relation("OpActSourceActivity", fields: [source_activity_id], references: [id], onDelete: SetNull)
+  snapshot_at           DateTime?          @db.Timestamptz
   tools                 op_act_tool[]
   skills                op_act_skills[]
   op_materials          op_act_material[]
@@ -1053,20 +1056,20 @@ model equipment_resource {
   specs               String?         @db.Text
   photo_url           String?
   // Labor fields
-  skills              Json?           // string[] — used when type='labor'
+  skills              Json? // string[] — used when type='labor'
   // Machine/Tool fields
-  qty                 Int?            // stock quantity — used when type='machine'|'handling'|'tool'
+  qty                 Int? // stock quantity — used when type='machine'|'handling'|'tool'
 
-  op_act_tools            op_act_tool[]
+  op_act_tools     op_act_tool[]
   // Sprint 11: Activity Library
-  activity_tools          activity_tool[]               @relation("activity_tool_resource")
-  op_act_materials        op_act_material[]             @relation("op_act_material_resource")
+  activity_tools   activity_tool[]          @relation("activity_tool_resource")
+  op_act_materials op_act_material[]        @relation("op_act_material_resource")
   // T-MACH.01: Machine Tracker relations
-  maintenance_logs        maintenance_log[]
-  repair_tickets          repair_ticket[]
-  status_history          machine_status_history[]
+  maintenance_logs maintenance_log[]
+  repair_tickets   repair_ticket[]
+  status_history   machine_status_history[]
   // Sprint 14: schedule workcenter line (F-WO · Q14b=C)
-  prod_schedules          prod_schedule[]               @relation("sched_workcenter_line")
+  prod_schedules   prod_schedule[]          @relation("sched_workcenter_line")
 }
 
 model op_act_tool {
@@ -1116,26 +1119,26 @@ model op_act_material {
 // ═══════════════════════════════════════════════════════════════
 
 model activity {
-  id                            Int                           @id @default(autoincrement())
-  activity_code                 String                        @unique @db.VarChar(20)
-  name                          String                        @db.VarChar(120)
-  duration_min                  Decimal                       @db.Decimal(10, 2)
-  per_minute                    Decimal?                      @db.Decimal(10, 4)
-  formula_code                  String?                       @db.VarChar(40)
-  ratio                         Decimal?                      @db.Decimal(10, 4)
-  ratio_unit                    String?                       @db.VarChar(20)
-  per_time                      Decimal?                      @db.Decimal(10, 4)
-  kind                          String                        @default("run") @db.Text
+  id                            Int                            @id @default(autoincrement())
+  activity_code                 String                         @unique @db.VarChar(20)
+  name                          String                         @db.VarChar(120)
+  duration_min                  Decimal                        @db.Decimal(10, 2)
+  per_minute                    Decimal?                       @db.Decimal(10, 4)
+  formula_code                  String?                        @db.VarChar(40)
+  ratio                         Decimal?                       @db.Decimal(10, 4)
+  ratio_unit                    String?                        @db.VarChar(20)
+  per_time                      Decimal?                       @db.Decimal(10, 4)
+  kind                          String                         @default("run") @db.Text
   create_uid                    Int
-  create_user                   res_users                     @relation("activity_create_user", fields: [create_uid], references: [id])
-  create_date                   DateTime                      @default(now()) @db.Timestamptz
+  create_user                   res_users                      @relation("activity_create_user", fields: [create_uid], references: [id])
+  create_date                   DateTime                       @default(now()) @db.Timestamptz
   write_uid                     Int
-  write_user                    res_users                     @relation("activity_write_user", fields: [write_uid], references: [id])
-  write_date                    DateTime                      @updatedAt @db.Timestamptz
+  write_user                    res_users                      @relation("activity_write_user", fields: [write_uid], references: [id])
+  write_date                    DateTime                       @updatedAt @db.Timestamptz
   consumes                      activity_consume[]
   skills                        activity_skill[]
   tools                         activity_tool[]
-  operation_template_activities operation_template_activity[] @relation("OpActSourceActivity")
+  operation_template_activities operation_template_activity[]  @relation("OpActSourceActivity")
   required_consumables          activity_required_consumable[]
 
   @@index([name])
@@ -1183,14 +1186,14 @@ model activity_code_seq {
 
 // ── Operator (plant workforce from Supabase operator table) ──────────────────
 model operator {
-  id           Int              @id @default(autoincrement())
-  code         String           @unique @db.VarChar(40)
-  name         String           @db.VarChar(120)
-  nationality  String?          @db.VarChar(10)
-  position_raw String?          @db.VarChar(120)
-  start_raw    String?          @db.VarChar(40)
-  active       Boolean          @default(true)
-  created_at   DateTime         @default(now()) @db.Timestamptz
+  id           Int      @id @default(autoincrement())
+  code         String   @unique @db.VarChar(40)
+  name         String   @db.VarChar(120)
+  nationality  String?  @db.VarChar(10)
+  position_raw String?  @db.VarChar(120)
+  start_raw    String?  @db.VarChar(40)
+  active       Boolean  @default(true)
+  created_at   DateTime @default(now()) @db.Timestamptz
 
   skills                 operator_skill[]
   workcenter_assignments operator_workcenter[]
@@ -1204,10 +1207,10 @@ model skill {
 }
 
 model operator_skill {
-  id          Int      @id @default(autoincrement())
+  id          Int     @id @default(autoincrement())
   operator_id Int
   skill_id    Int
-  level       String?  @db.VarChar(20)
+  level       String? @db.VarChar(20)
 
   operator operator @relation(fields: [operator_id], references: [id], onDelete: Cascade)
   skill    skill    @relation(fields: [skill_id], references: [id], onDelete: Cascade)
@@ -1387,10 +1390,10 @@ model work_order {
   operator_mode            String    @default("internal") @db.Text
   subcontractor_id         Int?
 
-  manufacturing_order manufacturing_order  @relation(fields: [mo_id], references: [id], onDelete: Cascade)
-  mrp_workcenter      mrp_workcenter       @relation("wo_workcenter", fields: [work_center_id], references: [id])
-  bom_assembly        bom_assembly         @relation(fields: [bom_assembly_id], references: [id])
-  subcontractor       subcontractor?       @relation(fields: [subcontractor_id], references: [id])
+  manufacturing_order manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  mrp_workcenter      mrp_workcenter      @relation("wo_workcenter", fields: [work_center_id], references: [id])
+  bom_assembly        bom_assembly        @relation(fields: [bom_assembly_id], references: [id])
+  subcontractor       subcontractor?      @relation(fields: [subcontractor_id], references: [id])
   events              work_order_event[]
   schedules           prod_schedule[]
 
@@ -1483,8 +1486,8 @@ model consume_formula {
   category    String?  @db.VarChar(30)
   description String?  @db.Text
 
-  activity_consumes activity_consume[]  @relation("activity_consume_formula")
-  op_act_materials  op_act_material[]   @relation("op_act_material_formula")
+  activity_consumes activity_consume[] @relation("activity_consume_formula")
+  op_act_materials  op_act_material[]  @relation("op_act_material_formula")
 
   @@index([category])
 }
@@ -1646,4 +1649,149 @@ model activity_required_consumable {
   notes       String?          @db.Text
 
   @@unique([activity_id, category_id])
+}
+
+// ── 🟦 Cutting Plan (plate nesting ETL) ───────────────────────────
+// Parsed via the external Python Cloud Run service `bdt-cutting-plan-service`
+// (repo RuthW-Ssi/bdt-cutting-plan-system) — bdt-app uploads .txt nesting
+// reports to it and persists the returned JSON here. See wiki/features/cutting-plan.md.
+//
+// No project/zone assignment concept on this model (removed 2026-07-17) —
+// a per-upload project_id was the wrong granularity (one upload/plate can
+// span multiple projects) and the BOM-mark-matching redesign that would
+// replace it is paused pending new information; `project_code` on
+// `cutting_plan_order_part` (per-part, manually bulk-assignable) is the only
+// project-linking mechanism for now. `project_name` was dropped (2026-07-15)
+// — the external API removed it from its contract (always "" now); it never
+// carried real data.
+model cutting_plan_upload {
+  id           Int     @id @default(autoincrement())
+  file_id      String  @unique @db.VarChar(100) // identifier bdt-app generates per call to the Cutting Plan API
+  tag          String  @db.VarChar(60)
+  description  String? @db.VarChar(500)
+  version      String  @db.VarChar(20)
+  revision     String  @db.VarChar(20)
+  raw_response Json // full parsed API response, kept for reprocessing/debugging around known parser bugs (multi-plate-per-file silent data loss, duplicated remnants)
+
+  create_uid  Int
+  create_user res_users @relation("cutting_plan_upload_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+
+  nestings     cutting_plan_nesting[]
+  order_parts  cutting_plan_order_part[]
+  plate_usages cutting_plan_plate_usage[]
+  remnants     cutting_plan_remnant[]
+}
+
+// One row per plate/nest (merge of the API's NESTING + Used Material +
+// Machine Times sections) — `cuttingplan_number` is the mark/charge that
+// correlates rows across the 3 child tables below within the same upload.
+model cutting_plan_nesting {
+  id                 Int                 @id @default(autoincrement())
+  upload_id          Int
+  upload             cutting_plan_upload @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  cuttingplan_number String              @db.VarChar(100)
+
+  // NESTING section
+  nc_file           String?  @db.VarChar(100)
+  need_date         String?  @db.VarChar(20)
+  nesting_length_mm Decimal? @db.Decimal(10, 2)
+  nesting_width_mm  Decimal? @db.Decimal(10, 2)
+  changer           String?  @db.VarChar(60)
+  gen_date          String?  @db.VarChar(20)
+  gen_time          String?  @db.VarChar(20)
+  technology        String?  @db.VarChar(60)
+
+  // Used Material section
+  article_number  String?  @db.VarChar(20)
+  count           Int?
+  plate_number    String?  @db.VarChar(60)
+  charge          String?  @db.VarChar(100)
+  quality         String?  @db.VarChar(30)
+  thick_mm        Decimal? @db.Decimal(10, 2)
+  width_mm        Decimal? @db.Decimal(10, 2)
+  length_mm       Decimal? @db.Decimal(10, 2)
+  area_m2         Decimal? @db.Decimal(10, 3)
+  weight_kg       Decimal? @db.Decimal(12, 3)
+  nesting_percent Decimal? @db.Decimal(5, 2)
+
+  // Machine Times section
+  path_type      String?  @db.VarChar(30)
+  time_min       Decimal? @db.Decimal(10, 2)
+  quantity       Int?
+  start_time_min Decimal? @db.Decimal(10, 2)
+  total_time_min Decimal? @db.Decimal(10, 2)
+
+  order_parts  cutting_plan_order_part[]
+  plate_usages cutting_plan_plate_usage[]
+  remnants     cutting_plan_remnant[]
+
+  @@index([upload_id])
+  @@index([cuttingplan_number])
+}
+
+// Orders / Part Specific section — nested-vs-ordered qty per drawing mark.
+model cutting_plan_order_part {
+  id                 Int                   @id @default(autoincrement())
+  upload_id          Int
+  upload             cutting_plan_upload   @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  nesting_id         Int?
+  nesting            cutting_plan_nesting? @relation(fields: [nesting_id], references: [id], onDelete: SetNull)
+  cuttingplan_number String                @db.VarChar(100)
+
+  tag_part                   Int?
+  order_number               String?  @db.VarChar(20) // AS-PARSED from the API, read-only — soft ref, matches project.project_code format
+  project_code               String?  @db.VarChar(20) // USER-CURATED, null until set — moved here from cutting_plan_upload (2026-07-15): one upload/plate can hold parts from several orders, so this is per-part, editable any time via bulk-assign (select rows → apply one code to all)
+  item                       Int?
+  nested                     Int?
+  ordered                    Int?
+  due_date                   String?  @db.VarChar(20)
+  drawing_part_no_version_no String?  @db.VarChar(100) // soft ref — loosely matches bom_part.part_mark, not linked (MVP)
+  length_mm                  Decimal? @db.Decimal(10, 2)
+  width_mm                   Decimal? @db.Decimal(10, 2)
+  weight_kg                  Decimal? @db.Decimal(12, 3)
+
+  @@index([upload_id])
+  @@index([nesting_id])
+  @@index([project_code])
+}
+
+// Plate usage per order in kg section.
+model cutting_plan_plate_usage {
+  id                 Int                   @id @default(autoincrement())
+  upload_id          Int
+  upload             cutting_plan_upload   @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  nesting_id         Int?
+  nesting            cutting_plan_nesting? @relation(fields: [nesting_id], references: [id], onDelete: SetNull)
+  cuttingplan_number String                @db.VarChar(100)
+
+  order_number String?  @db.VarChar(20)
+  net_kg       Decimal? @db.Decimal(12, 3)
+  gross_kg     Decimal? @db.Decimal(12, 3)
+
+  @@index([upload_id])
+  @@index([nesting_id])
+}
+
+// Remnants section — leftover offcut plate, reusable in a later nest.
+// Optional: a submission with no remnants produces zero rows, not nulls.
+model cutting_plan_remnant {
+  id                 Int                   @id @default(autoincrement())
+  upload_id          Int
+  upload             cutting_plan_upload   @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  nesting_id         Int?
+  nesting            cutting_plan_nesting? @relation(fields: [nesting_id], references: [id], onDelete: SetNull)
+  cuttingplan_number String                @db.VarChar(100)
+
+  plate_number  String?  @db.VarChar(60)
+  length_mm     Decimal? @db.Decimal(10, 2)
+  width_mm      Decimal? @db.Decimal(10, 2)
+  area_m2       Decimal? @db.Decimal(10, 3)
+  weight_kg     Decimal? @db.Decimal(12, 3)
+  count         Int?
+  ref_plate     String?  @db.VarChar(60)
+  ref_plate_seq String?  @db.VarChar(60)
+
+  @@index([upload_id])
+  @@index([nesting_id])
 }
