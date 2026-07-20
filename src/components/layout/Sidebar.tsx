@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
-  ClipboardList, Scissors,
+  ClipboardList, Scissors, Cuboid,
 } from 'lucide-react'
 
 interface NavItem {
@@ -36,6 +36,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: 'Materials', icon: <Boxes size={18} />, path: '/materials' },
       { label: 'Engineer Products', icon: <Package size={18} />, path: '/engineer-products' },
       { label: 'BOM', icon: <GitBranch size={18} />, path: '/bom' },
+      { label: 'BIM', icon: <Cuboid size={18} />, path: '/bim-viewer' },
       {
         label: 'Routings', icon: <Workflow size={18} />, path: '/routings',
         children: [
