@@ -90,6 +90,7 @@ export default function App() {
             <Route path="/bom/dispatch/:id" element={<BomDispatchDetail />} />
             <Route path="/bom/:code" element={<BomEditor />} />
             <Route path="/bom/:code/diff" element={<BomDiffReview />} />
+            <Route path="/bim-viewer" element={<Placeholder title="BIM Viewer" />} />
             <Route path="/routings" element={<RoutingList />} />
             <Route path="/routings/new" element={<RoutingBuilder />} />
             <Route path="/routings/:id/edit" element={<RoutingBuilder />} />
