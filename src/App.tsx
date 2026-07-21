@@ -37,6 +37,7 @@ import { WoDetail } from './pages/WoDetail'
 import { CuttingPlanList } from './pages/CuttingPlanList'
 import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
 import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
+import { BimViewer } from './pages/BimViewer'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -90,7 +91,7 @@ export default function App() {
             <Route path="/bom/dispatch/:id" element={<BomDispatchDetail />} />
             <Route path="/bom/:code" element={<BomEditor />} />
             <Route path="/bom/:code/diff" element={<BomDiffReview />} />
-            <Route path="/bim-viewer" element={<Placeholder title="BIM Viewer" />} />
+            <Route path="/bim-viewer" element={<BimViewer />} />
             <Route path="/routings" element={<RoutingList />} />
             <Route path="/routings/new" element={<RoutingBuilder />} />
             <Route path="/routings/:id/edit" element={<RoutingBuilder />} />
