@@ -234,9 +234,12 @@ export function BimViewer() {
 
         {currentId && (status?.status === 'pending' || status?.status === 'processing' || status?.status === 'extracting') && (
           <ProcessingState
+            key={`${currentId}-${status.status}`}
             filename={currentModelLabel}
             stage={status.status === 'extracting' ? 'extracting' : 'translating'}
             progress={status.progress}
+            onRetry={handleRetry}
+            isRetrying={retryMutation.isPending}
           />
         )}
 
@@ -364,7 +367,22 @@ const PROCESSING_STEPS = [
   { key: 'ready', label: 'Ready' },
 ] as const
 
-function ProcessingState({ filename, stage, progress }: { filename?: string; stage: 'translating' | 'extracting'; progress?: string }) {
+function ProcessingState({ filename, stage, progress, onRetry, isRetrying }: {
+  filename?: string; stage: 'translating' | 'extracting'; progress?: string; onRetry: () => void; isRetrying: boolean
+}) {
+  // A crash mid-extraction (server OOM, etc.) can leave a model parked in
+  // "extracting" forever — checkStatus() only advances a model OUT of that
+  // state, it never re-attempts extraction on its own poll. Surface a manual
+  // way out after a while rather than trapping the user in an infinite
+  // spinner with no recourse (confirmed real 2026-07-21: two models stuck
+  // this way after a container OOM crash needed a direct DB/API fix).
+  const STUCK_THRESHOLD_MS = 90_000
+  const [showStuckRetry, setShowStuckRetry] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setShowStuckRetry(true), STUCK_THRESHOLD_MS)
+    return () => clearTimeout(timer)
+  }, [])
+
   // Step index of the stage currently RUNNING — everything before it is done
   // (checkmark), everything after is still upcoming.
   const activeIndex = stage === 'translating' ? 1 : 2
@@ -418,6 +436,19 @@ function ProcessingState({ filename, stage, progress }: { filename?: string; sta
       <div style={{ background: '#FCEBEB', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#C8202A', textAlign: 'left' }}>
         Safe to leave this page — processing continues on the server. Reopen this model anytime to check its status.
       </div>
+
+      {showStuckRetry && (
+        <div style={{ marginTop: 16, fontSize: 12, color: '#8E8E8E' }}>
+          Taking longer than expected?{' '}
+          <button
+            onClick={onRetry}
+            disabled={isRetrying}
+            style={{ color: '#C8202A', fontWeight: 600, background: 'none', border: 'none', padding: 0, cursor: isRetrying ? 'default' : 'pointer', textDecoration: 'underline' }}
+          >
+            {isRetrying ? 'Retrying...' : 'Retry'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
