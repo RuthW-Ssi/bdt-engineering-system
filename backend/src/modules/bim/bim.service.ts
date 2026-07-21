@@ -41,15 +41,28 @@ export class BimService {
     return { major_version: latest?.major_version ?? null, minor_version: latest?.minor_version ?? null }
   }
 
-  async upload(
-    file: { buffer: Buffer; originalname: string },
+  // Step 1 of the direct-to-APS upload — no file bytes involved yet, just
+  // mints a signed S3 URL the browser will PUT the file to directly.
+  async initUpload(originalFilename: string) {
+    await this.aps.ensureBucket()
+    const objectKey = `${Date.now()}-${originalFilename}`.replace(/[^\w.\-]/g, '_')
+    const { uploadKey, url } = await this.aps.createSignedUpload(objectKey)
+    return { objectKey, uploadKey, url }
+  }
+
+  // Step 2 — called once the browser's direct PUT to that signed URL has
+  // already succeeded. Finalizes the OSS object, then does what the old
+  // single-step upload() used to do: compute the next version and create
+  // the bim_model row.
+  async completeUpload(
     userId: number,
     projectId: number,
     versionChoice: 'minor' | 'major',
+    filename: string,
+    objectKey: string,
+    uploadKey: string,
   ) {
-    await this.aps.ensureBucket()
-    const objectKey = `${Date.now()}-${file.originalname}`.replace(/[^\w.\-]/g, '_')
-    const { urn } = await this.aps.uploadObject(objectKey, file.buffer)
+    const { urn } = await this.aps.completeUpload(objectKey, uploadKey)
 
     // Every upload is a new row scoped to the project — never an overwrite —
     // so this always reads the latest version for THIS project fresh, not
@@ -63,7 +76,7 @@ export class BimService {
 
     const model = await this.prisma.bim_model.create({
       data: {
-        filename: file.originalname,
+        filename,
         urn,
         bucket_key: this.aps.bucketKey,
         translation_status: 'processing',

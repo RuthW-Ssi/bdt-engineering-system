@@ -72,19 +72,36 @@ export async function getLatestBimVersion(projectId: number): Promise<BimLatestV
   })).data
 }
 
-export function uploadBimModel(payload: UploadBimModelPayload, onProgress?: (pct: number) => void): Promise<BimModelListItem> {
-  const formData = new FormData()
-  formData.append('file', payload.file)
-  formData.append('project_id', String(payload.projectId))
-  formData.append('version_choice', payload.versionChoice)
-  return apiClient
-    .post('/bim-models', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: onProgress
-        ? e => { if (e.total) onProgress(Math.round((e.loaded / e.total) * 100)) }
-        : undefined,
-    })
-    .then(r => r.data)
+// Direct-to-APS upload, three steps — the file bytes go straight from this
+// browser to Autodesk's signed S3 URL, never through our own backend (or
+// the Vercel rewrite in front of it). Confirmed 2026-07-21: both Vercel's
+// rewrite-proxy body limit and Cloud Run's 32MiB HTTP/1 request cap are
+// hard, non-configurable platform ceilings well under real IFC file sizes —
+// routing the bytes through our own infra at all 413'd regardless of our
+// own 100MB app-level limit, which never even got evaluated.
+export async function uploadBimModel(payload: UploadBimModelPayload, onProgress?: (pct: number) => void): Promise<BimModelListItem> {
+  const { data: init } = await apiClient.post('/bim-models/upload-init', { filename: payload.file.name })
+  const { objectKey, uploadKey, url } = init as { objectKey: string; uploadKey: string; url: string }
+
+  // Plain XHR (not apiClient/fetch) — this is a different origin (Autodesk's
+  // S3-backed storage), no auth/interceptors apply, and XHR is what gives us
+  // upload progress events (fetch has no request-body progress API).
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', url)
+    xhr.upload.onprogress = e => { if (onProgress && e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)) }
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve() : reject(new Error(`Upload to storage failed (${xhr.status})`))
+    xhr.onerror = () => reject(new Error('Upload to storage failed (network error)'))
+    xhr.send(payload.file)
+  })
+
+  return (await apiClient.post('/bim-models/upload-complete', {
+    project_id: payload.projectId,
+    version_choice: payload.versionChoice,
+    filename: payload.file.name,
+    object_key: objectKey,
+    upload_key: uploadKey,
+  })).data
 }
 
 export async function getBimStatus(id: number): Promise<BimStatusResult> {
