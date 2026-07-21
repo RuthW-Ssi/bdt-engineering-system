@@ -16,17 +16,18 @@ interface Props {
   currentCount?: number
   acceptedFormats?: string[]
   hint?: string
+  maxSizeBytes?: number
 }
 
-function validateFile(file: File, currentCount: number, maxFiles: number, formats: string[]): string | null {
+function validateFile(file: File, currentCount: number, maxFiles: number, formats: string[], maxSizeBytes: number): string | null {
   const ext = '.' + file.name.split('.').pop()?.toLowerCase()
   if (!formats.includes(ext)) return `Unsupported format ${ext} (only ${formats.join(', ')} accepted)`
-  if (file.size > MAX_SIZE_BYTES) return `File exceeds 20 MB (${(file.size / 1024 / 1024).toFixed(1)} MB)`
+  if (file.size > maxSizeBytes) return `File exceeds ${(maxSizeBytes / 1_000_000).toFixed(0)} MB (${(file.size / 1024 / 1024).toFixed(1)} MB)`
   if (currentCount >= maxFiles) return `Maximum ${maxFiles} files allowed`
   return null
 }
 
-export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, currentCount = 0, acceptedFormats = DEFAULT_FORMATS, hint }: Props) {
+export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, currentCount = 0, acceptedFormats = DEFAULT_FORMATS, hint, maxSizeBytes = MAX_SIZE_BYTES }: Props) {
   const formats = acceptedFormats
   const [dragOver, setDragOver] = useState(false)
 
@@ -36,7 +37,7 @@ export function FileDropzone({ maxFiles = 3, onFilesAdded, disabled = false, cur
     let runningCount = currentCount
 
     Array.from(fileList).forEach(file => {
-      const reason = validateFile(file, runningCount, maxFiles, formats)
+      const reason = validateFile(file, runningCount, maxFiles, formats, maxSizeBytes)
       if (reason) {
         rejected.push({ file, reason })
       } else {
