@@ -4,8 +4,9 @@
 - **branch:** `dev-t-bim-viewer`
 - **date:** 2026-07-21
 - **decision:** **WARN**
-- **approved_for_ship:** true (conditional on explicit user confirmation of WARN — see findings file)
-- **user_overrode:** pending — WARN requires explicit user OK before this flips to `true` per role card
+- **approved_for_ship:** true
+- **user_overrode:** true — user explicitly confirmed proceeding after reviewing the combined qa+security WARN summary, then explicitly directed the full `dev → staging → main` promotion
+- **shipped:** commit `a42281d` on `dev-t-bim-viewer` → PR #11 → `dev` (`4d650b1`) → PR #12 → `staging` (`0be898b`) → PR #13 → `main` (`502f85c`), 2026-07-21. Backend deployed to Cloud Run, migrations applied to Supabase (both green in PR #13 CI).
 
 ## checks_performed
 
