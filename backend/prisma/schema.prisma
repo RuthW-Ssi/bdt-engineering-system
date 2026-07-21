@@ -77,6 +77,9 @@ model res_users {
 
   // Cutting Plan audit
   cutting_plan_uploads_created  cutting_plan_upload[] @relation("cutting_plan_upload_create")
+
+  // Sprint 23: BIM Viewer audit
+  bim_models_created bim_model[] @relation("bim_model_create")
 }
 
 model uom_uom {
@@ -280,6 +283,7 @@ model project {
   boms          product_bom[]         @relation("ProjectBom")
   drawings      shop_drawing[]        @relation("ProjectDrawings")
   dispatches    bom_dispatch[]        @relation("ProjectDispatches")
+  bim_models    bim_model[]           @relation("ProjectBimModels")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -1794,4 +1798,65 @@ model cutting_plan_remnant {
 
   @@index([upload_id])
   @@index([nesting_id])
+}
+
+// ── Sprint 23: BIM Viewer (Autodesk Forge) ──
+// Engineer uploads a Tekla-exported IFC file; backend uploads it to an
+// Autodesk Platform Services (APS) OSS bucket, kicks off a Model Derivative
+// translation job, and (once complete) pulls the property tree from the
+// Metadata API. Standalone viewer — not linked to bom_part/products this
+// pass. Hybrid storage: headline quantities as typed columns for querying,
+// everything else in `properties` JSONB (IFC Psets vary per export/tool).
+model bim_model {
+  id                 Int      @id @default(autoincrement())
+  filename           String   @db.VarChar(255)
+  urn                String   @unique @db.VarChar(200) // APS Object URN (base64 of the OSS object id)
+  bucket_key         String   @db.VarChar(100)
+  translation_status String   @default("pending") @db.VarChar(20) // pending | processing | complete | failed
+  translation_error  String? // set when translation_status = "failed"
+
+  project_id    Int
+  project       project      @relation("ProjectBimModels", fields: [project_id], references: [id])
+
+  // Every upload is a new row (a version history, not an overwrite) — an
+  // explicit major.minor pair the user chooses at upload time. Scoped by
+  // project only (not zone/sub_zone) — confirmed 2026-07-21 that unlike the
+  // earlier assumption, BIM models are uploaded at the whole-project level.
+  major_version Int @default(1)
+  minor_version Int @default(0)
+
+  create_uid  Int
+  create_user res_users @relation("bim_model_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+
+  elements bim_element[]
+
+  @@index([project_id])
+}
+
+model bim_element {
+  id       Int       @id @default(autoincrement())
+  model_id Int
+  model    bim_model @relation(fields: [model_id], references: [id], onDelete: Cascade)
+
+  viewer_id    Int? // Properties-API `objectid` at extraction time — NOT a reliable live-Viewer dbId (confirmed 2026-07-20: diverges from the loaded Viewer's own numbering for Navisworks-routed IFC translations); kept for reference/debugging only, not used at runtime
+  external_id  String? @db.VarChar(200) // Properties-API `externalId` (Navisworks scene-graph path) — ALSO superseded (confirmed 2026-07-20: below the assembly level the live Viewer's own child numbering diverges from this too, and for some assemblies the Viewer's tree doesn't nest the real parts under it at all); kept for reference/debugging only
+  mark         String? @db.VarChar(100)
+  global_id    String? @db.VarChar(60) // IFC GlobalId (GUID) — the real runtime cross-reference: independent of Autodesk's translation/scene-graph numbering, resolved to a live dbId via viewer.model.getBulkProperties() at load time
+  ifc_type     String? @db.VarChar(60) // e.g. IfcBeam, IfcColumn
+  phase        String? @db.VarChar(20) // Tekla Common.Phase — construction phase/stage
+  position     String? @db.VarChar(100) // assembly-level only — Tekla Assembly.Assembly/Cast unit position code (e.g. "1/L/0.00-8900.00")
+  assembly_mark String? @db.VarChar(100) // set on part-level rows only — mark of the parent assembly (display only — marks repeat across physical instances, e.g. a purlin type reused 257 times, so this alone can't scope "this part's specific assembly")
+  assembly_global_id String? @db.VarChar(60) // set on part-level rows only — global_id of the SPECIFIC parent assembly instance (looked up via externalId depth, same as assembly_mark) — the real per-instance scoping key
+
+  weight_kg Decimal? @db.Decimal(12, 3)
+  area_m2   Decimal? @db.Decimal(10, 3)
+  length_mm Decimal? @db.Decimal(10, 1)
+  width_mm  Decimal? @db.Decimal(10, 1)
+  height_mm Decimal? @db.Decimal(10, 1)
+
+  status     String @default("unassigned") @db.VarChar(20) // color-coding hook; not wired to real production status yet
+  properties Json // raw Forge property-tree dump for this element — everything not promoted to a column above
+
+  @@index([model_id])
 }

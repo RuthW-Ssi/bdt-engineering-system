@@ -77,3 +77,23 @@ html, body {
 .sim-blink-border {
   animation: blink-border 1s ease-in-out infinite;
 }
+
+/* BIM processing state — indeterminate progress bar (no real % available) */
+@keyframes progress-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+.bim-progress-indeterminate {
+  animation: progress-indeterminate 1.2s ease-in-out infinite;
+}
+
+/* BIM viewer — skeleton placeholder while elements/viewerToken are loading */
+@keyframes skeleton-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.bim-skeleton {
+  background: linear-gradient(90deg, #E0E0E0 25%, #F5F5F5 50%, #E0E0E0 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}

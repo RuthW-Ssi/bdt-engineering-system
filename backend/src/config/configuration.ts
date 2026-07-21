@@ -34,6 +34,18 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   CUTTING_PLAN_API_URL: string
+
+  @IsOptional()
+  @IsString()
+  APS_CLIENT_ID: string
+
+  @IsOptional()
+  @IsString()
+  APS_CLIENT_SECRET: string
+
+  @IsOptional()
+  @IsString()
+  APS_BUCKET_KEY: string
 }
 
 export function validate(config: Record<string, unknown>) {
