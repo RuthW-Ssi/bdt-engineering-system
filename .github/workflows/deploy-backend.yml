@@ -55,9 +55,12 @@ jobs:
             --set-secrets DIRECT_URL=supabase-staging-direct-url:latest \
             --set-secrets JWT_SECRET=staging-bdt-engineering-jwt-secret:latest \
             --set-secrets ADMIN_SEED_PASSWORD=staging-bdt-engineering-admin-seed-password:latest \
+            --set-secrets APS_CLIENT_ID=staging-bdt-engineering-aps-client-id:latest \
+            --set-secrets APS_CLIENT_SECRET=staging-bdt-engineering-aps-client-secret:latest \
             --set-env-vars NODE_ENV=production \
             --set-env-vars FILE_STORAGE_DRIVER=local \
             --set-env-vars FILE_STORAGE_LOCAL_PATH=/tmp/storage \
+            --set-env-vars APS_BUCKET_KEY=bdt-bim-dev \
             --port 3000 \
             --min-instances 0 \
             --max-instances 3 \
