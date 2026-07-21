@@ -135,6 +135,33 @@
 - **Created:** 2026-07-02 (F-BOM Error Handling review) — surfaced while re-applying the Login feature's "raw error object → console" lens to this branch's incidental touches (`meta` add/revert) on 6 of these files; none of the flagged lines are part of the BOM Error Handling diff itself (confirmed net-zero), so this is logged as a follow-up rather than blocking that PR
 - **Finding ref:** `docs/security/findings/2026-07-02-bom-error-handling.md` (Observation section)
 
+### R-011 · API1:2023 BOLA — BIM Viewer `bim_model`/`bim_element` routes join the R-001 pattern
+
+- **OWASP:** API1:2023 (Broken Object Level Authorization)
+- **Impact:** High — every `:id`-scoped route in `bim.controller.ts`
+  (`getStatus`, `retry`, `getElements`, `getViewerToken`) and
+  `bim.service.ts`'s `findOrThrow` resolves by primary key only, no
+  project-membership check; `getViewerToken` additionally hands back a
+  working (if narrowly `viewables:read`-scoped) APS access_token, usable
+  directly against Autodesk's API by anyone who knows/guesses a valid
+  `bim_model` id.
+- **Likelihood:** High — identical, zero-mitigation gap; re-verified
+  2026-07-21 against the live code, not just the prior automated pass.
+- **Owner:** backend
+- **Fix path:** same as `R-001` — this is not a separate architecture
+  problem, it's the same missing project-membership/ACL primitive
+  surfacing in a fifth+ module. Add `bim_model`/`bim-models` to `R-001`'s
+  affected-module list when that fix lands; no separate BIM-specific
+  fix should be built in isolation.
+- **Status:** Open
+- **Created:** 2026-07-21 (F-BIM-Viewer review)
+- **Finding ref:** `docs/security/findings/2026-07-21-bim-viewer.md` F-001
+- **Release note:** reviewed as a release-gate WARN, not BLOCK, for the
+  Sprint 23 BIM Viewer ship — pre-existing app-wide convention (not a
+  regression introduced by this feature), identical to what `bom-upload`,
+  `drawings`, `work-orders`, `manufacturing-orders`, `customers` already
+  ship with today. See finding F-001 for full reasoning.
+
 ---
 
 ## Mitigated risks
