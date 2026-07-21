@@ -1,21 +1,15 @@
 import {
-  Controller, Get, Post, Param, ParseIntPipe, Query, Body,
-  UseInterceptors, UploadedFile, UseGuards, BadRequestException,
+  Controller, Get, Post, Param, ParseIntPipe, Query, Body, UseGuards, BadRequestException,
 } from '@nestjs/common'
-import { FileInterceptor } from '@nestjs/platform-express'
-import { ApiTags, ApiOperation, ApiConsumes, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
-import { memoryStorage } from 'multer'
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { BimService } from './bim.service'
 import { QueryBimModelsDto } from './dto/query-bim-models.dto'
 import { QueryLatestBimVersionDto } from './dto/query-latest-bim-version.dto'
+import { InitUploadDto } from './dto/init-upload.dto'
+import { CompleteUploadDto } from './dto/complete-upload.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
-
-interface MulterFile {
-  originalname: string
-  buffer: Buffer
-}
 
 @ApiTags('bim')
 @ApiBearerAuth()
@@ -36,38 +30,27 @@ export class BimController {
     return this.svc.getLatestVersion(query.project_id)
   }
 
-  @Post()
-  @ApiOperation({ summary: 'Upload an IFC file for a project — kicks off Autodesk Model Derivative translation' })
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file', 'project_id'],
-      properties: {
-        file: { type: 'string', format: 'binary' },
-        project_id: { type: 'integer' },
-        version_choice: { type: 'string', enum: ['minor', 'major'] },
-      },
-    },
-  })
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } }))
-  async upload(
-    @UploadedFile() file: MulterFile,
-    @Body() body: Record<string, string>,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    if (!file) throw new BadRequestException('No file uploaded')
-    if (!file.originalname.toLowerCase().endsWith('.ifc')) {
+  // Split into init/complete (rather than one multipart POST carrying the
+  // file) so the actual bytes go straight from the browser to Autodesk's
+  // signed S3 URL — never through this backend (or the Vercel rewrite in
+  // front of it). Both have hard, non-configurable request-size ceilings
+  // well under real IFC file sizes; confirmed 2026-07-21 this was the
+  // actual cause of 413s on the deployed app despite our own 100MB limit.
+  @Post('upload-init')
+  @ApiOperation({ summary: 'Step 1: get a signed OSS upload URL — the browser PUTs the file directly to it, bypassing this backend' })
+  initUpload(@Body() dto: InitUploadDto) {
+    if (!dto.filename.toLowerCase().endsWith('.ifc')) {
       throw new BadRequestException('Only .ifc files are supported')
     }
+    return this.svc.initUpload(dto.filename)
+  }
 
-    const projectId = parseInt(String(body['project_id']), 10)
-    if (isNaN(projectId)) {
-      throw new BadRequestException('project_id must be a valid integer')
-    }
-    const versionChoice = body['version_choice'] === 'major' ? 'major' : 'minor'
-
-    return this.svc.upload(file, user.sub, projectId, versionChoice)
+  @Post('upload-complete')
+  @ApiOperation({ summary: 'Step 2: call after the browser\'s direct PUT succeeds — creates the bim_model row and kicks off translation' })
+  completeUpload(@Body() dto: CompleteUploadDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.completeUpload(
+      user.sub, dto.project_id, dto.version_choice ?? 'minor', dto.filename, dto.object_key, dto.upload_key,
+    )
   }
 
   @Get(':id/status')
