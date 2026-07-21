@@ -64,7 +64,7 @@ jobs:
             --port 3000 \
             --min-instances 0 \
             --max-instances 3 \
-            --memory 512Mi \
+            --memory 2Gi \
             --cpu 1 \
             --allow-unauthenticated
 
