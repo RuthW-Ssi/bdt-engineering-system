@@ -173,28 +173,45 @@ export class BimService {
     return { id: model.id, status: 'processing', progress: manifest.progress, error: null }
   }
 
+  // Two bounded passes over the APS properties stream rather than buffering
+  // the whole collection (confirmed 2026-07-21: a real IFC's raw properties
+  // payload OOM'd a 2GiB container when loaded whole via getProperties()).
+  // Pass 1 only keeps the lean mark/globalId per assembly (small, regardless
+  // of model size); pass 2 streams again and writes rows in fixed-size
+  // batches, so peak memory no longer scales with element count.
   private async extractAndPersist(modelId: number, urn: string) {
-    const items = await this.aps.getProperties(urn)
-    // extractElement itself drops anything that isn't exactly an assembly
-    // (scene-graph depth 4) or a part (depth 5) — deeper items are geometry/
-    // representation duplicates of the depth-5 part, not real elements.
-    const extracted = items.map(extractElement).filter(el => el !== null)
-
     // Parts don't carry their own assembly's identity — look it up by matching
-    // each part's parent externalId against the assemblies in this same batch.
+    // each part's parent externalId against the assemblies in this same model.
     // assembly_mark is display-only: marks repeat across physical instances
     // (e.g. one purlin type reused 257 times), so it can't scope "this part
     // belongs to THIS specific assembly" — assembly_global_id (the parent's
     // own GUID) is the real per-instance key, confirmed 2026-07-21 needed for
     // per-instance isolate/cycle-through-instances to not mix parts from
     // different same-marked assemblies together.
-    const assembliesByExternalId = new Map(
-      extracted.filter(el => el.ifcType === 'IfcElementAssembly').map(el => [el.externalId, el]),
-    )
+    const assembliesByExternalId = new Map<string, { mark: string | null; globalId: string | null }>()
+    for await (const item of this.aps.streamProperties(urn)) {
+      const el = extractElement(item)
+      if (el?.ifcType === 'IfcElementAssembly') {
+        assembliesByExternalId.set(el.externalId, { mark: el.mark, globalId: el.globalId })
+      }
+    }
 
-    const rows = extracted.map(el => {
+    const BATCH_SIZE = 500
+    let batch: Prisma.bim_elementCreateManyInput[] = []
+    const flush = async () => {
+      if (!batch.length) return
+      await this.prisma.bim_element.createMany({ data: batch })
+      batch = []
+    }
+
+    for await (const item of this.aps.streamProperties(urn)) {
+      // extractElement itself drops anything that isn't exactly an assembly
+      // (scene-graph depth 4) or a part (depth 5) — deeper items are geometry/
+      // representation duplicates of the depth-5 part, not real elements.
+      const el = extractElement(item)
+      if (!el) continue
       const parentAssembly = el.parentExternalId ? assembliesByExternalId.get(el.parentExternalId) : undefined
-      return {
+      batch.push({
         model_id: modelId,
         viewer_id: el.viewerId,
         external_id: el.externalId,
@@ -211,11 +228,10 @@ export class BimService {
         width_mm: el.widthMm,
         height_mm: el.heightMm,
         properties: el.properties as unknown as Prisma.InputJsonValue,
-      }
-    })
-    if (rows.length) {
-      await this.prisma.bim_element.createMany({ data: rows })
+      })
+      if (batch.length >= BATCH_SIZE) await flush()
     }
+    await flush()
   }
 
   // Re-kicks off translation for the same already-uploaded object — no
