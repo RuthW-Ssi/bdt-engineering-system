@@ -100,31 +100,36 @@ export class ApsClientService {
     }
   }
 
-  // Single-part signed S3 upload — fine for the "start small" file sizes this
-  // feature targets. Revisit (multipart) if real Tekla IFC exports run large.
-  async uploadObject(objectKey: string, buffer: Buffer): Promise<{ urn: string }> {
+  // Split in two (rather than one uploadObject(buffer) taking the raw file)
+  // so the actual file bytes go straight from the BROWSER to this signed S3
+  // URL — never through our own Cloud Run backend at all. Both Vercel's
+  // rewrite-proxy body size limit and Cloud Run's 32MiB HTTP/1 request cap
+  // are hard, non-configurable platform ceilings (confirmed 2026-07-21) well
+  // under real Tekla IFC export sizes; routing the bytes through our infra
+  // at all would 413 regardless of our own 100MB multer limit, which never
+  // even gets evaluated since the request dies upstream first.
+  async createSignedUpload(objectKey: string): Promise<{ uploadKey: string; url: string }> {
     const token = await this.getAccessToken()
-    const authHeader = { Authorization: `Bearer ${token}` }
-
     const signRes = await fetch(
       `${OSS_URL}/buckets/${this.bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
-      { headers: authHeader },
+      { headers: { Authorization: `Bearer ${token}` } },
     )
     if (!signRes.ok) {
       throw new InternalServerErrorException(`APS signed upload URL request failed (${signRes.status})`)
     }
     const { uploadKey, urls } = await signRes.json()
+    return { uploadKey, url: urls[0] }
+  }
 
-    const putRes = await fetch(urls[0], { method: 'PUT', body: new Uint8Array(buffer) })
-    if (!putRes.ok) {
-      throw new InternalServerErrorException(`APS S3 upload failed (${putRes.status})`)
-    }
-
+  // Called after the browser's own direct PUT to the signed URL succeeds —
+  // finalizes the OSS object and returns the URN Model Derivative needs.
+  async completeUpload(objectKey: string, uploadKey: string): Promise<{ urn: string }> {
+    const token = await this.getAccessToken()
     const completeRes = await fetch(
       `${OSS_URL}/buckets/${this.bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
       {
         method: 'POST',
-        headers: { ...authHeader, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ uploadKey }),
       },
     )
