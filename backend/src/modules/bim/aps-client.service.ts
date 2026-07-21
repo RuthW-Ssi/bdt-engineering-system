@@ -1,4 +1,10 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common'
+import { Readable } from 'node:stream'
+import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web'
+import { chain } from 'stream-chain'
+import { parser } from 'stream-json'
+import { pick } from 'stream-json/filters/Pick'
+import { streamArray } from 'stream-json/streamers/StreamArray'
 
 const AUTH_URL = 'https://developer.api.autodesk.com/authentication/v2/token'
 const OSS_URL = 'https://developer.api.autodesk.com/oss/v2'
@@ -215,9 +221,17 @@ export class ApsClientService {
     return Array.isArray(propsBody?.data?.collection) && propsBody.data.collection.length > 0
   }
 
-  // Returns the flat per-element property collection for the first (3D) view
+  // Streams the flat per-element property collection for the first (3D) view
   // in the manifest — this is what BimService extracts bim_element rows from.
-  async getProperties(urn: string): Promise<ApsPropertyItem[]> {
+  // Yields one item at a time via stream-json instead of buffering the whole
+  // response (res.json()) into memory: confirmed 2026-07-21 a real IFC's
+  // properties payload OOM'd a 2GiB container (2312MiB used) when loaded
+  // whole, on top of the metadata fetch + per-element property groups (kept
+  // in full, per bim_element.properties) meaning the raw payload is easily
+  // multiple GB for a large model. Called twice by extractAndPersist() (once
+  // to index assemblies, once to build rows) — an extra APS API round-trip
+  // is cheap next to holding the entire collection in memory twice over.
+  async *streamProperties(urn: string): AsyncGenerator<ApsPropertyItem> {
     const token = await this.getAccessToken()
     const authHeader = { Authorization: `Bearer ${token}` }
 
@@ -227,7 +241,7 @@ export class ApsClientService {
     }
     const metaBody = await metaRes.json()
     const guid = metaBody?.data?.metadata?.[0]?.guid
-    if (!guid) return []
+    if (!guid) return
 
     // forceget=true is required by Autodesk once a property set is large
     // enough to trip their "confirm you really want this" guard — without it
@@ -237,11 +251,20 @@ export class ApsClientService {
     // a 2xx (`res.ok` is true) but there's no collection yet. BimService
     // already gates on hasQueryableMetadata() before calling this, so in
     // practice this shouldn't fire — but fail loud rather than silently
-    // returning [] (which previously looked like "0 elements" success).
+    // yielding nothing (which previously looked like "0 elements" success).
     if (propsRes.status !== 200) {
       throw new InternalServerErrorException(`APS properties not ready yet (status ${propsRes.status})`)
     }
-    const propsBody = await propsRes.json()
-    return propsBody?.data?.collection ?? []
+    if (!propsRes.body) return
+
+    const pipeline = chain([
+      Readable.fromWeb(propsRes.body as NodeWebReadableStream<Uint8Array>),
+      parser(),
+      pick({ filter: 'data.collection' }),
+      streamArray(),
+    ])
+    for await (const { value } of pipeline) {
+      yield value as ApsPropertyItem
+    }
   }
 }
