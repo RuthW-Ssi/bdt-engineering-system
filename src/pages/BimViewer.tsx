@@ -9,7 +9,7 @@ import { BimPropertyPanel } from '../components/bim/BimPropertyPanel'
 import { BimUploadModal } from '../components/bim/BimUploadModal'
 import { useProjectSelection } from '../hooks/useProjectSelection'
 import {
-  useBimModels, useUploadBimModel, useBimStatus, useBimElements, useBimViewerToken, useRetryBimModel, useLatestBimVersion,
+  useBimModels, useUploadBimModel, useBimStatus, useBimElements, useBimElementProperties, useBimViewerToken, useRetryBimModel, useLatestBimVersion,
 } from '../hooks/useBim'
 import type { BimSelection, BimFocusRequest } from '../components/bim/BimViewport'
 
@@ -97,6 +97,7 @@ export function BimViewer() {
   }
 
   const selectedElement = elements?.find(e => e.global_id === selectedGlobalId) ?? null
+  const { data: selectedProperties } = useBimElementProperties(currentId, selectedElement?.id ?? null)
 
   // Marks repeat across physically distinct assemblies (a purlin type reused
   // 257 times in this file) — these are every OTHER assembly sharing the
@@ -273,6 +274,7 @@ export function BimViewer() {
               </div>
               <BimPropertyPanel
                 element={selectedElement}
+                properties={selectedProperties}
                 instanceIndex={instanceIndex}
                 instanceCount={instanceSiblings.length}
                 onNextInstance={handleNextInstance}

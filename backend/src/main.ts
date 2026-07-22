@@ -1,10 +1,15 @@
 import { NestFactory } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
+import * as compression from 'compression'
 import { AppModule } from './app.module'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
+  // Compresses large JSON responses (e.g. bim-models/:id/elements) before
+  // they leave the container — cuts response size well under Cloud Run's
+  // 32MiB response cap for the text-heavy JSON this API returns.
+  app.use(compression())
   app.enableCors({ origin: '*' })
   app.setGlobalPrefix('api/v1')
   app.useGlobalPipes(
