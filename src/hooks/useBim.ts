@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  listBimModels, uploadBimModel, getBimStatus, getBimElements, getBimViewerToken, retryBimModel, getLatestBimVersion,
+  listBimModels, uploadBimModel, getBimStatus, getBimElements, getBimElementProperties, getBimViewerToken, retryBimModel, getLatestBimVersion,
 } from '../api/bim'
 import type { BimModelFilter, UploadBimModelPayload } from '../api/bim'
 
@@ -58,6 +58,17 @@ export function useBimElements(id: number | null) {
     queryKey: ['bim-models', 'elements', id],
     queryFn: () => getBimElements(id!),
     enabled: id != null,
+  })
+}
+
+// Raw property groups for one element, fetched only once it's selected in
+// the property panel — the list above deliberately excludes these (see
+// getBimElements' doc comment).
+export function useBimElementProperties(modelId: number | null, elementId: number | null) {
+  return useQuery({
+    queryKey: ['bim-models', 'element-properties', modelId, elementId],
+    queryFn: () => getBimElementProperties(modelId!, elementId!),
+    enabled: modelId != null && elementId != null,
   })
 }
 
