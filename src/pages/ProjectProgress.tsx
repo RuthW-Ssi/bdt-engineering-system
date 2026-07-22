@@ -114,29 +114,31 @@ export function ProjectProgress() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 24px 0' }}>
-        <button
-          onClick={() => navigate('/projects')}
-          title="Back to projects"
-          style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: '#8E8E8E', fontSize: 12.5, cursor: 'pointer', padding: 0 }}
-        >
-          <ArrowLeft size={14} /> Projects
-        </button>
-        <span style={{ color: '#C2C2C2' }}>›</span>
-        <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 13, fontWeight: 700, color: '#C8202A' }}>{project.project_code}</span>
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#1A1A1A' }}>{project.name}</span>
-        <span style={{ fontSize: 13, color: '#8E8E8E' }}>— Progress</span>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
+      {/* ── Header — matches BimViewer's page-chrome convention exactly ── */}
+      <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/projects')}
+            title="Back to projects"
+            className="flex items-center justify-center rounded hover:bg-chrome-50"
+            style={{ width: 32, height: 32, color: '#8E8E8E' }}
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 13, fontWeight: 700, color: '#C8202A' }}>{project.project_code}</span>
+          <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>{project.name}</span>
+          <span style={{ fontSize: 13, color: '#8E8E8E' }}>— Progress</span>
+        </div>
         {overview && (
-          <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'baseline', gap: 6, background: 'white', border: '1px solid #E0E0E0', borderRadius: 999, padding: '5px 14px', fontSize: 12, color: '#8E8E8E' }}>
-            Project total <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 13.5, color: '#4A85C4' }}>{overview.total.pct.toFixed(1)}%</b>
+          <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, background: '#F5F5F5', borderRadius: 999, padding: '5px 14px', fontSize: 12, color: '#8E8E8E' }}>
+            Project total <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 13.5, color: '#C8202A' }}>{overview.total.pct.toFixed(1)}%</b>
           </span>
         )}
       </div>
 
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: 2, borderBottom: '1px solid #E0E0E0', padding: '6px 24px 0' }}>
+      {/* ── Tab bar — same treatment as the filter bar elsewhere (BimViewer/BomList) ── */}
+      <div className="flex items-center px-4" style={{ height: 44, background: '#F5F5F5', borderTop: '1px solid #E8E8E8', borderBottom: '1px solid #E8E8E8', flexShrink: 0, gap: 2 }}>
         <TabButton label="Overview" active={tab === 'overview'} onClick={() => switchTab('overview')} />
         {zones.map(z => {
           const rollup = overview?.zones.find(o => o.zone_id === z.id)
@@ -152,68 +154,72 @@ export function ProjectProgress() {
         })}
       </div>
 
-      {/* Body */}
+      {/* ── Body ── */}
       {tab === 'overview' ? (
         <OverviewTab overview={overview} onOpenZone={switchTab} />
       ) : (
-        <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14, padding: '14px 24px 20px', overflowY: 'auto' }}>
-          {/* 3D viewport + isolate strip */}
-          <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
-            <div style={{ height: 340, background: '#F0F0F0' }}>
-              {bimMatch && bimMatch.model_id == null ? (
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#ABABAB', gap: 8 }}>
-                  <CuboidIcon size={28} />
-                  <span style={{ fontSize: 13 }}>No completed BIM model for this project yet — the table below still works</span>
-                </div>
-              ) : viewerToken ? (
-                <BimViewport
-                  urn={viewerToken.urn}
-                  accessToken={viewerToken.access_token}
-                  onSelect={handleViewerSelect}
-                  focusRequest={focusRequest}
-                />
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-                  <Loader2 size={20} className="animate-spin" style={{ color: '#C2C2C2' }} />
-                </div>
-              )}
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', borderTop: '1px solid #EDEFF2', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 11, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, marginRight: 4 }}>Isolate</span>
-              {STATUS_ORDER.map(s => {
-                const meta = STATUS_META[s]
-                const active = activeStatus === s
-                return (
-                  <button
-                    key={s}
-                    onClick={() => handleStatusIsolate(s)}
-                    aria-pressed={active}
-                    style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 7,
-                      font: 'inherit', fontSize: 12, fontWeight: 600, padding: '6px 12px',
-                      borderRadius: 999, cursor: 'pointer',
-                      border: `1px solid ${active ? meta.color : '#E0E0E0'}`,
-                      background: active ? meta.color : 'white',
-                      color: active ? 'white' : '#1A1A1A',
-                    }}
-                  >
-                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: active ? 'white' : meta.color, flexShrink: 0 }} />
-                    {meta.label}
-                    <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, opacity: 0.75 }}>{statusCounts[s]}</span>
-                  </button>
-                )
-              })}
-              <button
-                onClick={handleClear}
-                style={{ marginLeft: 'auto', font: 'inherit', fontSize: 12, fontWeight: 600, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-              >
-                Clear
-              </button>
-            </div>
+        <div className="flex flex-col flex-1" style={{ padding: '20px 28px', overflow: 'hidden', minHeight: 0, gap: 16 }}>
+          {/* 3D viewport + isolate strip — wrapper mirrors BimViewer's
+              `borderRadius:12; overflow:hidden` exactly, no fixed height or
+              background override, so BimViewport's own dark frame (not a
+              page-chrome gray) is what shows around the model, same as
+              BimViewer itself. */}
+          <div style={{ borderRadius: 12, overflow: 'hidden', flex: '0 0 340px' }}>
+            {bimMatch && bimMatch.model_id == null ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB', gap: 8 }}>
+                <CuboidIcon size={28} />
+                <span style={{ fontSize: 13 }}>No completed BIM model for this project yet — the table below still works</span>
+              </div>
+            ) : viewerToken ? (
+              <BimViewport
+                urn={viewerToken.urn}
+                accessToken={viewerToken.access_token}
+                onSelect={handleViewerSelect}
+                focusRequest={focusRequest}
+              />
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB' }}>
+                <Loader2 size={20} className="animate-spin" />
+              </div>
+            )}
+          </div>
+
+          {/* Isolate strip — same white-card convention as every other panel */}
+          <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', flexWrap: 'wrap', flexShrink: 0 }}>
+            <span style={{ fontSize: 11, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, marginRight: 4 }}>Isolate</span>
+            {STATUS_ORDER.map(s => {
+              const meta = STATUS_META[s]
+              const active = activeStatus === s
+              return (
+                <button
+                  key={s}
+                  onClick={() => handleStatusIsolate(s)}
+                  aria-pressed={active}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 7,
+                    font: 'inherit', fontSize: 12, fontWeight: 600, padding: '6px 12px',
+                    borderRadius: 999, cursor: 'pointer',
+                    border: `1px solid ${active ? meta.color : '#E0E0E0'}`,
+                    background: active ? meta.color : 'white',
+                    color: active ? 'white' : '#1A1A1A',
+                  }}
+                >
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: active ? 'white' : meta.color, flexShrink: 0 }} />
+                  {meta.label}
+                  <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, opacity: 0.75 }}>{statusCounts[s]}</span>
+                </button>
+              )
+            })}
+            <button
+              onClick={handleClear}
+              style={{ marginLeft: 'auto', font: 'inherit', fontSize: 12, fontWeight: 600, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+            >
+              Clear
+            </button>
           </div>
 
           {/* Table + WO panel */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 14, alignItems: 'start', minHeight: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, flex: 1, minHeight: 0 }}>
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
               matchedAssemblyIds={new Set(matchByAssembly.keys())}
@@ -232,16 +238,18 @@ export function ProjectProgress() {
   )
 }
 
+// Matches BomList's content-tab convention (fontSize 12, padding 9px 16px)
+// rather than a bespoke one — same visual language app-wide.
 function TabButton({ label, sub, active, onClick }: { label: string; sub?: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       aria-selected={active}
       style={{
-        font: 'inherit', fontSize: 13, fontWeight: 600,
-        color: active ? '#C8202A' : '#8E8E8E',
+        font: 'inherit', fontSize: 12, fontWeight: active ? 600 : 400,
+        color: active ? '#C8202A' : '#555',
         background: 'none', border: 'none',
-        padding: '10px 16px 11px', cursor: 'pointer',
+        padding: '9px 16px', cursor: 'pointer',
         borderBottom: `2px solid ${active ? '#C8202A' : 'transparent'}`,
         marginBottom: -1, whiteSpace: 'nowrap',
       }}
@@ -273,7 +281,7 @@ function OverviewTab({
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
 
   return (
-    <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+    <div style={{ flex: 1, overflowY: 'auto', padding: '20px 28px' }}>
       <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', maxWidth: 900 }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
