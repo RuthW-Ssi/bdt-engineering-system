@@ -247,9 +247,32 @@ export class BimService {
     return { id, status: 'processing' as const }
   }
 
+  // Excludes `properties` — for a real model (tens of thousands of elements)
+  // the raw property bags alone pushed this response past Cloud Run's 32MiB
+  // response cap (confirmed 2026-07-22: 59MB total, 500 "Response size was
+  // too large"). Nothing on the list/tree side reads `.properties` — only
+  // the property panel does, for the single currently-selected element, via
+  // getElementProperties() below.
   async getElements(modelId: number) {
     await this.findOrThrow(modelId)
-    return this.prisma.bim_element.findMany({ where: { model_id: modelId }, orderBy: { id: 'asc' } })
+    return this.prisma.bim_element.findMany({
+      where: { model_id: modelId },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true, model_id: true, viewer_id: true, external_id: true, mark: true, global_id: true,
+        ifc_type: true, phase: true, position: true, assembly_mark: true, assembly_global_id: true,
+        weight_kg: true, area_m2: true, length_mm: true, width_mm: true, height_mm: true, status: true,
+      },
+    })
+  }
+
+  async getElementProperties(modelId: number, elementId: number) {
+    const element = await this.prisma.bim_element.findFirst({
+      where: { id: elementId, model_id: modelId },
+      select: { properties: true },
+    })
+    if (!element) throw new NotFoundException(`Element ${elementId} not found on model ${modelId}`)
+    return element.properties
   }
 
   async getViewerToken(modelId: number) {

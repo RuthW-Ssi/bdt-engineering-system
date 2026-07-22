@@ -34,6 +34,10 @@ export interface BimStatusResult {
   error: string | null
 }
 
+// No `properties` — the list endpoint excludes the raw property bags (a real
+// model's worth alone pushed the response past Cloud Run's 32MiB cap,
+// confirmed 2026-07-22). Fetch a single element's properties on demand via
+// getBimElementProperties() once it's selected in the property panel.
 export interface BimElement {
   id: number
   model_id: number
@@ -52,8 +56,9 @@ export interface BimElement {
   width_mm: number | null
   height_mm: number | null
   status: string
-  properties: Record<string, Record<string, unknown>>
 }
+
+export type BimElementProperties = Record<string, Record<string, unknown>>
 
 export interface BimViewerToken {
   urn: string
@@ -114,6 +119,10 @@ export async function retryBimModel(id: number): Promise<{ id: number; status: B
 
 export async function getBimElements(id: number): Promise<BimElement[]> {
   return (await apiClient.get(`/bim-models/${id}/elements`)).data
+}
+
+export async function getBimElementProperties(id: number, elementId: number): Promise<BimElementProperties> {
+  return (await apiClient.get(`/bim-models/${id}/elements/${elementId}/properties`)).data
 }
 
 export async function getBimViewerToken(id: number): Promise<BimViewerToken> {

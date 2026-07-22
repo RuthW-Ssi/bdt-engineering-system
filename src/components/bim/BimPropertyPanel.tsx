@@ -1,4 +1,4 @@
-import type { BimElement } from '../../api/bim'
+import type { BimElement, BimElementProperties } from '../../api/bim'
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -19,12 +19,17 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 interface Props {
   element: BimElement | null
+  // Fetched separately from `element` (see getBimElementProperties) — the
+  // element list response excludes raw properties entirely, so this arrives
+  // a moment later than `element` itself and can still be undefined/loading
+  // even once `element` is set.
+  properties?: BimElementProperties
   instanceIndex?: number // index of `element` among every other assembly sharing its mark — -1/undefined when not applicable
   instanceCount?: number // total assemblies sharing that mark — the cycling row only shows above 1
   onNextInstance?: () => void
 }
 
-export function BimPropertyPanel({ element, instanceIndex, instanceCount, onNextInstance }: Props) {
+export function BimPropertyPanel({ element, properties, instanceIndex, instanceCount, onNextInstance }: Props) {
   if (!element) {
     return (
       <div style={{ padding: 24, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
@@ -36,7 +41,7 @@ export function BimPropertyPanel({ element, instanceIndex, instanceCount, onNext
   // Several property groups repeat the same key (e.g. every attached Pset
   // has its own "GLOBALID") — keep the group name in the row key so React
   // doesn't see duplicate keys across groups.
-  const otherProps = Object.entries(element.properties ?? {}).flatMap(([groupName, group]) =>
+  const otherProps = Object.entries(properties ?? {}).flatMap(([groupName, group]) =>
     group && typeof group === 'object'
       ? Object.entries(group).map(([k, v]) => [`${groupName}.${k}`, v] as const)
       : [],
