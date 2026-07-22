@@ -188,7 +188,6 @@ export function ProjectProgress() {
               rows={zoneRows ?? []}
               matchedAssemblyIds={new Set(matchByAssembly.keys())}
               selectedAssemblyId={selectedAssemblyId}
-              activeStatus={activeStatus}
               onSelectRow={setSelectedAssemblyId}
               onViewIn3D={handleViewIn3D}
               onUpdate={handleUpdate}

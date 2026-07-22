@@ -1,13 +1,12 @@
 import { Fragment, useState } from 'react'
 import { Search, Pencil, ChevronUp } from 'lucide-react'
-import type { ProgressZoneRow, ProgressStatus, UpdateAssemblyProgressPayload } from '../../api/projectProgress'
+import type { ProgressZoneRow, UpdateAssemblyProgressPayload } from '../../api/projectProgress'
 import { STATUS_META } from './statusMeta'
 
 interface Props {
   rows: ProgressZoneRow[]
   matchedAssemblyIds: Set<number>
   selectedAssemblyId: number | null
-  activeStatus: ProgressStatus | null
   onSelectRow: (assemblyId: number) => void
   onViewIn3D: (assemblyId: number) => void
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
@@ -36,7 +35,7 @@ const FIELD_LABEL: Record<'actual_load_date' | 'install_date' | 'qc_install_date
 }
 
 export function ProgressAssemblyTable({
-  rows, matchedAssemblyIds, selectedAssemblyId, activeStatus, onSelectRow, onViewIn3D, onUpdate, saving,
+  rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, saving,
 }: Props) {
   const [search, setSearch] = useState('')
   // Accordion — one row's edit panel open at a time, keeps the list compact
@@ -83,7 +82,6 @@ export function ProgressAssemblyTable({
             {visible.map(r => {
               const meta = STATUS_META[r.status]
               const matched = matchedAssemblyIds.has(r.assembly_id)
-              const dimmed = activeStatus != null && r.status !== activeStatus
               const expanded = expandedId === r.assembly_id
               return (
                 <Fragment key={r.assembly_id}>
@@ -91,7 +89,6 @@ export function ProgressAssemblyTable({
                     onClick={() => onSelectRow(r.assembly_id)}
                     style={{
                       cursor: 'pointer',
-                      opacity: dimmed ? 0.35 : 1,
                       background: expanded ? '#FAFAFA' : selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
                     }}
                   >
