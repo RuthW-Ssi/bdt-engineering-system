@@ -176,12 +176,13 @@ export function ProjectProgress() {
       {tab === 'overview' ? (
         <OverviewTab overview={overview} onOpenZone={switchTab} />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 440px', gap: 16, flex: 1, minHeight: 0, padding: '20px 28px' }}>
-          {/* Table — left, gets most of the width so all 9 columns (mark,
-              weight, 2 checkboxes, 3 dates, progress, view) are readable
-              without constant horizontal scrolling. Grid (not flex) so this
-              cell gets a real bounded height automatically — same reason
-              BimViewer's 3-panel layout uses grid, not flex, for its row. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '420px 1fr', gap: 16, flex: 1, minHeight: 0, padding: '20px 28px' }}>
+          {/* Table — left, narrow fixed column. Rows are collapsed by
+              default (mark/weight/progress + Edit-to-expand), so this
+              doesn't need much width — the point is giving the 3D panel
+              the majority of it. Grid (not flex) so this cell gets a real
+              bounded height automatically — same reason BimViewer's
+              3-panel layout uses grid, not flex, for its row. */}
           <div style={{ minHeight: 0 }}>
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
@@ -195,12 +196,10 @@ export function ProjectProgress() {
             />
           </div>
 
-          {/* 3D viewport + isolate strip — right, stacked vertically. Fixed
-              width rather than full-page width: isolate is button-driven,
-              not detail-inspection, so it doesn't need to be huge. No longer
-              fixed-height (340px) since it's not competing vertically with
-              the table anymore — it fills the column's full height. */}
-          <div className="flex flex-col" style={{ flex: '0 0 440px', gap: 16, minHeight: 0 }}>
+          {/* 3D viewport + isolate strip — right, stacked vertically. Gets
+              the majority of the width (grid's `1fr` track) now that the
+              table is a compact collapsed-by-default list. */}
+          <div className="flex flex-col" style={{ gap: 16, minHeight: 0 }}>
             <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0 }}>
               {bimMatch && bimMatch.model_id == null ? (
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB', gap: 8, textAlign: 'center', padding: 16 }}>
