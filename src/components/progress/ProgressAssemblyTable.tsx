@@ -22,7 +22,10 @@ const td: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid 
 const dateInput: React.CSSProperties = {
   font: 'inherit', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
   color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 6,
-  padding: '5px 7px', width: 132,
+  padding: '5px 7px', boxSizing: 'border-box',
+}
+const checkboxRow: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#1A1A1A', cursor: 'pointer',
 }
 
 // Backend @db.Date values arrive as ISO datetimes — <input type="date"> wants YYYY-MM-DD.
@@ -136,24 +139,30 @@ export function ProgressAssemblyTable({
                   {expanded && (
                     <tr style={{ background: '#FAFAFA' }}>
                       <td colSpan={5} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 20 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 20, rowGap: 14 }}>
                           <FieldGroup label="QC Inspection">
-                            <input
-                              type="checkbox"
-                              checked={r.qc_inspection_pass}
-                              disabled={saving}
-                              onChange={e => onUpdate(r.assembly_id, { qc_inspection_pass: e.target.checked })}
-                              style={{ width: 18, height: 18, accentColor: '#C8202A', cursor: 'pointer' }}
-                            />
+                            <label style={checkboxRow}>
+                              <input
+                                type="checkbox"
+                                checked={r.qc_inspection_pass}
+                                disabled={saving}
+                                onChange={e => onUpdate(r.assembly_id, { qc_inspection_pass: e.target.checked })}
+                                style={{ width: 18, height: 18, accentColor: '#C8202A', cursor: 'pointer' }}
+                              />
+                              <span>{r.qc_inspection_pass ? 'Passed' : 'Not yet'}</span>
+                            </label>
                           </FieldGroup>
                           <FieldGroup label="QC Final">
-                            <input
-                              type="checkbox"
-                              checked={r.qc_final_pass}
-                              disabled={saving}
-                              onChange={e => onUpdate(r.assembly_id, { qc_final_pass: e.target.checked })}
-                              style={{ width: 18, height: 18, accentColor: '#C8202A', cursor: 'pointer' }}
-                            />
+                            <label style={checkboxRow}>
+                              <input
+                                type="checkbox"
+                                checked={r.qc_final_pass}
+                                disabled={saving}
+                                onChange={e => onUpdate(r.assembly_id, { qc_final_pass: e.target.checked })}
+                                style={{ width: 18, height: 18, accentColor: '#C8202A', cursor: 'pointer' }}
+                              />
+                              <span>{r.qc_final_pass ? 'Passed' : 'Not yet'}</span>
+                            </label>
                           </FieldGroup>
                           {(['actual_load_date', 'install_date', 'qc_install_date'] as const).map(field => (
                             <FieldGroup key={field} label={FIELD_LABEL[field]}>
@@ -162,7 +171,7 @@ export function ProgressAssemblyTable({
                                 value={toInputDate(r[field])}
                                 disabled={saving}
                                 onChange={e => onUpdate(r.assembly_id, { [field]: e.target.value || null })}
-                                style={{ ...dateInput, color: r[field] ? '#1A1A1A' : '#ABABAB' }}
+                                style={{ ...dateInput, width: '100%', color: r[field] ? '#1A1A1A' : '#ABABAB' }}
                               />
                             </FieldGroup>
                           ))}
