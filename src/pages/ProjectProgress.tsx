@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Cuboid as CuboidIcon, Loader2 } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
@@ -22,11 +22,27 @@ export function ProjectProgress() {
   const navigate = useNavigate()
 
   const { data: project, isLoading: projectLoading } = useProject(code)
-  const zones: ProjectZoneDTO[] = (project as ProjectDetail | undefined)?.zones ?? []
+  const zones: ProjectZoneDTO[] = useMemo(() => (project as ProjectDetail | undefined)?.zones ?? [], [project])
 
-  // 'overview' or a zone id — Overview is the landing tab (mockup).
-  const [tab, setTab] = useState<'overview' | number>('overview')
+  // Selected tab lives in the URL (?zone=<id>), not just component state —
+  // otherwise a refresh silently bounces back to Overview (which by design
+  // has no per-assembly list, only the zone rollup), reading as "the
+  // assembly list disappeared" even though nothing actually broke. Matches
+  // this app's established project/zone-scoping convention (searchParams,
+  // e.g. useProjectSelection) rather than losing selection on reload.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const zoneParam = searchParams.get('zone')
+  const tab: 'overview' | number = zoneParam ? Number(zoneParam) : 'overview'
   const activeZoneId = tab === 'overview' ? null : tab
+
+  // If the URL names a zone that doesn't belong to this project (stale
+  // link, typo'd id), fall back to Overview instead of silently showing an
+  // empty table with no explanation.
+  useEffect(() => {
+    if (zoneParam && zones.length && !zones.some(z => z.id === Number(zoneParam))) {
+      setSearchParams(p => { p.delete('zone'); return p }, { replace: true })
+    }
+  }, [zoneParam, zones, setSearchParams])
 
   const { data: overview } = useProgressOverview(code)
   const { data: zoneRows } = useProgressZoneRows(code, activeZoneId)
@@ -92,7 +108,11 @@ export function ProjectProgress() {
 
   const selectedMark = zoneRows?.find(r => r.assembly_id === selectedAssemblyId)?.mark ?? null
   const switchTab = (next: 'overview' | number) => {
-    setTab(next)
+    setSearchParams(p => {
+      if (next === 'overview') p.delete('zone')
+      else p.set('zone', String(next))
+      return p
+    })
     setActiveStatus(null)
     setFocusRequest(null)
     setSelectedAssemblyId(null)
