@@ -4,7 +4,6 @@ import { ArrowLeft, Cuboid as CuboidIcon, Loader2 } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
-import { WoStatusPanel } from '../components/progress/WoStatusPanel'
 import { STATUS_META, STATUS_ORDER } from '../components/progress/statusMeta'
 import { useProject } from '../hooks/useProjects'
 import {
@@ -106,7 +105,6 @@ export function ProjectProgress() {
     if (assemblyId != null) setSelectedAssemblyId(assemblyId)
   }
 
-  const selectedMark = zoneRows?.find(r => r.assembly_id === selectedAssemblyId)?.mark ?? null
   const switchTab = (next: 'overview' | number) => {
     setSearchParams(p => {
       if (next === 'overview') p.delete('zone')
@@ -238,8 +236,8 @@ export function ProjectProgress() {
             </button>
           </div>
 
-          {/* Table + WO panel */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, flex: '1 0 420px', minHeight: 420 }}>
+          {/* Table — WO panel pulled out for now, per request */}
+          <div style={{ flex: '1 0 420px', minHeight: 420 }}>
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
               matchedAssemblyIds={new Set(matchByAssembly.keys())}
@@ -250,7 +248,6 @@ export function ProjectProgress() {
               onUpdate={handleUpdate}
               saving={updateMutation.isPending}
             />
-            <WoStatusPanel projectId={project.id} zoneId={tab as number} assemblyMark={selectedMark} />
           </div>
         </div>
       )}
