@@ -63,7 +63,6 @@ export function ProgressAssemblyTable({
           <thead>
             <tr>
               <th style={th}>Mark</th>
-              <th style={{ ...th, textAlign: 'right' }}>Weight</th>
               <th style={{ ...th, textAlign: 'center' }}>QC Insp</th>
               <th style={{ ...th, textAlign: 'center' }}>QC Final</th>
               <th style={th}>Actual Load</th>
@@ -89,9 +88,6 @@ export function ProgressAssemblyTable({
                   }}
                 >
                   <td style={{ ...td, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontWeight: 600 }}>{r.mark}</td>
-                  <td style={{ ...td, textAlign: 'right', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E' }}>
-                    {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
-                  </td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <input
                       type="checkbox"
@@ -150,7 +146,7 @@ export function ProgressAssemblyTable({
             })}
             {!visible.length && (
               <tr>
-                <td colSpan={9} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
+                <td colSpan={8} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
                   {rows.length ? 'No marks match the search' : 'No BOM assemblies uploaded for this zone yet'}
                 </td>
               </tr>
@@ -159,7 +155,7 @@ export function ProgressAssemblyTable({
           {rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={9} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
+                <td colSpan={8} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
                   {rows.length} assemblies · <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total · zone progress{' '}
                   <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#1A1A1A' }}>{zonePct.toFixed(1)}%</b>
                 </td>
