@@ -66,9 +66,19 @@ export class BimController {
   }
 
   @Get(':id/elements')
-  @ApiOperation({ summary: 'List extracted elements (mark/weight/area/L·W·H/raw properties) for a model' })
+  @ApiOperation({ summary: 'List extracted elements (mark/weight/area/L·W·H) for a model — excludes raw properties, see :elementId/properties' })
   getElements(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getElements(id)
+  }
+
+  // Split from the list above 2026-07-22: a real model's raw property bags
+  // alone pushed the list response past Cloud Run's 32MiB cap (59MB total
+  // for one model). Fetched on demand for whichever single element the
+  // property panel currently has selected.
+  @Get(':id/elements/:elementId/properties')
+  @ApiOperation({ summary: 'Raw property groups for one element — fetched on demand when selected in the property panel' })
+  getElementProperties(@Param('id', ParseIntPipe) id: number, @Param('elementId', ParseIntPipe) elementId: number) {
+    return this.svc.getElementProperties(id, elementId)
   }
 
   @Get(':id/viewer-token')
