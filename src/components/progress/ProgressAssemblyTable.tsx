@@ -19,7 +19,7 @@ const th: React.CSSProperties = {
   letterSpacing: '0.04em', color: '#ABABAB', padding: '9px 12px',
   borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'white',
 }
-const td: React.CSSProperties = { padding: '7px 12px', borderBottom: '1px solid #EDEFF2', verticalAlign: 'middle' }
+const td: React.CSSProperties = { padding: '7px 12px', borderBottom: '1px solid #EDEFF2', verticalAlign: 'middle', whiteSpace: 'nowrap' }
 const dateInput: React.CSSProperties = {
   font: 'inherit', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
   color: '#1A1A1A', background: '#F7F7F7', border: '1px solid #E0E0E0', borderRadius: 6,
