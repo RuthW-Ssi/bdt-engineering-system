@@ -306,6 +306,17 @@ export function BimViewport({ urn, accessToken, onSelect, focusRequest }: Props)
       const viewer = viewerRef.current
       if (!viewer?.model) return
 
+      // An explicitly-empty set is a "reset" request (Sprint 24: the
+      // progress page's Clear button) — show everything again. Callers that
+      // never want this (BimViewer guards with `if (globalIds.length)`)
+      // are unaffected.
+      if (!focusRequest.globalIds.length) {
+        viewer.clearSelection()
+        viewer.showAll()
+        viewer.setGhosting(true)
+        return
+      }
+
       const guidToDbId = guidToDbIdRef.current
       const dbIds = focusRequest.globalIds
         .map(g => guidToDbId.get(g))
