@@ -176,68 +176,13 @@ export function ProjectProgress() {
       {tab === 'overview' ? (
         <OverviewTab overview={overview} onOpenZone={switchTab} />
       ) : (
-        <div className="flex flex-col flex-1" style={{ padding: '20px 28px', overflowY: 'auto', minHeight: 0, gap: 16 }}>
-          {/* 3D viewport + isolate strip — wrapper mirrors BimViewer's
-              `borderRadius:12; overflow:hidden` exactly, no fixed height or
-              background override, so BimViewport's own dark frame (not a
-              page-chrome gray) is what shows around the model, same as
-              BimViewer itself. */}
-          <div style={{ borderRadius: 12, overflow: 'hidden', flex: '0 0 340px' }}>
-            {bimMatch && bimMatch.model_id == null ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB', gap: 8 }}>
-                <CuboidIcon size={28} />
-                <span style={{ fontSize: 13 }}>No completed BIM model for this project yet — the table below still works</span>
-              </div>
-            ) : viewerToken ? (
-              <BimViewport
-                urn={viewerToken.urn}
-                accessToken={viewerToken.access_token}
-                onSelect={handleViewerSelect}
-                focusRequest={focusRequest}
-              />
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB' }}>
-                <Loader2 size={20} className="animate-spin" />
-              </div>
-            )}
-          </div>
-
-          {/* Isolate strip — same white-card convention as every other panel */}
-          <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', flexWrap: 'wrap', flexShrink: 0 }}>
-            <span style={{ fontSize: 11, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, marginRight: 4 }}>Isolate</span>
-            {STATUS_ORDER.map(s => {
-              const meta = STATUS_META[s]
-              const active = activeStatus === s
-              return (
-                <button
-                  key={s}
-                  onClick={() => handleStatusIsolate(s)}
-                  aria-pressed={active}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 7,
-                    font: 'inherit', fontSize: 12, fontWeight: 600, padding: '6px 12px',
-                    borderRadius: 999, cursor: 'pointer',
-                    border: `1px solid ${active ? meta.color : '#E0E0E0'}`,
-                    background: active ? meta.color : 'white',
-                    color: active ? 'white' : '#1A1A1A',
-                  }}
-                >
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: active ? 'white' : meta.color, flexShrink: 0 }} />
-                  {meta.label}
-                  <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, opacity: 0.75 }}>{statusCounts[s]}</span>
-                </button>
-              )
-            })}
-            <button
-              onClick={handleClear}
-              style={{ marginLeft: 'auto', font: 'inherit', fontSize: 12, fontWeight: 600, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-            >
-              Clear
-            </button>
-          </div>
-
-          {/* Table — WO panel pulled out for now, per request */}
-          <div style={{ flex: '1 0 420px', minHeight: 420 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 440px', gap: 16, flex: 1, minHeight: 0, padding: '20px 28px' }}>
+          {/* Table — left, gets most of the width so all 9 columns (mark,
+              weight, 2 checkboxes, 3 dates, progress, view) are readable
+              without constant horizontal scrolling. Grid (not flex) so this
+              cell gets a real bounded height automatically — same reason
+              BimViewer's 3-panel layout uses grid, not flex, for its row. */}
+          <div style={{ minHeight: 0 }}>
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
               matchedAssemblyIds={new Set(matchByAssembly.keys())}
@@ -248,6 +193,68 @@ export function ProjectProgress() {
               onUpdate={handleUpdate}
               saving={updateMutation.isPending}
             />
+          </div>
+
+          {/* 3D viewport + isolate strip — right, stacked vertically. Fixed
+              width rather than full-page width: isolate is button-driven,
+              not detail-inspection, so it doesn't need to be huge. No longer
+              fixed-height (340px) since it's not competing vertically with
+              the table anymore — it fills the column's full height. */}
+          <div className="flex flex-col" style={{ flex: '0 0 440px', gap: 16, minHeight: 0 }}>
+            <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0 }}>
+              {bimMatch && bimMatch.model_id == null ? (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB', gap: 8, textAlign: 'center', padding: 16 }}>
+                  <CuboidIcon size={28} />
+                  <span style={{ fontSize: 13 }}>No completed BIM model for this project yet — the table still works</span>
+                </div>
+              ) : viewerToken ? (
+                <BimViewport
+                  urn={viewerToken.urn}
+                  accessToken={viewerToken.access_token}
+                  onSelect={handleViewerSelect}
+                  focusRequest={focusRequest}
+                />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB' }}>
+                  <Loader2 size={20} className="animate-spin" />
+                </div>
+              )}
+            </div>
+
+            {/* Isolate strip — wraps onto more lines here since the column
+                is narrower than the old full-width strip. */}
+            <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '10px 14px', flexWrap: 'wrap', flexShrink: 0 }}>
+              <span style={{ fontSize: 11, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, width: '100%' }}>Isolate</span>
+              {STATUS_ORDER.map(s => {
+                const meta = STATUS_META[s]
+                const active = activeStatus === s
+                return (
+                  <button
+                    key={s}
+                    onClick={() => handleStatusIsolate(s)}
+                    aria-pressed={active}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 7,
+                      font: 'inherit', fontSize: 12, fontWeight: 600, padding: '6px 12px',
+                      borderRadius: 999, cursor: 'pointer',
+                      border: `1px solid ${active ? meta.color : '#E0E0E0'}`,
+                      background: active ? meta.color : 'white',
+                      color: active ? 'white' : '#1A1A1A',
+                    }}
+                  >
+                    <span style={{ width: 8, height: 8, borderRadius: '50%', background: active ? 'white' : meta.color, flexShrink: 0 }} />
+                    {meta.label}
+                    <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, opacity: 0.75 }}>{statusCounts[s]}</span>
+                  </button>
+                )
+              })}
+              <button
+                onClick={handleClear}
+                style={{ font: 'inherit', fontSize: 12, fontWeight: 600, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Clear
+              </button>
+            </div>
           </div>
         </div>
       )}
