@@ -178,7 +178,7 @@ export function ProjectProgress() {
       {tab === 'overview' ? (
         <OverviewTab overview={overview} onOpenZone={switchTab} />
       ) : (
-        <div className="flex flex-col flex-1" style={{ padding: '20px 28px', overflow: 'hidden', minHeight: 0, gap: 16 }}>
+        <div className="flex flex-col flex-1" style={{ padding: '20px 28px', overflowY: 'auto', minHeight: 0, gap: 16 }}>
           {/* 3D viewport + isolate strip — wrapper mirrors BimViewer's
               `borderRadius:12; overflow:hidden` exactly, no fixed height or
               background override, so BimViewport's own dark frame (not a
@@ -239,7 +239,7 @@ export function ProjectProgress() {
           </div>
 
           {/* Table + WO panel */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, flex: 1, minHeight: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 16, flex: '1 0 420px', minHeight: 420 }}>
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
               matchedAssemblyIds={new Set(matchByAssembly.keys())}
