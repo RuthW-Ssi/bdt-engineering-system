@@ -8,6 +8,7 @@ import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './pages/LoginPage'
 import { CustomerList } from './pages/CustomerList'
 import { ProjectList } from './pages/ProjectList'
+import { ProjectProgress } from './pages/ProjectProgress'
 import { ZoneList } from './pages/ZoneList'
 import { RoutingList } from './pages/RoutingList'
 import { RoutingBuilder } from './pages/RoutingBuilder'
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/customers" element={<CustomerList />} />
             <Route path="/projects" element={<ProjectList />} />
+            <Route path="/projects/:code/progress" element={<ProjectProgress />} />
             <Route path="/zones" element={<ZoneList />} />
             <Route path="/engineer-products" element={<ProductList />} />
             <Route path="/engineer-products/:code" element={<ProductDetail />} />

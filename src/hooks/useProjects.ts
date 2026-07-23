@@ -9,6 +9,15 @@ export function useProjects(params?: Parameters<typeof projectsApi.list>[0]) {
   })
 }
 
+// Detail by business code — backend includes active zones (erection order).
+export function useProject(projectCode: string | undefined) {
+  return useQuery({
+    queryKey: ['projects', 'detail', projectCode],
+    queryFn: () => projectsApi.get(projectCode!),
+    enabled: !!projectCode,
+  })
+}
+
 export function useCreateProject() {
   const qc = useQueryClient()
   return useMutation({
