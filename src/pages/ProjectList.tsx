@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Loader2, Plus, FolderOpen, Building2, Calendar, TrendingUp } from 'lucide-react'
+import { Search, Loader2, Plus, FolderOpen, Building2, Calendar } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjects, useCreateProject } from '../hooks/useProjects'
 import { useCustomers } from '../hooks/useCustomers'
@@ -43,12 +43,11 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
-function ProjectCard({ p, isActive, onClick, onDoubleClick, onProgress }: { p: ProjectDTO; isActive: boolean; onClick: () => void; onDoubleClick: () => void; onProgress: () => void }) {
+function ProjectCard({ p, isActive, onClick }: { p: ProjectDTO; isActive: boolean; onClick: () => void }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -95,22 +94,6 @@ function ProjectCard({ p, isActive, onClick, onDoubleClick, onProgress }: { p: P
 
       {/* Right meta */}
       <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
-        <button
-          onClick={e => { e.stopPropagation(); onProgress() }}
-          onDoubleClick={e => e.stopPropagation()}
-          title="Open progress overview"
-          style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            padding: '4px 10px', fontSize: 12, fontWeight: 600,
-            color: hovered ? '#C8202A' : '#8E8E8E',
-            background: 'transparent', border: `1px solid ${hovered ? '#C8202A' : '#E0E0E0'}`,
-            borderRadius: 6, cursor: 'pointer', transition: 'color 0.15s, border-color 0.15s',
-          }}
-        >
-          <TrendingUp size={12} />
-          Progress
-        </button>
-
         <StatePill state={p.state} />
 
         <div className="flex items-center gap-1" style={{ fontSize: 12, color: '#8E8E8E', minWidth: 60 }}>
@@ -242,9 +225,7 @@ export function ProjectList() {
               key={p.id}
               p={p}
               isActive={activeProject?.id === p.id}
-              onClick={() => setActiveProject(p)}
-              onDoubleClick={() => navigate(`/zones?project_id=${p.id}`)}
-              onProgress={() => navigate(`/projects/${p.project_code}/progress`)}
+              onClick={() => { setActiveProject(p); navigate(`/projects/${p.project_code}/progress`) }}
             />
           ))
         )}

@@ -6,8 +6,8 @@ export const STATUS_ORDER: ProgressStatus[] = ['notstart', 'qcinsp', 'qcfinal', 
 // Status palette is deliberately separate from the brand red — semantic
 // state colors, matching the approved mockup.
 export const STATUS_META: Record<ProgressStatus, { label: string; color: string }> = {
-  notstart: { label: 'Not start', color: '#C7CBD1' },
-  qcinsp: { label: 'QC Inspection', color: '#E3A73D' },
+  notstart: { label: 'Not Start', color: '#C7CBD1' },
+  qcinsp: { label: 'QC Insp', color: '#E3A73D' },
   qcfinal: { label: 'QC Final', color: '#D97A3A' },
   load: { label: 'Load', color: '#4A85C4' },
   install: { label: 'Install', color: '#7C6FCE' },

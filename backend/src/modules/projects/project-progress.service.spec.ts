@@ -8,8 +8,10 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
     project_zone: { findFirst: jest.fn().mockResolvedValue({ id: 10, project_id: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     bom_assembly: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     bom_assembly_progress: { upsert: jest.fn() },
+    bom_dispatch: { findMany: jest.fn().mockResolvedValue([]) },
     bim_model: { findFirst: jest.fn().mockResolvedValue(null) },
     bim_element: { findMany: jest.fn().mockResolvedValue([]) },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     ...overrides,
   } as unknown as any
 }
@@ -95,17 +97,18 @@ describe('getOverview rollup', () => {
 })
 
 describe('getZoneBimMatch', () => {
-  it('matches exact marks and contract-prefix-stripped marks; junk never matches', async () => {
+  it('matches exact marks and contract-prefix-stripped marks; junk never matches; surfaces model version', async () => {
     const prisma = makePrisma({
-      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7 }) },
+      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7, major_version: 2, minor_version: 1 }) },
       bom_assembly: {
         findMany: jest.fn().mockResolvedValue([
-          { id: 1, assembly_mark: 'TC-FB1' }, // exact
-          { id: 2, assembly_mark: 'TC-RF2' }, // via stripped prefix
-          { id: 3, assembly_mark: 'TC-CO9' }, // no BIM counterpart
+          { id: 1, assembly_mark: 'TC-FB1', dispatch: { id: 100, revision: 3, zone_id: 10, sub_zone_id: null } }, // exact
+          { id: 2, assembly_mark: 'TC-RF2', dispatch: { id: 100, revision: 3, zone_id: 10, sub_zone_id: null } }, // via stripped prefix
+          { id: 3, assembly_mark: 'TC-CO9', dispatch: { id: 100, revision: 3, zone_id: 10, sub_zone_id: null } }, // no BIM counterpart
         ]),
         findFirst: jest.fn(),
       },
+      bom_dispatch: { findMany: jest.fn().mockResolvedValue([{ id: 100, revision: 3, zone_id: 10, sub_zone_id: null }]) },
       bim_element: {
         findMany: jest.fn().mockResolvedValue([
           { mark: 'TC-FB1', global_id: 'g1' },
@@ -119,17 +122,135 @@ describe('getZoneBimMatch', () => {
     const result = await svc.getZoneBimMatch('0X220', 10)
 
     expect(result.model_id).toBe(7)
+    expect(result.model_version).toBe('2.1')
+    // Only dispatch in its (zone, sub_zone, revision) group → minor index 0.
+    expect(result.bom_version).toBe('3.0')
     expect(result.matches).toEqual([
       { assembly_id: 1, mark: 'TC-FB1', global_ids: ['g1', 'g2'] },
       { assembly_id: 2, mark: 'TC-RF2', global_ids: ['g3'] },
     ])
   })
 
-  it('returns empty match set when the project has no complete BIM model', async () => {
+  it('ranks "continue revision" dispatches chronologically as X.0, X.1… (mirrors BomList.tsx exactly)', async () => {
+    // Zone re-uploaded twice under the same revision (1) via "Continue
+    // revision" — id 50 (first upload) then id 51 (second, now active).
+    // The BomUploadService worked example for this exact scenario is
+    // documented as v1.0 → v1.1 in BomList.tsx; this must agree.
+    const prisma = makePrisma({
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'TC-FB1', dispatch: { id: 51, revision: 1, zone_id: 10, sub_zone_id: null } },
+        ]),
+        findFirst: jest.fn(),
+      },
+      bom_dispatch: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 50, revision: 1, zone_id: 10, sub_zone_id: null }, // superseded — INACTIVE assemblies only
+          { id: 51, revision: 1, zone_id: 10, sub_zone_id: null }, // current — the one with ACTIVE assemblies
+        ]),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getZoneBimMatch('0X220', 10)
+    expect(result.bom_version).toBe('1.1')
+  })
+
+  it('jumps the major number on "start new revision" — no minor suffix confusion with continue', async () => {
+    const prisma = makePrisma({
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'TC-FB1', dispatch: { id: 60, revision: 2, zone_id: 10, sub_zone_id: null } },
+        ]),
+        findFirst: jest.fn(),
+      },
+      bom_dispatch: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 50, revision: 1, zone_id: 10, sub_zone_id: null },
+          { id: 60, revision: 2, zone_id: 10, sub_zone_id: null }, // "Start new revision" → major jumps to 2
+        ]),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getZoneBimMatch('0X220', 10)
+    expect(result.bom_version).toBe('2.0')
+  })
+
+  it('reports only the highest version when a partial "continue" upload leaves some marks ACTIVE on an older dispatch', async () => {
+    // Real-world case that motivated this: dispatch 1 (v1.0) re-uploaded via
+    // "Continue revision" touching only some marks → dispatch 2 (v1.1).
+    // Marks NOT in the second file stay ACTIVE on dispatch 1, so the zone's
+    // live assemblies span both dispatches at once. Reporting every version
+    // technically in play would read as noise — just the highest matters.
+    const prisma = makePrisma({
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'TC-CO1', dispatch: { id: 1, revision: 1, zone_id: 10, sub_zone_id: null } },
+          { id: 2, assembly_mark: 'TC-BR1', dispatch: { id: 2, revision: 1, zone_id: 10, sub_zone_id: null } },
+        ]),
+        findFirst: jest.fn(),
+      },
+      bom_dispatch: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, revision: 1, zone_id: 10, sub_zone_id: null },
+          { id: 2, revision: 1, zone_id: 10, sub_zone_id: null },
+        ]),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getZoneBimMatch('0X220', 10)
+    expect(result.bom_version).toBe('1.1')
+  })
+
+  it('returns empty match set (model + versions null/empty) when the project has no complete BIM model', async () => {
     const prisma = makePrisma()
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getZoneBimMatch('0X220', 10)
-    expect(result).toEqual({ model_id: null, matches: [] })
+    expect(result).toEqual({ model_id: null, model_version: null, bom_version: null, matches: [] })
+  })
+})
+
+describe('getProjectBimMatch', () => {
+  it('matches across all zones — no zone_id filter on the assembly query; surfaces model version', async () => {
+    const findMany = jest.fn().mockResolvedValue([{ id: 1, assembly_mark: 'TC-FB1' }])
+    const prisma = makePrisma({
+      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7, major_version: 1, minor_version: 0 }) },
+      bom_assembly: { findMany, findFirst: jest.fn() },
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: 'TC-FB1', global_id: 'g1' }]) },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getProjectBimMatch('0X220')
+
+    expect(result).toEqual({
+      model_id: 7, model_version: '1.0', matches: [{ assembly_id: 1, mark: 'TC-FB1', global_ids: ['g1'] }],
+    })
+    const where = findMany.mock.calls[0][0].where
+    expect(where.dispatch.zone_id).toBeUndefined()
+  })
+
+  it('returns empty match set when the project has no complete BIM model', async () => {
+    const prisma = makePrisma()
+    const svc = new ProjectProgressService(prisma)
+    expect(await svc.getProjectBimMatch('0X220')).toEqual({ model_id: null, model_version: null, matches: [] })
+  })
+})
+
+describe('getProjectRows', () => {
+  it('returns per-assembly rows across every zone, computed pct/status included', async () => {
+    const prisma = makePrisma({
+      bom_assembly: {
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 100, qty: 1, progress: null },
+          { id: 2, assembly_mark: 'TC-FB2', weight_kg: 50, qty: 1, progress: { ...EMPTY, qc_inspection_pass: true } },
+        ]),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const rows = await svc.getProjectRows('0X220')
+
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({ assembly_id: 1, mark: 'TC-FB1', pct: 0, status: 'notstart' })
+    expect(rows[1]).toMatchObject({ assembly_id: 2, mark: 'TC-FB2', pct: 20, status: 'qcinsp' })
   })
 })
 
@@ -178,5 +299,61 @@ describe('updateAssemblyProgress', () => {
     expect(call.update.actual_load_date).toEqual(new Date('2026-07-01'))
     expect(call.update.install_date).toBeNull()
     expect(call.update.qc_install_date).toBeUndefined()
+  })
+})
+
+describe('bulkUpdateAssemblyProgress', () => {
+  it('applies the same fields to every owned assembly in one transaction', async () => {
+    const prisma = makePrisma({
+      bom_assembly: {
+        findFirst: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([{ id: 5 }, { id: 6 }, { id: 7 }]),
+      },
+      bom_assembly_progress: {
+        upsert: jest.fn().mockImplementation(({ where }: any) => Promise.resolve({ assembly_id: where.assembly_id })),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.bulkUpdateAssemblyProgress(
+      '0X220', { assembly_ids: [5, 6, 7], qc_inspection_pass: true, actual_load_date: '2026-07-20' }, 1,
+    )
+
+    expect(result.updated).toBe(3)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.bom_assembly_progress.upsert).toHaveBeenCalledTimes(3)
+    const ids = prisma.bom_assembly_progress.upsert.mock.calls.map((c: any) => c[0].where.assembly_id)
+    expect(ids.sort()).toEqual([5, 6, 7])
+    prisma.bom_assembly_progress.upsert.mock.calls.forEach((c: any) => {
+      expect(c[0].update.qc_inspection_pass).toBe(true)
+      expect(c[0].update.actual_load_date).toEqual(new Date('2026-07-20'))
+      expect(c[0].update.qc_final_pass).toBeUndefined()
+    })
+  })
+
+  it('only touches assembly_ids that actually belong to this project — no 404 for a mixed batch', async () => {
+    const prisma = makePrisma({
+      bom_assembly: {
+        findFirst: jest.fn(),
+        // Only 5 and 6 "belong" — 999 (foreign/stray id) is silently dropped.
+        findMany: jest.fn().mockResolvedValue([{ id: 5 }, { id: 6 }]),
+      },
+      bom_assembly_progress: { upsert: jest.fn().mockResolvedValue({}) },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [5, 6, 999], qc_final_pass: true }, 1)
+
+    expect(result.updated).toBe(2)
+    expect(prisma.bom_assembly_progress.upsert).toHaveBeenCalledTimes(2)
+  })
+
+  it('no-ops (no transaction) when none of the ids belong to this project', async () => {
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [999] }, 1)
+
+    expect(result.updated).toBe(0)
+    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 })

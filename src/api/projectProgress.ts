@@ -39,6 +39,16 @@ export interface ProgressOverview {
 
 export interface BimMatchResult {
   model_id: number | null
+  model_version: string | null
+  // "major.minor" (e.g. "1.1") — same scheme BomList.tsx displays: major =
+  // bom_dispatch.revision, minor = chronological rank within that revision
+  // ("Continue revision" reads 1.0, 1.1…; "Start new revision" jumps the
+  // major). A zone's live assemblies can technically span more than one
+  // dispatch (a partial "continue" upload only touches some marks) — this
+  // is just the highest one, i.e. what a user would call "current". Only
+  // present on the zone-scoped variant — a project spanning zones on
+  // different revisions can't collapse to one number.
+  bom_version?: string | null
   matches: { assembly_id: number; mark: string; global_ids: string[] }[]
 }
 
@@ -63,10 +73,30 @@ export async function getProgressBimMatch(projectCode: string, zoneId: number): 
   return (await apiClient.get(`/projects/${projectCode}/progress/zones/${zoneId}/bim-match`)).data
 }
 
+// Project-wide variants — every zone's assemblies combined, for the Overview
+// tab's whole-project 3D view + isolate-by-status.
+export async function getProgressProjectRows(projectCode: string): Promise<ProgressZoneRow[]> {
+  return (await apiClient.get(`/projects/${projectCode}/progress/rows`)).data
+}
+
+export async function getProgressProjectBimMatch(projectCode: string): Promise<BimMatchResult> {
+  return (await apiClient.get(`/projects/${projectCode}/progress/bim-match`)).data
+}
+
 export async function updateAssemblyProgress(
   projectCode: string,
   assemblyId: number,
   payload: UpdateAssemblyProgressPayload,
 ): Promise<ProgressZoneRow> {
   return (await apiClient.patch(`/projects/${projectCode}/progress/assemblies/${assemblyId}`, payload)).data
+}
+
+// Applies the same field values to many assemblies at once (bulk row
+// selection) — one request, one backend transaction, not N sequential PATCHes.
+export async function bulkUpdateAssemblyProgress(
+  projectCode: string,
+  assemblyIds: number[],
+  payload: UpdateAssemblyProgressPayload,
+): Promise<{ updated: number }> {
+  return (await apiClient.patch(`/projects/${projectCode}/progress/assemblies/bulk`, { assembly_ids: assemblyIds, ...payload })).data
 }

@@ -3,7 +3,7 @@ import {
 } from '@nestjs/common'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ProjectsService } from './projects.service'
-import { ProjectProgressService, UpdateAssemblyProgressDto } from './project-progress.service'
+import { ProjectProgressService, UpdateAssemblyProgressDto, BulkUpdateAssemblyProgressDto } from './project-progress.service'
 import { CreateProjectDto } from './dto/create-project.dto'
 import { UpdateProjectDto } from './dto/update-project.dto'
 import { QueryProjectDto } from './dto/query-project.dto'
@@ -53,6 +53,33 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Mark-match map (bom_assembly ↔ bim_element global_ids) for the isolate-by-status 3D view' })
   getProgressBimMatch(@Param('project_code') code: string, @Param('zone_id', ParseIntPipe) zoneId: number) {
     return this.progressSvc.getZoneBimMatch(code, zoneId)
+  }
+
+  // 'rows'/'bim-match' as literal segments here don't collide with
+  // '/zones/:zone_id...' above — different path prefix, no ordering concern.
+  @Get(':project_code/progress/rows')
+  @ApiOperation({ summary: 'Per-assembly progress rows across every zone of the project (Overview tab isolate-by-status)' })
+  getProgressProjectRows(@Param('project_code') code: string) {
+    return this.progressSvc.getProjectRows(code)
+  }
+
+  @Get(':project_code/progress/bim-match')
+  @ApiOperation({ summary: 'Mark-match map across every zone of the project (Overview tab whole-project 3D view)' })
+  getProgressProjectBimMatch(@Param('project_code') code: string) {
+    return this.progressSvc.getProjectBimMatch(code)
+  }
+
+  // Registered before ':assembly_id' below — same path prefix, and NestJS
+  // matches route declarations in order, so 'bulk' must come first or it'd
+  // never be reached (ParseIntPipe would 400 on the literal "bulk" first).
+  @Patch(':project_code/progress/assemblies/bulk')
+  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection)' })
+  bulkUpdateAssemblyProgress(
+    @Param('project_code') code: string,
+    @Body() dto: BulkUpdateAssemblyProgressDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.progressSvc.bulkUpdateAssemblyProgress(code, dto, user.sub)
   }
 
   @Patch(':project_code/progress/assemblies/:assembly_id')

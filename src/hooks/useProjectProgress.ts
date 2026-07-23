@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  getProgressOverview, getProgressZoneRows, getProgressBimMatch, updateAssemblyProgress,
+  getProgressOverview, getProgressZoneRows, getProgressBimMatch, getProgressProjectRows, getProgressProjectBimMatch,
+  updateAssemblyProgress, bulkUpdateAssemblyProgress,
 } from '../api/projectProgress'
 import type { UpdateAssemblyProgressPayload } from '../api/projectProgress'
 
@@ -31,15 +32,49 @@ export function useProgressBimMatch(projectCode: string | undefined, zoneId: num
   })
 }
 
+// Project-wide variants — Overview tab's whole-project 3D view + isolate.
+export function useProgressProjectRows(projectCode: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['project-progress', 'project-rows', projectCode],
+    queryFn: () => getProgressProjectRows(projectCode!),
+    enabled: !!projectCode && enabled,
+  })
+}
+
+export function useProgressProjectBimMatch(projectCode: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['project-progress', 'project-bim-match', projectCode],
+    queryFn: () => getProgressProjectBimMatch(projectCode!),
+    enabled: !!projectCode && enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 export function useUpdateAssemblyProgress(projectCode: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ assemblyId, payload }: { assemblyId: number; payload: UpdateAssemblyProgressPayload }) =>
       updateAssemblyProgress(projectCode!, assemblyId, payload),
     onSuccess: () => {
-      // Zone rows + overview both derive from the same table — refresh both.
+      // Zone rows + overview + project-wide rows all derive from the same
+      // table — refresh all three.
       qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
       qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
+    },
+    meta: { showGlobalErrorToast: true },
+  })
+}
+
+export function useBulkUpdateAssemblyProgress(projectCode: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ assemblyIds, payload }: { assemblyIds: number[]; payload: UpdateAssemblyProgressPayload }) =>
+      bulkUpdateAssemblyProgress(projectCode!, assemblyIds, payload),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
     },
     meta: { showGlobalErrorToast: true },
   })
