@@ -37,12 +37,18 @@ export class WorkOrdersController {
   @ApiQuery({ name: 'work_center_id', required: false })
   @ApiQuery({ name: 'mark_prefix_code', required: false })
   @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'assembly_mark', required: false, description: 'Sprint 24: mark-scoped filter (with project_id/zone_id) for the progress page WO panel' })
+  @ApiQuery({ name: 'project_id', required: false })
+  @ApiQuery({ name: 'zone_id', required: false })
   findAll(
     @Query('status') status?: WoStatus,
     @Query('mo_id') mo_id?: string,
     @Query('work_center_id') work_center_id?: string,
     @Query('mark_prefix_code') mark_prefix_code?: string,
     @Query('search') search?: string,
+    @Query('assembly_mark') assembly_mark?: string,
+    @Query('project_id') project_id?: string,
+    @Query('zone_id') zone_id?: string,
   ) {
     return this.svc.findAll({
       status: status || undefined,
@@ -50,6 +56,9 @@ export class WorkOrdersController {
       work_center_id: work_center_id ? Number(work_center_id) : undefined,
       mark_prefix_code: mark_prefix_code || undefined,
       search: search || undefined,
+      assembly_mark: assembly_mark || undefined,
+      project_id: project_id ? Number(project_id) : undefined,
+      zone_id: zone_id ? Number(zone_id) : undefined,
     })
   }
 

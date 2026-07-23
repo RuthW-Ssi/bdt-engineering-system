@@ -110,7 +110,30 @@ export class WorkOrdersService {
     work_center_id?: number
     mark_prefix_code?: string
     search?: string
+    assembly_mark?: string
+    project_id?: number
+    zone_id?: number
   }) {
+    // Sprint 24 (progress page WO panel): the assembly filter goes through
+    // mark + dispatch scope, NOT raw bom_assembly_id — accept-new-version
+    // re-points that FK, so an id filter would silently miss WOs already
+    // advanced to a newer bom_assembly row for the same physical mark
+    // (same reasoning as loadCancelSiblings).
+    const assemblyScope: Prisma.bom_assemblyWhereInput | null =
+      opts.assembly_mark || opts.project_id || opts.zone_id
+        ? {
+            ...(opts.assembly_mark ? { assembly_mark: opts.assembly_mark } : {}),
+            ...(opts.project_id || opts.zone_id
+              ? {
+                  dispatch: {
+                    ...(opts.project_id ? { project_id: opts.project_id } : {}),
+                    ...(opts.zone_id ? { zone_id: opts.zone_id } : {}),
+                  },
+                }
+              : {}),
+          }
+        : null
+
     const where: Prisma.work_orderWhereInput = {
       ...(opts.status ? { status: opts.status } : {}),
       ...(opts.mo_id ? { mo_id: opts.mo_id } : {}),
@@ -119,6 +142,7 @@ export class WorkOrdersService {
         ? { manufacturing_order: { primary_mark_prefix_code: opts.mark_prefix_code } }
         : {}),
       ...(opts.search ? { wo_code: { contains: opts.search, mode: 'insensitive' } } : {}),
+      ...(assemblyScope ? { bom_assembly: assemblyScope } : {}),
     }
 
     const rows = await this.prisma.work_order.findMany({

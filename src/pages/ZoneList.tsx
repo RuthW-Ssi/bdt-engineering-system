@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Plus, Loader2, ChevronDown, GripVertical, Check, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -32,6 +32,7 @@ function SortableZoneRow({
   subZones,
   onAddSub,
   onDeleteSub,
+  onOpenProgress,
   reorderMode,
 }: {
   zone: any
@@ -41,6 +42,7 @@ function SortableZoneRow({
   subZones: any[]
   onAddSub: (zoneId: number) => void
   onDeleteSub: (id: number) => void
+  onOpenProgress: (zoneId: number) => void
   reorderMode: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: zone.id })
@@ -60,8 +62,11 @@ function SortableZoneRow({
         overflow: 'hidden',
       }}
     >
+      {/* Row click → straight into this zone's Progress tab. Expanding to
+          manage sub-zones moved to the chevron button below (stops
+          propagation) so it doesn't fight the row's new primary action. */}
       <div
-        onClick={() => !reorderMode && setExpandedZone(isActive ? null : zone.id)}
+        onClick={() => !reorderMode && onOpenProgress(zone.id)}
         style={{ padding: '12px 16px', cursor: reorderMode ? 'default' : 'pointer', background: !reorderMode && isActive ? '#FEF6F6' : undefined, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -101,7 +106,13 @@ function SortableZoneRow({
             >
               <Plus size={12} />Add Sub-zone
             </button>
-            <ChevronDown size={16} style={{ color: '#8E8E8E', transform: isActive ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+            <button
+              onClick={e => { e.stopPropagation(); setExpandedZone(isActive ? null : zone.id) }}
+              title={isActive ? 'Collapse sub-zones' : 'Manage sub-zones'}
+              style={{ display: 'flex', alignItems: 'center', background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+            >
+              <ChevronDown size={16} style={{ color: '#8E8E8E', transform: isActive ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+            </button>
           </div>
         )}
       </div>
@@ -141,6 +152,7 @@ function SortableZoneRow({
 
 // ── Main page ───────────────────────────────────────────────────
 export function ZoneList() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
   const projectId = activeProject?.id ?? null
@@ -353,6 +365,7 @@ export function ZoneList() {
                     subZones={expandedZone === zone.id ? (subZones ?? []) : []}
                     onAddSub={id => { setSubModal({ open: true, zoneId: id }); setExpandedZone(id) }}
                     onDeleteSub={id => deleteSubMut.mutate(id, { onSuccess: () => toast.success('Sub-zone deleted') })}
+                    onOpenProgress={id => activeProject && navigate(`/projects/${activeProject.project_code}/progress?zone=${id}`)}
                     reorderMode={reorderMode}
                   />
                 ))}

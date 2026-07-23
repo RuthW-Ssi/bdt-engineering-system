@@ -2,16 +2,9 @@ import { useState, useMemo } from 'react'
 import { Loader2, Info, ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { useAssembliesByPrefix } from '../../hooks/useMo'
 import type { AssemblyPickerGroup, AssemblyPickerItem } from '../../api/mo'
-import type { AssemblyFilter, DateLevel } from './AssemblyFilterBar'
-import { sortByToDateLevel } from './AssemblyFilterBar'
+import type { AssemblyFilter } from './AssemblyFilterBar'
 
 const DIM_LABEL: Record<string, string> = { project: 'Project', zone: 'Zone', subzone: 'Sub Zone' }
-
-const DATE_HIERARCHY: { level: DateLevel; label: string; field: keyof Pick<AssemblyPickerGroup, 'project_due_date' | 'zone_end_date' | 'sub_zone_due_date'> }[] = [
-  { level: 'project', label: 'Project due',  field: 'project_due_date' },
-  { level: 'zone',    label: 'Zone end',      field: 'zone_end_date' },
-  { level: 'subzone', label: 'Sub-zone due',  field: 'sub_zone_due_date' },
-]
 
 function groupSegments(g: AssemblyPickerGroup): { label: string; value: string }[] {
   if (!g.key) return [{ label: '', value: g.label }]
@@ -34,12 +27,6 @@ function daysUntil(dateStr: string | null): number | null {
   return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
-function dateForLevel(g: AssemblyPickerGroup, level: DateLevel): string | null {
-  if (level === 'project') return g.project_due_date
-  if (level === 'zone')    return g.zone_end_date
-  return g.sub_zone_due_date
-}
-
 function sortGroups(groups: AssemblyPickerGroup[], sortBy: AssemblyFilter['sortBy']): AssemblyPickerGroup[] {
   return [...groups].sort((a, b) => {
     if (sortBy === 'project') return (a.key?.project ?? '').localeCompare(b.key?.project ?? '')
@@ -47,12 +34,6 @@ function sortGroups(groups: AssemblyPickerGroup[], sortBy: AssemblyFilter['sortB
     if (sortBy === 'subzone') return (a.key?.subzone ?? '').localeCompare(b.key?.subzone ?? '')
     return (a.items[0]?.assembly_mark ?? '').localeCompare(b.items[0]?.assembly_mark ?? '')
   })
-}
-
-function itemDateForLevel(item: AssemblyPickerItem, level: DateLevel): string | null {
-  if (level === 'project') return item.project_due_date
-  if (level === 'zone')    return item.zone_end_date
-  return item.sub_zone_due_date
 }
 
 function ItemDateBadge({ dateStr, label }: { dateStr: string | null; label: string }) {
@@ -114,9 +95,10 @@ export function AssemblyPicker({
       // hide groups with null value for the selected sort level
       if (filter.sortBy === 'subzone' && g.key?.subzone == null) return false
       if (filter.sortBy === 'zone'    && g.key?.zone    == null) return false
-      // urgency filter
+      // urgency filter — always against the zone end date, regardless of
+      // grouping level (no more project/zone/sub-zone due-date split).
       if (filter.urgentDays === null && !filter.showOverdue) return true
-      const days = daysUntil(dateForLevel(g, sortByToDateLevel(filter.sortBy)))
+      const days = daysUntil(g.zone_end_date)
       if (days === null) return true
       if (filter.urgentDays !== null && filter.showOverdue) return days <= filter.urgentDays
       if (filter.urgentDays !== null) return days >= 0 && days <= filter.urgentDays
@@ -231,17 +213,7 @@ export function AssemblyPicker({
                         <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>{item.assembly_mark}</span>
                         {item.name && <span style={{ fontSize: 12, color: '#888', marginLeft: 8 }}>{item.name}</span>}
                       </div>
-                      {filter.sortBy === 'mark' ? (
-                        <>
-                          <ItemDateBadge dateStr={item.project_due_date} label="Project due" />
-                          <ItemDateBadge dateStr={item.zone_end_date} label="Zone end" />
-                        </>
-                      ) : (
-                        <ItemDateBadge
-                          dateStr={itemDateForLevel(item, sortByToDateLevel(filter.sortBy))}
-                          label={DATE_HIERARCHY.find(d => d.level === sortByToDateLevel(filter.sortBy))?.label ?? ''}
-                        />
-                      )}
+                      <ItemDateBadge dateStr={item.zone_end_date} label="Due date" />
                     </div>
                     <Breakdown item={item} />
                     <div style={{ textAlign: 'right', fontSize: 11, color: '#888', minWidth: 120 }}>

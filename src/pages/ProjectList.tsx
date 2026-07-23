@@ -43,12 +43,11 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
-function ProjectCard({ p, isActive, onClick, onDoubleClick }: { p: ProjectDTO; isActive: boolean; onClick: () => void; onDoubleClick: () => void }) {
+function ProjectCard({ p, isActive, onClick }: { p: ProjectDTO; isActive: boolean; onClick: () => void }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
       onClick={onClick}
-      onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -226,8 +225,7 @@ export function ProjectList() {
               key={p.id}
               p={p}
               isActive={activeProject?.id === p.id}
-              onClick={() => setActiveProject(p)}
-              onDoubleClick={() => navigate(`/zones?project_id=${p.id}`)}
+              onClick={() => { setActiveProject(p); navigate(`/projects/${p.project_code}/progress`) }}
             />
           ))
         )}
