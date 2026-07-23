@@ -168,6 +168,11 @@ export async function getWos(params?: {
   work_center_id?: number
   mark_prefix_code?: string
   search?: string
+  // Sprint 24 (progress page WO panel): mark-scoped filter — backend
+  // resolves through mark + dispatch, not raw bom_assembly_id
+  assembly_mark?: string
+  project_id?: number
+  zone_id?: number
 }): Promise<WoListItem[]> {
   return (await apiClient.get('/wo', { params })).data
 }

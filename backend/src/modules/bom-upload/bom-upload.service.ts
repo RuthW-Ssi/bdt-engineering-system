@@ -369,6 +369,10 @@ export class BomUploadService {
       // Carry forward paint config from previous version (same zone)
       await this.carryForwardPaintConfig(dispatchId, projectId, zoneId, subZoneId, assemblyIdByMark)
 
+      // Carry forward manual progress (Sprint 24) — same rationale as paint:
+      // without this, every BOM re-upload silently wipes what users entered.
+      await this.carryForwardProgress(dispatchId, projectId, zoneId, subZoneId, assemblyIdByMark)
+
       // WO BOM-Version Hold (T02): flip any WO whose snapshotted assembly this
       // upload changed (removed/spec-changed/qty-decreased) to ON_HOLD. Runs
       // post-commit, mirroring matching/autoCreateCustomProducts/paint carry-forward above.
@@ -935,6 +939,65 @@ export class BomUploadService {
     if (toCreate.length) {
       await this.prisma.mbom_assembly_paint.createMany({ data: toCreate })
       this.logger.log(`Paint carry-forward: ${toCreate.length} configs from dispatch ${prev.id} → ${dispatchId}`)
+    }
+  }
+
+  // ─── Progress carry-forward (Sprint 24) ───────────────────────
+
+  // Copies bom_assembly_progress rows from the previous dispatch's
+  // assemblies onto this upload's new assembly rows, keyed by mark —
+  // mirrors carryForwardPaintConfig above. The old rows stay attached to
+  // the now-INACTIVE assemblies (harmless; every read path filters ACTIVE).
+  private async carryForwardProgress(
+    dispatchId: number,
+    projectId: number,
+    zoneId: number,
+    subZoneId: number | null,
+    assemblyIdByMark: Map<string, number>,
+  ): Promise<void> {
+    if (!assemblyIdByMark.size) return
+
+    const prev = await this.prisma.bom_dispatch.findFirst({
+      where: {
+        project_id: projectId,
+        zone_id: zoneId,
+        sub_zone_id: subZoneId,
+        id: { not: dispatchId },
+        status: { not: 'error' },
+      },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+    if (!prev) return
+
+    const prevProgress = await this.prisma.bom_assembly_progress.findMany({
+      where: { assembly: { dispatch_id: prev.id } },
+      select: {
+        qc_inspection_pass: true,
+        qc_final_pass: true,
+        actual_load_date: true,
+        install_date: true,
+        qc_install_date: true,
+        write_uid: true,
+        assembly: { select: { assembly_mark: true } },
+      },
+    })
+
+    const toCreate = prevProgress
+      .filter(p => assemblyIdByMark.has(p.assembly.assembly_mark))
+      .map(p => ({
+        assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
+        qc_inspection_pass: p.qc_inspection_pass,
+        qc_final_pass: p.qc_final_pass,
+        actual_load_date: p.actual_load_date,
+        install_date: p.install_date,
+        qc_install_date: p.qc_install_date,
+        write_uid: p.write_uid,
+      }))
+
+    if (toCreate.length) {
+      await this.prisma.bom_assembly_progress.createMany({ data: toCreate, skipDuplicates: true })
+      this.logger.log(`Progress carry-forward: ${toCreate.length} rows from dispatch ${prev.id} → ${dispatchId}`)
     }
   }
 }

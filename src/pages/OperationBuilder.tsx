@@ -156,6 +156,25 @@ export default function OperationBuilder() {
     staleTime: 10 * 60 * 1000,
   })
 
+  // Work Station options scoped to the selected Operation Type — there's no
+  // real op_type↔workcenter many-to-many in the schema, only a single
+  // default_wc per type, so this groups by that default's category name
+  // (e.g. "Cutting") as a heuristic. Some op types' default_wc is a
+  // now-inactive workcenter (a separate data-hygiene issue) — when that
+  // category has zero ACTIVE matches, fall back to the full list rather
+  // than leaving the dropdown with nothing pickable.
+  const selectedOpType = opTypes.find(t => t.id === Number(form.op_type_id))
+  const wcCategory = selectedOpType?.default_wc?.name ?? null
+  const categoryWorkcenters = wcCategory ? workcenters.filter(wc => wc.name === wcCategory) : []
+  const filteredWorkcenters = categoryWorkcenters.length > 0 ? categoryWorkcenters : workcenters
+  // Keep whatever's already selected visible even if it falls outside the
+  // filter (e.g. picked before switching Operation Type) — otherwise the
+  // <select> would silently show blank while form state still holds it.
+  const selectedWorkcenter = workcenters.find(wc => wc.id === Number(form.workcenter_id))
+  const workcenterOptions = selectedWorkcenter && !filteredWorkcenters.some(wc => wc.id === selectedWorkcenter.id)
+    ? [selectedWorkcenter, ...filteredWorkcenters]
+    : filteredWorkcenters
+
   const buildPayload = (overrides: Record<string, unknown> = {}) => ({
     op_code:      form.op_code.trim().toUpperCase(),
     name:         form.name.trim(),
@@ -332,8 +351,8 @@ export default function OperationBuilder() {
               <div>
                 <div style={label}>Work Station *</div>
                 <select value={form.workcenter_id} onChange={e => patch({ workcenter_id: e.target.value ? Number(e.target.value) : '' })} style={{ ...selectStyle, color: form.workcenter_id ? '#1F1F1F' : '#9E9E9E' }}>
-                  <option value="">— Select —</option>
-                  {workcenters.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
+                  <option value="">{wcCategory && categoryWorkcenters.length > 0 ? `— Select (${wcCategory}) —` : '— Select —'}</option>
+                  {workcenterOptions.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
                 </select>
                 {(() => {
                   const wc = workcenters.find(w => w.id === Number(form.workcenter_id))

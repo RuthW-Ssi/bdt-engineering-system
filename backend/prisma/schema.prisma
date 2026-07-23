@@ -67,6 +67,9 @@ model res_users {
   bom_doc_revs_created   bom_doc_revision[]  @relation("docrev_create")
   bom_asm_parts_created  bom_assembly_part[] @relation("asmpart_create")
 
+  // Sprint 24: Project Progress Overview
+  assembly_progress_written bom_assembly_progress[] @relation("assembly_progress_write")
+
   // Sprint 12: Activity Library
   activities_created activity[] @relation("activity_create_user")
   activities_written activity[] @relation("activity_write_user")
@@ -893,6 +896,7 @@ model bom_assembly {
   mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
   work_orders       work_order[] // Sprint 14: WO execution (F-WO)
   paint_configs     mbom_assembly_paint[]
+  progress          bom_assembly_progress? // Sprint 24: manual progress tracking
 
   @@unique([dispatch_id, assembly_mark])
   @@index([dispatch_id])
@@ -969,6 +973,25 @@ model mbom_assembly_paint {
 
   @@unique([assembly_id, paint_type])
   @@index([dispatch_id])
+}
+
+// ── 🟥 BOM Assembly Progress (Sprint 24: Project Progress Overview) ──
+// Manual-entry progress milestones per assembly — an explicit interim
+// layer while MO/WO-driven tracking matures; 1:1 side-table (not columns
+// on bom_assembly) so it can be superseded later without touching BOM
+// identity. No row = "not started". Rows carry forward by mark on BOM
+// re-upload (same rationale as mbom_assembly_paint's carry-forward).
+model bom_assembly_progress {
+  assembly_id        Int          @id
+  assembly           bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
+  qc_inspection_pass Boolean      @default(false)
+  qc_final_pass      Boolean      @default(false)
+  actual_load_date   DateTime?    @db.Date
+  install_date       DateTime?    @db.Date
+  qc_install_date    DateTime?    @db.Date // filled ⇒ terminal "done" status
+  write_uid          Int
+  write_user         res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
+  write_date         DateTime     @default(now()) @db.Timestamptz
 }
 
 // ═══════════════════════════════════════════════════════════════
