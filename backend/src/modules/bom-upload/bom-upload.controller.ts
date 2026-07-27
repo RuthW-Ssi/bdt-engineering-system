@@ -10,10 +10,11 @@ import { memoryStorage } from 'multer'
 import type { Response } from 'express'
 import { BomUploadService, FileInput, NcFileInput } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
+import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
-import { QueryDispatchDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
+import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
 import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -35,6 +36,7 @@ export class BomUploadController {
   constructor(
     private readonly svc: BomUploadService,
     private readonly diffSvc: BomDiffService,
+    private readonly diffBimMatchSvc: BomDiffBimMatchService,
     private readonly paintSvc: PaintConfigService,
   ) {}
 
@@ -178,6 +180,21 @@ export class BomUploadController {
     @Res() res: Response,
   ) {
     const result = await this.diffSvc.computeDiff(id)
+    if (!result) return res.status(HttpStatus.NO_CONTENT).send()
+    return res.status(HttpStatus.OK).json(result)
+  }
+
+  @Get('dispatches/:id/diff/bim-models')
+  @ApiOperation({ summary: "Match the diff's assembly marks against the project's 2 most recent complete BIM model versions" })
+  async getDiffBimModels(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: QueryDiffBimModelsDto,
+    @Res() res: Response,
+  ) {
+    const result = await this.diffBimMatchSvc.getDiffBimModels(id, {
+      oldModelId: query.old_model_id,
+      newModelId: query.new_model_id,
+    })
     if (!result) return res.status(HttpStatus.NO_CONTENT).send()
     return res.status(HttpStatus.OK).json(result)
   }

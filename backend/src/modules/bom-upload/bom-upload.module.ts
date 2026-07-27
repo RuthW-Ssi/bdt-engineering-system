@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { BomUploadController } from './bom-upload.controller'
 import { BomUploadService } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
+import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { BomMatchingService } from './bom-matching.service'
 import { XlsxParserService } from './xlsx-parser.service'
 import { PaintConfigService } from './paint-config.service'
@@ -13,7 +14,7 @@ import { WorkOrdersModule } from '../work-orders/work-orders.module'
 @Module({
   imports: [FileStorageModule, ProductDerivationModule, ProductsModule, WorkOrdersModule],
   controllers: [BomUploadController],
-  providers: [BomUploadService, BomDiffService, BomMatchingService, XlsxParserService, PaintConfigService],
+  providers: [BomUploadService, BomDiffService, BomDiffBimMatchService, BomMatchingService, XlsxParserService, PaintConfigService],
   exports: [BomDiffService],
 })
 export class BomUploadModule {}

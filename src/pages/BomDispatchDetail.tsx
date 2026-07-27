@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Package } from 'lucide-react'
 import { useDispatchDetail, useDispatchDiff } from '../hooks/useBomDispatches'
@@ -5,6 +6,8 @@ import { DiffWarningBanner } from '../components/bom/DiffWarningBanner'
 import { DiffAggregateCard } from '../components/bom/DiffAggregateCard'
 import { DiffHierarchyView } from '../components/bom/DiffHierarchyView'
 import { DiffExportButtons } from '../components/bom/DiffExportButtons'
+import { DiffBimComparePanel } from '../components/bom/DiffBimComparePanel'
+import { buildAssemblyStatusMap } from '../lib/bom/diffBimMatch'
 import type { DispatchDiffDto } from '../api/dispatches'
 
 // ─── BomDispatchDetail ──────────────────────────────────────────────────────
@@ -15,6 +18,7 @@ export function BomDispatchDetail() {
   const dispatchId = id ? parseInt(id) : undefined
   const { data: detail, isLoading, isError } = useDispatchDetail(dispatchId, { skipGlobalErrorToast: true })
   const { data: diff, isLoading: isDiffLoading, isError: isDiffError } = useDispatchDiff(dispatchId)
+  const [selectedMark, setSelectedMark] = useState<string | null>(null)
 
   if (isLoading) {
     return (
@@ -68,12 +72,21 @@ export function BomDispatchDetail() {
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '20px 24px 24px', background: '#F9FAFB' }}>
+      {/* Content — no overflow here: the diff table (left column) scrolls
+          internally so the 3D panel (right column) stays pinned and gets a
+          real bounded height (needed for the WebGL viewport to render at
+          all — confirmed via a real "Framebuffer is incomplete: zero size"
+          warning when this wrapper was overflowY:'auto', which left the
+          grid's height unbounded). */}
+      <div className="flex flex-col flex-1" style={{ minHeight: 0, padding: '20px 24px 24px', background: '#F9FAFB' }}>
         <CompareContent
           isDiffLoading={isDiffLoading}
           isDiffError={isDiffError}
           diff={diff ?? null}
+          dispatchId={dispatchId!}
+          projectId={detail.project_id}
+          selectedMark={selectedMark}
+          onSelectMark={setSelectedMark}
         />
       </div>
     </div>
@@ -83,11 +96,15 @@ export function BomDispatchDetail() {
 // ─── Compare content ────────────────────────────────────────────────────────
 
 function CompareContent({
-  isDiffLoading, isDiffError, diff,
+  isDiffLoading, isDiffError, diff, dispatchId, projectId, selectedMark, onSelectMark,
 }: {
   isDiffLoading: boolean
   isDiffError: boolean
   diff: DispatchDiffDto | null | undefined
+  dispatchId: number
+  projectId: number
+  selectedMark: string | null
+  onSelectMark: (mark: string) => void
 }) {
   if (isDiffLoading) {
     return (
@@ -116,23 +133,34 @@ function CompareContent({
   }
 
   return (
-    <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <DiffWarningBanner warning={diff.warning} />
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 480px', gap: 16, flex: 1, minHeight: 0 }}>
+      <div style={{ overflowY: 'auto', minHeight: 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <DiffWarningBanner warning={diff.warning} />
 
-      <DiffAggregateCard aggregate={diff.aggregate} />
+        <DiffAggregateCard aggregate={diff.aggregate} />
 
-      <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #F0F0F0' }}>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>Detailed Changes</span>
-          <DiffExportButtons />
+        <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #F0F0F0' }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>Detailed Changes</span>
+            <DiffExportButtons />
+          </div>
+
+          <DiffHierarchyView
+            assembly_diff={diff.assembly_diff}
+            part_diff={diff.part_diff}
+            junction_diff={diff.junction_diff}
+            selectedMark={selectedMark}
+            onSelectRow={onSelectMark}
+          />
         </div>
-
-        <DiffHierarchyView
-          assembly_diff={diff.assembly_diff}
-          part_diff={diff.part_diff}
-          junction_diff={diff.junction_diff}
-        />
       </div>
+
+      <DiffBimComparePanel
+        dispatchId={dispatchId}
+        projectId={projectId}
+        statusByMark={buildAssemblyStatusMap(diff.assembly_diff)}
+        focusMark={selectedMark}
+      />
     </div>
   )
 }
