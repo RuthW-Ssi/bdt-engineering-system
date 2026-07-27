@@ -23,6 +23,16 @@ export class QueryDispatchDto {
   limit?: number = 20
 }
 
+export class QueryDiffBimModelsDto {
+  @ApiPropertyOptional({ description: "Override the 'old' panel — must be a complete bim_model of the dispatch's project" })
+  @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
+  old_model_id?: number
+
+  @ApiPropertyOptional({ description: "Override the 'new' panel — must be a complete bim_model of the dispatch's project" })
+  @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
+  new_model_id?: number
+}
+
 export class QueryLatestRevisionDto {
   @ApiPropertyOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
   project_id!: number
