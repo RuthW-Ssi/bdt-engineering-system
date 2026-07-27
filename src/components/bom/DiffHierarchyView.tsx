@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Search, X } from 'lucide-react'
+import { ChevronRight, ChevronDown, Search, X, Layers, Box } from 'lucide-react'
 import type { DiffRowDto, DiffStatus, AssemblyDiffItemDto, PartDiffItemDto, JunctionDiffItem } from '../../api/dispatches'
+import { DIFF_STATUS_META as STATUS_BADGE } from './diffStatusMeta'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -21,16 +22,15 @@ interface Props {
   assembly_diff: DiffRowDto<AssemblyDiffItemDto>[]
   part_diff: DiffRowDto<PartDiffItemDto>[]
   junction_diff: DiffRowDto<JunctionDiffItem>[]
+  // Optional — only call site today (BomDispatchDetail) wires these up to
+  // drive the 3D comparison panel's click-to-focus. Kept optional rather
+  // than required so this component still works standalone if reused
+  // elsewhere without a 3D panel.
+  selectedMark?: string | null
+  onSelectRow?: (mark: string) => void
 }
 
 // ─── Status config ────────────────────────────────────────────────────────────
-
-const STATUS_BADGE: Record<DiffStatus, { label: string; color: string; bg: string }> = {
-  added:     { label: '+', color: '#065F46', bg: '#D1F2E0' },
-  removed:   { label: '-', color: '#991B1B', bg: '#FEE2E2' },
-  changed:   { label: '~', color: '#92400E', bg: '#FEF3C7' },
-  unchanged: { label: '=', color: '#9CA3AF', bg: '#F3F4F6' },
-}
 
 const ROW_BG: Record<DiffStatus, string> = {
   added:     '#F0FDF4',
@@ -75,62 +75,78 @@ function Badge({ status }: { status: DiffStatus }) {
   )
 }
 
-function DiffCell({ prev, curr, format, mono }: {
+// Circular type icons — same visual language as BomTreeView, so this diff
+// hierarchy reads as the same assembly→part tree engineers already know.
+function AsmIcon() {
+  return (
+    <span style={{ width: 20, height: 20, borderRadius: 999, background: '#E8F1FD', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Layers size={11} color="#185FA5" />
+    </span>
+  )
+}
+
+function PartIcon() {
+  return (
+    <span style={{ width: 20, height: 20, borderRadius: 999, background: '#F0F8F2', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+      <Box size={11} color="#0A6640" />
+    </span>
+  )
+}
+
+function DiffCell({ prev, curr, format, mono, size = 12, unit, decimals }: {
   prev: unknown; curr: unknown
   format?: (v: unknown) => string
   mono?: boolean
+  size?: number
+  // Numeric mode — value renders as `N unit`, and a change renders as an
+  // amber old→new chip with a signed ▲/▼ delta. Text fields (name, profile,
+  // grade, dims string) omit these and get the same chip minus the delta.
+  unit?: string
+  decimals?: number
 }) {
+  const fmtNum = (v: number) =>
+    v.toLocaleString('en', { minimumFractionDigits: decimals ?? 0, maximumFractionDigits: decimals ?? 0 })
   const fmt = (v: unknown) => {
     if (v == null) return '—'
+    if (unit != null && typeof v === 'number') return `${fmtNum(v)} ${unit}`
     return format ? format(v) : String(v)
   }
   const ps = fmt(prev), cs = fmt(curr)
   const changed = prev != null && curr != null && ps !== cs
 
   const style: React.CSSProperties = {
-    fontSize: 12,
+    fontSize: size,
     fontFamily: mono ? 'monospace' : undefined,
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   }
 
   if (!changed) return <span style={style}>{cs !== '—' ? cs : ps}</span>
 
+  // Old value drops its unit inside the chip — the new value right next to
+  // it already names it, and the chip stays compact.
+  const oldText = unit != null && typeof prev === 'number' ? fmtNum(prev) : ps
+  const delta = unit != null && typeof prev === 'number' && typeof curr === 'number' ? curr - prev : null
+
   return (
-    <span style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <span style={{ ...style, fontSize: 10, color: '#9CA3AF', textDecoration: 'line-through' }}>{ps}</span>
-      <span style={{ ...style, color: '#059669', fontWeight: 600 }}>{cs}</span>
+    <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 4, background: '#FFF6DC', border: '1px solid #FDE68A', borderRadius: 4, padding: '1px 6px' }}>
+      <span style={{ ...style, color: '#9CA3AF', textDecoration: 'line-through' }}>{oldText}</span>
+      <span style={{ fontSize: size - 1, color: '#B45309', flexShrink: 0 }}>→</span>
+      <span style={{ ...style, color: '#1F2937', fontWeight: 600 }}>{cs}</span>
+      {delta != null && delta !== 0 && (
+        <span style={{ fontSize: size - 1.5, fontWeight: 700, color: delta > 0 ? '#065F46' : '#991B1B', flexShrink: 0 }}>
+          {delta > 0 ? '▲' : '▼'}{fmtNum(Math.abs(delta))}
+        </span>
+      )}
     </span>
   )
 }
-
-// ─── Shared column widths ─────────────────────────────────────────────────────
-
-const COL = {
-  asmMark:  140,
-  partMark: 120,
-  qty:       52,
-  profile:   80,
-  grade:     48,
-  length:    88,
-  weight:   100,
-  area:     100,
-  dims:     130,
-} as const
-
-function NumCol({ prev, curr, format, width }: {
-  prev: unknown; curr: unknown
-  format: (v: unknown) => string
-  width: number
-}) {
-  return (
-    <span style={{ width, flexShrink: 0, textAlign: 'right', fontSize: 11 }}>
-      <DiffCell prev={prev} curr={curr} format={format} />
-    </span>
-  )
-}
-
 
 // ─── Assembly row content ─────────────────────────────────────────────────────
+//
+// Two-line rows (identity on top, measurements below) instead of the original
+// full-width fixed-column layout — this table now lives in the narrow left
+// half of the diff page (the 3D compare panel owns the right half), where
+// fixed columns truncated every field into unreadability ("COL…", cut dims).
 
 function assemblyDims(a: AssemblyDiffItemDto | null | undefined): string | null {
   if (!a || (a.length_mm == null && a.width_mm == null && a.height_mm == null)) return null
@@ -139,29 +155,36 @@ function assemblyDims(a: AssemblyDiffItemDto | null | undefined): string | null 
 
 function AssemblyRowContent({ row }: { row: DiffRowDto<AssemblyDiffItemDto> }) {
   const p = row.prev, c = row.curr
-  const fmtWt   = (v: unknown) => v != null ? `${Number(v).toFixed(1)} kg` : '—'
-  const fmtArea  = (v: unknown) => v != null ? `${Number(v).toFixed(2)} m²` : '—'
   const fmtQty   = (v: unknown) => v != null ? `×${Number(v)}` : '—'
+  const hasQty   = p?.qty != null || c?.qty != null
   const hasArea  = p?.surface_area_m2 != null || c?.surface_area_m2 != null
   const pDims = assemblyDims(p), cDims = assemblyDims(c)
   const hasDims = pDims != null || cDims != null
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 14, paddingRight: 12 }}>
-      <span style={{ width: COL.asmMark, flexShrink: 0, fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <DiffCell prev={p?.assembly_mark} curr={c?.assembly_mark} mono />
-      </span>
-      <span style={{ flex: 1, minWidth: 0,  fontSize: 12, color: '#4B5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <DiffCell prev={p?.name} curr={c?.name} />
-      </span>
-      <NumCol prev={p?.qty}            curr={c?.qty}            format={fmtQty}  width={COL.qty} />
-      <NumCol prev={p?.weight_kg}      curr={c?.weight_kg}      format={fmtWt}   width={COL.weight} />
-      {hasArea && <NumCol prev={p?.surface_area_m2} curr={c?.surface_area_m2} format={fmtArea} width={COL.area} />}
-      {hasDims && (
-        <span style={{ width: COL.dims, flexShrink: 0, textAlign: 'right', fontSize: 11, fontFamily: 'monospace' }}>
-          <DiffCell prev={pDims} curr={cDims} mono />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1, minWidth: 0, paddingRight: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
+        <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 12, color: '#111827', flexShrink: 0 }}>
+          <DiffCell prev={p?.assembly_mark} curr={c?.assembly_mark} mono />
         </span>
-      )}
+        <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#4B5563', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <DiffCell prev={p?.name} curr={c?.name} />
+        </span>
+        {hasQty && (
+          <span style={{ flexShrink: 0, color: '#6B7280' }}>
+            <DiffCell prev={p?.qty} curr={c?.qty} format={fmtQty} size={11} />
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#6B7280', flexWrap: 'wrap' }}>
+        <DiffCell prev={p?.weight_kg} curr={c?.weight_kg} unit="kg" decimals={1} size={11} />
+        {hasArea && <DiffCell prev={p?.surface_area_m2} curr={c?.surface_area_m2} unit="m²" decimals={2} size={11} />}
+        {hasDims && (
+          <span style={{ color: '#888', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 5px' }}>
+            <DiffCell prev={pDims && `${pDims} mm`} curr={cDims && `${cDims} mm`} mono size={10} />
+          </span>
+        )}
+      </div>
     </div>
   )
 }
@@ -176,39 +199,47 @@ function PartRowContent({
 }) {
   const pj = junctionRow.prev, cj = junctionRow.curr
   const pp = partRow?.prev,    cp = partRow?.curr
-  const fmtWt  = (v: unknown) => v != null ? `${Number(v).toFixed(2)} kg` : '—'
-  const fmtLen = (v: unknown) => v != null ? `${Number(v).toFixed(0)} mm` : '—'
   const fmtQty = (v: unknown) => v != null ? `×${Number(v)}` : '—'
   const hasLen = pp?.length_mm != null || cp?.length_mm != null
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', flex: 1, minWidth: 0, gap: 14, paddingRight: 12 }}>
-      <span style={{ width: COL.partMark, flexShrink: 0, fontFamily: 'monospace', fontSize: 11, color: '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <DiffCell prev={pj?.part_mark ?? pp?.part_mark} curr={cj?.part_mark ?? cp?.part_mark} mono />
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <DiffCell prev={pp?.description} curr={cp?.description} />
-      </span>
-      {(pp?.profile != null || cp?.profile != null) && (
-        <span style={{ width: COL.profile, flexShrink: 0, fontSize: 11, color: '#9CA3AF', textAlign: 'right', fontFamily: 'monospace' }}>
-          <DiffCell prev={pp?.profile} curr={cp?.profile} mono />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0, paddingRight: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, minWidth: 0 }}>
+        <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#374151', flexShrink: 0 }}>
+          <DiffCell prev={pj?.part_mark ?? pp?.part_mark} curr={cj?.part_mark ?? cp?.part_mark} mono size={11} />
         </span>
-      )}
-      {(pp?.grade != null || cp?.grade != null) && (
-        <span style={{ width: COL.grade, flexShrink: 0, fontSize: 11, color: '#9CA3AF', textAlign: 'right', fontFamily: 'monospace' }}>
-          <DiffCell prev={pp?.grade} curr={cp?.grade} mono />
+        <span style={{ flex: 1, minWidth: 0, fontSize: 11, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <DiffCell prev={pp?.description} curr={cp?.description} size={11} />
         </span>
-      )}
-      <NumCol prev={pj?.qty}       curr={cj?.qty}       format={fmtQty} width={COL.qty} />
-      {hasLen && <NumCol prev={pp?.length_mm} curr={cp?.length_mm} format={fmtLen} width={COL.length} />}
-      <NumCol prev={pp?.weight_kg} curr={cp?.weight_kg} format={fmtWt}  width={COL.weight} />
+        <span style={{ flexShrink: 0, color: '#6B7280' }}>
+          <DiffCell prev={pj?.qty} curr={cj?.qty} format={fmtQty} size={11} />
+        </span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#9CA3AF', flexWrap: 'wrap' }}>
+        {(pp?.profile != null || cp?.profile != null) && (
+          <span style={{ color: '#555', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 6px' }}>
+            <DiffCell prev={pp?.profile} curr={cp?.profile} mono size={10.5} />
+          </span>
+        )}
+        {(pp?.grade != null || cp?.grade != null) && (
+          <span style={{ color: '#B45309', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 4, padding: '1px 6px' }}>
+            <DiffCell prev={pp?.grade} curr={cp?.grade} mono size={10.5} />
+          </span>
+        )}
+        {hasLen && (
+          <span style={{ color: '#555', background: '#F0F4FF', border: '1px solid #DBEAFE', borderRadius: 4, padding: '1px 6px' }}>
+            <DiffCell prev={pp?.length_mm} curr={cp?.length_mm} unit="mm" decimals={0} size={10.5} />
+          </span>
+        )}
+        <DiffCell prev={pp?.weight_kg} curr={cp?.weight_kg} unit="kg" decimals={2} size={10.5} />
+      </div>
     </div>
   )
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: Props) {
+export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, selectedMark, onSelectRow }: Props) {
   const [showUnchanged, setShowUnchanged] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
@@ -395,8 +426,11 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
       </div>
 
       {/* Scrollable data area */}
-      <div style={{ overflowX: 'auto', flex: 1 }}>
-        <div style={{ minWidth: 700 }}>
+      {/* Two-line card rows fit any width — no more fixed-min-width
+          horizontal scroll (which silently hid the right edge in the
+          narrow column). */}
+      <div style={{ flex: 1 }}>
+        <div style={{ padding: '10px 14px' }}>
 
       {/* Assembly nodes */}
       {visibleNodes.map(node => {
@@ -413,23 +447,25 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
 
         return (
           <div key={node.mark}>
-            {/* Assembly row */}
+            {/* Assembly card — BomTreeView visual language, diff-status tinted */}
             <div
-              onClick={() => toggleCollapse(node.mark)}
+              onClick={() => { toggleCollapse(node.mark); onSelectRow?.(node.mark) }}
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '7px 0 7px 12px',
-                background: ROW_BG[node.assemblyRow.status],
-                borderBottom: '1px solid #EBEBEB',
-                borderLeft: asmHighlighted ? '3px solid #FBBF24' : '3px solid transparent',
-                cursor: hasVisibleParts ? 'pointer' : 'default',
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '7px 10px',
+                background: asmHighlighted ? '#FFF8E1' : ROW_BG[node.assemblyRow.status],
+                border: `1px solid ${asmHighlighted ? '#FBBF24' : '#C2C2C2'}`,
+                borderRadius: 6, marginBottom: 2,
+                boxShadow: selectedMark === node.mark ? 'inset 0 0 0 2px #185FA5' : '0 1px 3px rgba(0,0,0,0.05)',
+                cursor: 'pointer',
               }}
             >
-              <span style={{ width: 14, color: '#9CA3AF', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              <span style={{ width: 18, color: '#8E8E8E', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {hasVisibleParts
-                  ? (isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />)
+                  ? (isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />)
                   : null}
               </span>
+              <AsmIcon />
               <Badge status={node.assemblyRow.status} />
               {(node.assemblyRow.status === 'unchanged' || node.assemblyRow.status === 'changed') && (
                 <PartChangeSummaryChip parts={node.parts} />
@@ -446,24 +482,17 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
               <div
                 key={i}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 6,
-                  padding: '5px 0 5px 0',
-                  background: ROW_BG[entry.effectiveStatus],
-                  borderBottom: '1px solid #F5F5F5',
-                  borderLeft: partHighlighted ? '3px solid #FBBF24' : '3px solid transparent',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  padding: '5px 10px',
+                  marginLeft: 26, marginBottom: 2,
+                  background: partHighlighted ? '#FFF8E1' : ROW_BG[entry.effectiveStatus],
+                  border: `1px solid ${partHighlighted ? '#FBBF24' : '#E0E0E0'}`,
+                  borderRadius: 6,
                 }}
               >
-                {/* Tree indent */}
-                <div style={{
-                  width: 44, flexShrink: 0, alignSelf: 'stretch',
-                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                  paddingRight: 6,
-                  borderRight: '2px solid #E5E7EB',
-                  marginRight: 6,
-                  color: '#CBD5E1', fontSize: 11,
-                }}>
-                  {i === visibleParts.length - 1 ? '└' : '├'}
-                </div>
+                {/* Indent spacer matching the assembly card's chevron slot */}
+                <span style={{ width: 18, flexShrink: 0 }} />
+                <PartIcon />
                 <Badge status={entry.effectiveStatus} />
                 <PartRowContent junctionRow={entry.junctionRow} partRow={entry.partRow} />
               </div>
@@ -475,13 +504,12 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
 
       {/* Orphan parts section */}
       {orphanParts.length > 0 && (
-        <div>
+        <div style={{ marginTop: 14 }}>
           <div style={{
-            padding: '5px 12px', fontSize: 10, fontWeight: 700, color: '#9CA3AF',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-            background: '#F9FAFB', borderTop: '1px solid #E5E7EB', borderBottom: '1px solid #E5E7EB',
+            fontSize: 10, fontWeight: 700, color: '#9CA3AF',
+            textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, padding: '0 2px',
           }}>
-            Standalone Parts
+            Standalone Parts ({orphanParts.length})
           </div>
           {orphanParts.map((row, i) => {
             const oMark = (row.curr ?? row.prev)?.part_mark ?? ''
@@ -491,12 +519,14 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff }: P
             <div
               key={i}
               style={{
-                display: 'flex', alignItems: 'center', gap: 6,
-                padding: '4px 12px 4px 52px',
-                background: ROW_BG[row.status], borderBottom: '1px solid #F3F4F6',
-                borderLeft: oHighlighted ? '3px solid #FBBF24' : '3px solid transparent',
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '5px 10px', marginBottom: 2,
+                background: oHighlighted ? '#FFF8E1' : ROW_BG[row.status],
+                border: `1px solid ${oHighlighted ? '#FBBF24' : '#E0E0E0'}`,
+                borderRadius: 6,
               }}
             >
+              <PartIcon />
               <Badge status={row.status} />
               <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#374151', flexShrink: 0 }}>
                 {(row.curr ?? row.prev)?.part_mark}

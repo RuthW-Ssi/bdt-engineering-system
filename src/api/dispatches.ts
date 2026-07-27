@@ -184,6 +184,18 @@ export interface PreviewJunctionsResult {
   unmatchedPartMarks: string[]
 }
 
+// ── BOM Diff 3D model comparison ────────────────────────────────
+export interface DiffBimModelMatch {
+  model_id: number
+  version: string
+  matches: Record<string, string[]> // assembly_mark -> global_ids[]
+}
+
+export interface DispatchDiffBimModelsDto {
+  old: DiffBimModelMatch | null
+  new: DiffBimModelMatch | null
+}
+
 export const dispatchesApi = {
   list(params?: {
     project_id?: number
@@ -207,6 +219,15 @@ export const dispatchesApi = {
   getDiff(id: number): Promise<DispatchDiffDto | null> {
     return apiClient
       .get(`/dispatches/${id}/diff`, { validateStatus: s => s === 200 || s === 204 })
+      .then(r => (r.status === 204 ? null : r.data))
+  },
+
+  getDiffBimModels(id: number, opts?: { oldModelId?: number; newModelId?: number }): Promise<DispatchDiffBimModelsDto | null> {
+    return apiClient
+      .get(`/dispatches/${id}/diff/bim-models`, {
+        params: { old_model_id: opts?.oldModelId, new_model_id: opts?.newModelId },
+        validateStatus: s => s === 200 || s === 204,
+      })
       .then(r => (r.status === 204 ? null : r.data))
   },
 

@@ -37,6 +37,19 @@ export function useDispatchDiff(id: number | undefined) {
   })
 }
 
+export function useDispatchDiffBimModels(
+  id: number | undefined,
+  opts?: { oldModelId?: number; newModelId?: number },
+) {
+  return useQuery({
+    queryKey: ['dispatch-diff-bim-models', id, opts?.oldModelId ?? null, opts?.newModelId ?? null],
+    queryFn: () => dispatchesApi.getDiffBimModels(id!, opts),
+    enabled: !!id,
+    staleTime: 60_000,
+    meta: { skipGlobalErrorToast: true },
+  })
+}
+
 export function useDispatchMapping(id: number | undefined) {
   return useQuery({
     queryKey: ['dispatch-mapping', id],
