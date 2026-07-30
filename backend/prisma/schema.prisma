@@ -975,23 +975,38 @@ model mbom_assembly_paint {
   @@index([dispatch_id])
 }
 
-// ── 🟥 BOM Assembly Progress (Sprint 24: Project Progress Overview) ──
-// Manual-entry progress milestones per assembly — an explicit interim
-// layer while MO/WO-driven tracking matures; 1:1 side-table (not columns
-// on bom_assembly) so it can be superseded later without touching BOM
-// identity. No row = "not started". Rows carry forward by mark on BOM
-// re-upload (same rationale as mbom_assembly_paint's carry-forward).
+// ── 🟥 BOM Assembly Progress (Sprint 24, rebuilt Sprint 26) ──────────
+// Manual-entry phase progress per assembly, mirroring the site team's
+// real tracking sheet (REV1): Fabrication = 10 weighted stage percents
+// (weights live in project-progress.service.ts's STAGE_WEIGHTS — Excel
+// row 5 verbatim, sum 100), Transport = plan/actual load dates + pieces
+// loaded, Erection = pieces erected. Payment tracking deliberately
+// excluded. Still an interim layer while MO/WO-driven tracking matures;
+// 1:1 side-table so it can be superseded without touching BOM identity.
+// No row = "not started". Rows carry forward by mark on BOM re-upload.
 model bom_assembly_progress {
-  assembly_id        Int          @id
-  assembly           bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
-  qc_inspection_pass Boolean      @default(false)
-  qc_final_pass      Boolean      @default(false)
-  actual_load_date   DateTime?    @db.Date
-  install_date       DateTime?    @db.Date
-  qc_install_date    DateTime?    @db.Date // filled ⇒ terminal "done" status
-  write_uid          Int
-  write_user         res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
-  write_date         DateTime     @default(now()) @db.Timestamptz
+  assembly_id      Int          @id
+  assembly         bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
+  // Fabrication stages — integer percent 0-100, workflow order
+  cut              Int          @default(0)
+  buildup          Int          @default(0)
+  weld1            Int          @default(0)
+  fitup_drill      Int          @default(0)
+  weld2            Int          @default(0)
+  qc_inspection    Int          @default(0)
+  primer           Int          @default(0)
+  fireproof        Int          @default(0)
+  top_coat         Int          @default(0)
+  qc_final         Int          @default(0)
+  // Transport
+  plan_load_date   DateTime?    @db.Date
+  actual_load_date DateTime?    @db.Date
+  loaded_pcs       Int          @default(0)
+  // Erection — erected_pcs == qty ⇒ terminal "done" status
+  erected_pcs      Int          @default(0)
+  write_uid        Int
+  write_user       res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
+  write_date       DateTime     @default(now()) @db.Timestamptz
 }
 
 // ═══════════════════════════════════════════════════════════════
