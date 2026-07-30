@@ -1,5 +1,5 @@
 import { NotFoundException } from '@nestjs/common'
-import { ProjectProgressService, computePct, computeStatus } from './project-progress.service'
+import { ProjectProgressService, computeFabPct, computeStatus, effectiveQty, STAGE_WEIGHTS, FAB_STAGES } from './project-progress.service'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function makePrisma(overrides: Record<string, unknown> = {}) {
@@ -10,89 +10,319 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
     bom_assembly_progress: { upsert: jest.fn() },
     bom_dispatch: { findMany: jest.fn().mockResolvedValue([]) },
     bim_model: { findFirst: jest.fn().mockResolvedValue(null) },
-    bim_element: { findMany: jest.fn().mockResolvedValue([]) },
+    bim_element: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
     ...overrides,
   } as unknown as any
 }
 
 const EMPTY = {
-  qc_inspection_pass: false, qc_final_pass: false,
-  actual_load_date: null, install_date: null, qc_install_date: null,
+  cut: 0, buildup: 0, weld1: 0, fitup_drill: 0, weld2: 0,
+  qc_inspection: 0, primer: 0, fireproof: 0, top_coat: 0, qc_final: 0,
+  plan_load_date: null, actual_load_date: null,
+  loaded_pcs: 0, erected_pcs: 0,
 }
 const D = new Date('2026-07-01')
 
-describe('computePct / computeStatus', () => {
-  it('no row = not started, 0%', () => {
-    expect(computePct(null)).toBe(0)
-    expect(computeStatus(null)).toBe('notstart')
+describe('effectiveQty', () => {
+  it('null/zero/decimal qty all resolve to at least one physical piece', () => {
+    expect(effectiveQty(null)).toBe(1)
+    expect(effectiveQty(undefined)).toBe(1)
+    expect(effectiveQty(0)).toBe(1)
+    expect(effectiveQty(4)).toBe(4)
+    expect(effectiveQty('16.000')).toBe(16) // Prisma Decimal arrives stringy
+    expect(effectiveQty(2.6)).toBe(3)
+  })
+})
+
+describe('computeFabPct', () => {
+  it('no row = 0', () => {
+    expect(computeFabPct(null)).toBe(0)
   })
 
-  it('additive weights, no sequential enforcement', () => {
-    expect(computePct({ ...EMPTY, qc_inspection_pass: true })).toBe(20)
-    expect(computePct({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true })).toBe(40)
-    expect(computePct({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D })).toBe(60)
-    expect(computePct({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D, install_date: D })).toBe(90)
-    expect(computePct({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D, install_date: D, qc_install_date: D })).toBe(100)
-    // out-of-order entry is legal: install alone = 30
-    expect(computePct({ ...EMPTY, install_date: D })).toBe(30)
+  it('single stage contributes exactly its weight', () => {
+    expect(computeFabPct({ ...EMPTY, cut: 100 })).toBe(10)
+    expect(computeFabPct({ ...EMPTY, weld1: 100 })).toBe(15)
+    expect(computeFabPct({ ...EMPTY, qc_final: 100 })).toBe(5)
   })
 
-  it('status = furthest milestone reached, independent of earlier gaps', () => {
-    expect(computeStatus({ ...EMPTY, qc_inspection_pass: true })).toBe('qcinsp')
-    expect(computeStatus({ ...EMPTY, qc_final_pass: true })).toBe('qcfinal')
-    expect(computeStatus({ ...EMPTY, actual_load_date: D })).toBe('load')
-    expect(computeStatus({ ...EMPTY, install_date: D })).toBe('install')
-    expect(computeStatus({ ...EMPTY, qc_install_date: D })).toBe('done')
-    // install date set but load skipped — still "install"
-    expect(computeStatus({ ...EMPTY, qc_inspection_pass: true, install_date: D })).toBe('install')
+  it('all stages at 100 = exactly 100 (weights sum to 100)', () => {
+    const all100 = Object.fromEntries(FAB_STAGES.map(s => [s, 100]))
+    expect(computeFabPct({ ...EMPTY, ...all100 })).toBe(100)
+    expect(Object.values(STAGE_WEIGHTS).reduce((a, b) => a + b, 0)).toBe(100)
+  })
+
+  it('fractional stage values weight proportionally', () => {
+    // weld1 at 50% of its 15 weight = 7.5
+    expect(computeFabPct({ ...EMPTY, weld1: 50 })).toBe(7.5)
+  })
+
+  it('worked mixed example matches the Excel weight table', () => {
+    // cut 100 (10) + buildup 100 (10) + weld1 100 (15) + fitup 50 (5) = 40
+    expect(computeFabPct({ ...EMPTY, cut: 100, buildup: 100, weld1: 100, fitup_drill: 50 })).toBe(40)
+  })
+})
+
+describe('computeStatus — phase ladder + shade', () => {
+  it('no row = notstart', () => {
+    expect(computeStatus(null, 4)).toEqual({ status: 'notstart', shade: 'light' })
+  })
+
+  it('any fab progress = fabrication light; all stages done = fabrication dark', () => {
+    expect(computeStatus({ ...EMPTY, cut: 1 }, 4)).toEqual({ status: 'fabrication', shade: 'light' })
+    const all100 = Object.fromEntries(FAB_STAGES.map(s => [s, 100]))
+    expect(computeStatus({ ...EMPTY, ...all100 }, 4)).toEqual({ status: 'fabrication', shade: 'dark' })
+  })
+
+  it('partial load = load light; full load = load dark', () => {
+    expect(computeStatus({ ...EMPTY, loaded_pcs: 1 }, 4)).toEqual({ status: 'load', shade: 'light' })
+    expect(computeStatus({ ...EMPTY, loaded_pcs: 4 }, 4)).toEqual({ status: 'load', shade: 'dark' })
+  })
+
+  it('partial erection = erection light; full erection = done', () => {
+    expect(computeStatus({ ...EMPTY, erected_pcs: 1 }, 4)).toEqual({ status: 'erection', shade: 'light' })
+    expect(computeStatus({ ...EMPTY, erected_pcs: 4 }, 4)).toEqual({ status: 'done', shade: 'light' })
+  })
+
+  it('furthest phase wins — out-of-order entry is legal', () => {
+    // erected with zero fab: still erection
+    expect(computeStatus({ ...EMPTY, erected_pcs: 1 }, 4).status).toBe('erection')
+    // loaded full + fab partial: load dark (load is further than fabrication)
+    expect(computeStatus({ ...EMPTY, cut: 50, loaded_pcs: 4 }, 4)).toEqual({ status: 'load', shade: 'dark' })
+  })
+
+  it('actual_load_date alone does NOT advance status — pcs are the phase signal', () => {
+    expect(computeStatus({ ...EMPTY, actual_load_date: D }, 4)).toEqual({ status: 'notstart', shade: 'light' })
+  })
+
+  it('null qty behaves as one piece', () => {
+    expect(computeStatus({ ...EMPTY, loaded_pcs: 1 }, null)).toEqual({ status: 'load', shade: 'dark' })
+    expect(computeStatus({ ...EMPTY, erected_pcs: 1 }, null)).toEqual({ status: 'done', shade: 'light' })
   })
 })
 
 describe('getOverview rollup', () => {
-  // Spec worked example: 16 assemblies (equal weight 1kg so the weighted
-  // rollup degenerates to the count average) — expected 53.75%.
-  it('reproduces the 16-assembly worked example at equal weights', async () => {
-    const rows: any[] = []
-    const mk = (progress: any, n: number) => {
-      for (let i = 0; i < n; i++) rows.push({ weight_kg: 1, progress, dispatch: { zone_id: 10 } })
-    }
-    mk(null, 3) // not started
-    mk({ ...EMPTY, qc_inspection_pass: true }, 2) // 20
-    mk({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true }, 1) // 40
-    mk({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D }, 5) // 60
-    mk({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D, install_date: D }, 2) // 90
-    mk({ ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D, install_date: D, qc_install_date: D }, 3) // 100
-
-    const prisma = makePrisma({
-      project_zone: {
-        findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'Z1', label: 'NP Zone 1' }]),
-        findFirst: jest.fn(),
-      },
-      bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
-    })
-    const svc = new ProjectProgressService(prisma)
-    const result = await svc.getOverview('0X220')
-
-    expect(result.total.assembly_count).toBe(16)
-    expect(result.total.pct).toBe(53.75)
-    expect(result.total.buckets).toEqual({ notstart: 3, in_progress: 10, done: 3 })
-    expect(result.zones[0].pct).toBe(53.75)
-  })
-
-  it('weights the rollup by weight_kg, not by count', async () => {
-    // one 100kg done assembly vs one 0kg-weight untouched one → 100%, not 50%
+  it('fab weighted by weight_kg; load/erection by pieces (Σ/Σ, not averaged)', async () => {
+    const all100 = Object.fromEntries(FAB_STAGES.map(s => [s, 100]))
     const rows = [
-      { weight_kg: 100, progress: { ...EMPTY, qc_inspection_pass: true, qc_final_pass: true, actual_load_date: D, install_date: D, qc_install_date: D }, dispatch: { zone_id: 10 } },
-      { weight_kg: 0, progress: null, dispatch: { zone_id: 10 } },
+      // 10kg fully fabricated, qty 4, loaded 4, erected 0 → load dark
+      { weight_kg: 10, qty: 4, progress: { ...EMPTY, ...all100, loaded_pcs: 4 }, dispatch: { zone_id: 10 } },
+      // 30kg untouched, qty 4 → notstart
+      { weight_kg: 30, qty: 4, progress: null, dispatch: { zone_id: 10 } },
     ]
     const prisma = makePrisma({
-      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'Z1', label: 'Z1' }]), findFirst: jest.fn() },
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
       bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
     })
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getOverview('0X220')
-    expect(result.total.pct).toBe(100)
+
+    // fab: (10kg×100 + 30kg×0) / 40kg = 25
+    expect(result.total.fab_pct).toBe(25)
+    // load: 4 of 8 pcs = 50% — NOT the per-row average (100+0)/2
+    expect(result.total.load_pct).toBe(50)
+    expect(result.total.erect_pct).toBe(0)
+    expect(result.total.total_qty).toBe(8)
+    expect(result.total.loaded_pcs).toBe(4)
+    expect(result.total.buckets).toEqual({ notstart: 1, in_progress: 1, done: 0 })
+  })
+
+  it('fabrication/load/erection all map to the in_progress bucket', async () => {
+    const rows = [
+      { weight_kg: 1, qty: 2, progress: { ...EMPTY, cut: 50 }, dispatch: { zone_id: 10 } },
+      { weight_kg: 1, qty: 2, progress: { ...EMPTY, loaded_pcs: 1 }, dispatch: { zone_id: 10 } },
+      { weight_kg: 1, qty: 2, progress: { ...EMPTY, erected_pcs: 1 }, dispatch: { zone_id: 10 } },
+      { weight_kg: 1, qty: 2, progress: { ...EMPTY, erected_pcs: 2 }, dispatch: { zone_id: 10 } },
+    ]
+    const prisma = makePrisma({
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getOverview('0X220')
+    expect(result.total.buckets).toEqual({ notstart: 0, in_progress: 3, done: 1 })
+  })
+
+  it('zero rows → zero guards, no division blowups', async () => {
+    const prisma = makePrisma({
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getOverview('0X220')
+    expect(result.total).toMatchObject({ fab_pct: 0, load_pct: 0, erect_pct: 0, total_qty: 0 })
+  })
+
+  it('rollup caps over-qty pcs defensively (carry-forward after qty shrink)', async () => {
+    const rows = [
+      // loaded_pcs 16 carried forward but qty now 4 → counts as 4, not 16
+      { weight_kg: 1, qty: 4, progress: { ...EMPTY, loaded_pcs: 16 }, dispatch: { zone_id: 10 } },
+    ]
+    const prisma = makePrisma({
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getOverview('0X220')
+    expect(result.total.loaded_pcs).toBe(4)
+    expect(result.total.load_pct).toBe(100)
+  })
+})
+
+describe('getProjectRows', () => {
+  it('rows carry stages, pcs, three pcts, status and shade', async () => {
+    const prisma = makePrisma({
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 10, qty: 4, progress: { ...EMPTY, cut: 100, loaded_pcs: 2 } },
+        ]),
+        findFirst: jest.fn(),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const rows = await svc.getProjectRows('0X220')
+    expect(rows[0]).toMatchObject({
+      assembly_id: 1, mark: 'TC-FB1', qty: 4,
+      cut: 100, buildup: 0,
+      loaded_pcs: 2, erected_pcs: 0,
+      fab_pct: 10, load_pct: 50, erect_pct: 0,
+      status: 'load', shade: 'light',
+    })
+  })
+})
+
+describe('updateAssemblyProgress', () => {
+  it('404s when the assembly belongs to a different project', async () => {
+    const prisma = makePrisma({ bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn() } })
+    const svc = new ProjectProgressService(prisma)
+    await expect(svc.updateAssemblyProgress('0X220', 999, { cut: 50 }, 1)).rejects.toThrow(NotFoundException)
+  })
+
+  it('partial update — omitted fields stay undefined in the update clause', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, cut: 50, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { cut: 50 }, 1)
+
+    const args = upsert.mock.calls[0][0]
+    expect(args.update.cut).toBe(50)
+    expect(args.update.buildup).toBeUndefined()
+    expect(args.update.loaded_pcs).toBeUndefined()
+    expect(args.update.plan_load_date).toBeUndefined()
+  })
+
+  it('clamps percents to 0..100 with rounding (guards the "50"-for-0.5 typo class)', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { weld1: 5000, primer: -5, fireproof: 50.4 }, 1)
+
+    const args = upsert.mock.calls[0][0]
+    expect(args.update.weld1).toBe(100)
+    expect(args.update.primer).toBe(0)
+    expect(args.update.fireproof).toBe(50)
+  })
+
+  it('clamps pcs to the assembly qty', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, loaded_pcs: 4, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { loaded_pcs: 99 }, 1)
+    expect(upsert.mock.calls[0][0].update.loaded_pcs).toBe(4)
+  })
+
+  it('coerces date strings and clears on explicit null', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { plan_load_date: '2026-07-01', actual_load_date: null }, 1)
+
+    const args = upsert.mock.calls[0][0]
+    expect(args.update.plan_load_date).toEqual(new Date('2026-07-01'))
+    expect(args.update.actual_load_date).toBeNull()
+  })
+
+  it('response carries the three pcts + status + shade', async () => {
+    const upsert = jest.fn().mockResolvedValue({
+      ...EMPTY, assembly_id: 1, cut: 100, loaded_pcs: 2, write_uid: 1, write_date: D,
+    })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.updateAssemblyProgress('0X220', 1, { cut: 100 }, 1)
+    expect(result).toMatchObject({ fab_pct: 10, load_pct: 50, erect_pct: 0, status: 'load', shade: 'light' })
+  })
+})
+
+describe('bulkUpdateAssemblyProgress', () => {
+  it('applies shared percents/dates to every owned row', async () => {
+    const upsert = jest.fn().mockResolvedValue({})
+    const prisma = makePrisma({
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([{ id: 1, qty: 4 }, { id: 2, qty: 16 }]),
+        findFirst: jest.fn(),
+      },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], cut: 100, plan_load_date: '2026-07-01' }, 1)
+
+    expect(result).toEqual({ updated: 2 })
+    expect(upsert).toHaveBeenCalledTimes(2)
+    for (const call of upsert.mock.calls) {
+      expect(call[0].update.cut).toBe(100)
+      expect(call[0].update.plan_load_date).toEqual(new Date('2026-07-01'))
+    }
+  })
+
+  it('set_loaded_full resolves each row to its OWN qty', async () => {
+    const upsert = jest.fn().mockResolvedValue({})
+    const prisma = makePrisma({
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([{ id: 1, qty: 4 }, { id: 2, qty: 16 }]),
+        findFirst: jest.fn(),
+      },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], set_loaded_full: true }, 1)
+
+    const byId = new Map(upsert.mock.calls.map((c: any[]) => [c[0].where.assembly_id, c[0].update.loaded_pcs]))
+    expect(byId.get(1)).toBe(4)
+    expect(byId.get(2)).toBe(16)
+    // erected untouched when its flag is absent
+    expect(upsert.mock.calls[0][0].update.erected_pcs).toBeUndefined()
+  })
+
+  it('silently skips ids not belonging to the project; empty ownership is a no-op', async () => {
+    const upsert = jest.fn().mockResolvedValue({})
+    const prisma = makePrisma({
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ id: 1, qty: 1 }]), findFirst: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 999], qc_final: 100 }, 1)
+    expect(result).toEqual({ updated: 1 })
+
+    const prismaEmpty = makePrisma({
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+    })
+    const svc2 = new ProjectProgressService(prismaEmpty)
+    expect(await svc2.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [999], qc_final: 100 }, 1)).toEqual({ updated: 0 })
   })
 })
 
@@ -211,149 +441,127 @@ describe('getZoneBimMatch', () => {
 
 describe('getProjectBimMatch', () => {
   it('matches across all zones — no zone_id filter on the assembly query; surfaces model version', async () => {
-    const findMany = jest.fn().mockResolvedValue([{ id: 1, assembly_mark: 'TC-FB1' }])
     const prisma = makePrisma({
       bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7, major_version: 1, minor_version: 0 }) },
-      bom_assembly: { findMany, findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ id: 1, assembly_mark: 'TC-FB1' }]), findFirst: jest.fn() },
       bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: 'TC-FB1', global_id: 'g1' }]) },
     })
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getProjectBimMatch('0X220')
 
-    expect(result).toEqual({
-      model_id: 7, model_version: '1.0', matches: [{ assembly_id: 1, mark: 'TC-FB1', global_ids: ['g1'] }],
-    })
-    const where = findMany.mock.calls[0][0].where
+    expect(result.model_id).toBe(7)
+    expect(result.matches).toEqual([{ assembly_id: 1, mark: 'TC-FB1', global_ids: ['g1'] }])
+    const where = (prisma.bom_assembly.findMany as jest.Mock).mock.calls[0][0].where
     expect(where.dispatch.zone_id).toBeUndefined()
   })
 
-  it('returns empty match set when the project has no complete BIM model', async () => {
+  it('returns nulls when no complete model exists', async () => {
     const prisma = makePrisma()
     const svc = new ProjectProgressService(prisma)
     expect(await svc.getProjectBimMatch('0X220')).toEqual({ model_id: null, model_version: null, matches: [] })
   })
 })
 
-describe('getProjectRows', () => {
-  it('returns per-assembly rows across every zone, computed pct/status included', async () => {
+describe('getProjectPositions', () => {
+  it('groups (position, mark) pairs — a bay can hold several marks, a mark can span several bays', async () => {
     const prisma = makePrisma({
+      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7, major_version: 1, minor_version: 0 }) },
       bom_assembly: {
-        findFirst: jest.fn(),
         findMany: jest.fn().mockResolvedValue([
-          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 100, qty: 1, progress: null },
-          { id: 2, assembly_mark: 'TC-FB2', weight_kg: 50, qty: 1, progress: { ...EMPTY, qc_inspection_pass: true } },
+          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 100, qty: 16, progress: { ...EMPTY, cut: 100 } },
+          { id: 2, assembly_mark: 'TC-RB1', weight_kg: 50, qty: 2, progress: null },
+        ]),
+        findFirst: jest.fn(),
+      },
+      bim_element: {
+        findMany: jest.fn().mockResolvedValue([]),
+        groupBy: jest.fn().mockResolvedValue([
+          { position: 'BAY-1', mark: 'TC-FB1', _count: { _all: 8 } },
+          { position: 'BAY-2', mark: 'TC-FB1', _count: { _all: 8 } },
+          { position: 'BAY-1', mark: 'TC-RB1', _count: { _all: 2 } },
         ]),
       },
     })
     const svc = new ProjectProgressService(prisma)
-    const rows = await svc.getProjectRows('0X220')
+    const result = await svc.getProjectPositions('0X220')
 
-    expect(rows).toHaveLength(2)
-    expect(rows[0]).toMatchObject({ assembly_id: 1, mark: 'TC-FB1', pct: 0, status: 'notstart' })
-    expect(rows[1]).toMatchObject({ assembly_id: 2, mark: 'TC-FB2', pct: 20, status: 'qcinsp' })
+    expect(result.model_id).toBe(7)
+    expect(result.unmatched).toEqual([])
+    // BAY-1 holds both marks; TC-FB1 also shows up again at BAY-2, same %s.
+    expect(result.groups).toEqual([
+      {
+        position: 'BAY-1',
+        marks: [
+          expect.objectContaining({ mark: 'TC-FB1', count: 8, fab_pct: 10 }),
+          expect.objectContaining({ mark: 'TC-RB1', count: 2, fab_pct: 0 }),
+        ],
+      },
+      {
+        position: 'BAY-2',
+        marks: [expect.objectContaining({ mark: 'TC-FB1', count: 8, fab_pct: 10 })],
+      },
+    ])
   })
-})
 
-describe('updateAssemblyProgress', () => {
-  it('404s when the assembly belongs to a different project', async () => {
+  it('a BIM mark with no matching BOM row still appears in its group, with null progress instead of being dropped', async () => {
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn() },
-    })
-    const svc = new ProjectProgressService(prisma)
-    await expect(svc.updateAssemblyProgress('0X220', 999, {}, 1)).rejects.toThrow(NotFoundException)
-    expect(prisma.bom_assembly_progress.upsert).not.toHaveBeenCalled()
-  })
-
-  it('upserts only provided fields and returns computed pct/status', async () => {
-    const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 5 }), findMany: jest.fn() },
-      bom_assembly_progress: {
-        upsert: jest.fn().mockResolvedValue({
-          assembly_id: 5, ...EMPTY, qc_inspection_pass: true, write_uid: 1, write_date: new Date(),
-        }),
+      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7, major_version: 1, minor_version: 0 }) },
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([{ id: 1, assembly_mark: 'TC-FB1', weight_kg: 100, qty: 16, progress: { ...EMPTY, cut: 100 } }]),
+        findFirst: jest.fn(),
+      },
+      bim_element: {
+        findMany: jest.fn().mockResolvedValue([]),
+        groupBy: jest.fn().mockResolvedValue([
+          { position: 'BAY-1', mark: 'TC-FB1', _count: { _all: 8 } },
+          { position: 'BAY-1', mark: 'PU99', _count: { _all: 3 } }, // in the model, never uploaded to BOM
+        ]),
       },
     })
     const svc = new ProjectProgressService(prisma)
-    const result = await svc.updateAssemblyProgress('0X220', 5, { qc_inspection_pass: true }, 1)
+    const result = await svc.getProjectPositions('0X220')
 
-    const call = prisma.bom_assembly_progress.upsert.mock.calls[0][0]
-    // omitted fields must be undefined in the update payload (left unchanged)
-    expect(call.update.qc_final_pass).toBeUndefined()
-    expect(call.update.actual_load_date).toBeUndefined()
-    expect(call.update.qc_inspection_pass).toBe(true)
-    expect(result.pct).toBe(20)
-    expect(result.status).toBe('qcinsp')
+    expect(result.groups).toEqual([
+      {
+        position: 'BAY-1',
+        marks: [
+          expect.objectContaining({ mark: 'PU99', count: 3, assembly_id: null, fab_pct: null, load_pct: null, erect_pct: null, status: null, shade: null }),
+          expect.objectContaining({ mark: 'TC-FB1', count: 8, fab_pct: 10 }),
+        ],
+      },
+    ])
+    expect(result.unmatched).toEqual([]) // TC-FB1 DID match — only the reverse direction (BOM w/ no BIM) belongs here
   })
 
-  it('null date clears the value; date string converts to Date', async () => {
+  it('surfaces marks with no BIM position data under `unmatched` instead of dropping them', async () => {
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 5 }), findMany: jest.fn() },
-      bom_assembly_progress: {
-        upsert: jest.fn().mockResolvedValue({ assembly_id: 5, ...EMPTY, write_uid: 1, write_date: new Date() }),
+      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 7, major_version: 1, minor_version: 0 }) },
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([{ id: 3, assembly_mark: 'TC-ZZ1', weight_kg: 10, qty: 4, progress: null }]),
+        findFirst: jest.fn(),
       },
+      bim_element: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 5, { actual_load_date: '2026-07-01', install_date: null }, 1)
+    const result = await svc.getProjectPositions('0X220')
 
-    const call = prisma.bom_assembly_progress.upsert.mock.calls[0][0]
-    expect(call.update.actual_load_date).toEqual(new Date('2026-07-01'))
-    expect(call.update.install_date).toBeNull()
-    expect(call.update.qc_install_date).toBeUndefined()
+    expect(result.groups).toEqual([])
+    expect(result.unmatched).toEqual([expect.objectContaining({ mark: 'TC-ZZ1', count: 4 })]) // count falls back to qty
   })
-})
 
-describe('bulkUpdateAssemblyProgress', () => {
-  it('applies the same fields to every owned assembly in one transaction', async () => {
+  it('no complete BIM model — every assembly reported as unmatched, none silently dropped', async () => {
     const prisma = makePrisma({
       bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([{ id: 1, assembly_mark: 'TC-FB1', weight_kg: 100, qty: 16, progress: null }]),
         findFirst: jest.fn(),
-        findMany: jest.fn().mockResolvedValue([{ id: 5 }, { id: 6 }, { id: 7 }]),
-      },
-      bom_assembly_progress: {
-        upsert: jest.fn().mockImplementation(({ where }: any) => Promise.resolve({ assembly_id: where.assembly_id })),
       },
     })
     const svc = new ProjectProgressService(prisma)
-    const result = await svc.bulkUpdateAssemblyProgress(
-      '0X220', { assembly_ids: [5, 6, 7], qc_inspection_pass: true, actual_load_date: '2026-07-20' }, 1,
-    )
+    const result = await svc.getProjectPositions('0X220')
 
-    expect(result.updated).toBe(3)
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
-    expect(prisma.bom_assembly_progress.upsert).toHaveBeenCalledTimes(3)
-    const ids = prisma.bom_assembly_progress.upsert.mock.calls.map((c: any) => c[0].where.assembly_id)
-    expect(ids.sort()).toEqual([5, 6, 7])
-    prisma.bom_assembly_progress.upsert.mock.calls.forEach((c: any) => {
-      expect(c[0].update.qc_inspection_pass).toBe(true)
-      expect(c[0].update.actual_load_date).toEqual(new Date('2026-07-20'))
-      expect(c[0].update.qc_final_pass).toBeUndefined()
+    expect(result).toEqual({
+      model_id: null, model_version: null, groups: [],
+      unmatched: [expect.objectContaining({ mark: 'TC-FB1', count: 16 })],
     })
-  })
-
-  it('only touches assembly_ids that actually belong to this project — no 404 for a mixed batch', async () => {
-    const prisma = makePrisma({
-      bom_assembly: {
-        findFirst: jest.fn(),
-        // Only 5 and 6 "belong" — 999 (foreign/stray id) is silently dropped.
-        findMany: jest.fn().mockResolvedValue([{ id: 5 }, { id: 6 }]),
-      },
-      bom_assembly_progress: { upsert: jest.fn().mockResolvedValue({}) },
-    })
-    const svc = new ProjectProgressService(prisma)
-    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [5, 6, 999], qc_final_pass: true }, 1)
-
-    expect(result.updated).toBe(2)
-    expect(prisma.bom_assembly_progress.upsert).toHaveBeenCalledTimes(2)
-  })
-
-  it('no-ops (no transaction) when none of the ids belong to this project', async () => {
-    const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    })
-    const svc = new ProjectProgressService(prisma)
-    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [999] }, 1)
-
-    expect(result.updated).toBe(0)
-    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 })

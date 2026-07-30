@@ -69,11 +69,17 @@ export class ProjectsController {
     return this.progressSvc.getProjectBimMatch(code)
   }
 
+  @Get(':project_code/progress/positions')
+  @ApiOperation({ summary: 'Progress grouped by BIM structural position code instead of Zone (Overview tab alternate view)' })
+  getProgressPositions(@Param('project_code') code: string) {
+    return this.progressSvc.getProjectPositions(code)
+  }
+
   // Registered before ':assembly_id' below — same path prefix, and NestJS
   // matches route declarations in order, so 'bulk' must come first or it'd
   // never be reached (ParseIntPipe would 400 on the literal "bulk" first).
   @Patch(':project_code/progress/assemblies/bulk')
-  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection)' })
+  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection); pcs via set_loaded_full/set_erected_full flags resolved per-row' })
   bulkUpdateAssemblyProgress(
     @Param('project_code') code: string,
     @Body() dto: BulkUpdateAssemblyProgressDto,
@@ -83,7 +89,7 @@ export class ProjectsController {
   }
 
   @Patch(':project_code/progress/assemblies/:assembly_id')
-  @ApiOperation({ summary: 'Upsert the 5 manual progress fields for one assembly' })
+  @ApiOperation({ summary: 'Upsert manual phase-progress fields (10 fab stage %, transport dates/pcs, erected pcs) for one assembly' })
   updateAssemblyProgress(
     @Param('project_code') code: string,
     @Param('assembly_id', ParseIntPipe) assemblyId: number,

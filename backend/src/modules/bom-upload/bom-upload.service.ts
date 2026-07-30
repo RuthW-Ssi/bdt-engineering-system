@@ -970,14 +970,27 @@ export class BomUploadService {
     })
     if (!prev) return
 
+    // Phase-tracking columns (Sprint 26). Pcs carry forward as absolute
+    // counts — if a re-upload changes an assembly's qty, the service-side
+    // clamp corrects on the next edit (same-mark qty churn is rare and
+    // carry-forward has never re-validated).
     const prevProgress = await this.prisma.bom_assembly_progress.findMany({
       where: { assembly: { dispatch_id: prev.id } },
       select: {
-        qc_inspection_pass: true,
-        qc_final_pass: true,
+        cut: true,
+        buildup: true,
+        weld1: true,
+        fitup_drill: true,
+        weld2: true,
+        qc_inspection: true,
+        primer: true,
+        fireproof: true,
+        top_coat: true,
+        qc_final: true,
+        plan_load_date: true,
         actual_load_date: true,
-        install_date: true,
-        qc_install_date: true,
+        loaded_pcs: true,
+        erected_pcs: true,
         write_uid: true,
         assembly: { select: { assembly_mark: true } },
       },
@@ -987,11 +1000,20 @@ export class BomUploadService {
       .filter(p => assemblyIdByMark.has(p.assembly.assembly_mark))
       .map(p => ({
         assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
-        qc_inspection_pass: p.qc_inspection_pass,
-        qc_final_pass: p.qc_final_pass,
+        cut: p.cut,
+        buildup: p.buildup,
+        weld1: p.weld1,
+        fitup_drill: p.fitup_drill,
+        weld2: p.weld2,
+        qc_inspection: p.qc_inspection,
+        primer: p.primer,
+        fireproof: p.fireproof,
+        top_coat: p.top_coat,
+        qc_final: p.qc_final,
+        plan_load_date: p.plan_load_date,
         actual_load_date: p.actual_load_date,
-        install_date: p.install_date,
-        qc_install_date: p.qc_install_date,
+        loaded_pcs: p.loaded_pcs,
+        erected_pcs: p.erected_pcs,
         write_uid: p.write_uid,
       }))
 

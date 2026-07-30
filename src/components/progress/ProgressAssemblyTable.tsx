@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react'
 import { Search, Pencil, ChevronUp, X } from 'lucide-react'
-import type { ProgressZoneRow, UpdateAssemblyProgressPayload } from '../../api/projectProgress'
+import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage } from '../../api/projectProgress'
+import { FAB_STAGES } from '../../api/projectProgress'
 import { STATUS_META } from './statusMeta'
 
 interface Props {
@@ -10,7 +11,7 @@ interface Props {
   onSelectRow: (assemblyId: number) => void
   onViewIn3D: (assemblyId: number) => void
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
-  onBulkUpdate: (assemblyIds: number[], payload: UpdateAssemblyProgressPayload) => void
+  onBulkUpdate: (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) => void
   saving: boolean
 }
 
@@ -19,45 +20,117 @@ const th: React.CSSProperties = {
   letterSpacing: '0.04em', color: '#ABABAB', padding: '9px 12px',
   borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'white',
 }
-const td: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #EDEFF2', verticalAlign: 'middle', whiteSpace: 'nowrap' }
+const td: React.CSSProperties = { padding: '11px 12px', borderBottom: '1px solid #EDEFF2', verticalAlign: 'middle', whiteSpace: 'nowrap' }
 const dateInput: React.CSSProperties = {
   font: 'inherit', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
   color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 6,
   padding: '5px 7px', boxSizing: 'border-box',
 }
+const numInput: React.CSSProperties = {
+  ...dateInput, width: '100%', textAlign: 'right',
+}
+
+// Fabrication stage inputs are the only plain numbers on this page that
+// aren't self-evidently a unit (dates/pcs read as counts) — a fixed "%"
+// suffix makes clear what's being typed without relying on the field label.
+function PctInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <input type="number" min={0} max={100} {...props} style={{ ...numInput, paddingRight: 22, ...props.style }} />
+      <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#ABABAB', pointerEvents: 'none' }}>
+        %
+      </span>
+    </div>
+  )
+}
 const checkboxRow: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#1A1A1A', cursor: 'pointer',
 }
+const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
 
 // Backend @db.Date values arrive as ISO datetimes — <input type="date"> wants YYYY-MM-DD.
 const toInputDate = (v: string | null) => (v ? v.slice(0, 10) : '')
 
-const DATE_FIELDS = ['actual_load_date', 'install_date', 'qc_install_date'] as const
-type DateField = (typeof DATE_FIELDS)[number]
-const FIELD_LABEL: Record<DateField, string> = {
-  actual_load_date: 'Actual Load',
-  install_date: 'Install',
-  qc_install_date: 'QC Install',
+const STAGE_LABEL: Record<FabStage, string> = {
+  cut: 'Cut',
+  buildup: 'Build-Up',
+  weld1: 'Weld',
+  fitup_drill: 'Fitup/Drill',
+  weld2: 'Weld (2)',
+  qc_inspection: 'QC Insp',
+  primer: 'Primer',
+  fireproof: 'Fireproof',
+  top_coat: 'TOP',
+  qc_final: 'QC Final',
 }
 
-const EDIT_FIELDS = ['qc_inspection_pass', 'qc_final_pass', ...DATE_FIELDS] as const
+const DATE_FIELDS = ['plan_load_date', 'actual_load_date'] as const
+type DateField = (typeof DATE_FIELDS)[number]
+const DATE_LABEL: Record<DateField, string> = {
+  plan_load_date: 'Plan Load',
+  actual_load_date: 'Actual Load',
+}
+
+const PCS_FIELDS = ['loaded_pcs', 'erected_pcs'] as const
+type PcsField = (typeof PCS_FIELDS)[number]
+const PCS_LABEL: Record<PcsField, string> = {
+  loaded_pcs: 'Loaded',
+  erected_pcs: 'Erected',
+}
+
+const EDIT_FIELDS = [...FAB_STAGES, ...DATE_FIELDS, ...PCS_FIELDS] as const
+
+// Mirrors the server's clamps so what you see staged is what gets stored —
+// the real sheet has "50"-for-0.5 typo entries, clamping is the design.
+const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
+const clampPcs = (v: number, qty: number | null) =>
+  Math.min(Math.max(1, Math.round(qty ?? 1)), Math.max(0, Math.round(v)))
 
 function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
   return {
-    qc_inspection_pass: r.qc_inspection_pass,
-    qc_final_pass: r.qc_final_pass,
+    ...Object.fromEntries(FAB_STAGES.map(s => [s, r[s]])),
+    plan_load_date: r.plan_load_date,
     actual_load_date: r.actual_load_date,
-    install_date: r.install_date,
-    qc_install_date: r.qc_install_date,
+    loaded_pcs: r.loaded_pcs,
+    erected_pcs: r.erected_pcs,
   }
 }
 
 // Only send fields that actually changed vs. the row as loaded — keeps the
-// partial-update semantics (omitted = unchanged) instead of re-writing all 5.
+// partial-update semantics (omitted = unchanged) instead of re-writing all 14.
 function diffDraft(draft: UpdateAssemblyProgressPayload, original: ProgressZoneRow): UpdateAssemblyProgressPayload {
   const payload: UpdateAssemblyProgressPayload = {}
   for (const f of EDIT_FIELDS) if (draft[f] !== original[f]) (payload as Record<string, unknown>)[f] = draft[f]
   return payload
+}
+
+const NEUTRAL_METRIC = '#C2C2C2'
+
+// Each metric gets its own color independent of the row's overall status —
+// a row can legally be out-of-order (e.g. erected before fab hits 100%), so
+// the chip reflects that metric's own completeness, not the derived status.
+function metricColor(done: boolean, active: boolean, doneColor: string, activeColor: string) {
+  if (done) return doneColor
+  if (active) return activeColor
+  return NEUTRAL_METRIC
+}
+
+function ProgressChip({ label, value, color, title }: { label: string; value: string; color: string; title?: string }) {
+  return (
+    <span title={title} style={{
+      display: 'inline-flex', alignItems: 'baseline', gap: 4, lineHeight: 1,
+      background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 5,
+      padding: '4px 7px', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5,
+    }}>
+      <span style={{ fontWeight: 700, color }}>{label}</span>
+      <span style={{ color: '#4A4A4A' }}>{value}</span>
+    </span>
+  )
+}
+
+const groupHeader: React.CSSProperties = {
+  fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+  color: '#C8202A', borderBottom: '1px solid #F3C9CB', paddingBottom: 4, marginBottom: 10,
 }
 
 export function ProgressAssemblyTable({
@@ -67,7 +140,7 @@ export function ProgressAssemblyTable({
   // Accordion — one row's edit panel open at a time, keeps the list compact
   // (the whole point: more of the width goes to the 3D panel next to it).
   // Edits are staged in `editDraft` and only PATCHed on explicit Save —
-  // toggling a checkbox or picking a date must NOT write immediately.
+  // typing a percent or picking a date must NOT write immediately.
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [editDraft, setEditDraft] = useState<UpdateAssemblyProgressPayload>({})
 
@@ -77,21 +150,28 @@ export function ProgressAssemblyTable({
   }
   const closeEdit = () => setExpandedId(null)
 
-  // Bulk-select — set the same fields across many rows in one request
-  // instead of opening each row's edit panel one at a time.
+  // Bulk-select — set the same fields across many rows in one request.
+  // Pcs can't share one absolute count across rows with different qty, so
+  // bulk offers set-full flags the backend resolves per-row instead.
   const [bulkIds, setBulkIds] = useState<Set<number>>(new Set())
-  const [bulkDraft, setBulkDraft] = useState<UpdateAssemblyProgressPayload>({})
-  const [bulkTouched, setBulkTouched] = useState<Set<keyof UpdateAssemblyProgressPayload>>(new Set())
+  const [bulkDraft, setBulkDraft] = useState<BulkUpdateAssemblyProgressPayload>({})
+  const [bulkTouched, setBulkTouched] = useState<Set<keyof BulkUpdateAssemblyProgressPayload>>(new Set())
 
   const q = search.trim().toLowerCase()
   const visible = q ? rows.filter(r => r.mark.toLowerCase().includes(q)) : rows
 
+  // Three separate footer numbers matching the backend rollup exactly:
+  // fab weighted by weight_kg, load/erection by pieces (Σ/Σ).
   const totalWeight = rows.reduce((s, r) => s + (r.weight_kg ?? 0), 0)
-  const zonePct = totalWeight > 0
-    ? rows.reduce((s, r) => s + (r.weight_kg ?? 0) * r.pct, 0) / totalWeight
+  const fabPct = totalWeight > 0
+    ? rows.reduce((s, r) => s + (r.weight_kg ?? 0) * r.fab_pct, 0) / totalWeight
     : 0
+  const effQty = (r: ProgressZoneRow) => Math.max(1, Math.round(r.qty ?? 1))
+  const totalQty = rows.reduce((s, r) => s + effQty(r), 0)
+  const loadedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.loaded_pcs), 0)
+  const erectedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.erected_pcs), 0)
 
-  const setBulkField = <K extends keyof UpdateAssemblyProgressPayload>(field: K, value: UpdateAssemblyProgressPayload[K]) => {
+  const setBulkField = <K extends keyof BulkUpdateAssemblyProgressPayload>(field: K, value: BulkUpdateAssemblyProgressPayload[K]) => {
     setBulkDraft(d => ({ ...d, [field]: value }))
     setBulkTouched(t => new Set(t).add(field))
   }
@@ -104,7 +184,7 @@ export function ProgressAssemblyTable({
 
   const applyBulk = () => {
     if (!bulkTouched.size || !bulkIds.size) return
-    const payload: UpdateAssemblyProgressPayload = {}
+    const payload: BulkUpdateAssemblyProgressPayload = {}
     for (const field of bulkTouched) (payload as Record<string, unknown>)[field] = bulkDraft[field]
     onBulkUpdate([...bulkIds], payload)
     clearBulkSelection()
@@ -138,7 +218,7 @@ export function ProgressAssemblyTable({
       </div>
 
       {bulkIds.size > 0 && (
-        <div style={{ background: '#FCEBEB', borderBottom: '1px solid #F3C9CB', padding: '12px 14px', flexShrink: 0 }}>
+        <div style={{ background: '#FCEBEB', borderBottom: '1px solid #F3C9CB', padding: '12px 14px', flexShrink: 0, overflowY: 'auto', maxHeight: 280 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: '#C8202A' }}>{bulkIds.size} selected</span>
             <span style={{ fontSize: 11.5, color: '#8E8E8E' }}>— set fields below, only the ones you touch get applied</span>
@@ -149,31 +229,21 @@ export function ProgressAssemblyTable({
               <X size={13} /> Clear
             </button>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 12px', marginBottom: 12 }}>
+            {FAB_STAGES.map(stage => (
+              <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
+                <PctInput
+                  placeholder="—"
+                  value={bulkTouched.has(stage) ? bulkDraft[stage] ?? '' : ''}
+                  onChange={e => setBulkField(stage, e.target.value === '' ? 0 : clampPct(Number(e.target.value)))}
+                  style={{ color: bulkTouched.has(stage) ? '#1A1A1A' : '#ABABAB' }}
+                />
+              </FieldGroup>
+            ))}
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16 }}>
-            <FieldGroup label="QC Inspection">
-              <label style={checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={bulkDraft.qc_inspection_pass ?? false}
-                  onChange={e => setBulkField('qc_inspection_pass', e.target.checked)}
-                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
-                />
-                <span>{bulkTouched.has('qc_inspection_pass') ? (bulkDraft.qc_inspection_pass ? 'Set: Passed' : 'Set: Not yet') : 'No change'}</span>
-              </label>
-            </FieldGroup>
-            <FieldGroup label="QC Final">
-              <label style={checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={bulkDraft.qc_final_pass ?? false}
-                  onChange={e => setBulkField('qc_final_pass', e.target.checked)}
-                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
-                />
-                <span>{bulkTouched.has('qc_final_pass') ? (bulkDraft.qc_final_pass ? 'Set: Passed' : 'Set: Not yet') : 'No change'}</span>
-              </label>
-            </FieldGroup>
             {DATE_FIELDS.map(field => (
-              <FieldGroup key={field} label={FIELD_LABEL[field]}>
+              <FieldGroup key={field} label={DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
@@ -182,6 +252,30 @@ export function ProgressAssemblyTable({
                 />
               </FieldGroup>
             ))}
+            {/* One absolute pcs count can't apply across rows with different
+                qty — bulk offers "full" only, resolved per-row server-side. */}
+            <FieldGroup label="Loaded">
+              <label style={checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={bulkDraft.set_loaded_full ?? false}
+                  onChange={e => setBulkField('set_loaded_full', e.target.checked)}
+                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
+                />
+                <span>{bulkTouched.has('set_loaded_full') && bulkDraft.set_loaded_full ? 'Set: full qty' : 'No change'}</span>
+              </label>
+            </FieldGroup>
+            <FieldGroup label="Erected">
+              <label style={checkboxRow}>
+                <input
+                  type="checkbox"
+                  checked={bulkDraft.set_erected_full ?? false}
+                  onChange={e => setBulkField('set_erected_full', e.target.checked)}
+                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
+                />
+                <span>{bulkTouched.has('set_erected_full') && bulkDraft.set_erected_full ? 'Set: full qty' : 'No change'}</span>
+              </label>
+            </FieldGroup>
             <button
               onClick={applyBulk}
               disabled={saving || !bulkTouched.size}
@@ -198,7 +292,7 @@ export function ProgressAssemblyTable({
       )}
 
       <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, minHeight: 0 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+        <table style={{ width: 'calc(100% - 10px)', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead>
             <tr>
               <th style={{ ...th, textAlign: 'center', width: 36 }}>
@@ -219,10 +313,10 @@ export function ProgressAssemblyTable({
           </thead>
           <tbody>
             {visible.map(r => {
-              const meta = STATUS_META[r.status]
               const matched = matchedAssemblyIds.has(r.assembly_id)
               const expanded = expandedId === r.assembly_id
               const checked = bulkIds.has(r.assembly_id)
+              const qty = effQty(r)
               return (
                 <Fragment key={r.assembly_id}>
                   <tr
@@ -246,16 +340,27 @@ export function ProgressAssemblyTable({
                         style={{ width: 15, height: 15, accentColor: '#C8202A', cursor: 'pointer' }}
                       />
                     </td>
-                    <td style={{ ...td, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontWeight: 600 }}>{r.mark}</td>
-                    <td style={{ ...td, textAlign: 'right', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E' }}>
+                    <td style={{ ...td, ...mono, fontWeight: 600 }}>{r.mark}</td>
+                    <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
                       {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
                     </td>
-                    <td style={td}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 84 }}>
-                        <div style={{ width: 46, height: 5, borderRadius: 99, background: '#EDEFF2', overflow: 'hidden', flexShrink: 0 }}>
-                          <div style={{ width: `${r.pct}%`, height: '100%', background: meta.color }} />
-                        </div>
-                        <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5, fontWeight: 700, width: 32, textAlign: 'right' }}>{r.pct}%</span>
+                    <td style={td} title={STATUS_META[r.status].label}>
+                      {/* Each chip's color is its own metric's completeness —
+                          not the row's single derived status — so all three
+                          phases stay independently scannable at a glance. */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <ProgressChip
+                          label="F" value={`${r.fab_pct}%`}
+                          color={metricColor(r.fab_pct >= 100, r.fab_pct > 0, STATUS_META.fabrication.dark, STATUS_META.fabrication.light)}
+                        />
+                        <ProgressChip
+                          label="L" value={`${r.load_pct}%`} title={`${r.loaded_pcs}/${qty} pcs loaded`}
+                          color={metricColor(r.loaded_pcs >= qty, r.loaded_pcs > 0, STATUS_META.load.dark, STATUS_META.load.light)}
+                        />
+                        <ProgressChip
+                          label="E" value={`${r.erect_pct}%`} title={`${r.erected_pcs}/${qty} pcs erected`}
+                          color={metricColor(r.erected_pcs >= qty, r.erected_pcs > 0, STATUS_META.done.light, STATUS_META.erection.light)}
+                        />
                       </div>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
@@ -297,33 +402,25 @@ export function ProgressAssemblyTable({
                     return (
                       <tr style={{ background: '#FAFAFA' }}>
                         <td colSpan={6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', columnGap: 20, rowGap: 14 }}>
-                            <FieldGroup label="QC Inspection">
-                              <label style={checkboxRow}>
-                                <input
-                                  type="checkbox"
-                                  checked={editDraft.qc_inspection_pass ?? false}
+                          {/* Fabrication — 10 weighted stages, percent each */}
+                          <div style={groupHeader}>Fabrication</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+                            {FAB_STAGES.map(stage => (
+                              <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
+                                <PctInput
+                                  value={editDraft[stage] ?? 0}
                                   disabled={saving}
-                                  onChange={e => setEditDraft(d => ({ ...d, qc_inspection_pass: e.target.checked }))}
-                                  style={{ width: 18, height: 18, accentColor: '#C8202A', cursor: 'pointer' }}
+                                  onChange={e => setEditDraft(d => ({ ...d, [stage]: e.target.value === '' ? 0 : clampPct(Number(e.target.value)) }))}
                                 />
-                                <span>{editDraft.qc_inspection_pass ? 'Passed' : 'Not yet'}</span>
-                              </label>
-                            </FieldGroup>
-                            <FieldGroup label="QC Final">
-                              <label style={checkboxRow}>
-                                <input
-                                  type="checkbox"
-                                  checked={editDraft.qc_final_pass ?? false}
-                                  disabled={saving}
-                                  onChange={e => setEditDraft(d => ({ ...d, qc_final_pass: e.target.checked }))}
-                                  style={{ width: 18, height: 18, accentColor: '#C8202A', cursor: 'pointer' }}
-                                />
-                                <span>{editDraft.qc_final_pass ? 'Passed' : 'Not yet'}</span>
-                              </label>
-                            </FieldGroup>
+                              </FieldGroup>
+                            ))}
+                          </div>
+
+                          {/* Transport — load dates + pieces loaded */}
+                          <div style={groupHeader}>Transport</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
                             {DATE_FIELDS.map(field => (
-                              <FieldGroup key={field} label={FIELD_LABEL[field]}>
+                              <FieldGroup key={field} label={DATE_LABEL[field]}>
                                 <input
                                   type="date"
                                   value={toInputDate((editDraft[field] as string | null) ?? null)}
@@ -333,7 +430,31 @@ export function ProgressAssemblyTable({
                                 />
                               </FieldGroup>
                             ))}
+                            <FieldGroup label={`${PCS_LABEL.loaded_pcs} / ${qty} pcs`}>
+                              <input
+                                type="number" min={0} max={qty}
+                                value={editDraft.loaded_pcs ?? 0}
+                                disabled={saving}
+                                onChange={e => setEditDraft(d => ({ ...d, loaded_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), r.qty) }))}
+                                style={numInput}
+                              />
+                            </FieldGroup>
                           </div>
+
+                          {/* Erection — pieces erected (full = done) */}
+                          <div style={groupHeader}>Erection</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
+                            <FieldGroup label={`${PCS_LABEL.erected_pcs} / ${qty} pcs`}>
+                              <input
+                                type="number" min={0} max={qty}
+                                value={editDraft.erected_pcs ?? 0}
+                                disabled={saving}
+                                onChange={e => setEditDraft(d => ({ ...d, erected_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), r.qty) }))}
+                                style={numInput}
+                              />
+                            </FieldGroup>
+                          </div>
+
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
                             <button
                               onClick={save}
@@ -374,8 +495,10 @@ export function ProgressAssemblyTable({
             <tfoot>
               <tr>
                 <td colSpan={6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
-                  {rows.length} assemblies · <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total · zone progress{' '}
-                  <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#1A1A1A' }}>{zonePct.toFixed(1)}%</b>
+                  {rows.length} assemblies · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total
+                  {' · '}fab <b style={{ ...mono, color: '#1A1A1A' }}>{fabPct.toFixed(1)}%</b>
+                  {' · '}load <b style={{ ...mono, color: '#1A1A1A' }} title={`${loadedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0}%</b>
+                  {' · '}erect <b style={{ ...mono, color: '#1A1A1A' }} title={`${erectedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((erectedPcs / totalQty) * 100) : 0}%</b>
                 </td>
               </tr>
             </tfoot>
