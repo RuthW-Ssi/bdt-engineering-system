@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getProgressOverview, getProgressZoneRows, getProgressBimMatch, getProgressProjectRows, getProgressProjectBimMatch,
-  updateAssemblyProgress, bulkUpdateAssemblyProgress,
+  getProgressPositions, updateAssemblyProgress, bulkUpdateAssemblyProgress,
 } from '../api/projectProgress'
-import type { UpdateAssemblyProgressPayload } from '../api/projectProgress'
+import type { UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 
 export function useProgressOverview(projectCode: string | undefined) {
   return useQuery({
@@ -50,6 +50,16 @@ export function useProgressProjectBimMatch(projectCode: string | undefined, enab
   })
 }
 
+// Overview's Zone/Position toggle — only fetched once the user actually
+// switches to the Position view, same lazy pattern as the BIM match hooks.
+export function useProgressPositions(projectCode: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['project-progress', 'positions', projectCode],
+    queryFn: () => getProgressPositions(projectCode!),
+    enabled: !!projectCode && enabled,
+  })
+}
+
 export function useUpdateAssemblyProgress(projectCode: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
@@ -69,7 +79,7 @@ export function useUpdateAssemblyProgress(projectCode: string | undefined) {
 export function useBulkUpdateAssemblyProgress(projectCode: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ assemblyIds, payload }: { assemblyIds: number[]; payload: UpdateAssemblyProgressPayload }) =>
+    mutationFn: ({ assemblyIds, payload }: { assemblyIds: number[]; payload: BulkUpdateAssemblyProgressPayload }) =>
       bulkUpdateAssemblyProgress(projectCode!, assemblyIds, payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
