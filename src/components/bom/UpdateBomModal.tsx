@@ -247,10 +247,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>.nc1 files from Tekla</span>
           </label>
           <FileDropzone
-            maxFiles={200}
+            maxFiles={1500}
             currentCount={ncFiles.length}
             acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 200 files"
+            hint=".nc1 · max 20 MB / file · up to 1500 files"
             onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
             disabled={false}
           />
