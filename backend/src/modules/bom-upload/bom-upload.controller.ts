@@ -60,7 +60,7 @@ export class BomUploadController {
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 200 }],
+    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 1500 }],
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async upload(
