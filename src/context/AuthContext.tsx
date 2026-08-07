@@ -1,11 +1,19 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 
+export interface ModulePermission {
+  view: boolean
+  create: boolean
+  update: boolean
+  delete: boolean
+}
+
 export interface AuthUser {
   id: number
   login: string
   name: string
   role: string
+  permissions: Record<string, ModulePermission>
 }
 
 interface AuthContextValue {

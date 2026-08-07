@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcryptjs'
 import { PrismaService } from '../../prisma/prisma.service'
+import { getPermissionMap, ModulePermission } from '../../common/permissions/permission-map'
 import { LoginDto } from './dto/login.dto'
 
 export interface JwtPayload {
@@ -24,7 +25,10 @@ export class AuthService {
     return value.replace(/[\x00-\x1F\x7F]/g, '')
   }
 
-  async login(dto: LoginDto): Promise<{ access_token: string; user: { id: number; login: string; name: string; role: string } }> {
+  async login(dto: LoginDto): Promise<{
+    access_token: string
+    user: { id: number; login: string; name: string; role: string; permissions: Record<string, ModulePermission> }
+  }> {
     const user = await this.prisma.res_users.findFirst({
       where: { login: dto.login, active: true },
     })
@@ -40,9 +44,10 @@ export class AuthService {
     }
 
     const payload: JwtPayload = { sub: user.id, login: user.login, role: user.role }
+    const permissions = await getPermissionMap(this.prisma, user.id, user.role)
     return {
       access_token: this.jwt.sign(payload),
-      user: { id: user.id, login: user.login, name: user.name, role: user.role },
+      user: { id: user.id, login: user.login, name: user.name, role: user.role, permissions },
     }
   }
 
@@ -52,6 +57,7 @@ export class AuthService {
       select: { id: true, login: true, name: true, email: true, role: true, lang: true, tz: true },
     })
     if (!user) throw new UnauthorizedException('User not found')
-    return user
+    const permissions = await getPermissionMap(this.prisma, user.id, user.role)
+    return { ...user, permissions }
   }
 }
