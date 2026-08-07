@@ -1,14 +1,15 @@
 import {
   Controller, Post, Get, Body, Query, Res, UploadedFile, UseInterceptors,
-  BadRequestException, NotFoundException,
+  BadRequestException, NotFoundException, UseGuards,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
-import { ApiTags, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger'
 import { Response } from 'express'
 import { diskStorage } from 'multer'
 import * as path from 'path'
 import * as fs from 'fs'
 import { FileStorageService } from './file-storage.service'
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 
 interface MulterFile {
   fieldname: string
@@ -21,6 +22,8 @@ interface MulterFile {
 }
 
 @ApiTags('file-storage')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('file-storage')
 export class FileStorageController {
   constructor(private readonly svc: FileStorageService) {}

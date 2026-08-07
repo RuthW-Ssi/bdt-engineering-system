@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Loader2, Send, ArrowDownLeft, Package, Clock } from 'lucide-react'
 import { toast } from 'sonner'
 import { useMaterial, useMaterialAction, useMaterialMessages } from '../hooks/useMaterials'
+import { usePermission } from '../hooks/usePermission'
 
 // ── State display ─────────────────────────────────────────────────
 const STATE_META: Record<string, { label: string; bg: string; text: string }> = {
@@ -60,7 +61,8 @@ export function MaterialDetail() {
   const { data: messages } = useMaterialMessages(code ?? '')
 
   const stateMeta = STATE_META[mat?.state ?? 'draft'] ?? STATE_META.draft
-  const availableActions = ACTIONS_BY_STATE[mat?.state ?? ''] ?? []
+  const canUpdate = usePermission('materials', 'update')
+  const availableActions = canUpdate ? (ACTIONS_BY_STATE[mat?.state ?? ''] ?? []) : []
 
   async function handleAction(def: ActionDef) {
     try {

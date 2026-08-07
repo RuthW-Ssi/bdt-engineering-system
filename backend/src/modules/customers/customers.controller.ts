@@ -7,35 +7,41 @@ import { CreateCustomerDto } from './dto/create-customer.dto'
 import { UpdateCustomerDto } from './dto/update-customer.dto'
 import { QueryCustomerDto } from './dto/query-customer.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('customers')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly svc: CustomersService) {}
 
   @Post()
+  @RequiresPermission('customers', 'create')
   @ApiOperation({ summary: 'Create customer' })
   create(@Body() dto: CreateCustomerDto, @CurrentUser() user: JwtPayload) {
     return this.svc.create(dto, user.sub)
   }
 
   @Get()
+  @RequiresPermission('customers', 'view')
   @ApiOperation({ summary: 'List customers (paginated, filterable)' })
   findAll(@Query() query: QueryCustomerDto) {
     return this.svc.findAll(query)
   }
 
   @Get(':id')
+  @RequiresPermission('customers', 'view')
   @ApiOperation({ summary: 'Get customer by id' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
   }
 
   @Patch(':id')
+  @RequiresPermission('customers', 'update')
   @ApiOperation({ summary: 'Update customer' })
   update(
     @Param('id', ParseIntPipe) id: number,
@@ -46,6 +52,7 @@ export class CustomersController {
   }
 
   @Delete(':id')
+  @RequiresPermission('customers', 'delete')
   @ApiOperation({ summary: 'Archive customer (soft delete)' })
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.svc.remove(id, user.sub)

@@ -13,6 +13,7 @@ import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, Workflow, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { usePermission } from '../hooks/usePermission'
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
@@ -680,9 +681,10 @@ function InlineMatSearch({ onSelect, excludeIds }: {
 
 // ── ModalActivityLib ────────────────────────────────────────────
 
-function ModalActivityLib({ addedIds, onAdd }: {
+function ModalActivityLib({ addedIds, onAdd, canWrite }: {
   addedIds: Set<number>
   onAdd: (a: { localId: string; name: string; measure: string; unit: string; per_minute: string; formula_code?: string | null; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[]; ratio?: number | null; ratioUnit?: string | null; perTime?: number | null }) => void
+  canWrite: boolean
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -699,10 +701,12 @@ function ModalActivityLib({ addedIds, onAdd }: {
         <div style={{ fontSize: 12, fontWeight: 700, color: '#1F1F1F', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
           <BookOpen size={13} style={{ color: '#9E9E9E' }} />Activity Library
           <div style={{ flex: 1 }} />
-          <button onClick={() => navigate('/activity-library/new')}
-            style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #FFCDD2', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3, background: '#FFEBEE', color: '#C62828' }}>
-            <Plus size={10} />Create Activity
-          </button>
+          {canWrite && (
+            <button onClick={() => navigate('/activity-library/new')}
+              style={{ height: 22, padding: '0 8px', borderRadius: 4, border: '1px solid #FFCDD2', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 3, background: '#FFEBEE', color: '#C62828' }}>
+              <Plus size={10} />Create Activity
+            </button>
+          )}
         </div>
         <div style={{ position: 'relative' }}>
           <Search size={11} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#BDBDBD', pointerEvents: 'none' }} />
@@ -731,7 +735,7 @@ function ModalActivityLib({ addedIds, onAdd }: {
                       </div>
                       {added ? (
                         <span style={{ padding: '4px 10px', fontSize: 11, borderRadius: 4, background: '#E0E0E0', color: '#999', flexShrink: 0 }}>Added</span>
-                      ) : (
+                      ) : !canWrite ? null : (
                         <button onClick={() => onAdd({
                           localId: newLocalId(),
                           name: act.name,
@@ -779,9 +783,9 @@ interface InspModalForm {
   activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[]; ratio?: number | null; ratioUnit?: string | null; perTime?: number | null }>
 }
 
-interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null; opLibrary?: LibraryOpItem[] }
+interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null; opLibrary?: LibraryOpItem[]; canWrite: boolean }
 
-const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh }: InspectorDrawerProps) {
+const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh, canWrite }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
   const workcenters = useContext(WorkcenterCtx)
   const opTypes = useContext(OpTypeCtx)
@@ -947,10 +951,12 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
           )}
           <span style={{ fontSize: 12, color: '#BDBDBD' }}>→ Inspector</span>
           <div style={{ flex: 1 }} />
-          <button onClick={onDelete} title="Remove from canvas"
-            style={{ height: 32, padding: '0 12px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', fontSize: 12, fontWeight: 600, color: '#E53935', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <Trash2 size={12} />Remove
-          </button>
+          {canWrite && (
+            <button onClick={onDelete} title="Remove from canvas"
+              style={{ height: 32, padding: '0 12px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', fontSize: 12, fontWeight: 600, color: '#E53935', cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Trash2 size={12} />Remove
+            </button>
+          )}
           <button onClick={onClose} disabled={!canDone}
             style={{ height: 32, padding: '0 14px', borderRadius: 6, border: 'none', background: canDone ? headerColor : '#E0E0E0', color: canDone ? '#fff' : '#9E9E9E', fontSize: 12, fontWeight: 600, cursor: canDone ? 'pointer' : 'not-allowed', fontFamily: 'inherit', display: 'flex', alignItems: 'center', gap: 5 }}>
             <Check size={12} />{canDone ? 'Done' : 'Close'}
@@ -970,11 +976,12 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                 <div>
                   <div style={labelStyle}>Op Code *</div>
                   <input value={form.op_code} onChange={e => patch({ op_code: e.target.value.toUpperCase() })}
+                    disabled={!canWrite}
                     placeholder="OP-WELD-01" style={{ ...sInp, fontFamily: 'monospace' }} />
                 </div>
                 <div>
                   <div style={labelStyle}>Operation Name *</div>
-                  <input value={form.name} onChange={e => patch({ name: e.target.value })} placeholder="e.g. Weld main seam" style={sInp} />
+                  <input value={form.name} onChange={e => patch({ name: e.target.value })} disabled={!canWrite} placeholder="e.g. Weld main seam" style={sInp} />
                 </div>
               </div>
               <div>
@@ -982,7 +989,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                 <select value={form.op_type_id} onChange={e => {
                   const ot = opTypes.find(t => t.id === Number(e.target.value))
                   patch({ op_type_id: ot?.id ?? '', ...(ot?.default_wc && !form.workcenter_id ? { workcenter_id: ot.default_wc.id } : {}) })
-                }} style={{ ...sInp, cursor: 'pointer' }}>
+                }} disabled={!canWrite} style={{ ...sInp, cursor: 'pointer' }}>
                   <option value="">— Select type —</option>
                   {opTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.label}</option>)}
                 </select>
@@ -996,6 +1003,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                 <div>
                   <div style={labelStyle}>Work Station *</div>
                   <select value={form.workcenter_id} onChange={e => patch({ workcenter_id: e.target.value ? Number(e.target.value) : '' })}
+                    disabled={!canWrite}
                     style={{ ...sInp, cursor: 'pointer', color: form.workcenter_id ? '#1F1F1F' : '#9E9E9E' }}>
                     <option value="">{wcCategory && categoryWorkcenters.length > 0 ? `— Select (${wcCategory}) —` : '— Select —'}</option>
                     {workcenterOptions.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
@@ -1013,12 +1021,12 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                 <div>
                   <div style={labelStyle}>Method</div>
                   {selectedOt?.method_options?.length ? (
-                    <select value={form.method} onChange={e => patch({ method: e.target.value })} style={{ ...sInp, cursor: 'pointer' }}>
+                    <select value={form.method} onChange={e => patch({ method: e.target.value })} disabled={!canWrite} style={{ ...sInp, cursor: 'pointer' }}>
                       <option value="">— Select —</option>
                       {selectedOt.method_options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                     </select>
                   ) : (
-                    <input value={form.method} onChange={e => patch({ method: e.target.value })} placeholder="e.g. SMAW, FCAW…" style={sInp} />
+                    <input value={form.method} onChange={e => patch({ method: e.target.value })} disabled={!canWrite} placeholder="e.g. SMAW, FCAW…" style={sInp} />
                   )}
                 </div>
               </div>
@@ -1068,28 +1076,34 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
-                            <button onClick={() => act.source_activity_template_id && onEditActivity?.(act.source_activity_template_id)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
-                              <Pencil size={11} />
-                            </button>
-                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
-                              <X size={12} />
-                            </button>
+                            {canWrite && (
+                              <button onClick={() => act.source_activity_template_id && onEditActivity?.(act.source_activity_template_id)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
+                                <Pencil size={11} />
+                              </button>
+                            )}
+                            {canWrite && (
+                              <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
+                                <X size={12} />
+                              </button>
+                            )}
                           </div>
                         ) : isEditing ? (
                           /* Manual activity — edit mode (toggled by pencil) */
                           <div style={{ display: 'grid', gridTemplateColumns: COL_LIB, gap: 6, alignItems: 'center', background: '#FFF8E1', padding: '7px 8px', borderLeft: '3px solid #FFD54F' }}>
-                            <input value={act.name} onChange={e => patchAct(act.localId, { name: e.target.value })}
+                            <input value={act.name} onChange={e => patchAct(act.localId, { name: e.target.value })} disabled={!canWrite}
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 7px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
-                            <input type="number" min={0} step="0.01" value={act.per_minute} onChange={e => patchAct(act.localId, { per_minute: e.target.value })}
+                            <input type="number" min={0} step="0.01" value={act.per_minute} onChange={e => patchAct(act.localId, { per_minute: e.target.value })} disabled={!canWrite}
                               style={{ fontSize: 11, border: '1px solid #E8E8E8', borderRadius: 4, padding: '4px 5px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="0" />
                             <button onClick={() => setEditingActId(null)} title="Done"
                               style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4CAF50', padding: 0, display: 'flex', justifyContent: 'center' }}>
                               <Check size={12} />
                             </button>
-                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
-                              <X size={12} />
-                            </button>
+                            {canWrite && (
+                              <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                                <X size={12} />
+                              </button>
+                            )}
                           </div>
                         ) : (
                           /* Manual activity — display mode (default) */
@@ -1105,13 +1119,17 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0', paddingTop: act.ratio != null && act.perTime != null ? 1 : 0 }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
-                            <button onClick={() => setEditingActId(act.localId)} title="Edit"
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
-                              <Pencil size={11} />
-                            </button>
-                            <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
-                              <X size={12} />
-                            </button>
+                            {canWrite && (
+                              <button onClick={() => setEditingActId(act.localId)} title="Edit"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#90A4AE', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
+                                <Pencil size={11} />
+                              </button>
+                            )}
+                            {canWrite && (
+                              <button onClick={() => removeAct(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', paddingTop: act.ratio != null && act.perTime != null ? 2 : 0 }}>
+                                <X size={12} />
+                              </button>
+                            )}
                           </div>
                         )}
 
@@ -1271,7 +1289,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
               ratio:                      act.ratio ?? null,
               ratioUnit:                  act.ratioUnit ?? null,
               perTime:                    act.perTime ?? null,
-            }] })} />
+            }] })} canWrite={canWrite} />
           </div>
         </div>
 
@@ -1293,7 +1311,6 @@ function LeftPanel() {
 // ── OpLibraryPanel ────────────────────────────────────────────
 
 function OpLibraryPanel() {
-  const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
 
@@ -1396,12 +1413,6 @@ function OpLibraryPanel() {
         )}
       </div>
 
-      <div style={{ padding: '6px 8px 8px', borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
-        <button onClick={() => navigate('/operation-library/new')}
-          style={{ width: '100%', height: 30, borderRadius: 6, border: 'none', background: '#C8202A', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
-          <BookOpen size={12} />New to Library
-        </button>
-      </div>
     </div>
   )
 }
@@ -1628,6 +1639,9 @@ function RoutingBuilderInner() {
   const { id: paramId } = useParams<{ id?: string }>()
   const isEdit = Boolean(paramId)
   const templateId = paramId ? Number(paramId) : null
+  const canCreate = usePermission('routings', 'create')
+  const canUpdate = usePermission('routings', 'update')
+  const canWriteTemplate = isEdit ? canUpdate : canCreate
   const { screenToFlowPosition, setNodes, getNodes, setCenter, getNode, fitView, fitBounds } = useReactFlow()
 
   const [code, setCode] = useState('')
@@ -2307,21 +2321,23 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
               }}>
                 {previewMode ? <Eye size={13} /> : <EyeOff size={13} />}Simulation
               </button>
-              <button
-                onClick={() => saveMutation.mutate()}
-                disabled={!canSave || saveMutation.isPending}
-                title={!canSave
-                  ? (!code.trim() && !isEdit ? 'Enter code first' : !templateName.trim() ? 'Enter template name first' : opNodes.length === 0 ? 'Add at least 1 operation' : 'Complete all required operation fields (*)')
-                  : undefined}
-                style={{
-                  height: 34, padding: '0 18px', borderRadius: 6, fontSize: 13, fontWeight: 600,
-                  background: canSave ? '#C8202A' : '#E0E0E0',
-                  color: canSave ? '#fff' : '#9E9E9E',
-                  border: 'none', cursor: canSave ? 'pointer' : 'not-allowed',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                <Save size={14} />{saveMutation.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Template'}
-              </button>
+              {canWriteTemplate && (
+                <button
+                  onClick={() => saveMutation.mutate()}
+                  disabled={!canSave || saveMutation.isPending}
+                  title={!canSave
+                    ? (!code.trim() && !isEdit ? 'Enter code first' : !templateName.trim() ? 'Enter template name first' : opNodes.length === 0 ? 'Add at least 1 operation' : 'Complete all required operation fields (*)')
+                    : undefined}
+                  style={{
+                    height: 34, padding: '0 18px', borderRadius: 6, fontSize: 13, fontWeight: 600,
+                    background: canSave ? '#C8202A' : '#E0E0E0',
+                    color: canSave ? '#fff' : '#9E9E9E',
+                    border: 'none', cursor: canSave ? 'pointer' : 'not-allowed',
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                  <Save size={14} />{saveMutation.isPending ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Template'}
+                </button>
+              )}
             </div>
 
             <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
@@ -2396,6 +2412,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                   onEditActivity={setEditingActivityId}
                   pendingActivityRefresh={pendingActivityRefresh}
                   opLibrary={opLibrary}
+                  canWrite={canWriteTemplate}
                 />
               )}
             </div>

@@ -10,6 +10,7 @@ import { useProjectSelection } from '../hooks/useProjectSelection'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto } from '../api/dispatches'
+import { usePermission } from '../hooks/usePermission'
 
 type ContentTab = 'tree' | 'assemblies' | 'parts' | 'paint'
 
@@ -476,6 +477,7 @@ function DispatchGroup({
 // ── Main page ─────────────────────────────────────────────────
 export function BomList() {
   const navigate = useNavigate()
+  const canWrite = usePermission('boms', 'create')
   const [searchParams, setSearchParams] = useSearchParams()
   const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
   const location = useLocation()
@@ -690,7 +692,7 @@ export function BomList() {
           >
             <RefreshCw size={14} />
           </button>
-          {allItems.length > 0 && selectedId ? (
+          {!canWrite ? null : allItems.length > 0 && selectedId ? (
             <button
               onClick={() => setShowModal(true)}
               className="flex items-center gap-1.5 rounded-md text-white"
@@ -814,13 +816,15 @@ export function BomList() {
         <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
           <Package size={40} style={{ opacity: 0.2 }} />
           <div style={{ fontSize: 14, fontWeight: 500 }}>No BOM dispatches yet</div>
-          <button
-            onClick={() => navigate('/bom/upload')}
-            className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', marginTop: 8 }}
-          >
-            <Upload size={14} />Upload First BOM
-          </button>
+          {canWrite && (
+            <button
+              onClick={() => navigate('/bom/upload')}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', marginTop: 8 }}
+            >
+              <Upload size={14} />Upload First BOM
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex flex-1" style={{ overflow: 'hidden', minHeight: 0 }}>

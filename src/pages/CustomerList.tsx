@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Plus, Search, Pencil, Trash2, Loader2, Building2, Mail, Phone, MapPin } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCustomers, useCreateCustomer, useUpdateCustomer, useDeleteCustomer } from '../hooks/useCustomers'
+import { usePermission } from '../hooks/usePermission'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import type { Customer, CreateCustomerPayload } from '../api/customers'
@@ -12,10 +13,14 @@ function CustomerCard({
   c,
   onEdit,
   onDelete,
+  canUpdate,
+  canDelete,
 }: {
   c: Customer
   onEdit: (c: Customer) => void
   onDelete: (c: Customer) => void
+  canUpdate: boolean
+  canDelete: boolean
 }) {
   const [hovered, setHovered] = useState(false)
   return (
@@ -73,24 +78,30 @@ function CustomerCard({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
-        <button
-          onClick={() => onEdit(c)}
-          style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#8E8E8E' }}
-          onMouseEnter={e => (e.currentTarget.style.background = '#F0F0F0')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-        >
-          <Pencil size={14} />
-        </button>
-        <button
-          onClick={() => onDelete(c)}
-          style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#C8202A' }}
-          onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-        >
-          <Trash2 size={14} />
-        </button>
-      </div>
+      {(canUpdate || canDelete) && (
+        <div className="flex items-center gap-1" style={{ flexShrink: 0 }}>
+          {canUpdate && (
+            <button
+              onClick={() => onEdit(c)}
+              style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#8E8E8E' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#F0F0F0')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <Pencil size={14} />
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => onDelete(c)}
+              style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#C8202A' }}
+              onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -99,6 +110,9 @@ export function CustomerList() {
   const [search, setSearch] = useState('')
   const [modal, setModal] = useState<{ open: boolean; editing: Customer | null }>({ open: false, editing: null })
   const [form, setForm] = useState<CreateCustomerPayload>(EMPTY)
+  const canCreate = usePermission('customers', 'create')
+  const canUpdate = usePermission('customers', 'update')
+  const canDelete = usePermission('customers', 'delete')
   const { data, isLoading } = useCustomers({ search: search || undefined, active: 'true', limit: 100 })
   const createMut = useCreateCustomer()
   const updateMut = useUpdateCustomer()
@@ -163,13 +177,15 @@ export function CustomerList() {
             {isLoading ? '...' : `${data?.total ?? 0} items`}
           </span>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
-        >
-          <Plus size={14} />Add Customer
-        </button>
+        {canCreate && (
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
+          >
+            <Plus size={14} />Add Customer
+          </button>
+        )}
       </div>
 
       {/* Search */}
@@ -197,7 +213,7 @@ export function CustomerList() {
           </div>
         ) : (
           items.map(c => (
-            <CustomerCard key={c.id} c={c} onEdit={openEdit} onDelete={handleDelete} />
+            <CustomerCard key={c.id} c={c} onEdit={openEdit} onDelete={handleDelete} canUpdate={canUpdate} canDelete={canDelete} />
           ))
         )}
       </div>

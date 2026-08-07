@@ -33,12 +33,14 @@ import {
 import { UpsertTemplateSnapshotDto } from './dto/upsert-template-snapshot.dto'
 import { OpTypeService, CreateOpTypeDto, UpdateOpTypeDto } from './services/op-type.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('Routings')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller()
 export class RoutingsController {
   constructor(
@@ -55,12 +57,14 @@ export class RoutingsController {
   // ── Routing per product ─────────────────────────────────────────
 
   @Get('products/:code/routing')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'Get routing operations for a product (template-merged)' })
   getRouting(@Param('code') code: string) {
     return this.routingService.findByProduct(code)
   }
 
   @Post('products/:code/routing')
+  @RequiresPermission('routings', 'create')
   @ApiOperation({ summary: 'Bind product to a routing template' })
   createRouting(
     @Param('code') code: string,
@@ -71,6 +75,7 @@ export class RoutingsController {
   }
 
   @Post('products/:code/routing/operations')
+  @RequiresPermission('routings', 'create')
   @ApiOperation({ summary: 'Add an operation to the bound routing template' })
   addOperation(
     @Param('code') code: string,
@@ -81,6 +86,7 @@ export class RoutingsController {
   }
 
   @Patch('products/:code/routing/operations/:opId')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Update template operation name / sequence / workcenter' })
   updateOperation(
     @Param('code') code: string,
@@ -92,6 +98,7 @@ export class RoutingsController {
   }
 
   @Delete('products/:code/routing/operations/:opId')
+  @RequiresPermission('routings', 'delete')
   @ApiOperation({ summary: 'Delete a template operation' })
   deleteOperation(
     @Param('code') code: string,
@@ -102,6 +109,7 @@ export class RoutingsController {
   }
 
   @Post('products/:code/routing/reorder')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Reorder template routing operations' })
   reorder(
     @Param('code') code: string,
@@ -112,18 +120,21 @@ export class RoutingsController {
   }
 
   @Post('products/:code/routing/action_activate')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Activate the bound routing template' })
   activate(@Param('code') code: string, @CurrentUser() user: JwtPayload) {
     return this.routingService.activate(code, user.sub)
   }
 
   @Post('products/:code/routing/action_obsolete')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Obsolete the bound routing template' })
   obsolete(@Param('code') code: string, @CurrentUser() user: JwtPayload) {
     return this.routingService.obsolete(code, user.sub)
   }
 
   @Post('products/:code/routing/recompute')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Recompute cycle time' })
   async recompute(@Param('code') code: string, @Query('force') force?: string) {
     const productId = await this.routingService.findProductId(code)
@@ -133,6 +144,7 @@ export class RoutingsController {
   // ── Rebind ──────────────────────────────────────────────────────
 
   @Post('products/:code/rebind')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Re-run binding rules to assign template to product' })
   async rebind(@Param('code') code: string) {
     const productId = await this.routingService.findProductId(code)
@@ -142,6 +154,7 @@ export class RoutingsController {
   // ── Std cost ────────────────────────────────────────────────────
 
   @Post('products/:code/std-cost/recompute')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Recompute standard production cost' })
   async recomputeStdCost(@Param('code') code: string) {
     const productId = await this.routingService.findProductId(code)
@@ -149,6 +162,7 @@ export class RoutingsController {
   }
 
   @Get('products/:code/std-cost')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'Get standard cost breakdown' })
   async getStdCost(@Param('code') code: string) {
     const productId = await this.routingService.findProductId(code)
@@ -173,6 +187,7 @@ export class RoutingsController {
   }
 
   @Post('routing-templates')
+  @RequiresPermission('routings', 'create')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Create a new routing template' })
   createRoutingTemplate(@Body() dto: CreateRoutingTemplateDto, @CurrentUser() user: JwtPayload) {
@@ -180,6 +195,7 @@ export class RoutingsController {
   }
 
   @Get('routing-templates/operations-library')
+  @RequiresPermission('routings', 'view')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'All operations across templates — for drag-and-reuse library' })
   getOperationsLibrary(@Query('search') search?: string) {
@@ -187,6 +203,7 @@ export class RoutingsController {
   }
 
   @Put('routing-templates/:id/snapshot')
+  @RequiresPermission('routings', 'update')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Full canvas snapshot save — atomic upsert of all ops + edges + metadata' })
   upsertTemplateSnapshot(
@@ -205,6 +222,7 @@ export class RoutingsController {
   }
 
   @Post('routing-templates/:id/operations')
+  @RequiresPermission('routings', 'create')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Add an operation to a routing template by template id' })
   addOperationToTemplate(
@@ -216,6 +234,7 @@ export class RoutingsController {
   }
 
   @Patch('routing-templates/:id/operations/:opId')
+  @RequiresPermission('routings', 'update')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Update an operation on a routing template' })
   updateTemplateOperation(
@@ -228,6 +247,7 @@ export class RoutingsController {
   }
 
   @Post('routing-templates/:id/reorder-ops')
+  @RequiresPermission('routings', 'update')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Atomically reorder all operations on a routing template' })
   reorderTemplateOps(@Param('id', ParseIntPipe) id: number, @Body() dto: ReorderOperationsDto) {
@@ -235,6 +255,7 @@ export class RoutingsController {
   }
 
   @Delete('routing-templates/:id/operations/:opId')
+  @RequiresPermission('routings', 'delete')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Delete an operation from a routing template' })
   deleteTemplateOperation(
@@ -245,6 +266,7 @@ export class RoutingsController {
   }
 
   @Patch('routing-templates/:id')
+  @RequiresPermission('routings', 'update')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Update routing template metadata' })
   updateRoutingTemplate(
@@ -256,6 +278,7 @@ export class RoutingsController {
   }
 
   @Delete('routing-templates/:id')
+  @RequiresPermission('routings', 'delete')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Delete a routing template' })
   async deleteRoutingTemplate(@Param('id', ParseIntPipe) id: number) {
@@ -266,12 +289,14 @@ export class RoutingsController {
   }
 
   @Get('routings/templates')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'List routing templates (legacy alias)' })
   listTemplates() {
     return this.routingService.listTemplates()
   }
 
   @Get('routings/:id')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'Get single routing operation by id' })
   getOne(@Param('id', ParseIntPipe) id: number) {
     return this.routingService.findOne(id)
@@ -280,6 +305,7 @@ export class RoutingsController {
   // ── Template history ────────────────────────────────────────────
 
   @Get('routing-templates/:id/history')
+  @RequiresPermission('routings', 'view')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Get change history for a routing template' })
   getTemplateHistory(
@@ -300,6 +326,7 @@ export class RoutingsController {
   // ── Binding rules ───────────────────────────────────────────────
 
   @Get('routing-template-binding-rules')
+  @RequiresPermission('routings', 'view')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'List routing template binding rules' })
   listBindingRules() {
@@ -307,6 +334,7 @@ export class RoutingsController {
   }
 
   @Post('routing-template-binding-rules')
+  @RequiresPermission('routings', 'create')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Create a binding rule' })
   createBindingRule(@Body() dto: CreateBindingRuleDto, @CurrentUser() user: JwtPayload) {
@@ -314,6 +342,7 @@ export class RoutingsController {
   }
 
   @Patch('routing-template-binding-rules/:id')
+  @RequiresPermission('routings', 'update')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Update a binding rule' })
   updateBindingRule(
@@ -325,6 +354,7 @@ export class RoutingsController {
   }
 
   @Delete('routing-template-binding-rules/:id')
+  @RequiresPermission('routings', 'delete')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Delete a binding rule' })
   deleteBindingRule(@Param('id', ParseIntPipe) id: number) {
@@ -332,6 +362,7 @@ export class RoutingsController {
   }
 
   @Post('routing-template-binding-rules/reorder')
+  @RequiresPermission('routings', 'update')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Reorder binding rules by updating priorities' })
   reorderBindingRules(@Body() dto: ReorderBindingRulesDto) {
@@ -339,6 +370,7 @@ export class RoutingsController {
   }
 
   @Post('routing-template-binding-rules/rebind-all')
+  @RequiresPermission('routings', 'update')
   @ApiTags('BindingRules')
   @ApiOperation({ summary: 'Re-run binding rules on all unbound products' })
   rebindAll() {
@@ -348,6 +380,7 @@ export class RoutingsController {
   // ── Template Simulator ──────────────────────────────────────────
 
   @Get('routing-templates/:id/required-attrs')
+  @RequiresPermission('routings', 'view')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'List attribute keys required by all formula params on this template' })
   getRequiredAttrs(@Param('id', ParseIntPipe) id: number) {
@@ -355,6 +388,7 @@ export class RoutingsController {
   }
 
   @Post('routing-templates/:id/simulate')
+  @RequiresPermission('routings', 'view')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Simulate cycle time for a template given arbitrary attributes' })
   simulateTemplate(
@@ -365,6 +399,7 @@ export class RoutingsController {
   }
 
   @Get('routing-templates/:id/fixtures')
+  @RequiresPermission('routings', 'view')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'List saved simulator fixtures for a template' })
   listFixtures(@Param('id', ParseIntPipe) id: number) {
@@ -372,6 +407,7 @@ export class RoutingsController {
   }
 
   @Post('routing-templates/:id/fixtures')
+  @RequiresPermission('routings', 'create')
   @ApiTags('RoutingTemplates')
   @ApiOperation({ summary: 'Save a simulator input set as a named fixture' })
   createFixture(
@@ -394,24 +430,28 @@ export class RoutingsController {
   // ── Op Types ────────────────────────────────────────────────────
 
   @Get('op-types')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'List operation types (palette source)' })
   listOpTypes(@Query('include_inactive') includeInactive?: string) {
     return this.opTypeService.findAll(includeInactive === 'true')
   }
 
   @Post('op-types')
+  @RequiresPermission('routings', 'create')
   @ApiOperation({ summary: 'Create a new operation type' })
   createOpType(@Body() dto: CreateOpTypeDto, @CurrentUser() user: JwtPayload) {
     return this.opTypeService.create(dto, user.sub)
   }
 
   @Patch('op-types/:id')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Update an operation type' })
   updateOpType(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOpTypeDto, @CurrentUser() user: JwtPayload) {
     return this.opTypeService.update(id, dto, user.sub)
   }
 
   @Delete('op-types/:id')
+  @RequiresPermission('routings', 'delete')
   @ApiOperation({ summary: 'Deactivate an operation type' })
   removeOpType(@Param('id', ParseIntPipe) id: number) {
     return this.opTypeService.remove(id)

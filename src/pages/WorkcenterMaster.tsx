@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { useNavigate } from 'react-router-dom'
 import { useWorkcenters, useWorkcenter } from '../hooks/useRoutings'
 import { useMachines } from '../hooks/useMachines'
+import { usePermission } from '../hooks/usePermission'
 import type { WorkcenterDTO } from '../api/routings'
 
 // ── Station color by name ──────────────────────────────────────
@@ -509,6 +510,8 @@ const COLS = '160px 1fr 80px 110px 80px 100px 36px'
 
 export function WorkcenterMaster() {
   const navigate = useNavigate()
+  const canCreate = usePermission('routings', 'create')
+  const canUpdate = usePermission('routings', 'update')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
   const [search, setSearch] = useState('')
@@ -548,10 +551,12 @@ export function WorkcenterMaster() {
           <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Work Centers</div>
           <div style={{ fontSize: 11, color: '#9E9E9E' }}>Stations and machines — OEE and cost parameters</div>
         </div>
-        <button onClick={() => setCreating(true)}
-          style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Plus size={14} />New Work Center
-        </button>
+        {canCreate && (
+          <button onClick={() => setCreating(true)}
+            style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Plus size={14} />New Work Center
+          </button>
+        )}
       </div>
 
       {/* Filter bar */}
@@ -670,12 +675,14 @@ export function WorkcenterMaster() {
                       </div>
 
                       {/* Edit */}
-                      <button onClick={() => setEditingId(wc.id)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
-                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#185FA5'; (e.currentTarget as HTMLElement).style.background = '#E6F1FB' }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD'; (e.currentTarget as HTMLElement).style.background = 'none' }}>
-                        <Edit2 size={13} />
-                      </button>
+                      {canUpdate && (
+                        <button onClick={() => setEditingId(wc.id)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#185FA5'; (e.currentTarget as HTMLElement).style.background = '#E6F1FB' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD'; (e.currentTarget as HTMLElement).style.background = 'none' }}>
+                          <Edit2 size={13} />
+                        </button>
+                      )}
                     </div>
                   )
                 })}

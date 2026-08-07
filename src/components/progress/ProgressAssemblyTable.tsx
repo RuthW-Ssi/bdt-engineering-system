@@ -3,6 +3,7 @@ import { Search, Pencil, ChevronUp, X } from 'lucide-react'
 import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage } from '../../api/projectProgress'
 import { FAB_STAGES } from '../../api/projectProgress'
 import { STATUS_META } from './statusMeta'
+import { usePermission } from '../../hooks/usePermission'
 
 interface Props {
   rows: ProgressZoneRow[]
@@ -136,6 +137,7 @@ const groupHeader: React.CSSProperties = {
 export function ProgressAssemblyTable({
   rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, saving,
 }: Props) {
+  const canUpdate = usePermission('project-tracking', 'update')
   const [search, setSearch] = useState('')
   // Accordion — one row's edit panel open at a time, keeps the list compact
   // (the whole point: more of the width goes to the 3D panel next to it).
@@ -276,17 +278,19 @@ export function ProgressAssemblyTable({
                 <span>{bulkTouched.has('set_erected_full') && bulkDraft.set_erected_full ? 'Set: full qty' : 'No change'}</span>
               </label>
             </FieldGroup>
-            <button
-              onClick={applyBulk}
-              disabled={saving || !bulkTouched.size}
-              style={{
-                font: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'white',
-                background: bulkTouched.size ? '#C8202A' : '#E0A6AA', border: 'none', borderRadius: 8,
-                padding: '8px 18px', cursor: bulkTouched.size ? 'pointer' : 'default', whiteSpace: 'nowrap',
-              }}
-            >
-              Apply to {bulkIds.size}
-            </button>
+            {canUpdate && (
+              <button
+                onClick={applyBulk}
+                disabled={saving || !bulkTouched.size}
+                style={{
+                  font: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'white',
+                  background: bulkTouched.size ? '#C8202A' : '#E0A6AA', border: 'none', borderRadius: 8,
+                  padding: '8px 18px', cursor: bulkTouched.size ? 'pointer' : 'default', whiteSpace: 'nowrap',
+                }}
+              >
+                Apply to {bulkIds.size}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -377,6 +381,7 @@ export function ProgressAssemblyTable({
                       )}
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
+                      {canUpdate && (
                       <button
                         onClick={e => { e.stopPropagation(); if (expanded) closeEdit(); else openEdit(r) }}
                         title={expanded ? 'Close' : 'Edit progress'}
@@ -390,6 +395,7 @@ export function ProgressAssemblyTable({
                       >
                         {expanded ? <ChevronUp size={13} /> : <Pencil size={12} />}
                       </button>
+                      )}
                     </td>
                   </tr>
                   {expanded && (() => {

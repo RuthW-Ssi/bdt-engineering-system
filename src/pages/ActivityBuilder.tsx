@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form'
 import { AlertCircle, X, Search } from 'lucide-react'
 import { toast } from 'sonner'
 import { useActivity, useCreateActivity, useUpdateActivity } from '../hooks/useActivities'
+import { usePermission } from '../hooks/usePermission'
 import { apiClient } from '../api/client'
 import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
 import { routingFormulaParamsApi, type RoutingFormulaParam } from '../api/routingFormulas'
@@ -357,6 +358,9 @@ interface Props {
 
 export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   const isEdit = activityId !== undefined
+  const canCreate = usePermission('routings', 'create')
+  const canUpdate = usePermission('routings', 'update')
+  const canSaveActivity = isEdit ? canUpdate : canCreate
 
   const [selectedConsumables, setSelectedConsumables] = useState<ConsumableEntry[]>([])
   const [selectedTools, setSelectedTools] = useState<ToolOption[]>([])
@@ -580,16 +584,18 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
               style={{ height: 36, padding: '0 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', fontSize: 13, color: '#555', cursor: 'pointer' }}>
               Cancel
             </button>
-            <button type="submit" form="activity-builder-form" disabled={isSubmitting}
-              style={{
-                height: 36, padding: '0 20px', borderRadius: 6, border: 'none',
-                background: isSubmitting ? '#E0E0E0' : '#C8202A',
-                color: isSubmitting ? '#9E9E9E' : '#fff',
-                fontSize: 13, fontWeight: 600,
-                cursor: isSubmitting ? 'not-allowed' : 'pointer',
-              }}>
-              {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Activity'}
-            </button>
+            {canSaveActivity && (
+              <button type="submit" form="activity-builder-form" disabled={isSubmitting}
+                style={{
+                  height: 36, padding: '0 20px', borderRadius: 6, border: 'none',
+                  background: isSubmitting ? '#E0E0E0' : '#C8202A',
+                  color: isSubmitting ? '#9E9E9E' : '#fff',
+                  fontSize: 13, fontWeight: 600,
+                  cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                }}>
+                {isSubmitting ? 'Saving…' : isEdit ? 'Save Changes' : 'Save Activity'}
+              </button>
+            )}
           </div>
         </div>
 

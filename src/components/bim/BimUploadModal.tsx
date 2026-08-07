@@ -3,7 +3,7 @@ import { X, Upload, Loader2, FileText } from 'lucide-react'
 import { FileDropzone } from '../bom/FileDropzone'
 
 const IFC_FORMATS = ['.ifc']
-const MAX_IFC_SIZE = 100_000_000 // 100MB — "start small" per design discussion; revisit if real exports run larger
+const MAX_IFC_SIZE = 120_000_000 // 120MB — raised from 100MB, real Tekla IFC exports running larger than the initial "start small" estimate
 
 interface Props {
   projectLabel: string
@@ -85,7 +85,7 @@ export function BimUploadModal({
             currentCount={0}
             acceptedFormats={IFC_FORMATS}
             maxSizeBytes={MAX_IFC_SIZE}
-            hint=".ifc (IFC2x3 / IFC4) · up to 100MB"
+            hint=".ifc (IFC2x3 / IFC4) · up to 120MB"
             onFilesAdded={accepted => setStagedFile(accepted[0] ?? null)}
             disabled={isUploading}
           />

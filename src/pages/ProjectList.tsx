@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { useProjects, useCreateProject } from '../hooks/useProjects'
 import { useCustomers } from '../hooks/useCustomers'
 import { useActiveProject } from '../context/ProjectContext'
+import { usePermission } from '../hooks/usePermission'
 import type { CreateProjectPayload } from '../api/projects'
 import type { ProjectDTO } from '../api/types'
 
@@ -137,6 +138,7 @@ export function ProjectList() {
   const { data, isLoading } = useProjects({ q: search || undefined, state: stateFilter || undefined, limit: 100 })
   const { data: customersData } = useCustomers({ active: 'true', limit: 200 })
   const createMut = useCreateProject()
+  const canCreate = usePermission('projects', 'create')
 
   const items = data?.items ?? []
   const customers = customersData?.items ?? []
@@ -177,13 +179,15 @@ export function ProjectList() {
             {isLoading ? '...' : `${data?.total ?? 0} items`}
           </span>
         </div>
-        <button
-          onClick={openModal}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
-        >
-          <Plus size={14} />New Project
-        </button>
+        {canCreate && (
+          <button
+            onClick={openModal}
+            className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
+          >
+            <Plus size={14} />New Project
+          </button>
+        )}
       </div>
 
       {/* Filter bar */}

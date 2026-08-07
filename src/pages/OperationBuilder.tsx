@@ -8,6 +8,7 @@ import ActivityLibraryPanel from '../components/operations/ActivityLibraryPanel'
 import { useOperationTemplate, useUpdateFromLibrary } from '../hooks/useOperationTemplates'
 import { ActivityBuilderModal } from './ActivityBuilder'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { usePermission } from '../hooks/usePermission'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -81,6 +82,10 @@ export default function OperationBuilder() {
   const { id: paramId } = useParams<{ id?: string }>()
   const isEdit = Boolean(paramId)
   const templateId = paramId ? Number(paramId) : null
+  const canCreate = usePermission('routings', 'create')
+  const canUpdate = usePermission('routings', 'update')
+  const canDeleteOp = usePermission('routings', 'delete')
+  const canSaveDraft = isEdit ? canUpdate : canCreate
 
   const [editingActivity, setEditingActivity] = useState<{ sourceId: number; opActId: number } | null>(null)
   const [form, setForm] = useState<FormState>({
@@ -278,24 +283,28 @@ export default function OperationBuilder() {
         )}
         <div style={{ flex: 1 }} />
 
-        {isEdit && (
+        {isEdit && canDeleteOp && (
           <button onClick={handleDelete} disabled={isPending || deleteMut.isPending}
             style={{ height: 34, padding: '0 14px', borderRadius: 6, border: '1px solid #FFCDD2', background: '#FFF5F5', color: '#C8202A', fontSize: 13, fontWeight: 500, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             <Trash2 size={13} />Delete
           </button>
         )}
 
-        <button onClick={() => saveMut.mutate()} disabled={!form.name.trim() || isPending}
-          title={!form.name.trim() ? 'Enter name first' : undefined}
-          style={{ height: 34, padding: '0 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', color: form.name.trim() ? '#555' : '#BDBDBD', fontSize: 13, fontWeight: 500, cursor: form.name.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Save size={13} />Save Draft
-        </button>
+        {canSaveDraft && (
+          <button onClick={() => saveMut.mutate()} disabled={!form.name.trim() || isPending}
+            title={!form.name.trim() ? 'Enter name first' : undefined}
+            style={{ height: 34, padding: '0 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: '#fff', color: form.name.trim() ? '#555' : '#BDBDBD', fontSize: 13, fontWeight: 500, cursor: form.name.trim() ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Save size={13} />Save Draft
+          </button>
+        )}
 
-        <button onClick={() => publishMut.mutate()} disabled={!canPublish(form) || isPending}
-          title={!canPublish(form) ? 'Complete all required fields before publishing' : undefined}
-          style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: canPublish(form) ? '#C8202A' : '#E0E0E0', color: canPublish(form) ? '#fff' : '#9E9E9E', fontSize: 13, fontWeight: 600, cursor: canPublish(form) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Check size={13} />{isPending ? 'Saving…' : 'Publish to Library'}
-        </button>
+        {canUpdate && (
+          <button onClick={() => publishMut.mutate()} disabled={!canPublish(form) || isPending}
+            title={!canPublish(form) ? 'Complete all required fields before publishing' : undefined}
+            style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: canPublish(form) ? '#C8202A' : '#E0E0E0', color: canPublish(form) ? '#fff' : '#9E9E9E', fontSize: 13, fontWeight: 600, cursor: canPublish(form) ? 'pointer' : 'not-allowed', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Check size={13} />{isPending ? 'Saving…' : 'Publish to Library'}
+          </button>
+        )}
       </div>
 
       {/* 2-column body */}
@@ -421,6 +430,7 @@ export default function OperationBuilder() {
                             <div style={{ fontSize: 12, fontFamily: 'monospace', fontWeight: 600, color: estMin != null ? '#185FA5' : '#C0C0C0' }}>
                               {estMin != null ? fmtMin(+estMin.toFixed(2)) : '—'}
                             </div>
+                            {canUpdate && (
                             <button type="button"
                               onClick={() => act.source_activity_id && act.id !== undefined && setEditingActivity({ sourceId: act.source_activity_id, opActId: act.id })}
                               title="Edit activity" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
@@ -428,9 +438,12 @@ export default function OperationBuilder() {
                               onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}>
                               <Pencil size={12} />
                             </button>
-                            <button onClick={() => removeActivity(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
-                              <X size={13} />
-                            </button>
+                            )}
+                            {canUpdate && (
+                              <button onClick={() => removeActivity(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                                <X size={13} />
+                              </button>
+                            )}
                           </div>
                         ) : (
                           /* Legacy manual editable row */
@@ -439,9 +452,11 @@ export default function OperationBuilder() {
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '5px 8px', background: '#fff', outline: 'none', fontFamily: 'inherit', width: '100%', boxSizing: 'border-box' }} />
                             <input type="number" min={0} value={act.per_minute} onChange={e => patchActivity(act.localId, { per_minute: e.target.value })}
                               style={{ fontSize: 12, border: '1px solid #E8E8E8', borderRadius: 4, padding: '5px 6px', background: '#fff', outline: 'none', fontFamily: 'monospace', width: '100%', boxSizing: 'border-box' }} placeholder="0" />
-                            <button onClick={() => removeActivity(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
-                              <X size={13} />
-                            </button>
+                            {canUpdate && (
+                              <button onClick={() => removeActivity(act.localId)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 0, display: 'flex', justifyContent: 'center' }}>
+                                <X size={13} />
+                              </button>
+                            )}
                           </div>
                         )}
 

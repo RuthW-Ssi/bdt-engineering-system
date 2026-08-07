@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, Loader2, Save } from 'lucide-react'
 import { toast } from 'sonner'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { usePermission } from '../hooks/usePermission'
 import {
   getBindingRules,
   createBindingRule,
@@ -15,6 +16,8 @@ import type { BindingRuleDTO } from '../api/routings'
 export function BindingRuleManager() {
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const canCreate = usePermission('routings', 'create')
+  const canDelete = usePermission('routings', 'delete')
   const rulesKey = ['binding-rules']
 
   const { data: rules = [], isLoading } = useQuery({ queryKey: rulesKey, queryFn: getBindingRules })
@@ -66,17 +69,19 @@ export function BindingRuleManager() {
         </button>
         <span style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Routing Template Binding Rules</span>
         <div className="flex-1" />
-        <button
-          onClick={() => setShowForm(s => !s)}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 34, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
-        >
-          <Plus size={13} /> Add Rule
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setShowForm(s => !s)}
+            className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 34, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#185FA5' }}
+          >
+            <Plus size={13} /> Add Rule
+          </button>
+        )}
       </div>
 
       {/* Add form */}
-      {showForm && (
+      {showForm && canCreate && (
         <div className="bg-white rounded-lg border border-chrome-100 mb-4" style={{ padding: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 10, color: '#1F1F1F' }}>Add Binding Rule</div>
           <div className="flex flex-wrap gap-3 mb-3">
@@ -180,22 +185,24 @@ export function BindingRuleManager() {
               }</span>
               <span className="font-mono" style={{ fontWeight: 600 }}>{rule.match_mark_prefix ?? <span style={{ color: '#C2C2C2' }}>—</span>}</span>
               <span style={{ fontWeight: 600, color: '#1F1F1F' }}>{rule.routing_template?.code} <span style={{ fontWeight: 400, color: '#8E8E8E', fontSize: 11 }}>— {rule.routing_template?.name}</span></span>
-              <button
-                onClick={async () => {
-                  const ok = await confirm({
-                    title: 'Delete binding rule?',
-                    message: rule.description ? `Rule "${rule.description}" will be permanently deleted.` : 'This binding rule will be permanently deleted.',
-                    variant: 'danger',
-                    confirmLabel: 'Delete',
-                  })
-                  if (ok) deleteMut.mutate(rule.id)
-                }}
-                disabled={deleteMut.isPending}
-                className="flex items-center justify-center rounded hover:bg-red-50"
-                style={{ width: 28, height: 28 }}
-              >
-                {deleteMut.isPending ? <Loader2 size={12} className="animate-spin" style={{ color: '#C8202A' }} /> : <Trash2 size={12} style={{ color: '#C8202A' }} />}
-              </button>
+              {canDelete && (
+                <button
+                  onClick={async () => {
+                    const ok = await confirm({
+                      title: 'Delete binding rule?',
+                      message: rule.description ? `Rule "${rule.description}" will be permanently deleted.` : 'This binding rule will be permanently deleted.',
+                      variant: 'danger',
+                      confirmLabel: 'Delete',
+                    })
+                    if (ok) deleteMut.mutate(rule.id)
+                  }}
+                  disabled={deleteMut.isPending}
+                  className="flex items-center justify-center rounded hover:bg-red-50"
+                  style={{ width: 28, height: 28 }}
+                >
+                  {deleteMut.isPending ? <Loader2 size={12} className="animate-spin" style={{ color: '#C8202A' }} /> : <Trash2 size={12} style={{ color: '#C8202A' }} />}
+                </button>
+              )}
             </div>
           ))
         )}

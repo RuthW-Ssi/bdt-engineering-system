@@ -10,6 +10,8 @@ import { CuttingPlanService, CuttingPlanFileInput, CuttingPlanUploadFields } fro
 import { QueryCuttingPlanDto } from './dto/query-cutting-plan.dto'
 import { BulkAssignOrderPartProjectCodeDto } from './dto/bulk-assign-order-part-project-code.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
 
@@ -36,12 +38,13 @@ const UPLOAD_BODY_SCHEMA = {
 
 @ApiTags('cutting-plan')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('cutting-plan')
 export class CuttingPlanController {
   constructor(private readonly svc: CuttingPlanService) {}
 
   @Post('upload/preview')
+  @RequiresPermission('cutting-plan', 'create')
   @ApiOperation({ summary: 'Parse uploaded cutting-plan .txt reports via the external API — no DB writes' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: UPLOAD_BODY_SCHEMA })
@@ -54,6 +57,7 @@ export class CuttingPlanController {
   }
 
   @Post('upload')
+  @RequiresPermission('cutting-plan', 'create')
   @ApiOperation({ summary: 'Parse + persist uploaded cutting-plan .txt reports' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: UPLOAD_BODY_SCHEMA })
@@ -67,24 +71,28 @@ export class CuttingPlanController {
   }
 
   @Get()
+  @RequiresPermission('cutting-plan', 'view')
   @ApiOperation({ summary: 'List cutting plan uploads' })
   async list(@Query() query: QueryCuttingPlanDto) {
     return this.svc.list(query)
   }
 
   @Get(':id')
+  @RequiresPermission('cutting-plan', 'view')
   @ApiOperation({ summary: 'Get one cutting plan upload with its full parsed data' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
   }
 
   @Patch('order-parts/project-code')
+  @RequiresPermission('cutting-plan', 'update')
   @ApiOperation({ summary: 'Bulk-assign a project_code to one or more order_part rows (any upload)' })
   async bulkAssignOrderPartProjectCode(@Body() dto: BulkAssignOrderPartProjectCodeDto) {
     return this.svc.bulkAssignOrderPartProjectCode(dto)
   }
 
   @Delete(':id')
+  @RequiresPermission('cutting-plan', 'delete')
   @ApiOperation({ summary: 'Delete a cutting plan upload and all its parsed data' })
   async remove(@Param('id', ParseIntPipe) id: number) {
     return this.svc.remove(id)

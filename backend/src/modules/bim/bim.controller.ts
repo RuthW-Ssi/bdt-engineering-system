@@ -8,23 +8,27 @@ import { QueryLatestBimVersionDto } from './dto/query-latest-bim-version.dto'
 import { InitUploadDto } from './dto/init-upload.dto'
 import { CompleteUploadDto } from './dto/complete-upload.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('bim')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('bim-models')
 export class BimController {
   constructor(private readonly svc: BimService) {}
 
   @Get()
+  @RequiresPermission('bim', 'view')
   @ApiOperation({ summary: 'List uploaded BIM models, optionally scoped to a project' })
   list(@Query() query: QueryBimModelsDto) {
     return this.svc.list({ projectId: query.project_id })
   }
 
   @Get('latest-version')
+  @RequiresPermission('bim', 'view')
   @ApiOperation({ summary: 'Latest major.minor version already uploaded for a project — null fields if none yet' })
   getLatestVersion(@Query() query: QueryLatestBimVersionDto) {
     return this.svc.getLatestVersion(query.project_id)
@@ -37,6 +41,7 @@ export class BimController {
   // well under real IFC file sizes; confirmed 2026-07-21 this was the
   // actual cause of 413s on the deployed app despite our own 100MB limit.
   @Post('upload-init')
+  @RequiresPermission('bim', 'create')
   @ApiOperation({ summary: 'Step 1: get a signed OSS upload URL — the browser PUTs the file directly to it, bypassing this backend' })
   initUpload(@Body() dto: InitUploadDto) {
     if (!dto.filename.toLowerCase().endsWith('.ifc')) {
@@ -46,6 +51,7 @@ export class BimController {
   }
 
   @Post('upload-complete')
+  @RequiresPermission('bim', 'create')
   @ApiOperation({ summary: 'Step 2: call after the browser\'s direct PUT succeeds — creates the bim_model row and kicks off translation' })
   completeUpload(@Body() dto: CompleteUploadDto, @CurrentUser() user: JwtPayload) {
     return this.svc.completeUpload(
@@ -60,6 +66,7 @@ export class BimController {
   }
 
   @Post(':id/retry')
+  @RequiresPermission('bim', 'update')
   @ApiOperation({ summary: 'Re-run translation for an already-uploaded model (no re-upload needed)' })
   retry(@Param('id', ParseIntPipe) id: number) {
     return this.svc.retry(id)

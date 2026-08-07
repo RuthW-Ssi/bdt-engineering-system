@@ -5,6 +5,7 @@ import { LogPmModal } from './LogPmModal'
 import { ChangeStatusModal } from './ChangeStatusModal'
 import { CloseRepairTicketModal } from './CloseRepairTicketModal'
 import type { MachineDetail, RepairTicket } from '../../api/machines'
+import { usePermission } from '../../hooks/usePermission'
 
 interface Props {
   machine: MachineDetail
@@ -13,6 +14,8 @@ interface Props {
 
 export function ActionButtons({ machine, openTicket }: Props) {
   const [modal, setModal] = useState<'repair' | 'pm' | 'status' | 'close' | null>(null)
+  const canCreate = usePermission('machines', 'create')
+  const canUpdate = usePermission('machines', 'update')
 
   const close = () => setModal(null)
 
@@ -20,22 +23,26 @@ export function ActionButtons({ machine, openTicket }: Props) {
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
       {machine.current_status === 'OPERATIONAL' && (
         <>
-          <button onClick={() => setModal('repair')} style={btnStyle('#dc2626')}>
-            <Wrench size={14} /> Report Repair
-          </button>
-          <button onClick={() => setModal('pm')} style={btnStyle('#2563eb')}>
-            <ClipboardCheck size={14} /> Log PM
-          </button>
+          {canCreate && (
+            <button onClick={() => setModal('repair')} style={btnStyle('#dc2626')}>
+              <Wrench size={14} /> Report Repair
+            </button>
+          )}
+          {canCreate && (
+            <button onClick={() => setModal('pm')} style={btnStyle('#2563eb')}>
+              <ClipboardCheck size={14} /> Log PM
+            </button>
+          )}
         </>
       )}
 
-      {(machine.current_status === 'REPAIR') && openTicket && (
+      {(machine.current_status === 'REPAIR') && openTicket && canUpdate && (
         <button onClick={() => setModal('close')} style={btnStyle('#16a34a', true)}>
           <CheckCircle size={14} /> Close Repair Ticket
         </button>
       )}
 
-      {machine.current_status === 'MAINTENANCE' && (
+      {machine.current_status === 'MAINTENANCE' && canCreate && (
         <>
           <button onClick={() => setModal('pm')} style={btnStyle('#16a34a', true)}>
             <ClipboardCheck size={14} /> Close PM
@@ -43,9 +50,11 @@ export function ActionButtons({ machine, openTicket }: Props) {
         </>
       )}
 
-      <button onClick={() => setModal('status')} style={btnOutlineStyle}>
-        <Settings size={14} /> Change Status
-      </button>
+      {canUpdate && (
+        <button onClick={() => setModal('status')} style={btnOutlineStyle}>
+          <Settings size={14} /> Change Status
+        </button>
+      )}
 
       {modal === 'repair' && <ReportRepairModal machineId={machine.id} onClose={close} />}
       {modal === 'pm' && <LogPmModal machineId={machine.id} onClose={close} />}

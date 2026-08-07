@@ -17,6 +17,8 @@ import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
 import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
 
@@ -30,7 +32,7 @@ interface MulterFile {
 
 @ApiTags('bom-upload')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller()
 export class BomUploadController {
   constructor(
@@ -41,6 +43,7 @@ export class BomUploadController {
   ) {}
 
   @Post('bom/upload')
+  @RequiresPermission('boms', 'create')
   @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List) + NC files' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -60,7 +63,7 @@ export class BomUploadController {
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 200 }],
+    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 1500 }],
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async upload(
@@ -100,6 +103,7 @@ export class BomUploadController {
   }
 
   @Post('bom/upload/preview')
+  @RequiresPermission('boms', 'create')
   @ApiOperation({ summary: 'Dry-run: check which Assembly Part List rows would fail to match an assembly/part — no DB writes' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -150,30 +154,35 @@ export class BomUploadController {
   }
 
   @Get('dispatches')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'List BOM dispatches' })
   list(@Query() query: QueryDispatchDto) {
     return this.svc.list(query)
   }
 
   @Get('dispatches/latest-revision')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'Get the latest revision number for a zone/sub-zone (null if none exists yet)' })
   getLatestRevision(@Query() query: QueryLatestRevisionDto) {
     return this.svc.getLatestRevision(query.project_id, query.zone_id, query.sub_zone_id ?? null)
   }
 
   @Get('dispatches/:id')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'Get BOM dispatch detail' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
   }
 
   @Get('dispatches/:id/revisions')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'Get revision history for a dispatch' })
   getRevisions(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getRevisions(id)
   }
 
   @Get('dispatches/:id/diff')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'Compare dispatch with its previous version' })
   async getDiff(
     @Param('id', ParseIntPipe) id: number,
@@ -185,6 +194,7 @@ export class BomUploadController {
   }
 
   @Get('dispatches/:id/diff/bim-models')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: "Match the diff's assembly marks against the project's 2 most recent complete BIM model versions" })
   async getDiffBimModels(
     @Param('id', ParseIntPipe) id: number,
@@ -200,18 +210,21 @@ export class BomUploadController {
   }
 
   @Get('dispatches/:id/mapping')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'Get eBOM ↔ mBOM product mapping for a dispatch' })
   getMapping(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getMapping(id)
   }
 
   @Get('dispatches/:id/paint-config')
+  @RequiresPermission('boms', 'view')
   @ApiOperation({ summary: 'Get paint config for a dispatch' })
   getPaintConfig(@Param('id', ParseIntPipe) id: number) {
     return this.paintSvc.getConfig(id)
   }
 
   @Post('dispatches/:id/paint-config')
+  @RequiresPermission('boms', 'update')
   @ApiOperation({ summary: 'Save paint config for a dispatch' })
   savePaintConfig(
     @Param('id', ParseIntPipe) id: number,
@@ -221,6 +234,7 @@ export class BomUploadController {
   }
 
   @Post('dispatches/:id/assembly-match')
+  @RequiresPermission('boms', 'update')
   @HttpCode(204)
   @ApiOperation({ summary: 'Save Standard/Custom type assignments for assemblies' })
   saveAssemblyMatch(

@@ -13,6 +13,7 @@ import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../li
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
 import type { DispatchDetailDto } from '../api/dispatches'
+import { usePermission } from '../hooks/usePermission'
 
 const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 const NC_FORMATS = ['.nc1']
@@ -146,7 +147,8 @@ export function BomUpload() {
   const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
 
   const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
-  const canSubmit = !!zoneId && bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+  const canWrite = usePermission('boms', 'create')
+  const canSubmit = canWrite && !!zoneId && bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
   const handleUploadError = (err: unknown) => {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -382,10 +384,10 @@ export function BomUpload() {
             </span>
           </label>
           <FileDropzone
-            maxFiles={200}
+            maxFiles={1500}
             currentCount={ncFiles.length}
             acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 200 files"
+            hint=".nc1 · max 20 MB / file · up to 1500 files"
             onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
             disabled={false}
           />
