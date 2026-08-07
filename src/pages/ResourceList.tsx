@@ -16,6 +16,7 @@ import { createOperator, updateOperator, getSkills } from '../api/laborSkills'
 import { consumeFormulasApi, FORMULA_CATEGORY_LABELS, type ConsumeFormula } from '../api/consumeFormulas'
 import type { EquipmentStatus, Machine } from '../api/machines'
 import type { Operator } from '../api/laborSkills'
+import { usePermission } from '../hooks/usePermission'
 
 type Tab = 'machine' | 'tool' | 'operator' | 'formula'
 
@@ -50,6 +51,9 @@ export function ResourceList() {
   const [formulaModal, setFormulaModal] = useState<{ open: boolean; row?: ConsumeFormula } | null>(null)
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const canCreate = usePermission('machines', 'create')
+  const canUpdate = usePermission('machines', 'update')
+  const canDelete = usePermission('machines', 'delete')
   const formulaDeleteMutation = useMutation({
     mutationFn: (id: number) => consumeFormulasApi.remove(id),
     onSuccess: () => {
@@ -138,7 +142,7 @@ export function ResourceList() {
         <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
           {isLoading ? '...' : `${totalCount} items`}
         </span>
-        {activeTab !== 'formula' && (
+        {activeTab !== 'formula' && canCreate && (
           <button
             onClick={() => setModal({ tab: activeTab as 'machine' | 'tool' | 'operator' })}
             style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -146,7 +150,7 @@ export function ResourceList() {
             <Plus size={14} />{addLabel}
           </button>
         )}
-        {activeTab === 'formula' && (
+        {activeTab === 'formula' && canCreate && (
           <button
             onClick={() => setFormulaModal({ open: true })}
             style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
@@ -230,18 +234,21 @@ export function ResourceList() {
                 rows={machineRows.slice(sliceStart, sliceEnd)}
                 onRowClick={id => navigate(`/machines/${id}`)}
                 onEdit={row => setModal({ tab: 'machine', row })}
+                canEdit={canUpdate}
               />
             )}
             {activeTab === 'operator' && (
               <LaborTable
                 operators={operatorRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setModal({ tab: 'operator', row })}
+                canEdit={canUpdate}
               />
             )}
             {activeTab === 'tool' && (
               <ToolTable
                 rows={(toolQuery.data ?? []).slice(sliceStart, sliceEnd)}
                 onEdit={row => setModal({ tab: 'tool', row })}
+                canEdit={canUpdate}
               />
             )}
             {activeTab === 'formula' && (
@@ -249,6 +256,8 @@ export function ResourceList() {
                 rows={formulaRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setFormulaModal({ open: true, row })}
                 onDelete={async row => { const ok = await confirm({ title: `Delete "${row.name}"?`, variant: 'danger', confirmLabel: 'Delete' }); if (ok) formulaDeleteMutation.mutate(row.id) }}
+                canEdit={canUpdate}
+                canDelete={canDelete}
               />
             )}
           </>
@@ -262,17 +271,18 @@ export function ResourceList() {
           : <ResourceModal tab={modal.tab} row={(modal as { tab: 'machine' | 'tool'; row?: Machine }).row} onClose={() => setModal(null)} />
       )}
       {formulaModal?.open && (
-        <FormulaModal row={formulaModal.row} onClose={() => setFormulaModal(null)} />
+        <FormulaModal row={formulaModal.row} onClose={() => setFormulaModal(null)} canDelete={canDelete} />
       )}
     </div>
   )
 }
 
 // ── Machine Table ─────────────────────────────────────────────────────────────
-function MachineTable({ rows, onRowClick, onEdit }: {
+function MachineTable({ rows, onRowClick, onEdit, canEdit }: {
   rows: ReturnType<typeof useMachines>['data'] & object[]
   onRowClick: (id: number) => void
   onEdit: (row: Machine) => void
+  canEdit: boolean
 }) {
   if (!rows.length) return <EmptyState label="No machines found" />
   return (
@@ -300,10 +310,12 @@ function MachineTable({ rows, onRowClick, onEdit }: {
             <Cell><MachineStatusPill status={m.current_status} size="sm" /></Cell>
             <Cell><DaysSincePmBadge days={m.days_since_pm} /></Cell>
             <Cell>
-              <button
-                onClick={e => { e.stopPropagation(); onEdit(m) }}
-                style={editBtnStyle}
-              >Edit</button>
+              {canEdit && (
+                <button
+                  onClick={e => { e.stopPropagation(); onEdit(m) }}
+                  style={editBtnStyle}
+                >Edit</button>
+              )}
             </Cell>
           </div>
         </div>
@@ -313,7 +325,7 @@ function MachineTable({ rows, onRowClick, onEdit }: {
 }
 
 // ── Operator Table ────────────────────────────────────────────────────────────
-function LaborTable({ operators, onEdit }: { operators: Operator[]; onEdit: (row: Operator) => void }) {
+function LaborTable({ operators, onEdit, canEdit }: { operators: Operator[]; onEdit: (row: Operator) => void; canEdit: boolean }) {
   if (!operators.length) return <EmptyState label="No operators found" />
   return (
     <>
@@ -348,7 +360,7 @@ function LaborTable({ operators, onEdit }: { operators: Operator[]; onEdit: (row
               </div>
             </Cell>
             <Cell>
-              <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>
+              {canEdit && <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>}
             </Cell>
           </div>
         </div>
@@ -358,7 +370,7 @@ function LaborTable({ operators, onEdit }: { operators: Operator[]; onEdit: (row
 }
 
 // ── Tool Table ────────────────────────────────────────────────────────────────
-function ToolTable({ rows, onEdit }: { rows: ReturnType<typeof useMachines>['data']; onEdit: (row: Machine) => void }) {
+function ToolTable({ rows, onEdit, canEdit }: { rows: ReturnType<typeof useMachines>['data']; onEdit: (row: Machine) => void; canEdit: boolean }) {
   if (!rows?.length) return <EmptyState label="No tools found" />
   return (
     <>
@@ -372,7 +384,7 @@ function ToolTable({ rows, onEdit }: { rows: ReturnType<typeof useMachines>['dat
             <Cell><span style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{r.name}</span></Cell>
             <Cell><span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{r.qty ?? '—'}</span></Cell>
             <Cell>
-              <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>
+              {canEdit && <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>}
             </Cell>
           </div>
         </div>
@@ -799,7 +811,7 @@ const CATEGORY_COLORS: Record<string, { bg: string; color: string; border: strin
   fastener: { bg: '#E8F5E9', color: '#1B5E20', border: '#A5D6A7' },
 }
 
-function FormulaTable({ rows, onEdit, onDelete }: { rows: ConsumeFormula[]; onEdit: (row: ConsumeFormula) => void; onDelete: (row: ConsumeFormula) => void }) {
+function FormulaTable({ rows, onEdit, onDelete, canEdit, canDelete }: { rows: ConsumeFormula[]; onEdit: (row: ConsumeFormula) => void; onDelete: (row: ConsumeFormula) => void; canEdit: boolean; canDelete: boolean }) {
   if (!rows.length) return <EmptyState label="No formula templates yet" />
   const grouped = rows.reduce<Record<string, ConsumeFormula[]>>((acc, f) => {
     const cat = f.category ?? 'other'
@@ -844,8 +856,8 @@ function FormulaTable({ rows, onEdit, onDelete }: { rows: ConsumeFormula[]; onEd
                     {f.description && <div style={{ fontSize: 11, color: '#9E9E9E', marginTop: 4 }}>{f.description}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
-                    <button onClick={() => onEdit(f)} style={editBtnStyle}>Edit</button>
-                    <button onClick={() => onDelete(f)} style={{ ...editBtnStyle, color: '#C8202A', borderColor: '#FBBEBE' }}>Delete</button>
+                    {canEdit && <button onClick={() => onEdit(f)} style={editBtnStyle}>Edit</button>}
+                    {canDelete && <button onClick={() => onDelete(f)} style={{ ...editBtnStyle, color: '#C8202A', borderColor: '#FBBEBE' }}>Delete</button>}
                   </div>
                 </div>
               ))}
@@ -858,7 +870,7 @@ function FormulaTable({ rows, onEdit, onDelete }: { rows: ConsumeFormula[]; onEd
 }
 
 // ── Formula Modal ─────────────────────────────────────────────────────────────
-function FormulaModal({ row, onClose }: { row?: ConsumeFormula; onClose: () => void }) {
+function FormulaModal({ row, onClose, canDelete }: { row?: ConsumeFormula; onClose: () => void; canDelete: boolean }) {
   const qc = useQueryClient()
   const isEdit = !!row
   const [tokens, setTokens] = useState<ExprToken[]>(() =>
@@ -940,7 +952,7 @@ function FormulaModal({ row, onClose }: { row?: ConsumeFormula; onClose: () => v
         </div>
         <div style={{ padding: '12px 20px', borderTop: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            {isEdit && (
+            {isEdit && canDelete && (
               <button onClick={() => deleteMutation.mutate()} disabled={deleteMutation.isPending}
                 style={{ ...editBtnStyle, color: '#C8202A', borderColor: '#FFCDD2' }}>
                 {deleteMutation.isPending ? 'Deleting…' : 'Delete'}

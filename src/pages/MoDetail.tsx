@@ -6,6 +6,7 @@ import { useWos } from '../hooks/useWo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import type { MoStatus } from '../api/mo'
+import { usePermission } from '../hooks/usePermission'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -38,6 +39,7 @@ export function MoDetail() {
 
   const { data: mo, isLoading } = useMo(moId)
   const changeStatus = useChangeMoStatus(moId)
+  const canWrite = usePermission('orders', 'update')
 
   if (isLoading || !mo) {
     return <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}><Loader2 size={22} className="animate-spin" style={{ color: '#C2C2C2' }} /></div>
@@ -60,7 +62,7 @@ export function MoDetail() {
         <MoStatusPill status={mo.status} />
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
-          {mo.status === 'DRAFT' && (
+          {canWrite && mo.status === 'DRAFT' && (
             <button
               onClick={() => navigate(`/mo/${moId}/edit`)}
               className="flex items-center gap-1.5"
@@ -69,7 +71,7 @@ export function MoDetail() {
               <Pencil size={14} /> Edit
             </button>
           )}
-          {ACTIONS[mo.status].map(a => (
+          {canWrite && ACTIONS[mo.status].map(a => (
             <button
               key={a.to}
               onClick={() => { setReason(''); setReasonModal({ to: a.to, label: a.label }) }}

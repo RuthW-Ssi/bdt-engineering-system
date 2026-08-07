@@ -6,23 +6,27 @@ import { SubZonesService } from './sub-zones.service'
 import { CreateSubZoneDto } from './dto/create-sub-zone.dto'
 import { UpdateSubZoneDto } from './dto/update-sub-zone.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('sub-zones')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller()
 export class SubZonesController {
   constructor(private readonly svc: SubZonesService) {}
 
   @Get('zones/:zoneId/sub-zones')
+  @RequiresPermission('sub-zones', 'view')
   @ApiOperation({ summary: 'List sub-zones for a zone' })
   findAll(@Param('zoneId', ParseIntPipe) zoneId: number) {
     return this.svc.findAllForZone(zoneId)
   }
 
   @Post('zones/:zoneId/sub-zones')
+  @RequiresPermission('sub-zones', 'create')
   @ApiOperation({ summary: 'Create sub-zone under a zone' })
   create(
     @Param('zoneId', ParseIntPipe) zoneId: number,
@@ -33,6 +37,7 @@ export class SubZonesController {
   }
 
   @Patch('sub-zones/:id')
+  @RequiresPermission('sub-zones', 'update')
   @ApiOperation({ summary: 'Update sub-zone' })
   update(
     @Param('id', ParseIntPipe) id: number,
@@ -43,6 +48,7 @@ export class SubZonesController {
   }
 
   @Delete('sub-zones/:id')
+  @RequiresPermission('sub-zones', 'delete')
   @ApiOperation({ summary: 'Archive sub-zone (soft delete)' })
   remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.svc.remove(id, user.sub)

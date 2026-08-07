@@ -4,17 +4,20 @@ import { WorkcenterService } from './services/workcenter.service'
 import { CreateWorkcenterDto } from './dto/create-workcenter.dto'
 import { UpdateWorkcenterDto } from './dto/update-workcenter.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('Workcenters')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('workcenters')
 export class WorkcentersController {
   constructor(private readonly wcService: WorkcenterService) {}
 
   @Get()
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'List all work centers' })
   findAll(@Query('active') active?: string) {
     const filter = active === undefined ? true : active === 'false' ? false : true
@@ -22,18 +25,21 @@ export class WorkcentersController {
   }
 
   @Post()
+  @RequiresPermission('routings', 'create')
   @ApiOperation({ summary: 'Create a new work center' })
   create(@Body() dto: CreateWorkcenterDto, @CurrentUser() user: JwtPayload) {
     return this.wcService.create(dto, user.sub)
   }
 
   @Get(':id')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'Get work center by id' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.wcService.findOne(id)
   }
 
   @Patch(':id')
+  @RequiresPermission('routings', 'update')
   @ApiOperation({ summary: 'Update OEE / labor mix / cost rates (audit logged)' })
   update(
     @Param('id', ParseIntPipe) id: number,
@@ -44,6 +50,7 @@ export class WorkcentersController {
   }
 
   @Get(':id/capacity')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'Get OEE and capacity snapshot' })
   async capacity(@Param('id', ParseIntPipe) id: number) {
     const wc = await this.wcService.findOne(id)

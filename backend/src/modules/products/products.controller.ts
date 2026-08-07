@@ -9,17 +9,20 @@ import { UpdateProductDto } from './dto/update-product.dto'
 import { UpdateSpecDto } from './dto/update-spec.dto'
 import { QueryProductDto } from './dto/query-product.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('products')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('products')
 export class ProductsController {
   constructor(private readonly svc: ProductsService) {}
 
   @Post()
+  @RequiresPermission('products', 'create')
   @ApiOperation({ summary: 'Create product (standard or custom — discriminator: product_type)' })
   @ApiBody({
     schema: {
@@ -37,18 +40,21 @@ export class ProductsController {
   }
 
   @Get()
+  @RequiresPermission('products', 'view')
   @ApiOperation({ summary: 'List products with filters' })
   findAll(@Query() query: QueryProductDto) {
     return this.svc.findAll(query)
   }
 
   @Get(':product_code')
+  @RequiresPermission('products', 'view')
   @ApiOperation({ summary: 'Get product by product_code' })
   findOne(@Param('product_code') code: string) {
     return this.svc.findOne(code)
   }
 
   @Patch(':product_code')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Update product' })
   update(
     @Param('product_code') code: string,
@@ -59,42 +65,49 @@ export class ProductsController {
   }
 
   @Post(':product_code/action_submit_design')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Submit for design: draft → in_design' })
   actionSubmitDesign(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
     return this.svc.doAction(code, 'action_submit_design', user.sub)
   }
 
   @Post(':product_code/action_submit_review')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Submit for review: in_design → in_review' })
   actionSubmitReview(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
     return this.svc.doAction(code, 'action_submit_review', user.sub)
   }
 
   @Post(':product_code/action_approve')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Approve: in_review → approved' })
   actionApprove(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
     return this.svc.doAction(code, 'action_approve', user.sub)
   }
 
   @Post(':product_code/action_release')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Release: approved → released' })
   actionRelease(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
     return this.svc.doAction(code, 'action_release', user.sub)
   }
 
   @Post(':product_code/action_obsolete')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Obsolete: released → obsolete' })
   actionObsolete(@Param('product_code') code: string, @CurrentUser() user: JwtPayload) {
     return this.svc.doAction(code, 'action_obsolete', user.sub)
   }
 
   @Get(':product_code/spec')
+  @RequiresPermission('products', 'view')
   @ApiOperation({ summary: 'Get mBOM spec presets (paint + welding) for a standard product' })
   getSpec(@Param('product_code') code: string) {
     return this.svc.getSpec(code)
   }
 
   @Patch(':product_code/spec')
+  @RequiresPermission('products', 'update')
   @ApiOperation({ summary: 'Set or clear mBOM spec presets. Pass null to clear a spec.' })
   updateSpec(
     @Param('product_code') code: string,
@@ -105,6 +118,7 @@ export class ProductsController {
   }
 
   @Get(':product_code/messages')
+  @RequiresPermission('products', 'view')
   @ApiOperation({ summary: 'Get audit log for product' })
   getMessages(@Param('product_code') code: string) {
     return this.svc.getMessages(code)

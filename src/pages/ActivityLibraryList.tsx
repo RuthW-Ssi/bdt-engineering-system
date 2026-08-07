@@ -6,10 +6,14 @@ import { useActivities, useDeleteActivity } from '../hooks/useActivities'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { ActivityBuilderModal } from './ActivityBuilder'
 import { PaginationBar } from '../components/PaginationBar'
+import { usePermission } from '../hooks/usePermission'
 
 export function ActivityLibraryList() {
   const { id: paramId } = useParams<{ id?: string }>()
   const navigate = useNavigate()
+  const canCreate = usePermission('routings', 'create')
+  const canUpdate = usePermission('routings', 'update')
+  const canDelete = usePermission('routings', 'delete')
   const [searchQ, setSearchQ] = useState('')
   const [page, setPage] = useState(1)
   const LIMIT = 10
@@ -55,12 +59,14 @@ export function ActivityLibraryList() {
           <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Activity Library</div>
           <div style={{ fontSize: 11, color: '#9E9E9E' }}>Reusable activities — assigned to machines with consumed materials</div>
         </div>
-        <button
-          onClick={() => setModal({})}
-          style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-        >
-          <Plus size={14} />Add Activity
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => setModal({})}
+            style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <Plus size={14} />Add Activity
+          </button>
+        )}
       </div>
 
       {/* Filter bar */}
@@ -132,18 +138,22 @@ export function ActivityLibraryList() {
                 </span>
               </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-                <button
-                  onClick={() => setModal({ id: act.id })}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#185FA5', fontSize: 12, fontWeight: 500, padding: 0 }}
-                >
-                  Edit
-                </button>
-                <button
-                  onClick={() => handleDelete(act.id, act.name)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', fontSize: 12, fontWeight: 500, padding: 0 }}
-                >
-                  Delete
-                </button>
+                {canUpdate && (
+                  <button
+                    onClick={() => setModal({ id: act.id })}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#185FA5', fontSize: 12, fontWeight: 500, padding: 0 }}
+                  >
+                    Edit
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    onClick={() => handleDelete(act.id, act.name)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', fontSize: 12, fontWeight: 500, padding: 0 }}
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
           ))

@@ -4,13 +4,13 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { MarkPrefixService } from './mark-prefix.service'
 
 @ApiTags('mark-prefixes')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 @Controller('mark-prefixes')
 export class MarkPrefixController {
   constructor(private readonly svc: MarkPrefixService) {}
 
   @Get('with-pending-count')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'T-MO.03 · mark prefixes + pending BOM count (MO form Section 1)' })
   withPendingCount() {
     return this.svc.withPendingCount()

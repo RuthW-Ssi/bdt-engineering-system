@@ -20,6 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones, useCreateZone, useUpdateZone } from '../hooks/useProjectZones'
 import { useSubZones, useCreateSubZone, useDeleteSubZone } from '../hooks/useSubZones'
+import { usePermission } from '../hooks/usePermission'
 import type { ProjectZoneDTO } from '../api/types'
 import type { CreateZonePayload } from '../api/project-zones'
 
@@ -34,6 +35,8 @@ function SortableZoneRow({
   onDeleteSub,
   onOpenProgress,
   reorderMode,
+  canAddSub,
+  canDeleteSub,
 }: {
   zone: any
   index: number
@@ -44,6 +47,8 @@ function SortableZoneRow({
   onDeleteSub: (id: number) => void
   onOpenProgress: (zoneId: number) => void
   reorderMode: boolean
+  canAddSub: boolean
+  canDeleteSub: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: zone.id })
 
@@ -100,12 +105,14 @@ function SortableZoneRow({
         </div>
         {!reorderMode && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              onClick={e => { e.stopPropagation(); onAddSub(zone.id) }}
-              style={{ fontSize: 12, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
-            >
-              <Plus size={12} />Add Sub-zone
-            </button>
+            {canAddSub && (
+              <button
+                onClick={e => { e.stopPropagation(); onAddSub(zone.id) }}
+                style={{ fontSize: 12, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                <Plus size={12} />Add Sub-zone
+              </button>
+            )}
             <button
               onClick={e => { e.stopPropagation(); setExpandedZone(isActive ? null : zone.id) }}
               title={isActive ? 'Collapse sub-zones' : 'Manage sub-zones'}
@@ -137,9 +144,11 @@ function SortableZoneRow({
                       </span>
                     )}
                   </span>
-                  <button onClick={() => onDeleteSub(sz.id)} style={{ fontSize: 11, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer' }}>
-                    Archive
-                  </button>
+                  {canDeleteSub && (
+                    <button onClick={() => onDeleteSub(sz.id)} style={{ fontSize: 11, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer' }}>
+                      Archive
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -184,6 +193,11 @@ export function ZoneList() {
   const { data: subZones } = useSubZones(expandedZone)
   const createSubMut = useCreateSubZone(subModal.zoneId ?? 0, projectId ?? undefined)
   const deleteSubMut = useDeleteSubZone(expandedZone ?? 0, projectId ?? undefined)
+
+  const canCreateZone = usePermission('project-zones', 'create')
+  const canUpdateZone = usePermission('project-zones', 'update')
+  const canCreateSub = usePermission('sub-zones', 'create')
+  const canDeleteSub = usePermission('sub-zones', 'delete')
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -294,7 +308,7 @@ export function ZoneList() {
               </>
             ) : (
               <>
-                {zoneList.length > 1 && (
+                {canUpdateZone && zoneList.length > 1 && (
                   <button
                     onClick={enterReorder}
                     style={{ height: 36, padding: '0 14px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 6, background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, color: '#555' }}
@@ -302,12 +316,14 @@ export function ZoneList() {
                     <GripVertical size={14} />Reorder
                   </button>
                 )}
-                <button
-                  onClick={openZoneModal}
-                  style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#C8202A', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-                >
-                  <Plus size={14} />Add Zone
-                </button>
+                {canCreateZone && (
+                  <button
+                    onClick={openZoneModal}
+                    style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, border: 'none', borderRadius: 6, background: '#C8202A', color: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                  >
+                    <Plus size={14} />Add Zone
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -367,6 +383,8 @@ export function ZoneList() {
                     onDeleteSub={id => deleteSubMut.mutate(id, { onSuccess: () => toast.success('Sub-zone deleted') })}
                     onOpenProgress={id => activeProject && navigate(`/projects/${activeProject.project_code}/progress?zone=${id}`)}
                     reorderMode={reorderMode}
+                    canAddSub={canCreateSub}
+                    canDeleteSub={canDeleteSub}
                   />
                 ))}
               </SortableContext>

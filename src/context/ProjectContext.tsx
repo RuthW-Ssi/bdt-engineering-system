@@ -14,10 +14,10 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
   const [activeProject, setActiveProject] = useState<ProjectDTO | null>(null)
 
   // Auto-select the first project so any Context-consuming page (Dashboard,
-  // RoutingApply, BomUpload, ProjectList) sees a populated activeProject even
-  // if the user never visited a page that syncs one in first. This used to
-  // live in Topbar (deleted in the project-selector-relocate branch), which
-  // was the only thing that ever auto-populated this Context.
+  // BomUpload, ProjectList) sees a populated activeProject even if the user
+  // never visited a page that syncs one in first. This used to live in
+  // Topbar (deleted in the project-selector-relocate branch), which was the
+  // only thing that ever auto-populated this Context.
   const { data: projectsData } = useProjects({ limit: 20 })
   const projectItems = projectsData?.items ?? []
 
