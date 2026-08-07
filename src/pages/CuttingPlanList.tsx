@@ -7,6 +7,7 @@ import type { CuttingPlanListItem } from '../api/cutting-plan'
 import { PaginationBar } from '../components/PaginationBar'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import { usePermission } from '../hooks/usePermission'
 
 const LIMIT = 10
 
@@ -27,6 +28,8 @@ export function CuttingPlanList() {
   const pagedItems = items.slice((page - 1) * LIMIT, page * LIMIT)
   const deleteMut = useDeleteCuttingPlan()
   const confirm = useConfirm()
+  const canCreate = usePermission('cutting-plan', 'create')
+  const canDelete = usePermission('cutting-plan', 'delete')
 
   function handleSearch(q: string) { setSearch(q); setPage(1) }
 
@@ -56,13 +59,15 @@ export function CuttingPlanList() {
             {isLoading ? '...' : `${items.length} uploads`}
           </span>
         </div>
-        <button
-          onClick={() => navigate('/cutting-plan/upload')}
-          className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
-        >
-          <Plus size={14} />New Upload
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => navigate('/cutting-plan/upload')}
+            className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
+          >
+            <Plus size={14} />New Upload
+          </button>
+        )}
       </div>
 
       <div className="border-b border-chrome-100 px-6 flex items-center gap-3" style={{ minHeight: 48, background: '#F5F5F5', flexShrink: 0, flexWrap: 'wrap', paddingTop: 8, paddingBottom: 8 }}>
@@ -113,14 +118,16 @@ export function CuttingPlanList() {
                 <span><strong style={{ color: '#333' }}>{cp._count.order_parts}</strong> parts</span>
                 <span>Uploaded: <strong style={{ color: '#333' }}>{fmtDate(cp.create_date)}</strong></span>
               </div>
-              <button
-                onClick={e => { e.stopPropagation(); handleDelete(cp) }}
-                style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#C8202A', flexShrink: 0 }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
-                onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-              >
-                <Trash2 size={14} />
-              </button>
+              {canDelete && (
+                <button
+                  onClick={e => { e.stopPropagation(); handleDelete(cp) }}
+                  style={{ width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: 'none', background: 'none', cursor: 'pointer', color: '#C8202A', flexShrink: 0 }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
               <ChevronRight size={16} style={{ color: '#C2C2C2', flexShrink: 0 }} />
             </div>
           ))

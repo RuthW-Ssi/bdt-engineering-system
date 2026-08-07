@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiOperation, ApiBearerAuth, ApiTags, ApiQuery } from '@nestjs/swagger'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { EquipmentResourceService } from './services/equipment-resource.service'
 import { CreateEquipmentResourceDto } from './dto/create-equipment-resource.dto'
 
 @ApiTags('Equipment Resources')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('equipment-resources')
 export class EquipmentResourcesController {
   constructor(private readonly svc: EquipmentResourceService) {}
@@ -19,12 +21,14 @@ export class EquipmentResourcesController {
   }
 
   @Get(':id')
+  @RequiresPermission('routings', 'view')
   @ApiOperation({ summary: 'Get single equipment resource' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
   }
 
   @Post()
+  @RequiresPermission('routings', 'create')
   @ApiOperation({ summary: 'Create equipment resource' })
   create(@Body() dto: CreateEquipmentResourceDto) {
     return this.svc.create(dto)

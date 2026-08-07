@@ -6,6 +6,7 @@ import { toast } from 'sonner'
 import { apiClient } from '../api/client'
 import { PaginationBar } from '../components/PaginationBar'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { usePermission } from '../hooks/usePermission'
 
 interface OpTemplateListItem {
   id: number; op_code: string; name: string; status: string
@@ -33,6 +34,8 @@ const LIMIT = 10
 export default function OperationLibraryList() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const canCreate = usePermission('routings', 'create')
+  const canDelete = usePermission('routings', 'delete')
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
 
@@ -84,12 +87,14 @@ export default function OperationLibraryList() {
           <div style={{ fontSize: 16, fontWeight: 700, color: '#1F1F1F' }}>Operation Library</div>
           <div style={{ fontSize: 11, color: '#9E9E9E' }}>Standard operations — building blocks for routing templates</div>
         </div>
-        <button
-          onClick={() => navigate('/operation-library/new')}
-          style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
-        >
-          <Plus size={14} />New Operation
-        </button>
+        {canCreate && (
+          <button
+            onClick={() => navigate('/operation-library/new')}
+            style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <Plus size={14} />New Operation
+          </button>
+        )}
       </div>
 
       {/* Filter bar */}
@@ -157,16 +162,18 @@ export default function OperationLibraryList() {
                   {t.status.toUpperCase()}
                 </span>
               </div>
-              <button
-                onClick={e => handleDelete(e, t)}
-                disabled={deleteMut.isPending}
-                title={`Delete ${t.op_code}`}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
-                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A'; (e.currentTarget as HTMLElement).style.background = '#FFF5F5' }}
-                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD'; (e.currentTarget as HTMLElement).style.background = 'none' }}
-              >
-                <Trash2 size={13} />
-              </button>
+              {canDelete && (
+                <button
+                  onClick={e => handleDelete(e, t)}
+                  disabled={deleteMut.isPending}
+                  title={`Delete ${t.op_code}`}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A'; (e.currentTarget as HTMLElement).style.background = '#FFF5F5' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD'; (e.currentTarget as HTMLElement).style.background = 'none' }}
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
             </div>
           ))
         )}

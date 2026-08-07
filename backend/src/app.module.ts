@@ -37,6 +37,8 @@ import { WorkOrdersModule } from './modules/work-orders/work-orders.module'
 import { CuttingPlanModule } from './modules/cutting-plan/cutting-plan.module'
 // Sprint 23
 import { BimModule } from './modules/bim/bim.module'
+// Sprint 27
+import { UsersModule } from './modules/users/users.module'
 
 @Module({
   imports: [
@@ -80,6 +82,8 @@ import { BimModule } from './modules/bim/bim.module'
     CuttingPlanModule,
     // Sprint 23
     BimModule,
+    // Sprint 27
+    UsersModule,
   ],
 })
 export class AppModule {}

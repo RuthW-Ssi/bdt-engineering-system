@@ -4,6 +4,7 @@ import { Search, Plus, MoreHorizontal, ChevronLeft, ChevronRight, Loader2 } from
 import { PRODUCT_STATUS_META } from '../data/meta'
 import { ProductStatusPill } from '../components/ui/ProductStatusPill'
 import { useMaterials } from '../hooks/useMaterials'
+import { usePermission } from '../hooks/usePermission'
 import { MaterialRegisterModal } from './MaterialRegisterModal'
 import type { ProductStatus } from '../types'
 import type { MaterialDTO } from '../api/types'
@@ -61,6 +62,7 @@ export function MaterialList() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [showRegister, setShowRegister] = useState(false)
+  const canWrite = usePermission('materials', 'create')
 
   const typeFilter = (searchParams.get('type') || '') as TypeKey
   const stateFilter = searchParams.get('state') || ''
@@ -107,10 +109,12 @@ export function MaterialList() {
             {isLoading ? '...' : `${total} items`}
           </span>
         </div>
-        <button onClick={() => setShowRegister(true)} className="flex items-center gap-1.5 rounded-md text-white"
-          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}>
-          <Plus size={14} />Add Material
-        </button>
+        {canWrite && (
+          <button onClick={() => setShowRegister(true)} className="flex items-center gap-1.5 rounded-md text-white"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}>
+            <Plus size={14} />Add Material
+          </button>
+        )}
       </div>
 
       {/* Type Tabs */}

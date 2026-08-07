@@ -10,6 +10,7 @@ import { AssemblyFilterBar, DEFAULT_FILTER, type AssemblyFilter } from '../compo
 import { RoutingSuggestion } from '../components/mo/RoutingSuggestion'
 import { StickySaveBar } from '../components/mo/StickySaveBar'
 import type { AssemblyPickerItem } from '../api/mo'
+import { usePermission } from '../hooks/usePermission'
 
 const PANEL: React.CSSProperties = { border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff' }
 const PANEL_SCROLL: React.CSSProperties = { ...PANEL, flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }
@@ -90,7 +91,8 @@ export function MoNew() {
 
   const lines = Object.values(selected).filter(s => s.qty > 0)
   const totalQty = lines.reduce((s, l) => s + l.qty, 0)
-  const canSave = !!markPrefix && !!routingId && lines.length > 0
+  const canWrite = usePermission('orders', isEdit ? 'update' : 'create')
+  const canSave = canWrite && !!markPrefix && !!routingId && lines.length > 0
   const saving = createMut.isPending || updateMut.isPending
 
   async function save(confirm: boolean) {

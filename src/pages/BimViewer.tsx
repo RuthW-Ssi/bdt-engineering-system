@@ -11,6 +11,7 @@ import { useProjectSelection } from '../hooks/useProjectSelection'
 import {
   useBimModels, useUploadBimModel, useBimStatus, useBimElements, useBimElementProperties, useBimViewerToken, useRetryBimModel, useLatestBimVersion,
 } from '../hooks/useBim'
+import { usePermission } from '../hooks/usePermission'
 import type { BimSelection, BimFocusRequest } from '../components/bim/BimViewport'
 
 const filterSelectStyle = { height: 30, padding: '0 8px', fontSize: 12, borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }
@@ -37,6 +38,8 @@ export function BimViewer() {
   const [versionChoice, setVersionChoice] = useState<'minor' | 'major'>('minor')
   const [showUploadModal, setShowUploadModal] = useState(false)
   const toastedRef = useRef<Record<number, string>>({})
+
+  const canCreate = usePermission('bim', 'create')
 
   const hasScope = !!activeProject
   const { data: models, refetch } = useBimModels(hasScope ? { projectId: activeProject!.id } : undefined)
@@ -174,7 +177,7 @@ export function BimViewer() {
           >
             <RefreshCw size={14} />
           </button>
-          {hasScope && (
+          {hasScope && canCreate && (
             hasModels ? (
               <button
                 onClick={() => setShowUploadModal(true)}
@@ -347,17 +350,20 @@ function ViewerSkeleton() {
 }
 
 function NoModelState({ hasModels, onUpload }: { hasModels: boolean; onUpload: () => void }) {
+  const canCreate = usePermission('bim', 'create')
   return (
     <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
       <CuboidIcon size={40} style={{ opacity: 0.2 }} />
       <div style={{ fontSize: 14, fontWeight: 500 }}>{hasModels ? 'Select a model above to view it' : 'No models yet for this project'}</div>
-      <button
-        onClick={onUpload}
-        className="flex items-center gap-1.5 rounded-md text-white"
-        style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: hasModels ? '#185FA5' : '#C8202A', marginTop: 8 }}
-      >
-        {hasModels ? <RefreshCcw size={14} /> : <Upload size={14} />}{hasModels ? 'Upload New Model' : 'Upload First Model'}
-      </button>
+      {canCreate && (
+        <button
+          onClick={onUpload}
+          className="flex items-center gap-1.5 rounded-md text-white"
+          style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: hasModels ? '#185FA5' : '#C8202A', marginTop: 8 }}
+        >
+          {hasModels ? <RefreshCcw size={14} /> : <Upload size={14} />}{hasModels ? 'Upload New Model' : 'Upload First Model'}
+        </button>
+      )}
     </div>
   )
 }
@@ -372,6 +378,7 @@ const PROCESSING_STEPS = [
 function ProcessingState({ filename, stage, progress, onRetry, isRetrying }: {
   filename?: string; stage: 'translating' | 'extracting'; progress?: string; onRetry: () => void; isRetrying: boolean
 }) {
+  const canUpdate = usePermission('bim', 'update')
   // A crash mid-extraction (server OOM, etc.) can leave a model parked in
   // "extracting" forever — checkStatus() only advances a model OUT of that
   // state, it never re-attempts extraction on its own poll. Surface a manual
@@ -439,7 +446,7 @@ function ProcessingState({ filename, stage, progress, onRetry, isRetrying }: {
         Safe to leave this page — processing continues on the server. Reopen this model anytime to check its status.
       </div>
 
-      {showStuckRetry && (
+      {showStuckRetry && canUpdate && (
         <div style={{ marginTop: 16, fontSize: 12, color: '#8E8E8E' }}>
           Taking longer than expected?{' '}
           <button
@@ -458,6 +465,8 @@ function ProcessingState({ filename, stage, progress, onRetry, isRetrying }: {
 function FailedState({ filename, error, onRetry, onUploadDifferent, isRetrying }: {
   filename?: string; error: string | null; onRetry: () => void; onUploadDifferent: () => void; isRetrying: boolean
 }) {
+  const canCreate = usePermission('bim', 'create')
+  const canUpdate = usePermission('bim', 'update')
   return (
     <div style={{ maxWidth: 560, margin: '60px auto', background: 'white', border: '1px solid #E5E7EB', boxShadow: '0 8px 32px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04)', borderRadius: 14, padding: '48px 32px', textAlign: 'center' }}>
       <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: '#FCEBEB', color: '#C8202A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -471,21 +480,25 @@ function FailedState({ filename, error, onRetry, onUploadDifferent, isRetrying }
         </div>
       )}
       <div className="flex items-center justify-center gap-2">
-        <button
-          onClick={onRetry}
-          disabled={isRetrying}
-          className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40"
-          style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
-        >
-          {isRetrying ? <Loader2 size={14} className="animate-spin" /> : null}Retry
-        </button>
-        <button
-          onClick={onUploadDifferent}
-          className="rounded-md"
-          style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: 'transparent', border: '1px solid #C2C2C2' }}
-        >
-          Upload a different file
-        </button>
+        {canUpdate && (
+          <button
+            onClick={onRetry}
+            disabled={isRetrying}
+            className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40"
+            style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
+          >
+            {isRetrying ? <Loader2 size={14} className="animate-spin" /> : null}Retry
+          </button>
+        )}
+        {canCreate && (
+          <button
+            onClick={onUploadDifferent}
+            className="rounded-md"
+            style={{ height: 36, padding: '0 20px', fontSize: 13, fontWeight: 600, background: 'transparent', border: '1px solid #C2C2C2' }}
+          >
+            Upload a different file
+          </button>
+        )}
       </div>
     </div>
   )

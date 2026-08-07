@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { useCuttingPlan, useBulkAssignOrderPartProjectCode, useDeleteCuttingPlan } from '../hooks/useCuttingPlan'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import { usePermission } from '../hooks/usePermission'
 import type {
   CuttingPlanNestingRow, CuttingPlanOrderPartRow, CuttingPlanPlateUsageRow, CuttingPlanRemnantRow,
 } from '../api/cutting-plan'
@@ -109,7 +110,7 @@ function NestingTable({ rows }: { rows: CuttingPlanNestingRow[] }) {
   )
 }
 
-function OrderPartTable({ rows }: { rows: CuttingPlanOrderPartRow[] }) {
+function OrderPartTable({ rows, canWrite }: { rows: CuttingPlanOrderPartRow[]; canWrite: boolean }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkCode, setBulkCode] = useState('')
   const bulkAssign = useBulkAssignOrderPartProjectCode()
@@ -145,7 +146,7 @@ function OrderPartTable({ rows }: { rows: CuttingPlanOrderPartRow[] }) {
 
   return (
     <div>
-      {selected.size > 0 && (
+      {canWrite && selected.size > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#FEF2F2', borderBottom: '1px solid #FCA5A5' }}>
           <span style={{ fontSize: 12, color: '#991B1B', fontWeight: 600 }}>{selected.size} selected</span>
           <input
@@ -170,14 +171,16 @@ function OrderPartTable({ rows }: { rows: CuttingPlanOrderPartRow[] }) {
           </button>
         </div>
       )}
-      <TableGrid columns="32px 1.5fr 1fr 1fr 1fr 1fr 1fr 1fr">
-        <div style={{ padding: '8px 16px', borderBottom: '1px solid #F0F0F0', background: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
-          <input type="checkbox" checked={allSelected} onChange={toggleAll} />
-        </div>
+      <TableGrid columns={canWrite ? '32px 1.5fr 1fr 1fr 1fr 1fr 1fr 1fr' : '1.5fr 1fr 1fr 1fr 1fr 1fr 1fr'}>
+        {canWrite && (
+          <div style={{ padding: '8px 16px', borderBottom: '1px solid #F0F0F0', background: '#fff', position: 'sticky', top: 0, zIndex: 1 }}>
+            <input type="checkbox" checked={allSelected} onChange={toggleAll} />
+          </div>
+        )}
         <TH>Drawing</TH><TH>Order Number</TH><TH>Project Code</TH><TH>Nested</TH><TH>Ordered</TH><TH>Dimensions (mm)</TH><TH>Weight (kg)</TH>
         {rows.map(r => (
           <div key={r.id} style={{ display: 'contents' }}>
-            <TD><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} /></TD>
+            {canWrite && <TD><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} /></TD>}
             <TD>{r.drawing_part_no_version_no ?? '—'}</TD>
             <TD>{r.order_number ?? '—'}</TD>
             <TD>{r.project_code ?? <span style={{ color: '#C2C2C2' }}>—</span>}</TD>
@@ -234,6 +237,8 @@ export function CuttingPlanDetail() {
   const [dataTab, setDataTab] = useState<DataTab>('nesting')
   const deleteMut = useDeleteCuttingPlan()
   const confirm = useConfirm()
+  const canDelete = usePermission('cutting-plan', 'delete')
+  const canWrite = usePermission('cutting-plan', 'update')
 
   async function handleDelete() {
     if (!detail) return
@@ -296,16 +301,18 @@ export function CuttingPlanDetail() {
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>{detail.tag}</span>
         </div>
-        <button
-          onClick={handleDelete}
-          disabled={deleteMut.isPending}
-          className="flex items-center justify-center rounded disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{ width: 32, height: 32, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer' }}
-          onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
-          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-        >
-          <Trash2 size={16} />
-        </button>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            disabled={deleteMut.isPending}
+            className="flex items-center justify-center rounded disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ width: 32, height: 32, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer' }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#FCEBEB')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+          >
+            <Trash2 size={16} />
+          </button>
+        )}
       </div>
 
       <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '20px 24px 24px', background: '#F9FAFB', gap: 20, display: 'flex' }}>
@@ -318,7 +325,7 @@ export function CuttingPlanDetail() {
 
         <DataTabsCard tab={dataTab} onTabChange={setDataTab}>
           {dataTab === 'nesting' && <NestingTable rows={detail.nestings} />}
-          {dataTab === 'order_parts' && <OrderPartTable rows={detail.order_parts} />}
+          {dataTab === 'order_parts' && <OrderPartTable rows={detail.order_parts} canWrite={canWrite} />}
           {dataTab === 'plate_usage' && <PlateUsageTable rows={detail.plate_usages} />}
           {dataTab === 'remnants' && <RemnantTable rows={detail.remnants} />}
         </DataTabsCard>

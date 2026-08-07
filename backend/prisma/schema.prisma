@@ -17,7 +17,9 @@ model res_users {
   email       String?  @db.VarChar(120)
   lang        String?  @default("th_TH") @db.VarChar(10)
   tz          String?  @default("Asia/Bangkok") @db.VarChar(40)
-  role        String   @default("user") @db.VarChar(20) // "admin" | "user"
+  role        String   @default("user") @db.VarChar(20) // "admin" | free-text department — see permission-modules.ts
+  level       String?  @db.VarChar(60) // Sprint 27: free-text org level, e.g. "Supervisor" — descriptive only
+  job_title   String?  @db.VarChar(120) // Sprint 27: free-text job title, e.g. "Business System Developer" — descriptive only
   partner_id  Int? // FK placeholder → res_partner (Sprint 7)
   active      Boolean  @default(true)
   create_date DateTime @default(now()) @db.Timestamptz
@@ -83,6 +85,29 @@ model res_users {
 
   // Sprint 23: BIM Viewer audit
   bim_models_created bim_model[] @relation("bim_model_create")
+
+  // Sprint 27: User Module Permissions
+  module_permissions user_module_permission[]
+}
+
+// Sprint 27: per-user, per-module permission — single source of truth for
+// access, split by action including view (removing view blocks the
+// feature entirely — no more implicit read-all for the 20 business
+// modules; shared infra/reference modules stay ungated, see
+// permission-modules.ts). `res_users.role` is only an org-label/
+// creation-time template now, not consulted by any guard.
+model user_module_permission {
+  id         Int     @id @default(autoincrement())
+  user_id    Int
+  module     String  @db.VarChar(40)
+  can_view   Boolean @default(false)
+  can_create Boolean @default(false)
+  can_update Boolean @default(false)
+  can_delete Boolean @default(false)
+
+  user res_users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, module])
 }
 
 model uom_uom {

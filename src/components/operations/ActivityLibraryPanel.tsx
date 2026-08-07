@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useActivities } from '../../hooks/useActivities'
 import { useAddFromLibrary } from '../../hooks/useOperationTemplates'
+import { usePermission } from '../../hooks/usePermission'
 
 interface ActivityLibraryPanelProps {
   templateId: number | null
@@ -12,6 +13,7 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
   const { data: paged, isLoading } = useActivities({ q: search || undefined })
   const activities = paged?.data ?? []
   const addMut = useAddFromLibrary(templateId ?? 0)
+  const canUpdate = usePermission('routings', 'update')
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#FAFAFA', borderLeft: '1px solid #E0E0E0' }}>
@@ -54,6 +56,7 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
                     </span>
                   </div>
                 </div>
+                {canUpdate && (
                 <button
                   disabled={templateId === null || alreadyAdded || addMut.isPending}
                   onClick={() => addMut.mutate(act.id)}
@@ -68,6 +71,7 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
                 >
                   {alreadyAdded ? 'Added' : '+ Add'}
                 </button>
+                )}
               </div>
             </div>
           )

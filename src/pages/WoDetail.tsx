@@ -8,6 +8,7 @@ import {
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { QtyReusableField, WoHoldResolutionModal, qtyReusableValid } from '../components/wo/WoHoldResolutionModal'
 import type { WoAction, WoStatus, WoDetail as WoDetailT, SourceRoutingOp } from '../api/wo'
+import { usePermission } from '../hooks/usePermission'
 
 const TABS = ['Overview', 'Schedule', 'Events'] as const
 type Tab = (typeof TABS)[number]
@@ -52,6 +53,7 @@ export function WoDetail() {
   const { data: bom } = useBomVersionStatus(woId)
   const transition = useWoTransition(woId)
   const acceptVersion = useAcceptNewVersion(woId)
+  const canWrite = usePermission('orders', 'update')
 
   // Cascade-cancel preview (Task 10, Sprint 20) — only fetches while the
   // cancel modal is open, not on every page load.
@@ -126,7 +128,7 @@ export function WoDetail() {
         )}
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
-          {headerActions.map((a) => (
+          {canWrite && headerActions.map((a) => (
             <button
               key={a.action}
               onClick={() => runAction(a)}
@@ -157,23 +159,25 @@ export function WoDetail() {
             This work order cannot proceed until you accept the new BOM version or cancel it.
             {bom.delta_types.includes('REMOVED') && ' The assembly was removed from the latest BOM version — accepting is unavailable; cancel is the only option.'}
           </div>
-          <div className="flex items-center gap-2">
-            {!bom.delta_types.includes('REMOVED') && (
+          {canWrite && (
+            <div className="flex items-center gap-2">
+              {!bom.delta_types.includes('REMOVED') && (
+                <button
+                  onClick={() => setShowAcceptModal(true)}
+                  disabled={acceptVersion.isPending}
+                  style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: 'none', cursor: 'pointer', background: '#1E6B36', color: '#fff' }}
+                >
+                  Accept new version
+                </button>
+              )}
               <button
-                onClick={() => setShowAcceptModal(true)}
-                disabled={acceptVersion.isPending}
-                style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: 'none', cursor: 'pointer', background: '#1E6B36', color: '#fff' }}
+                onClick={() => runAction({ action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' })}
+                style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: '1px solid #E8A0A0', background: '#fff', color: '#C8202A', cursor: 'pointer' }}
               >
-                Accept new version
+                Cancel WO
               </button>
-            )}
-            <button
-              onClick={() => runAction({ action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' })}
-              style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: '1px solid #E8A0A0', background: '#fff', color: '#C8202A', cursor: 'pointer' }}
-            >
-              Cancel WO
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -187,20 +191,24 @@ export function WoDetail() {
             Assembly <strong>{bom.assembly_mark}</strong> changed in dispatch #{bom.latest_dispatch_id}: {bom.delta_types.join(' · ') || 'no field-level change'}
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => acceptVersion.mutate({})}
-              disabled={acceptVersion.isPending || bom.delta_types.includes('REMOVED')}
-              title={bom.delta_types.includes('REMOVED') ? 'Assembly removed — cancel the WO instead' : ''}
-              style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: 'none', cursor: 'pointer', background: bom.delta_types.includes('REMOVED') ? '#C2C2C2' : '#1E6B36', color: '#fff' }}
-            >
-              {acceptVersion.isPending ? 'Accepting…' : 'Accept new version'}
-            </button>
+            {canWrite && (
+              <button
+                onClick={() => acceptVersion.mutate({})}
+                disabled={acceptVersion.isPending || bom.delta_types.includes('REMOVED')}
+                title={bom.delta_types.includes('REMOVED') ? 'Assembly removed — cancel the WO instead' : ''}
+                style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: 'none', cursor: 'pointer', background: bom.delta_types.includes('REMOVED') ? '#C2C2C2' : '#1E6B36', color: '#fff' }}
+              >
+                {acceptVersion.isPending ? 'Accepting…' : 'Accept new version'}
+              </button>
+            )}
             <button onClick={() => setDismissedBanner(true)} style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#555', cursor: 'pointer' }}>
               Continue with snapshot
             </button>
-            <button onClick={() => runAction({ action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' })} style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: '1px solid #E8A0A0', background: '#fff', color: '#C8202A', cursor: 'pointer' }}>
-              Cancel WO
-            </button>
+            {canWrite && (
+              <button onClick={() => runAction({ action: 'cancel', label: 'Cancel', danger: true, needs: 'reason' })} style={{ height: 30, padding: '0 14px', fontSize: 12, fontWeight: 600, borderRadius: 5, border: '1px solid #E8A0A0', background: '#fff', color: '#C8202A', cursor: 'pointer' }}>
+                Cancel WO
+              </button>
+            )}
           </div>
         </div>
       )}
