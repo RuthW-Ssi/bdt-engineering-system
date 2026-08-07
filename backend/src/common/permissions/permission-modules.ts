@@ -87,24 +87,22 @@
 // would defeat the point of gating the BOM feature itself — only this one
 // MO-serving read stays open.
 //
-// Still-dormant candidates (reference only, NOT type-active yet):
-// product-derivation, mark-prefix-master, drawings, routings, bim,
-// manufacturing-orders, work-orders, cutting-plan, machines, activities —
-// bring each back the same way: (1) add the key here, (2) re-tag its
-// routes with `@RequiresPermission(module, action)` + `PermissionGuard`,
-// (3) check what OTHER features read this module's data before calling it
-// done, AND check whether the module is really one independent permission
-// concept or actually part of a bigger feature that shouldn't be split
-// (the `product-library` lesson, repeated by the `boms` lesson above).
-// Note for when `routings` comes back: `BomRoutingConfig.tsx` (reached
-// from the BOM dispatch flow) writes to `/products/:code/routing` —
-// applying a routing template to the matched product — a real
-// `boms`-needs-`routings` cross-dependency to check then, same shape as
-// the BOM→products auto-create case already discussed. Still deliberately
-// excluded even when modules get re-added: shared infra/reference data
-// (`master-data`, `identity`, `file-storage`, `mail`, `_skeletons` —
-// always readable, never gated) and `users` (its own separate
-// `AdminGuard`, not this permission system at all).
+// `product-derivation`, `mark-prefix-master`, `drawings` — DELIBERATELY
+// LEFT OPEN, not just "not yet reintroduced" (2026-08-07 user decision,
+// end of the Sprint 27 reintroduction sweep): all three controllers keep
+// only `JwtAuthGuard` (no `@RequiresPermission`), same as `master-data`/
+// `file-storage`. This is a scope call, not a gap — if one of them needs
+// gating later, treat it as a fresh addition using the same recipe as
+// every other module above: (1) add the key to `ALL_MODULES`, (2) re-tag
+// its routes with `@RequiresPermission(module, action)`, (3) check what
+// OTHER features read this module's data first (the `product-library`/
+// `boms`/`bim`/`routings` lessons above all came from skipping that
+// check), AND check whether it's really one independent permission
+// concept or part of a bigger feature that shouldn't be split. Shared
+// infra/reference data that stays permanently ungated regardless:
+// `master-data`, `identity`, `file-storage`, `mail`, `_skeletons` — and
+// `users`, which has its own separate `AdminGuard`, not this system at
+// all.
 //
 // `bim` added next (2026-08-04) — the user drew a sharp distinction I'd
 // initially blurred: don't gate "can I see a 3D model" as one blanket
