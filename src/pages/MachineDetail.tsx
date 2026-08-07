@@ -9,6 +9,7 @@ import { DaysSincePmBadge } from '../components/machines/DaysSincePmBadge'
 import { ActionButtons } from '../components/machines/ActionButtons'
 import { CloseRepairTicketModal } from '../components/machines/CloseRepairTicketModal'
 import type { RepairTicket } from '../api/machines'
+import { usePermission } from '../hooks/usePermission'
 
 const TABS = ['Details', 'Jobs (Mock)', 'PM log', 'Repair Tickets', 'Status history']
 
@@ -230,6 +231,7 @@ function PmLogsTab({ logs }: { logs: import('../api/machines').MaintenanceLog[] 
 
 function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; machineId: number }) {
   const [closeTicket, setCloseTicket] = useState<RepairTicket | null>(null)
+  const canUpdate = usePermission('machines', 'update')
 
   if (tickets.length === 0) {
     return <div style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: 32 }}>No repair tickets yet</div>
@@ -282,7 +284,7 @@ function RepairTicketsTab({ tickets, machineId }: { tickets: RepairTicket[]; mac
                   <div style={{ fontSize: 12, color: '#9ca3af', textAlign: 'right', flexShrink: 0 }}>
                     {new Date(t.reported_at).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </div>
-                  {isOpen && (
+                  {isOpen && canUpdate && (
                     <button
                       onClick={() => setCloseTicket(t)}
                       style={{

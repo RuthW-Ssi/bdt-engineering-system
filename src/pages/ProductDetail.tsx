@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, GitBranch, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
 import { useProduct, useProductAction, useProductMessages, useUpdateProductSpec } from '../hooks/useProducts'
 import type { PaintSpecPreset, WeldingSpecPreset } from '../api/types'
 import { useMaterialsByPrefix } from '../hooks/useMasters'
 import { useDrawings } from '../hooks/useDrawings'
 import { useRouting, useStdCost } from '../hooks/useRoutings'
+import { usePermission } from '../hooks/usePermission'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import type { ProductState } from '../api/types'
@@ -86,6 +87,8 @@ export function ProductDetail() {
   const { routing, state: routingState, totalTimeMin, loading: routingLoading, recompute } = useRouting(code)
   const { stdCost, recompute: recomputeCost } = useStdCost(code)
 
+  const canUpdate = usePermission('products', 'update')
+
   const { data: paintMaterials = [] } = useMaterialsByPrefix('PAINT')
   const { data: weldingMaterials = [] } = useMaterialsByPrefix('WC000')
   const paintByCode = Object.fromEntries(paintMaterials.map(m => [m.default_code, m.name]))
@@ -112,7 +115,7 @@ export function ProductDetail() {
     </div>
   )
 
-  const actions = ACTION_BUTTONS[product.state] ?? []
+  const actions = canUpdate ? (ACTION_BUTTONS[product.state] ?? []) : []
 
   return (
     <div className="flex flex-col min-h-[calc(100vh-56px)]">
@@ -146,14 +149,6 @@ export function ProductDetail() {
         )}
 
         <div className="flex-1" />
-
-        <button
-          onClick={() => navigate(`/bom/${product.product_code}`)}
-          className="flex items-center gap-1.5 rounded-md"
-          style={{ height: 36, padding: '0 14px', fontSize: 13, fontWeight: 500, border: '1px solid #C2C2C2', color: '#3A3A3A', background: 'white' }}
-        >
-          <GitBranch size={14} />BOM Editor
-        </button>
 
         {actions.map(a => (
           <button key={a.action}
@@ -341,20 +336,22 @@ export function ProductDetail() {
                   <div className="bg-white rounded-lg border border-chrome-100" style={{ padding: 20 }}>
                     <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#1F1F1F' }}>Spec Presets</div>
-                      <button
-                        onClick={() => {
-                          setSpecDraft({
-                            paint: product.default_paint_spec ? JSON.parse(JSON.stringify(product.default_paint_spec)) : null,
-                            welding: product.default_welding_spec ? JSON.parse(JSON.stringify(product.default_welding_spec)) : null,
-                          })
-                          setSpecSaveError('')
-                          setEditingSpec(true)
-                        }}
-                        className="flex items-center gap-1 rounded hover:bg-chrome-50"
-                        style={{ padding: '4px 10px', fontSize: 12, color: '#555', border: '1px solid #E0E0E0' }}
-                      >
-                        <Pencil size={12} /> Edit
-                      </button>
+                      {canUpdate && (
+                        <button
+                          onClick={() => {
+                            setSpecDraft({
+                              paint: product.default_paint_spec ? JSON.parse(JSON.stringify(product.default_paint_spec)) : null,
+                              welding: product.default_welding_spec ? JSON.parse(JSON.stringify(product.default_welding_spec)) : null,
+                            })
+                            setSpecSaveError('')
+                            setEditingSpec(true)
+                          }}
+                          className="flex items-center gap-1 rounded hover:bg-chrome-50"
+                          style={{ padding: '4px 10px', fontSize: 12, color: '#555', border: '1px solid #E0E0E0' }}
+                        >
+                          <Pencil size={12} /> Edit
+                        </button>
+                      )}
                     </div>
 
                     {product.default_paint_spec && (

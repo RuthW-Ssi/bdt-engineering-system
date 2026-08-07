@@ -4,6 +4,7 @@ import { ChevronLeft, Loader2, Search, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDispatchDetail } from '../hooks/useBomDispatches'
 import { usePaintConfig, useSavePaintConfig, usePaintMaterials } from '../hooks/usePaint'
+import { usePermission } from '../hooks/usePermission'
 
 type PaintRow = { primer: number | null; intermediate: number | null; fireproof: number | null; topcoat: number | null }
 
@@ -29,6 +30,7 @@ export function BomPaintConfig() {
   const { data: fireproofMats = [] } = usePaintMaterials('fireproof')
   const { data: topcoatMats = [] } = usePaintMaterials('topcoat')
   const savePaint = useSavePaintConfig(dispatchId!)
+  const canWrite = usePermission('boms', 'update')
 
   const [rows, setRows] = useState<Map<number, PaintRow>>(new Map())
   const [selected, setSelected] = useState<Set<number>>(new Set())
@@ -431,17 +433,19 @@ export function BomPaintConfig() {
               ← Back to BOM
             </button>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                style={{
-                  padding: '7px 20px', borderRadius: 6, border: 'none',
-                  background: isSaving ? '#ccc' : '#C8202A', color: '#fff',
-                  fontSize: 13, fontWeight: 600, cursor: isSaving ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {isSaving ? 'Saving...' : '💾 Save'}
-              </button>
+              {canWrite && (
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  style={{
+                    padding: '7px 20px', borderRadius: 6, border: 'none',
+                    background: isSaving ? '#ccc' : '#C8202A', color: '#fff',
+                    fontSize: 13, fontWeight: 600, cursor: isSaving ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {isSaving ? 'Saving...' : '💾 Save'}
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -9,6 +9,7 @@ import { CuttingPlanPreviewModal } from '../components/cuttingPlan/CuttingPlanPr
 import { countDistinctPlates } from '../lib/cuttingPlan/ncFileCheck'
 import { useProjects } from '../hooks/useProjects'
 import type { CuttingPlanDetail } from '../api/cutting-plan'
+import { usePermission } from '../hooks/usePermission'
 
 const TXT_FORMATS = ['.txt']
 
@@ -37,6 +38,7 @@ export function CuttingPlanUpload() {
   const uploadFlow = useUploadCuttingPlanWithPreview()
   const { data: projectsData } = useProjects({ limit: 100 })
   const projects = projectsData?.items ?? []
+  const canWrite = usePermission('cutting-plan', 'create')
 
   const setValue = (key: FieldKey, value: string) => setValues(prev => ({ ...prev, [key]: value }))
 
@@ -55,7 +57,7 @@ export function CuttingPlanUpload() {
   const removeFile = (index: number) => setEntries(prev => prev.filter((_, i) => i !== index))
 
   const requiredFilled = FIELDS.filter(f => f.required).every(f => values[f.key].trim() !== '')
-  const canSubmit = requiredFilled && entries.length > 0 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+  const canSubmit = canWrite && requiredFilled && entries.length > 0 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
   const handleError = (err: unknown) => {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message

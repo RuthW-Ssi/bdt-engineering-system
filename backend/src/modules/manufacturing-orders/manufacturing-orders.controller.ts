@@ -13,6 +13,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { MoStatus } from '@prisma/client'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { PermissionGuard } from '../../common/guards/permission.guard'
+import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
@@ -22,12 +24,13 @@ import { ChangeStatusDto } from './dto/change-status.dto'
 
 @ApiTags('Manufacturing Orders')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('mo')
 export class ManufacturingOrderController {
   constructor(private readonly svc: ManufacturingOrderService) {}
 
   @Get()
+  @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'List MOs · filter status|mark_prefix|project · search mo_code' })
   @ApiQuery({ name: 'status', required: false, enum: ['DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'DONE', 'CANCELLED'] })
   @ApiQuery({ name: 'mark_prefix', required: false })
@@ -48,42 +51,49 @@ export class ManufacturingOrderController {
   }
 
   @Get(':id')
+  @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'MO detail + derived projects/customers (P20)' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
   }
 
   @Get(':id/assemblies')
+  @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'Assembly lines + total/remaining + allocation breakdown' })
   getAssemblies(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getAssemblies(id)
   }
 
   @Get(':id/parts')
+  @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'Aggregated parts (bom_part) across all assemblies in the MO' })
   getParts(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getParts(id)
   }
 
   @Get(':id/history')
+  @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'MO-level status history' })
   getHistory(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getHistory(id)
   }
 
   @Get(':id/consume-summary')
+  @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'Planned material totals for all WOs in this MO' })
   getConsumeSummary(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getConsumeSummary(id)
   }
 
   @Post()
+  @RequiresPermission('orders', 'create')
   @ApiOperation({ summary: 'Create DRAFT MO · snapshot routing ops · validate qty (P13)' })
   create(@Body() dto: CreateMoDto, @CurrentUser() user: JwtPayload) {
     return this.svc.create(dto, user.sub, user.login)
   }
 
   @Patch(':id')
+  @RequiresPermission('orders', 'update')
   @ApiOperation({ summary: 'Edit DRAFT MO (409 otherwise)' })
   update(
     @Param('id', ParseIntPipe) id: number,
@@ -94,6 +104,7 @@ export class ManufacturingOrderController {
   }
 
   @Patch(':id/status')
+  @RequiresPermission('orders', 'update')
   @ApiOperation({ summary: 'Change status + reason → history' })
   changeStatus(
     @Param('id', ParseIntPipe) id: number,
@@ -104,6 +115,7 @@ export class ManufacturingOrderController {
   }
 
   @Delete(':id')
+  @RequiresPermission('orders', 'delete')
   @ApiOperation({ summary: 'Cancel MO (DRAFT/CONFIRMED only · returns qty · P15)' })
   cancel(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: JwtPayload) {
     return this.svc.cancel(id, user.sub, user.login)

@@ -5,6 +5,7 @@ import { useMos } from '../hooks/useMo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { PaginationBar } from '../components/PaginationBar'
 import type { MoStatus } from '../api/mo'
+import { usePermission } from '../hooks/usePermission'
 
 const LIMIT = 10
 
@@ -25,6 +26,7 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
     search: search || undefined,
     status: status === 'ALL' ? undefined : status,
   })
+  const canCreate = usePermission('orders', 'create')
   const items = data ?? []
   const totalPages = Math.max(1, Math.ceil(items.length / LIMIT))
   const pagedItems = items.slice((page - 1) * LIMIT, page * LIMIT)
@@ -45,13 +47,15 @@ export function MoList({ embedded = false }: { embedded?: boolean } = {}) {
 
             </span>
           </div>
-          <button
-            onClick={() => navigate('/mo/new')}
-            className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
-          >
-            <Plus size={14} />New MO
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => navigate('/mo/new')}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
+            >
+              <Plus size={14} />New MO
+            </button>
+          )}
         </div>
       )}
 

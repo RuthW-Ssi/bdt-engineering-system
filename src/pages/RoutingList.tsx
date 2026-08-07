@@ -7,6 +7,7 @@ import { apiClient } from '../api/client'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { PaginationBar } from '../components/PaginationBar'
+import { usePermission } from '../hooks/usePermission'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ const LIMIT = 10
 export function RoutingList() {
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const canCreate = usePermission('routings', 'create')
+  const canDelete = usePermission('routings', 'delete')
   const [search, setSearch] = useState('')
   const [filterState, setFilterState] = useState('all')
   const [page, setPage] = useState(1)
@@ -129,12 +132,14 @@ export function RoutingList() {
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <button
-            onClick={() => navigate('/routings/new')}
-            style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <Plus size={13} /> New Template
-          </button>
+          {canCreate && (
+            <button
+              onClick={() => navigate('/routings/new')}
+              style={{ height: 32, padding: '0 14px', fontSize: 12, fontWeight: 600, background: '#C8202A', color: '#fff', border: 'none', cursor: 'pointer', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              <Plus size={13} /> New Template
+            </button>
+          )}
           <button
             onClick={() => navigate('/admin/workcenters')}
             className="rounded-md border border-chrome-200 bg-white hover:bg-chrome-50 text-chrome-700"
@@ -237,16 +242,18 @@ export function RoutingList() {
                 {new Date(r.write_date).toLocaleDateString('en-GB')}
               </div>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
-                <button
-                  onClick={e => handleDelete(e, r)}
-                  disabled={deleteMut.isPending}
-                  title="Delete this routing template"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A' }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}
-                >
-                  <Trash2 size={14} />
-                </button>
+                {canDelete && (
+                  <button
+                    onClick={e => handleDelete(e, r)}
+                    disabled={deleteMut.isPending}
+                    title="Delete this routing template"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#BDBDBD', padding: 4, display: 'flex', alignItems: 'center', borderRadius: 4 }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#C8202A' }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#BDBDBD' }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
               </div>
             </div>
           ))

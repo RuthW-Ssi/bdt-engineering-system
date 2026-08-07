@@ -6,6 +6,7 @@ import { useProducts } from '../hooks/useProducts'
 import { useLibraryEntries, useUpdateLibraryEntry, useDeleteLibraryEntry, useHardDeleteLibraryEntry } from '../hooks/useLibrary'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useProjects } from '../hooks/useProjects'
+import { usePermission } from '../hooks/usePermission'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import { NewStandardProductModal } from '../components/product/NewStandardProductModal'
 import { NewCustomProductModal } from '../components/product/NewCustomProductModal'
@@ -40,6 +41,9 @@ export function ProductList() {
   const [renameEntry, setRenameEntry] = useState<LibraryEntryDTO | null>(null)
   const [openMenuId, setOpenMenuId] = useState<number | null>(null)
   const [showArchived, setShowArchived] = useState(false)
+  // Library and Standard/Custom tabs share the `products` permission —
+  // Product Library was merged into it (same "Engineer Products" feature).
+  const canWriteProducts = usePermission('products', 'create')
 
   const { data: projectsData } = useProjects({ limit: 100 })
   const projects = projectsData?.items ?? []
@@ -94,15 +98,19 @@ export function ProductList() {
           </span>
         </div>
         {tab === 'library' ? (
-          <button onClick={() => setShowModal('library')} className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}>
-            <Plus size={14} />Add Library Entry
-          </button>
+          canWriteProducts && (
+            <button onClick={() => setShowModal('library')} className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}>
+              <Plus size={14} />Add Library Entry
+            </button>
+          )
         ) : (
-          <button onClick={() => setShowModal(tab)} className="flex items-center gap-1.5 rounded-md text-white"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: tab === 'standard' ? '#0C447C' : '#B45309' }}>
-            <Plus size={14} />Add {tab === 'standard' ? 'Standard' : 'Custom'} Product
-          </button>
+          canWriteProducts && (
+            <button onClick={() => setShowModal(tab)} className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: tab === 'standard' ? '#0C447C' : '#B45309' }}>
+              <Plus size={14} />Add {tab === 'standard' ? 'Standard' : 'Custom'} Product
+            </button>
+          )
         )}
       </div>
 
@@ -389,6 +397,8 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
   const { mutateAsync: hardDeleteEntry, isPending: deleting } = useHardDeleteLibraryEntry(entry.id)
   const menuOpen = openMenuId === entry.id
   const confirm = useConfirm()
+  const canUpdate = usePermission('products', 'update')
+  const canDelete = usePermission('products', 'delete')
 
   const handleArchive = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -526,10 +536,12 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
           <div className="bg-white rounded-lg shadow-lg border border-chrome-100" style={{ position: 'absolute', right: 0, top: 32, width: 180, zIndex: 20 }}>
             {!showArchived ? (
               <>
-                <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onRename() }}
-                  className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
-                  <Pencil size={13} /> Edit
-                </button>
+                {canUpdate && (
+                  <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onRename() }}
+                    className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
+                    <Pencil size={13} /> Edit
+                  </button>
+                )}
                 {entry.std_count > 0 && (
                   <button onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); onViewLinked('standard') }}
                     className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#1F1F1F' }}>
@@ -542,25 +554,35 @@ function LibraryRow({ entry, showArchived, openMenuId, setOpenMenuId, onRename, 
                     <ExternalLink size={13} /> View Custom ({entry.cus_count})
                   </button>
                 )}
-                <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
-                <button onClick={handleArchive}
-                  className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}>
-                  <Archive size={13} /> Archive
-                </button>
+                {canDelete && (
+                  <>
+                    <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
+                    <button onClick={handleArchive}
+                      className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}>
+                      <Archive size={13} /> Archive
+                    </button>
+                  </>
+                )}
               </>
             ) : (
               <>
-                <button onClick={handleRestore}
-                  className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#065F46' }}>
-                  <RotateCcw size={13} /> Restore
-                </button>
-                <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
-                <button onClick={handleHardDelete}
-                  className="flex items-center gap-2 w-full hover:bg-chrome-50"
-                  style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}
-                  title={entry.std_count + entry.cus_count > 0 ? 'Has linked products — cannot delete' : ''}>
-                  <Trash2 size={13} /> Delete permanently
-                </button>
+                {canUpdate && (
+                  <button onClick={handleRestore}
+                    className="flex items-center gap-2 w-full hover:bg-chrome-50" style={{ padding: '8px 12px', fontSize: 13, color: '#065F46' }}>
+                    <RotateCcw size={13} /> Restore
+                  </button>
+                )}
+                {canDelete && (
+                  <>
+                    <div style={{ borderTop: '1px solid #E0E0E0', margin: '4px 0' }} />
+                    <button onClick={handleHardDelete}
+                      className="flex items-center gap-2 w-full hover:bg-chrome-50"
+                      style={{ padding: '8px 12px', fontSize: 13, color: '#C8202A' }}
+                      title={entry.std_count + entry.cus_count > 0 ? 'Has linked products — cannot delete' : ''}>
+                      <Trash2 size={13} /> Delete permanently
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>

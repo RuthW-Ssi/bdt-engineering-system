@@ -4,6 +4,7 @@ import { useMos } from '../hooks/useMo'
 import { useWos } from '../hooks/useWo'
 import { MoList } from './MoList'
 import { WoList } from './WoList'
+import { usePermission } from '../hooks/usePermission'
 
 type HubTab = 'mo' | 'wo'
 
@@ -18,6 +19,7 @@ export function OrderHub() {
 
   const { data: mos } = useMos({})
   const { data: wos } = useWos({})
+  const canCreateMo = usePermission('orders', 'create')
 
   const setTab = (t: HubTab) => {
     const p = new URLSearchParams(params)
@@ -52,7 +54,7 @@ export function OrderHub() {
         {tabBtn('mo', <Package size={16} />, 'Manufacturing Order', mos?.length)}
         {tabBtn('wo', <Wrench size={16} />, 'Work Order', wos?.length)}
         <div style={{ flex: 1 }} />
-        {tab === 'mo' && (
+        {tab === 'mo' && canCreateMo && (
           <button
             onClick={() => navigate('/mo/new')}
             className="flex items-center gap-1.5 rounded-md text-white"
