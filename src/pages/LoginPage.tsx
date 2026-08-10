@@ -29,7 +29,6 @@ export function LoginPage() {
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-ssi-50 font-sans p-6">
       <div className="absolute -top-[64rem] left-[98%] -translate-x-1/2 w-[124rem] h-[124rem] rounded-full bg-ssi-100" />
-      <div className="absolute -top-[23rem] left-[70%] -translate-x-1/2 w-[34rem] h-[34rem] rounded-full bg-ssi-400" />
       <div className="absolute -top-[47rem] left-[98%] -translate-x-1/2 w-[90rem] h-[90rem] rounded-full bg-ssi-200" />
       <div className="absolute -top-[24rem] left-[98%] -translate-x-1/2 w-[44rem] h-[44rem] rounded-full bg-ssi-400" />
 
