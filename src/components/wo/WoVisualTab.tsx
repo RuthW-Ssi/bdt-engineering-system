@@ -89,27 +89,28 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4">
+    <div className="flex flex-col lg:flex-row gap-4 h-full">
       {/*
-        Deliberately `height` (a definite value), not `minHeight` — see the
-        BimViewport ResizeObserver comment for why a min-height alone breaks
-        the viewer's canvas sizing. `clamp(260px, 48vh, 480px)` is the SAME
-        expression on both panes at every breakpoint (not two fixed values
-        that jump at the lg: breakpoint) — it scales continuously with the
-        viewport's height instead of only reacting to width, so a short
-        laptop window and a tall external monitor each get a genuinely
-        proportional size, not just two hard-coded snap points.
+        `h-full` here + `flex-[1.6]`/`flex-1` on the panes below (not a
+        vh-based clamp()) — this row sits directly inside WoDetail's Body
+        container, which is `flex: 1` inside a fixed `calc(100vh - 56px)`
+        column, so it has a genuinely DEFINITE height to inherit. The panes
+        then fill exactly whatever space is actually left below the tab bar
+        at every window size, instead of guessing a vh percentage that under-
+        or over-shoots depending on how tall the banners above happen to be
+        that day (a clamp() max like the previous 480px is exactly what left
+        a visible gap below both panes on anything taller than a small
+        laptop screen). `flex-[1.6]`/`flex-1` (no `lg:` prefix) is
+        intentional — the `flex` shorthand sizes along whichever axis is the
+        main axis, so the SAME classes split 61.5/38.5 in both row (desktop)
+        and stacked (narrow) layouts. `min-h-*` is only a floor for very
+        short viewports — Body's own `overflowY: auto` takes over if that
+        floor can't be met.
       */}
-      <div
-        className="w-full lg:w-auto lg:flex-[1.6]"
-        style={{ borderRadius: 12, overflow: 'hidden', minWidth: 0, height: 'clamp(260px, 48vh, 480px)' }}
-      >
+      <div className="flex-[1.6] min-h-[240px] min-w-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
         {left}
       </div>
-      <div
-        className="w-full lg:w-auto lg:flex-1"
-        style={{ borderRadius: 12, overflow: 'hidden', minWidth: 0, height: 'clamp(260px, 48vh, 480px)' }}
-      >
+      <div className="flex-1 min-h-[240px] min-w-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
         <WoDrawingPlaceholder mark={mark} />
       </div>
     </div>
