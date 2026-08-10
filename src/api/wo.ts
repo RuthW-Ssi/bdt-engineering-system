@@ -161,6 +161,19 @@ export interface WoScheduleGroup {
   }[]
 }
 
+// ── Visual tab (Sprint 28) ───────────────────────────────────────────────────
+export type WoBimMatchStatus = 'ok' | 'mark_not_found' | 'model_not_ready' | 'no_model'
+
+export interface WoBimMatch {
+  status: WoBimMatchStatus
+  mark: string
+  model_id: number | null
+  model_version: string | null
+  translation_status: string | null
+  global_id: string | null
+  match_count: number
+}
+
 // ── WO CRUD ───────────────────────────────────────────────────────────────────
 export async function getWos(params?: {
   status?: WoStatus
@@ -225,4 +238,8 @@ export async function getScheduleVersions(): Promise<ScheduleVersion[]> {
 
 export async function getWoSchedule(id: number): Promise<WoScheduleGroup[]> {
   return (await apiClient.get(`/wo/${id}/schedule`)).data
+}
+
+export async function getWoBimMatch(id: number): Promise<WoBimMatch> {
+  return (await apiClient.get(`/wo/${id}/bim-match`)).data
 }

@@ -4,6 +4,7 @@ import {
   getBomVersionStatus,
   getScheduleVersions,
   getWo,
+  getWoBimMatch,
   getWoCancelSiblings,
   getWoEvents,
   getWos,
@@ -69,6 +70,21 @@ export function useWoSchedule(id: number) {
 
 export function useScheduleVersions() {
   return useQuery({ queryKey: ['schedule', 'versions'], queryFn: getScheduleVersions })
+}
+
+// Visual tab (Sprint 28) — polls while the project's BIM model is still
+// translating, same idiom as useBimStatus, so the tab self-heals once
+// translation finishes without a manual reload.
+export function useWoBimMatch(id: number) {
+  return useQuery({
+    queryKey: ['wo', 'bim-match', id],
+    queryFn: () => getWoBimMatch(id),
+    enabled: !!id,
+    refetchInterval: query => {
+      const d = query.state.data
+      return d?.status === 'model_not_ready' && d.translation_status !== 'failed' ? 5000 : false
+    },
+  })
 }
 
 // ── Mutations — invalidate detail/list/events/bom-version after a change ──────
