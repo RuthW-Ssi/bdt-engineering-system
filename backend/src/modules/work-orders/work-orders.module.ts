@@ -5,6 +5,7 @@ import { WorkOrdersService } from './work-orders.service'
 import { ScheduleService } from './schedule.service'
 import { WoCodeGenerator } from './wo-code.generator'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
+import { WoBimMatchService } from './wo-bim-match.service'
 
 /**
  * Sprint 14 · F-WO Work Order execution layer.
@@ -16,7 +17,7 @@ import { WorkOrderAutoCreateService } from './wo-auto-create.service'
  */
 @Module({
   controllers: [WorkOrdersController, ScheduleController],
-  providers: [WorkOrdersService, ScheduleService, WoCodeGenerator, WorkOrderAutoCreateService],
+  providers: [WorkOrdersService, ScheduleService, WoCodeGenerator, WorkOrderAutoCreateService, WoBimMatchService],
   exports: [WorkOrdersService, WorkOrderAutoCreateService],
 })
 export class WorkOrdersModule {}

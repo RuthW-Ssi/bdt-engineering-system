@@ -29,3 +29,6 @@ backend/.env
 *.sln
 *.sw?
 .vercel
+
+# Claude Code brainstorming visual-companion sessions
+.superpowers/
