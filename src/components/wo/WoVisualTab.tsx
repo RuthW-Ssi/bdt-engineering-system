@@ -1,6 +1,6 @@
-import { useMemo, type ReactNode } from 'react'
-import { AlertTriangle, Cuboid as CuboidIcon, Loader2, SearchX } from 'lucide-react'
-import { BimViewport, type BimFocusRequest } from '../bim/BimViewport'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { AlertTriangle, Cuboid as CuboidIcon, FlipHorizontal, Loader2, MoveHorizontal, MoveVertical, SearchX } from 'lucide-react'
+import { BimViewport, type BimFocusRequest, type BimViewportHandle } from '../bim/BimViewport'
 import { useBimViewerToken } from '../../hooks/useBim'
 import { useWoBimMatch } from '../../hooks/useWo'
 import { WoDrawingPlaceholder } from './WoDrawingPlaceholder'
@@ -45,6 +45,18 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   const { data: bimMatch, isLoading: matchLoading, isError: matchError } = useWoBimMatch(woId)
   const modelId = bimMatch?.status === 'ok' ? bimMatch.model_id : null
   const { data: viewerToken } = useBimViewerToken(modelId)
+  const viewportRef = useRef<BimViewportHandle>(null)
+  // 'default' = whatever fitToView already framed (no orientation button
+  // pressed yet) — not the same as neither button being "active" once the
+  // user has toggled once, but there's no way to read the camera's current
+  // roll back out of BimViewport, so this only tracks OUR last click, not
+  // ground truth. Good enough for highlighting which button was pressed.
+  const [orientation, setOrientationState] = useState<'default' | 'vertical' | 'horizontal'>('default')
+  // Which side of the piece is showing, for the chosen orientation — flip
+  // doesn't have its own meaning against 'default' (there's no axis/side
+  // basis until an orientation is picked), so the Flip button stays
+  // disabled until orientation !== 'default'.
+  const [flipped, setFlipped] = useState(false)
 
   // Must be memoized — an inline object literal would re-fire BimViewport's
   // focus effect on every unrelated re-render (same reason ProjectProgress
@@ -53,6 +65,19 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
     if (bimMatch?.status !== 'ok' || !bimMatch.global_id) return null
     return { globalIds: [bimMatch.global_id], hideRest: true }
   }, [bimMatch])
+
+  // A newly-focused piece gets its own fresh fitToView from BimViewport —
+  // the orientation toggle's pressed-state should reset with it rather than
+  // keep showing "Vertical" highlighted against a piece it was never applied
+  // to. Adjusted during render (React's documented pattern for "reset state
+  // when a prop changes"), not a useEffect — an effect would paint one
+  // stale frame with the old orientation still highlighted before firing.
+  const [prevFocusRequest, setPrevFocusRequest] = useState(focusRequest)
+  if (focusRequest !== prevFocusRequest) {
+    setPrevFocusRequest(focusRequest)
+    setOrientationState('default')
+    setFlipped(false)
+  }
 
   let left: ReactNode
   if (matchLoading) {
@@ -78,6 +103,7 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   } else if (bimMatch?.status === 'ok') {
     left = viewerToken ? (
       <BimViewport
+        ref={viewportRef}
         urn={viewerToken.urn}
         accessToken={viewerToken.access_token}
         onSelect={() => {}}
@@ -86,6 +112,23 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
     ) : (
       <LoadingBox />
     )
+  }
+  const viewerActive = bimMatch?.status === 'ok' && !!viewerToken
+
+  function toggleOrientation(mode: 'vertical' | 'horizontal') {
+    // A fresh, non-flipped view when switching axis — flipping is relative
+    // to whichever orientation is currently picked, not a standalone state
+    // that should survive switching from vertical to horizontal.
+    viewportRef.current?.setOrientation(mode, false)
+    setOrientationState(mode)
+    setFlipped(false)
+  }
+
+  function toggleFlip() {
+    if (orientation === 'default') return
+    const next = !flipped
+    viewportRef.current?.setOrientation(orientation, next)
+    setFlipped(next)
   }
 
   return (
@@ -107,12 +150,54 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
         short viewports — Body's own `overflowY: auto` takes over if that
         floor can't be met.
       */}
-      <div className="flex-[1.6] min-h-[240px] min-w-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
+      <div className="flex-[1.6] min-h-[240px] min-w-0" style={{ position: 'relative', borderRadius: 12, overflow: 'hidden' }}>
         {left}
+        {viewerActive && (
+          <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 2, display: 'flex', gap: 2, background: 'rgba(31,31,31,.85)', borderRadius: 10, padding: 6 }}>
+            <OrientationButton
+              icon={<MoveVertical size={16} />}
+              title="Orient vertical"
+              active={orientation === 'vertical'}
+              onClick={() => toggleOrientation('vertical')}
+            />
+            <OrientationButton
+              icon={<MoveHorizontal size={16} />}
+              title="Orient horizontal"
+              active={orientation === 'horizontal'}
+              onClick={() => toggleOrientation('horizontal')}
+            />
+            <div style={{ width: 1, background: 'rgba(255,255,255,.15)', margin: '4px 2px' }} />
+            <OrientationButton
+              icon={<FlipHorizontal size={16} />}
+              title={orientation === 'default' ? 'Pick vertical or horizontal first to flip sides' : 'Flip to the other side'}
+              active={flipped}
+              disabled={orientation === 'default'}
+              onClick={toggleFlip}
+            />
+          </div>
+        )}
       </div>
       <div className="flex-1 min-h-[240px] min-w-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
         <WoDrawingPlaceholder mark={mark} />
       </div>
     </div>
+  )
+}
+
+function OrientationButton({ icon, title, active, disabled, onClick }: { icon: ReactNode; title: string; active: boolean; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        width: 34, height: 34, borderRadius: 7, border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: active ? 'rgba(255,255,255,.18)' : 'transparent',
+        color: disabled ? '#5A5A5A' : active ? '#fff' : '#D6D6D6',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+      }}
+    >
+      {icon}
+    </button>
   )
 }
