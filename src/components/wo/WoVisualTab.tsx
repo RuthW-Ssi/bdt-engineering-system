@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Cuboid as CuboidIcon, FlipHorizontal, Loader2, MoveHorizontal, MoveVertical, SearchX } from 'lucide-react'
+import { AlertTriangle, Cuboid as CuboidIcon, Loader2, MoveHorizontal, MoveVertical, RotateCw, SearchX } from 'lucide-react'
 import { BimViewport, type BimFocusRequest, type BimViewportHandle } from '../bim/BimViewport'
 import { useBimViewerToken } from '../../hooks/useBim'
 import { useWoBimMatch } from '../../hooks/useWo'
@@ -52,11 +52,12 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   // roll back out of BimViewport, so this only tracks OUR last click, not
   // ground truth. Good enough for highlighting which button was pressed.
   const [orientation, setOrientationState] = useState<'default' | 'vertical' | 'horizontal'>('default')
-  // Which side of the piece is showing, for the chosen orientation — flip
-  // doesn't have its own meaning against 'default' (there's no axis/side
-  // basis until an orientation is picked), so the Flip button stays
-  // disabled until orientation !== 'default'.
-  const [flipped, setFlipped] = useState(false)
+  // Which of the piece's 4 faces (90° apart around its long axis) is
+  // showing, for the chosen orientation — rotation doesn't have its own
+  // meaning against 'default' (there's no axis/side basis until an
+  // orientation is picked), so the Rotate button stays disabled until
+  // orientation !== 'default'.
+  const [rotationStep, setRotationStep] = useState(0)
 
   // Must be memoized — an inline object literal would re-fire BimViewport's
   // focus effect on every unrelated re-render (same reason ProjectProgress
@@ -76,7 +77,7 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   if (focusRequest !== prevFocusRequest) {
     setPrevFocusRequest(focusRequest)
     setOrientationState('default')
-    setFlipped(false)
+    setRotationStep(0)
   }
 
   let left: ReactNode
@@ -116,19 +117,19 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   const viewerActive = bimMatch?.status === 'ok' && !!viewerToken
 
   function toggleOrientation(mode: 'vertical' | 'horizontal') {
-    // A fresh, non-flipped view when switching axis — flipping is relative
-    // to whichever orientation is currently picked, not a standalone state
+    // Back to face 0 when switching axis — rotation is relative to
+    // whichever orientation is currently picked, not a standalone state
     // that should survive switching from vertical to horizontal.
-    viewportRef.current?.setOrientation(mode, false)
+    viewportRef.current?.setOrientation(mode, 0)
     setOrientationState(mode)
-    setFlipped(false)
+    setRotationStep(0)
   }
 
-  function toggleFlip() {
+  function rotateToNextFace() {
     if (orientation === 'default') return
-    const next = !flipped
+    const next = (rotationStep + 1) % 4
     viewportRef.current?.setOrientation(orientation, next)
-    setFlipped(next)
+    setRotationStep(next)
   }
 
   return (
@@ -168,11 +169,11 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
             />
             <div style={{ width: 1, background: 'rgba(255,255,255,.15)', margin: '4px 2px' }} />
             <OrientationButton
-              icon={<FlipHorizontal size={16} />}
-              title={orientation === 'default' ? 'Pick vertical or horizontal first to flip sides' : 'Flip to the other side'}
-              active={flipped}
+              icon={<RotateCw size={16} />}
+              title={orientation === 'default' ? 'Pick vertical or horizontal first to rotate' : `Rotate to next face (${rotationStep + 1}/4)`}
+              active={rotationStep !== 0}
               disabled={orientation === 'default'}
-              onClick={toggleFlip}
+              onClick={rotateToNextFace}
             />
           </div>
         )}
