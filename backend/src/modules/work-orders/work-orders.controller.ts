@@ -18,6 +18,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 import { WorkOrdersService } from './work-orders.service'
 import { ScheduleService } from './schedule.service'
+import { WoBimMatchService } from './wo-bim-match.service'
 import { UpdateWoDto } from './dto/update-wo.dto'
 import { WoDoneDto, WoNoteDto, WoReasonDto } from './dto/wo-transition.dto'
 import { AcceptVersionDto } from './dto/accept-version.dto'
@@ -30,6 +31,7 @@ export class WorkOrdersController {
   constructor(
     private readonly svc: WorkOrdersService,
     private readonly schedule: ScheduleService,
+    private readonly bimMatch: WoBimMatchService,
   ) {}
 
   @Get()
@@ -194,5 +196,15 @@ export class WorkOrdersController {
   @ApiOperation({ summary: 'prod_schedule rows for this WO grouped by version (active first)' })
   getSchedule(@Param('id', ParseIntPipe) id: number) {
     return this.schedule.scheduleForWo(id)
+  }
+
+  // ── Visual tab (Sprint 28 · F-WO Visual Tab) ─────────────────────────────────
+  // Deliberately UNGATED, same reasoning as `:id/schedule` right above — this
+  // resolves a read-only rendering aid for a WO you already passed `orders`
+  // view to load via `GET /wo/:id`, not a separate permission surface.
+  @Get(':id/bim-match')
+  @ApiOperation({ summary: 'Resolve this WO\'s assembly mark to a BIM model + isolated global_id for the Visual tab' })
+  getBimMatch(@Param('id', ParseIntPipe) id: number) {
+    return this.bimMatch.getBimMatch(id)
   }
 }

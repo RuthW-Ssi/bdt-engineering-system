@@ -7,10 +7,11 @@ import {
 } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { QtyReusableField, WoHoldResolutionModal, qtyReusableValid } from '../components/wo/WoHoldResolutionModal'
+import { WoVisualTab } from '../components/wo/WoVisualTab'
 import type { WoAction, WoStatus, WoDetail as WoDetailT, SourceRoutingOp } from '../api/wo'
 import { usePermission } from '../hooks/usePermission'
 
-const TABS = ['Overview', 'Schedule', 'Events'] as const
+const TABS = ['Overview', 'Schedule', 'Events', 'Visual'] as const
 type Tab = (typeof TABS)[number]
 
 type ActionDef = { action: WoAction; label: string; danger?: boolean; needs?: 'reason' | 'qty' }
@@ -235,6 +236,7 @@ export function WoDetail() {
         {tab === 'Overview' && <OverviewTab wo={wo} bomOutdated={!!bom?.is_outdated} onMo={() => navigate(`/mo/${wo.mo_id}`)} />}
         {tab === 'Schedule' && <ScheduleTab woId={woId} />}
         {tab === 'Events' && <EventsTab woId={woId} />}
+        {tab === 'Visual' && <WoVisualTab woId={woId} mark={wo.bom_assembly.assembly_mark} />}
       </div>
 
       {/* Action modal (reason / qty) */}
