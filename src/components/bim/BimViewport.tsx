@@ -376,6 +376,36 @@ export function BimViewport({ urn, accessToken, onSelect, focusRequest, statusCo
     }
   }, [urn, accessToken])
 
+  // The viewer sizes its WebGL framebuffer from the container's dimensions
+  // AT INIT TIME ONLY (`new Autodesk.Viewing.GuiViewer3D(containerRef.current)`
+  // above) — it never re-checks afterward. Every prior consumer of this
+  // component (BimViewer.tsx, ProjectProgress.tsx) mounts into a container
+  // whose size is already stable by the time the viewer initializes, so this
+  // was never exercised. A responsive container that's still mid-layout (or
+  // whose flex-direction/width changes later, e.g. a row↔column breakpoint)
+  // can hand the viewer a zero-size container — the canvas then never
+  // recovers (confirmed via repeated `GL_INVALID_FRAMEBUFFER_OPERATION:
+  // Attachment has zero size` console warnings and a permanently blank
+  // viewport) until something explicitly tells it to resize. `containerRef`
+  // itself is a stable DOM node for the component's whole lifetime (only
+  // the viewer instance inside it is re-created), so one observer for the
+  // full lifetime is correct — no re-subscribe needed when `urn`/
+  // `accessToken` change.
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => viewerRef.current?.resize())
+    })
+    observer.observe(el)
+    return () => {
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [])
+
   // Selecting an assembly in the left tree should select + zoom to it in the
   // 3D view too — a distinct effect (not folded into the SELECTION_CHANGED_EVENT
   // handler above) so a direct click *in* the viewport doesn't also re-trigger

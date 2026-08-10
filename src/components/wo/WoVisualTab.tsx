@@ -89,9 +89,32 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16, minHeight: 480 }}>
-      <div style={{ flex: '1.6 1 0%', borderRadius: 12, overflow: 'hidden', minWidth: 0 }}>{left}</div>
-      <div style={{ flex: '1 1 0%', borderRadius: 12, overflow: 'hidden', minWidth: 0 }}>
+    <div className="flex flex-col lg:flex-row gap-4">
+      {/*
+        Deliberately `height` (a definite value), not `minHeight`. In the
+        original row-only layout, flex's default `align-items: stretch`
+        gave each pane a genuine definite height (matching the row
+        container's own `minHeight`), which is what let BimViewport's
+        `height: 100%` chain resolve all the way down to its canvas. In
+        `flex-col` (stacked) mode, panes size along the main axis by their
+        own content instead — a `minHeight` is only a floor, not a definite
+        height, so `height: 100%` on BimViewport's canvas resolved to 0.
+        That's not cosmetic: the WebGL context gets created with a
+        zero-size framebuffer and never recovers (confirmed via repeated
+        `GL_INVALID_FRAMEBUFFER_OPERATION: Attachment has zero size`
+        console warnings and a permanently blank viewport). `height` fixes
+        the chain in both layout modes.
+      */}
+      <div
+        className="w-full h-80 lg:w-auto lg:h-[480px] lg:flex-[1.6]"
+        style={{ borderRadius: 12, overflow: 'hidden', minWidth: 0 }}
+      >
+        {left}
+      </div>
+      <div
+        className="w-full h-56 lg:w-auto lg:h-[480px] lg:flex-1"
+        style={{ borderRadius: 12, overflow: 'hidden', minWidth: 0 }}
+      >
         <WoDrawingPlaceholder mark={mark} />
       </div>
     </div>
