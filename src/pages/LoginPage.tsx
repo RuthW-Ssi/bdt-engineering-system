@@ -48,7 +48,7 @@ export function LoginPage() {
 
       <div className="relative w-full max-w-md bg-white rounded-lg border border-ssi-400 shadow-[0_8px_24px_rgba(200,32,42,0.25)] p-8">
         <div className="flex flex-col items-center text-center mb-6 pt-4">
-          <img src="/assets/logo/bdt-logo.png" alt="" className="w-48 h-24 object-contain" />
+          <img src="/assets/logo/powerkeychain-logo.png" alt="" className="w-48 h-24 object-contain" />
           <div className="mt-6 text-center leading-tight">
             <div className="text-chrome-900" style={{ fontSize: 16, fontWeight: 700, letterSpacing: '0.08em' }}>SSI BUILDING TECH</div>
             <div className="text-chrome-400 mt-1" style={{ fontSize: 12, fontWeight: 500, letterSpacing: '0.08em' }}>POWER KEYCHAIN</div>
