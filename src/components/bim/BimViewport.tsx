@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { Orbit, Hand, Layers, Ruler, ScanEye, EyeOff, Boxes, Maximize } from 'lucide-react'
 
 // Autodesk Viewer SDK is a global UMD script, not an npm/ESM package — loaded
@@ -163,6 +163,41 @@ function nearestGuid(dbId: number, tree: any, dbIdToGuid: Map<number, string>): 
   return null
 }
 
+// World-space bounding box of a set of dbIds — NOT viewer.model.getBoundingBox(),
+// which returns the whole model's box regardless of isolate/hide state. Walks
+// every fragment belonging to each dbId (an assembly-level dbId can own more
+// than one) and unions their world bounds. Used by setOrientation below to
+// find the isolated piece's actual long axis.
+function getWorldBoundsForDbIds(viewer: any, dbIds: number[]) {
+  const THREE = window.THREE
+  const fragList = viewer.model.getFragmentList()
+  const tree = viewer.model.getInstanceTree()
+  const box = new THREE.Box3()
+  const fragBox = new THREE.Box3()
+  for (const dbId of dbIds) {
+    // `recursive: true` is required — confirmed live (2026-08-10) that an
+    // assembly-level dbId owns zero fragments directly, only its child
+    // nodes do (same parent/child split documented in nearestGuid() above);
+    // the non-recursive call silently walks nothing and leaves an empty box.
+    tree.enumNodeFragments(dbId, (fragId: number) => {
+      fragList.getWorldBounds(fragId, fragBox)
+      box.union(fragBox)
+    }, true)
+  }
+  return box
+}
+
+export interface BimViewportHandle {
+  // Repositions the camera to a side-on view of the focused piece so its
+  // longest bounding-box dimension reads as vertical or horizontal on
+  // screen — a no-op if nothing is currently focused/isolated. `flipped`
+  // views the SAME piece from the opposite side (still the same
+  // vertical/horizontal reading) rather than picking a different axis —
+  // see the WoVisualTab orientation-toggle comment for why this is a
+  // camera move, not a geometry transform.
+  setOrientation: (mode: 'vertical' | 'horizontal', flipped: boolean) => void
+}
+
 interface Props {
   urn: string
   accessToken: string
@@ -198,7 +233,10 @@ function hexToThemingVector4(THREE: any, hex: string) {
   return new THREE.Vector4(r, g, b, 1)
 }
 
-export function BimViewport({ urn, accessToken, onSelect, focusRequest, statusColorMap, defaultColor }: Props) {
+export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimViewport(
+  { urn, accessToken, onSelect, focusRequest, statusColorMap, defaultColor },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<any>(null)
   const extensionsRef = useRef<{ section?: any; measure?: any; explode?: any }>({})
@@ -207,6 +245,11 @@ export function BimViewport({ urn, accessToken, onSelect, focusRequest, statusCo
   const dbIdToGuidRef = useRef<Map<number, string>>(new Map())
   const statusColorMapRef = useRef<Map<string, string> | undefined>(statusColorMap)
   const defaultColorRef = useRef<string | undefined>(defaultColor)
+  // Last non-empty focusRequest's resolved dbIds — what setOrientation()
+  // below aims the camera at. Not reset on an empty/"show all" focusRequest
+  // (globalIds: []) since orienting "the whole model" isn't a meaningful
+  // request; the toggle just keeps targeting whatever was last isolated.
+  const lastFocusDbIdsRef = useRef<number[]>([])
 
   // Re-tints every known dbId per the current statusColorMap — safe to call
   // repeatedly (e.g. after an isolate/clear action resets theming for the
@@ -447,6 +490,7 @@ export function BimViewport({ urn, accessToken, onSelect, focusRequest, statusCo
         .map(g => guidToDbId.get(g))
         .filter((id): id is number => id != null)
       if (!dbIds.length) return
+      lastFocusDbIdsRef.current = dbIds
 
       // setThemingColor's per-fragment material edit was long assumed dead
       // on this model (HLOD mesh consolidation, confirmed real via a
@@ -540,6 +584,77 @@ export function BimViewport({ urn, accessToken, onSelect, focusRequest, statusCo
 
   const resetView = () => viewerRef.current?.fitToView()
 
+  // Repositions the camera to a side-on view of the focused piece so its
+  // longest bbox dimension reads as vertical or horizontal on screen —
+  // deliberately NOT a geometry transform (would require rewriting fragment
+  // matrices and could desync isolate/section/measure, all of which key off
+  // the model's original coordinates). A plain roll of whatever angle
+  // fitToView happened to land on isn't enough: confirmed live (2026-08-10)
+  // that fitToView's default framing for a long thin piece is often close to
+  // end-on (looking nearly straight down the long axis), where the long
+  // axis is foreshortened to almost nothing and no roll makes it read as a
+  // line at all — this instead computes a genuine side elevation.
+  const setOrientation = (mode: 'vertical' | 'horizontal', flipped: boolean) => {
+    const viewer = viewerRef.current
+    const THREE = window.THREE
+    const dbIds = lastFocusDbIdsRef.current
+    if (!viewer?.model || !THREE || !dbIds.length) return
+
+    const box = getWorldBoundsForDbIds(viewer, dbIds)
+    if (box.isEmpty()) return
+    const size = new THREE.Vector3()
+    box.getSize(size)
+    const center = new THREE.Vector3()
+    box.getCenter(center)
+
+    const axisCandidates = [
+      { v: new THREE.Vector3(1, 0, 0), len: size.x },
+      { v: new THREE.Vector3(0, 1, 0), len: size.y },
+      { v: new THREE.Vector3(0, 0, 1), len: size.z },
+    ]
+    axisCandidates.sort((a, b) => b.len - a.len)
+    const longAxis = axisCandidates[0].v
+
+    // Two axes perpendicular to longAxis, forming an orthonormal basis for
+    // the screen plane of a side-on view: `sideDir` is the direction to
+    // view FROM, `otherPerp` is whatever reads as "across" on screen.
+    // refUp just breaks the degenerate case where longAxis itself is
+    // world Z (a vertical member) — cross(Z, Z) is undefined, so fall back
+    // to world Y as the reference instead.
+    const worldZ = new THREE.Vector3(0, 0, 1)
+    const refUp = Math.abs(longAxis.dot(worldZ)) > 0.9 ? new THREE.Vector3(0, 1, 0) : worldZ
+    const sideDir = new THREE.Vector3().crossVectors(longAxis, refUp).normalize()
+    const otherPerp = new THREE.Vector3().crossVectors(sideDir, longAxis).normalize()
+
+    // Distance computed directly from the piece's bounding sphere + the
+    // camera's own FOV — NOT `viewer.fitToView(dbIds)` first. fitToView
+    // animates the camera over several frames rather than jumping straight
+    // there; confirmed live (2026-08-10) that calling it immediately before
+    // `setView()` below produces no visible change at all, because its
+    // still-running transition keeps ticking after setView and overwrites
+    // the very position just set, snapping back to fitToView's own (often
+    // near end-on) framing on the next rendered frame.
+    const nav = viewer.navigation
+    const camera = nav.getCamera()
+    const sphere = box.getBoundingSphere(new THREE.Sphere())
+    const fovRad = (camera.fov || 45) * (Math.PI / 180)
+    const dist = (sphere.radius / Math.sin(fovRad / 2)) * 1.15
+
+    // `flipped` views the same piece from the opposite side (walk around
+    // to -sideDir instead of +sideDir) while keeping the same up vector —
+    // the vertical/horizontal reading on screen stays identical, only the
+    // face that's visible changes (e.g. to check a connection's bolts on
+    // the far side).
+    const position = center.clone().addScaledVector(sideDir, flipped ? dist : -dist)
+    const up = mode === 'vertical' ? longAxis.clone() : otherPerp.clone()
+
+    nav.setView(position, center)
+    nav.setCameraUpVector(up)
+    viewer.impl.invalidate(true, true, true)
+  }
+
+  useImperativeHandle(ref, () => ({ setOrientation }), [])
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', background: '#14171d' }}>
       {SHOW_TOOLBAR && (
@@ -582,7 +697,7 @@ export function BimViewport({ urn, accessToken, onSelect, focusRequest, statusCo
       )}
     </div>
   )
-}
+})
 
 function ToolButton({ icon, title, onClick, active }: { icon: React.ReactNode; title: string; onClick: () => void; active?: boolean }) {
   return (
