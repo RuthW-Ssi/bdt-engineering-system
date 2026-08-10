@@ -190,12 +190,14 @@ function getWorldBoundsForDbIds(viewer: any, dbIds: number[]) {
 export interface BimViewportHandle {
   // Repositions the camera to a side-on view of the focused piece so its
   // longest bounding-box dimension reads as vertical or horizontal on
-  // screen — a no-op if nothing is currently focused/isolated. `flipped`
-  // views the SAME piece from the opposite side (still the same
-  // vertical/horizontal reading) rather than picking a different axis —
-  // see the WoVisualTab orientation-toggle comment for why this is a
+  // screen — a no-op if nothing is currently focused/isolated.
+  // `rotationStep` (0-3) walks the camera around the piece's long axis in
+  // 90° increments — all 4 faces of a roughly-rectangular member (front,
+  // right, back, left), not just a single flip to the opposite side — while
+  // `mode` keeps producing the same vertical/horizontal reading at every
+  // step. See the WoVisualTab orientation-toggle comment for why this is a
   // camera move, not a geometry transform.
-  setOrientation: (mode: 'vertical' | 'horizontal', flipped: boolean) => void
+  setOrientation: (mode: 'vertical' | 'horizontal', rotationStep: number) => void
 }
 
 interface Props {
@@ -585,7 +587,7 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
   // end-on (looking nearly straight down the long axis), where the long
   // axis is foreshortened to almost nothing and no roll makes it read as a
   // line at all — this instead computes a genuine side elevation.
-  const setOrientation = (mode: 'vertical' | 'horizontal', flipped: boolean) => {
+  const setOrientation = (mode: 'vertical' | 'horizontal', rotationStep: number) => {
     const viewer = viewerRef.current
     const THREE = window.THREE
     const dbIds = lastFocusDbIdsRef.current
@@ -631,13 +633,20 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
     const fovRad = (camera.fov || 45) * (Math.PI / 180)
     const dist = (sphere.radius / Math.sin(fovRad / 2)) * 1.15
 
-    // `flipped` views the same piece from the opposite side (walk around
-    // to -sideDir instead of +sideDir) while keeping the same up vector —
-    // the vertical/horizontal reading on screen stays identical, only the
-    // face that's visible changes (e.g. to check a connection's bolts on
-    // the far side).
-    const position = center.clone().addScaledVector(sideDir, flipped ? dist : -dist)
-    const up = mode === 'vertical' ? longAxis.clone() : otherPerp.clone()
+    // `rotationStep` walks the camera around longAxis in 90° increments —
+    // -sideDir, -otherPerp, +sideDir, +otherPerp (each a consistent +90°
+    // turn from the last) — covering all 4 faces of a roughly-rectangular
+    // member (e.g. checking a connection's bolts on the far or side
+    // faces), not just a single flip to the opposite side. Step 0 is
+    // -sideDir, matching the original single-view framing exactly. `up` is
+    // recomputed per step rather than reusing a fixed `otherPerp`: for
+    // 'horizontal' mode it must stay perpendicular to whichever direction
+    // the camera is CURRENTLY viewing from, which rotates too.
+    const viewFromDirs = [sideDir.clone().negate(), otherPerp.clone().negate(), sideDir, otherPerp]
+    const viewFromDir = viewFromDirs[((rotationStep % 4) + 4) % 4]
+    const position = center.clone().addScaledVector(viewFromDir, dist)
+    const horizontalUp = new THREE.Vector3().crossVectors(viewFromDir, longAxis).normalize()
+    const up = mode === 'vertical' ? longAxis.clone() : horizontalUp
 
     nav.setView(position, center)
     nav.setCameraUpVector(up)
