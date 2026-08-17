@@ -9,6 +9,7 @@ import { LoginPage } from './pages/LoginPage'
 import { CustomerList } from './pages/CustomerList'
 import { ProjectList } from './pages/ProjectList'
 import { ProjectProgress } from './pages/ProjectProgress'
+import { ProjectProgressHistory } from './pages/ProjectProgressHistory'
 import { ZoneList } from './pages/ZoneList'
 import { RoutingList } from './pages/RoutingList'
 import { RoutingBuilder } from './pages/RoutingBuilder'
@@ -79,6 +80,7 @@ export default function App() {
             <Route path="/customers" element={<ProtectedRoute viewModules={['customers']}><CustomerList /></ProtectedRoute>} />
             <Route path="/projects" element={<ProtectedRoute viewModules={['projects']}><ProjectList /></ProtectedRoute>} />
             <Route path="/projects/:code/progress" element={<ProtectedRoute viewModules={['project-tracking']}><ProjectProgress /></ProtectedRoute>} />
+            <Route path="/projects/:code/progress/history" element={<ProtectedRoute viewModules={['project-tracking']}><ProjectProgressHistory /></ProtectedRoute>} />
             <Route path="/zones" element={<ProtectedRoute viewModules={['project-zones', 'sub-zones']}><ZoneList /></ProtectedRoute>} />
             <Route path="/engineer-products" element={<ProtectedRoute viewModules={['products']}><ProductList /></ProtectedRoute>} />
             <Route path="/engineer-products/:code" element={<ProtectedRoute viewModules={['products']}><ProductDetail /></ProtectedRoute>} />

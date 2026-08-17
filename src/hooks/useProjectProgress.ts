@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getProgressOverview, getProgressZoneRows, getProgressBimMatch, getProgressProjectRows, getProgressProjectBimMatch,
   getProgressPositions, updateAssemblyProgress, bulkUpdateAssemblyProgress,
+  previewProgressImport, confirmProgressImport,
+  getProgressHistory, getProgressHistoryBatch, rollbackProgressBatch,
 } from '../api/projectProgress'
 import type { UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 
@@ -87,5 +89,60 @@ export function useBulkUpdateAssemblyProgress(projectCode: string | undefined) {
       qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
     },
     meta: { showGlobalErrorToast: true },
+  })
+}
+
+// No showGlobalErrorToast — a structural rejection (wrong project, header
+// drift) carries a specific, actionable message the import UI displays
+// inline (per spec: skip the review modal, show the error directly),
+// rather than a toast that can get missed/dismissed.
+export function usePreviewProgressImport(projectCode: string | undefined) {
+  return useMutation({
+    mutationFn: (file: File) => previewProgressImport(projectCode!, file),
+  })
+}
+
+export function useConfirmProgressImport(projectCode: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (file: File) => confirmProgressImport(projectCode!, file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'history', projectCode] })
+    },
+  })
+}
+
+export function useProgressHistory(projectCode: string | undefined) {
+  return useQuery({
+    queryKey: ['project-progress', 'history', projectCode],
+    queryFn: () => getProgressHistory(projectCode!),
+    enabled: !!projectCode,
+  })
+}
+
+export function useProgressHistoryBatch(projectCode: string | undefined, batchId: number | null) {
+  return useQuery({
+    queryKey: ['project-progress', 'history', projectCode, batchId],
+    queryFn: () => getProgressHistoryBatch(projectCode!, batchId!),
+    enabled: !!projectCode && batchId != null,
+  })
+}
+
+// No showGlobalErrorToast — a "conflicts" response is a normal (200) result
+// the caller inspects and renders as a confirm dialog, not an HTTP error.
+export function useRollbackProgressBatch(projectCode: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ batchId, force }: { batchId: number; force: boolean }) => rollbackProgressBatch(projectCode!, batchId, force),
+    onSuccess: (result) => {
+      if (result.newBatchId == null && result.conflicts.length) return // conflict-only response, nothing changed yet
+      qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'history', projectCode] })
+    },
   })
 }

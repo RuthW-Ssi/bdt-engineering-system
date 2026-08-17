@@ -72,6 +72,9 @@ model res_users {
   // Sprint 24: Project Progress Overview
   assembly_progress_written bom_assembly_progress[] @relation("assembly_progress_write")
 
+  // Progress Excel Import/Export + Change History
+  progress_batches_created progress_change_batch[] @relation("progress_batch_create")
+
   // Sprint 12: Activity Library
   activities_created activity[] @relation("activity_create_user")
   activities_written activity[] @relation("activity_write_user")
@@ -312,6 +315,7 @@ model project {
   drawings      shop_drawing[]        @relation("ProjectDrawings")
   dispatches    bom_dispatch[]        @relation("ProjectDispatches")
   bim_models    bim_model[]           @relation("ProjectBimModels")
+  progress_change_batches progress_change_batch[]
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -922,6 +926,7 @@ model bom_assembly {
   work_orders       work_order[] // Sprint 14: WO execution (F-WO)
   paint_configs     mbom_assembly_paint[]
   progress          bom_assembly_progress? // Sprint 24: manual progress tracking
+  progress_change_entries progress_change_entry[]
 
   @@unique([dispatch_id, assembly_mark])
   @@index([dispatch_id])
@@ -1000,38 +1005,89 @@ model mbom_assembly_paint {
   @@index([dispatch_id])
 }
 
-// ── 🟥 BOM Assembly Progress (Sprint 24, rebuilt Sprint 26) ──────────
+// ── 🟥 BOM Assembly Progress (Sprint 24, rebuilt Sprint 26, Payment+Erection-date Sprint added 2026-08-14) ──
 // Manual-entry phase progress per assembly, mirroring the site team's
 // real tracking sheet (REV1): Fabrication = 10 weighted stage percents
 // (weights live in project-progress.service.ts's STAGE_WEIGHTS — Excel
 // row 5 verbatim, sum 100), Transport = plan/actual load dates + pieces
-// loaded, Erection = pieces erected. Payment tracking deliberately
-// excluded. Still an interim layer while MO/WO-driven tracking matures;
-// 1:1 side-table so it can be superseded without touching BOM identity.
-// No row = "not started". Rows carry forward by mark on BOM re-upload.
+// loaded, Erection = pieces erected + actual finish date. Material Payment
+// = 3-state status matching the site team's own tracking sheet wording
+// ("Not Disbursed"/"Disbursed"/"Paid"), parallel to Fab/Transport/Erection
+// (not sub-staged, not sequential — an assembly can be Paid while still
+// mid-fabrication) — only "Paid" counts as the phase "passed". Still an
+// interim layer while MO/WO-driven tracking matures; 1:1 side-table so it
+// can be superseded without touching BOM identity. No row = "not started".
+// Rows carry forward by mark on BOM re-upload.
 model bom_assembly_progress {
-  assembly_id      Int          @id
-  assembly         bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
+  assembly_id                 Int          @id
+  assembly                    bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
   // Fabrication stages — integer percent 0-100, workflow order
-  cut              Int          @default(0)
-  buildup          Int          @default(0)
-  weld1            Int          @default(0)
-  fitup_drill      Int          @default(0)
-  weld2            Int          @default(0)
-  qc_inspection    Int          @default(0)
-  primer           Int          @default(0)
-  fireproof        Int          @default(0)
-  top_coat         Int          @default(0)
-  qc_final         Int          @default(0)
+  cut                          Int          @default(0)
+  buildup                      Int          @default(0)
+  weld1                        Int          @default(0)
+  fitup_drill                  Int          @default(0)
+  weld2                        Int          @default(0)
+  qc_inspection                Int          @default(0)
+  primer                       Int          @default(0)
+  fireproof                    Int          @default(0)
+  top_coat                     Int          @default(0)
+  qc_final                     Int          @default(0)
   // Transport
-  plan_load_date   DateTime?    @db.Date
-  actual_load_date DateTime?    @db.Date
-  loaded_pcs       Int          @default(0)
-  // Erection — erected_pcs == qty ⇒ terminal "done" status
-  erected_pcs      Int          @default(0)
-  write_uid        Int
-  write_user       res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
-  write_date       DateTime     @default(now()) @db.Timestamptz
+  plan_load_date               DateTime?    @db.Date
+  actual_load_date             DateTime?    @db.Date
+  loaded_pcs                   Int          @default(0)
+  // Erection — erected_pcs == qty ⇒ terminal "done" status (ladder only)
+  erected_pcs                  Int          @default(0)
+  erection_actual_finish_date  DateTime?    @db.Date
+  // Material Payment — parallel phase, fixed 3-value status (not a boolean)
+  payment_status                String       @default("Not Disbursed") @db.VarChar(20)
+  claimed_weight_kg             Decimal?     @db.Decimal(12, 3)
+  delivered_weight_kg           Decimal?     @db.Decimal(12, 3)
+  write_uid                    Int
+  write_user                   res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
+  write_date                   DateTime     @default(now()) @db.Timestamptz
+}
+
+// ── 🟥 Progress Change History — one batch per write to bom_assembly_progress
+// (manual single edit, bulk edit, Excel import, or a rollback), with one
+// entry per field that actually changed. Every write path routes through
+// ProgressChangeLogService so this stays the single audit trail regardless
+// of how the change happened. old_value/new_value are stringified (fields
+// span int %, pcs, date, decimal weight, status text in one table) —
+// coerced back to the right type per `field` name on rollback. A batch is
+// only created if at least one row has a non-empty diff — no empty no-op
+// batches. rolled_back_batch_id is set only on a "rollback" source batch,
+// pointing at the batch it reverses (rolling back a rollback is just
+// rolling back that new batch — same mechanism, no special-cased "undo of
+// undo" logic).
+model progress_change_batch {
+  id                    Int       @id @default(autoincrement())
+  project_id            Int
+  project               project   @relation(fields: [project_id], references: [id])
+  source                String    @db.VarChar(20) // "manual_edit" | "bulk_edit" | "import" | "rollback"
+  file_name             String?   @db.VarChar(255) // set only when source = "import"
+  rolled_back_batch_id  Int?      // set only when source = "rollback"
+  create_uid            Int
+  create_user           res_users @relation("progress_batch_create", fields: [create_uid], references: [id])
+  create_date           DateTime  @default(now()) @db.Timestamptz
+
+  entries progress_change_entry[]
+
+  @@index([project_id, create_date])
+}
+
+model progress_change_entry {
+  id           Int                   @id @default(autoincrement())
+  batch_id     Int
+  batch        progress_change_batch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  assembly_id  Int
+  assembly     bom_assembly          @relation(fields: [assembly_id], references: [id])
+  field        String                @db.VarChar(40) // e.g. "cut", "payment_status", "erected_pcs"
+  old_value    String?
+  new_value    String?
+
+  @@index([batch_id])
+  @@index([assembly_id, field])
 }
 
 // ═══════════════════════════════════════════════════════════════

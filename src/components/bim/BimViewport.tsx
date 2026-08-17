@@ -474,6 +474,10 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
         viewer.clearSelection()
         viewer.showAll()
         viewer.setGhosting(true)
+        // Zoom back out to the whole model too — without this, switching
+        // Overview↔Zone tabs still leaves the camera framed on whatever was
+        // last isolated even though selection/isolation itself is cleared.
+        viewer.fitToView()
         applyStatusColors()
         return
       }
