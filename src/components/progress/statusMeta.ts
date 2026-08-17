@@ -1,12 +1,14 @@
-import type { ProgressStatus, ProgressShade } from '../../api/projectProgress'
+import type { ProgressStatus, ProgressShade, PhaseKey } from '../../api/projectProgress'
 
 // Order matters — rendered left→right as the isolate button strip,
 // following the real workflow: Fabrication → Transport → Erection.
+// Still used for the baseline/default (no-pill-active) 3D coloring only —
+// notstart/done have no dedicated filter pill anymore (see PHASE_ORDER).
 export const STATUS_ORDER: ProgressStatus[] = ['notstart', 'fabrication', 'load', 'erection', 'done']
 
 // Two shades per phase: light = in progress, dark = phase complete and
 // waiting for the next one. Single-shade statuses repeat the same hex in
-// both slots so lookup code never branches. Pills use `dark`.
+// both slots so lookup code never branches.
 //
 // Light hexes are TUNABLE — pixel-verified during E2E against the real
 // model so they stay clearly distinguishable from notstart's #C7CBD1 and
@@ -14,9 +16,27 @@ export const STATUS_ORDER: ProgressStatus[] = ['notstart', 'fabrication', 'load'
 export const STATUS_META: Record<ProgressStatus, { label: string; light: string; dark: string }> = {
   notstart: { label: 'Not Start', light: '#C7CBD1', dark: '#C7CBD1' },
   fabrication: { label: 'Fabrication', light: '#F2C14E', dark: '#D48A0F' },
-  load: { label: 'Load', light: '#85B4E6', dark: '#2F6DB5' },
-  erection: { label: 'Erection', light: '#9C8CE0', dark: '#9C8CE0' },
+  // Label is "Transportation" per the 4-phase rework — internal key stays
+  // `load` everywhere (fields, types, API) since this is a display-only rename.
+  load: { label: 'Transportation', light: '#85B4E6', dark: '#2F6DB5' },
+  // computeStatus()'s ladder never assigns erection a 'dark' shade (full
+  // erection becomes 'done' instead), so these two were never
+  // distinguished before. computePhases() DOES use erection-dark (full
+  // erection, independent of the other phases) — give it a real dark value.
+  erection: { label: 'Erection', light: '#9C8CE0', dark: '#6A4FC7' },
   done: { label: 'Done', light: '#2E9E5F', dark: '#2E9E5F' },
 }
 
 export const statusHex = (status: ProgressStatus, shade: ProgressShade) => STATUS_META[status][shade]
+
+// The 4 independent, clickable phase pills, in confirmed order. Reuses
+// STATUS_META's hexes for fabrication/load/erection (single color source of
+// truth) — only Payment is new. Payment is single-shade: a boolean phase has
+// no partial state, so `light` is unused but kept for a uniform shape.
+export const PHASE_ORDER: PhaseKey[] = ['fabrication', 'payment', 'load', 'erection']
+export const PHASE_META: Record<PhaseKey, { label: string; light: string; dark: string }> = {
+  fabrication: STATUS_META.fabrication,
+  payment: { label: 'Material Payment', light: '#2E9E9E', dark: '#2E9E9E' },
+  load: STATUS_META.load,
+  erection: STATUS_META.erection,
+}

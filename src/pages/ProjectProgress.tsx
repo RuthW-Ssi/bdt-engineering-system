@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2 } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, Upload, History } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
-import { STATUS_META, STATUS_ORDER } from '../components/progress/statusMeta'
+import { ProgressImportModal } from '../components/progress/ProgressImportModal'
+import { STATUS_META, PHASE_META, PHASE_ORDER } from '../components/progress/statusMeta'
 import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
@@ -12,7 +13,8 @@ import {
 } from '../hooks/useProjectProgress'
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
-import type { BimMatchResult, ProgressBuckets, ProgressStatus, ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
+import { exportProgress } from '../api/projectProgress'
+import type { BimMatchResult, ProgressBuckets, ProgressZoneRow, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
@@ -40,6 +42,29 @@ type PositionAxis = 'x' | 'y' | 'z'
 const POSITION_AXIS_LABEL: Record<PositionAxis, string> = { x: 'X Grid', y: 'Y Grid', z: 'Elevation' }
 const POSITION_AXIS_INDEX: Record<PositionAxis, number> = { x: 0, y: 1, z: 2 }
 
+// Which aggregate rollup percent backs each pill's dark/light badge. Typed
+// to only the 4 numeric percent keys (not the full ProgressRollupTotals
+// keyof union, which also includes non-numeric `buckets`).
+const PHASE_PCT_KEY: Record<PhaseKey, 'fab_pct' | 'payment_pct' | 'load_pct' | 'erect_pct'> = {
+  fabrication: 'fab_pct', payment: 'payment_pct', load: 'load_pct', erection: 'erect_pct',
+}
+
+// Single baseline color for a row when no pill filter is active — one
+// assembly can have several phases passed at once (Payment is parallel, not
+// sequential: a piece can be paid mid-fabrication), so this picks the
+// FURTHEST phase in pill order (F→M→T→E) that's passed, using that phase's
+// own dark/light shade. Not a "real" physical sequence (Payment has no
+// natural position in one) — this is a deliberate, simpler stand-in the
+// user chose over folding Payment out of the baseline color entirely.
+function defaultPhaseColor(r: ProgressZoneRow): string {
+  for (let i = PHASE_ORDER.length - 1; i >= 0; i--) {
+    const p = PHASE_ORDER[i]
+    const phase = r.phases[p]
+    if (phase.passed) return PHASE_META[p][phase.shade]
+  }
+  return STATUS_META.notstart.light
+}
+
 // Count-weighted rollup over a set of position-mark entries — untracked
 // entries (no matching BOM row, status === null) count toward `count` but
 // are excluded from the percentage averages (can't average a "-"). Mirrors
@@ -55,6 +80,7 @@ function rollupPositionMarks(marks: PositionMarkRow[]) {
   return {
     count, trackedCount,
     fab_pct: avg(m => m.fab_pct), load_pct: avg(m => m.load_pct), erect_pct: avg(m => m.erect_pct),
+    payment_pct: avg(m => m.payment_pct),
   }
 }
 
@@ -66,6 +92,7 @@ interface PositionBucket {
   fab_pct: number | null
   load_pct: number | null
   erect_pct: number | null
+  payment_pct: number | null
 }
 
 // Re-keys the raw (position, mark) data by one segment of the "X/Y/Z" code
@@ -154,7 +181,7 @@ export function ProjectProgress() {
   // model_id is the single source of truth for which model the viewer loads.
   const { data: viewerToken } = useBimViewerToken(activeBimMatch?.model_id ?? null)
 
-  const [activeStatus, setActiveStatus] = useState<ProgressStatus | null>(null)
+  const [activePhase, setActivePhase] = useState<PhaseKey | null>(null)
   const [focusRequest, setFocusRequest] = useState<BimFocusRequest | null>(null)
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
 
@@ -168,15 +195,15 @@ export function ProjectProgress() {
     return map
   }, [activeBimMatch])
 
-  // Persistent whole-model coloring by progress status — every matched
-  // global_id gets its assembly's current phase color, light = in
-  // progress, dark = phase complete-and-waiting (two-shade encoding).
+  // Persistent whole-model coloring when no pill is active — every matched
+  // global_id gets its assembly's baseline color via defaultPhaseColor
+  // (furthest phase in F→M→T→E pill order that's passed).
   const statusColorMap = useMemo(() => {
     const map = new Map<string, string>()
     for (const r of activeRows ?? []) {
       const match = matchByAssembly.get(r.assembly_id)
       if (!match) continue
-      const color = STATUS_META[r.status][r.shade]
+      const color = defaultPhaseColor(r)
       for (const g of match.global_ids) map.set(g, color)
     }
     return map
@@ -224,27 +251,29 @@ export function ProjectProgress() {
       for (const r of activeRows ?? []) {
         const match = matchByAssembly.get(r.assembly_id)
         if (!match) continue
-        const color = groupHighlightIds.has(r.assembly_id) ? STATUS_META[r.status][r.shade] : DIMMED_GRAY
+        const color = groupHighlightIds.has(r.assembly_id) ? defaultPhaseColor(r) : DIMMED_GRAY
         for (const g of match.global_ids) map.set(g, color)
       }
       return map
     }
-    if (!activeStatus) return statusColorMap
+    if (!activePhase) return statusColorMap
     const map = new Map<string, string>()
     for (const r of activeRows ?? []) {
       const match = matchByAssembly.get(r.assembly_id)
       if (!match) continue
-      // Comparing on status (not shade) isolates BOTH shades of the
-      // active phase together — light and dark stay distinguished.
-      const color = r.status === activeStatus ? STATUS_META[r.status][r.shade] : DIMMED_GRAY
+      // Per-phase pass/shade (independent of the other 3 phases) — an
+      // assembly that's fully erected still highlights under Fabrication,
+      // unlike the old single-ladder exact-match this replaced.
+      const phase = r.phases[activePhase]
+      const color = phase.passed ? PHASE_META[activePhase][phase.shade] : DIMMED_GRAY
       for (const g of match.global_ids) map.set(g, color)
     }
     return map
-  }, [groupHighlightIds, activeStatus, activeRows, matchByAssembly, statusColorMap])
+  }, [groupHighlightIds, activePhase, activeRows, matchByAssembly, statusColorMap])
 
-  const statusCounts = useMemo(() => {
-    const counts = Object.fromEntries(STATUS_ORDER.map(s => [s, 0])) as Record<ProgressStatus, number>
-    for (const r of activeRows ?? []) counts[r.status]++
+  const phaseCounts = useMemo(() => {
+    const counts = Object.fromEntries(PHASE_ORDER.map(p => [p, 0])) as Record<PhaseKey, number>
+    for (const r of activeRows ?? []) for (const p of PHASE_ORDER) if (r.phases[p].passed) counts[p]++
     return counts
   }, [activeRows])
 
@@ -254,19 +283,19 @@ export function ProjectProgress() {
   const handleBulkUpdate = (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) =>
     bulkUpdateMutation.mutate({ assemblyIds, payload })
 
-  // Toggling activeStatus is all this needs now — highlightColorMap above
+  // Toggling activePhase is all this needs now — highlightColorMap above
   // reacts to it and recolors the (still fully visible) model accordingly.
   // Clears any previewed Zone/Position group — the two isolates are
   // mutually exclusive, same reasoning as the highlightColorMap branch above.
-  const handleStatusIsolate = (status: ProgressStatus) => {
+  const handlePhaseIsolate = (phase: PhaseKey) => {
     setActiveGroup(null)
-    setActiveStatus(prev => (prev === status ? null : status))
+    setActivePhase(prev => (prev === phase ? null : phase))
   }
 
   // Clicking an already-active row collapses it back — same single-open
   // accordion behavior as the assemblies table's row edit panel.
   const handleGroupToggle = (group: NonNullable<ActiveGroup>) => {
-    setActiveStatus(null)
+    setActivePhase(null)
     setActiveGroup(prev => {
       if (!prev || prev.type !== group.type) return group
       if (prev.type === 'zone' && group.type === 'zone') return prev.id === group.id ? null : group
@@ -295,10 +324,38 @@ export function ProjectProgress() {
       else p.set('zone', String(next))
       return p
     })
-    setActiveStatus(null)
+    setActivePhase(null)
     setActiveGroup(null)
-    setFocusRequest(null)
+    // { globalIds: [], hideRest: false } — NOT null. BimViewport's focus
+    // effect early-returns on falsy focusRequest, so null silently no-ops
+    // and leaves whatever was selected/isolated stuck in the live 3D
+    // viewer after switching tabs. This empty-array shape hits the
+    // existing "reset to show everything" branch instead (same shape
+    // handleViewIn3D already uses successfully with real ids).
+    setFocusRequest({ globalIds: [], hideRest: false })
     setSelectedAssemblyId(null)
+  }
+
+  // One-shot side effect, not cached data — a plain async handler + local
+  // loading state instead of a React Query mutation. apiClient's Bearer
+  // interceptor means a plain <a href> to the endpoint wouldn't carry auth,
+  // so this fetches as a blob first, then triggers the browser download.
+  const [exporting, setExporting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const handleExport = async () => {
+    if (!code) return
+    setExporting(true)
+    try {
+      const { blob, filename } = await exportProgress(code)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
   }
 
   if (projectLoading) {
@@ -360,13 +417,56 @@ export function ProjectProgress() {
             <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, background: '#F5F5F5', borderRadius: 999, padding: '5px 14px', fontSize: 12, color: '#8E8E8E', fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }}>
               F <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.fab_pct.toFixed(1)}%</b>
               <span style={{ color: '#D0D0D0' }}>·</span>
-              L <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.load_pct}%</b>
+              M <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.payment_pct.toFixed(1)}%</b>
+              <span style={{ color: '#D0D0D0' }}>·</span>
+              T <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.load_pct}%</b>
               <span style={{ color: '#D0D0D0' }}>·</span>
               E <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.erect_pct}%</b>
             </span>
           )}
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            title="Download an Excel snapshot of current progress (edit offline, re-import to apply changes)"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 12.5, fontWeight: 600,
+              color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 8,
+              padding: '6px 12px', cursor: exporting ? 'default' : 'pointer', opacity: exporting ? 0.6 : 1,
+            }}
+          >
+            {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+            Export
+          </button>
+          <button
+            onClick={() => setImportOpen(true)}
+            title="Upload an edited progress Excel — preview the changes before applying"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 12.5, fontWeight: 600,
+              color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 8,
+              padding: '6px 12px', cursor: 'pointer',
+            }}
+          >
+            <Upload size={13} />
+            Import
+          </button>
+          <button
+            onClick={() => navigate(`/projects/${code}/progress/history`)}
+            title="See every change made to progress data, with rollback"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 12.5, fontWeight: 600,
+              color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 8,
+              padding: '6px 12px', cursor: 'pointer',
+            }}
+          >
+            <History size={13} />
+            History
+          </button>
         </div>
       </div>
+
+      {importOpen && (
+        <ProgressImportModal projectCode={code!} onClose={() => setImportOpen(false)} />
+      )}
 
       {/* ── Tab bar — same treatment as the filter bar elsewhere (BimViewer/BomList) ── */}
       <div className="flex items-center px-4" style={{ height: 44, background: '#F5F5F5', borderTop: '1px solid #E8E8E8', borderBottom: '1px solid #E8E8E8', flexShrink: 0, gap: 2 }}>
@@ -458,32 +558,38 @@ export function ProjectProgress() {
             </div>
 
             {tab === 'overview' && (
-              <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 5, padding: '9px 14px', flexShrink: 0, overflowX: 'auto' }}>
-                {/* justify-content: space-between spreads the 6 pills evenly
-                    across the full card width instead of bunching them
-                    left with dead space on the right. */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 5, flex: 1, minWidth: 'fit-content' }}>
-                  {STATUS_ORDER.map(s => {
-                    const meta = STATUS_META[s]
-                    const active = activeStatus === s
+              <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, padding: '7px 10px', flexShrink: 0 }}>
+                {/* flexWrap so a narrow container wraps to a 2nd row instead
+                    of overflow-scrolling or getting cut off — smaller
+                    font/padding than the old 5-pill strip since this now
+                    also has to fit comfortably at narrower widths. */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 4, flex: 1 }}>
+                  {PHASE_ORDER.map(p => {
+                    const meta = PHASE_META[p]
+                    const active = activePhase === p
+                    // Badge reflects the phase's AGGREGATE rollup completion
+                    // (whole active scope), not any single item — dark only
+                    // once it's 100%, light while still in progress.
+                    const pct = overview ? overview.total[PHASE_PCT_KEY[p]] : 0
+                    const badgeColor = meta[pct >= 100 ? 'dark' : 'light']
                     return (
                       <button
-                        key={s}
-                        onClick={() => handleStatusIsolate(s)}
+                        key={p}
+                        onClick={() => handlePhaseIsolate(p)}
                         aria-pressed={active}
                         style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0,
-                          font: 'inherit', fontSize: 11.5, fontWeight: 600, padding: '5px 10px',
+                          display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                          font: 'inherit', fontSize: 10.5, fontWeight: 600, padding: '4px 8px',
                           borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap', outline: 'none',
-                          border: `1px solid ${active ? meta.dark : '#E0E0E0'}`,
-                          background: active ? meta.dark : 'white',
+                          border: `1px solid ${active ? badgeColor : '#E0E0E0'}`,
+                          background: active ? badgeColor : 'white',
                           color: active ? 'white' : '#1A1A1A',
                           transition: 'border-color 0.12s, background 0.12s, color 0.12s',
                         }}
                       >
-                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: active ? 'white' : meta.dark, flexShrink: 0 }} />
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? 'white' : badgeColor, flexShrink: 0 }} />
                         {meta.label}
-                        <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, opacity: 0.75 }}>{statusCounts[s]}</span>
+                        <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 9.5, opacity: 0.75 }}>{phaseCounts[p]}</span>
                       </button>
                     )
                   })}
@@ -558,14 +664,15 @@ function OverviewPanel({
       {/* Summary stat cards — quick at-a-glance read before the per-zone
           breakdown table below; mirrors CuttingPlanDetail's StatCard pattern. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-        {/* Three separate phase numbers, deliberately no combined total
+        {/* Four separate phase numbers, deliberately no combined total
             (spec) — each phase has its own responsible team in the real
             workflow, a synthetic blend would match nobody's number. */}
         <StatCard label="Progress" value="" accent="#C8202A">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 2 }}>
-            <PhaseBar label="Fab" pct={total.fab_pct} color={STATUS_META.fabrication.dark} />
-            <PhaseBar label="Load" pct={total.load_pct} color={STATUS_META.load.dark} />
-            <PhaseBar label="Erect" pct={total.erect_pct} color={STATUS_META.erection.dark} />
+            <PhaseBar label="Fab" pct={total.fab_pct} color={PHASE_META.fabrication.dark} />
+            <PhaseBar label="Pay" pct={total.payment_pct} color={PHASE_META.payment.dark} />
+            <PhaseBar label="Trans" pct={total.load_pct} color={PHASE_META.load.dark} />
+            <PhaseBar label="Erect" pct={total.erect_pct} color={PHASE_META.erection.dark} />
           </div>
         </StatCard>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
@@ -653,7 +760,7 @@ function OverviewPanel({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <ZoneStatusBar buckets={z.buckets} assemblyCount={z.assembly_count} />
                           <span style={{ ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
-                            F <b>{z.fab_pct.toFixed(0)}%</b> · L <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
+                            F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
                           </span>
                         </div>
                       </td>
@@ -710,10 +817,10 @@ function PositionRollupTable({
     )
   }
 
-  const progressCell = (roll: { count: number; trackedCount: number; fab_pct: number | null; load_pct: number | null; erect_pct: number | null }) =>
+  const progressCell = (roll: { count: number; trackedCount: number; fab_pct: number | null; load_pct: number | null; erect_pct: number | null; payment_pct: number | null }) =>
     roll.trackedCount > 0 ? (
       <span style={{ ...mono, fontSize: 11 }}>
-        F <b>{roll.fab_pct}%</b> · L <b>{roll.load_pct}%</b> · E <b>{roll.erect_pct}%</b>
+        F <b>{roll.fab_pct}%</b> · M <b>{roll.payment_pct}%</b> · T <b>{roll.load_pct}%</b> · E <b>{roll.erect_pct}%</b>
         {roll.count > roll.trackedCount && (
           <span style={{ color: '#C2C2C2' }}> · {roll.count - roll.trackedCount} untracked</span>
         )}

@@ -1,19 +1,39 @@
 import { NotFoundException } from '@nestjs/common'
-import { ProjectProgressService, computeFabPct, computeStatus, effectiveQty, STAGE_WEIGHTS, FAB_STAGES } from './project-progress.service'
+import { ProjectProgressService, computeFabPct, computeStatus, computePhases, effectiveQty, STAGE_WEIGHTS, FAB_STAGES } from './project-progress.service'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+// Shallow-merges each top-level module (bom_assembly_progress, etc.) so an
+// override like `{ bom_assembly_progress: { upsert } }` keeps the default
+// findUnique mock instead of clobbering it — every existing test that only
+// overrides `upsert` still gets a working findUnique for free.
 function makePrisma(overrides: Record<string, unknown> = {}) {
-  return {
+  const base = {
     project: { findUnique: jest.fn().mockResolvedValue({ id: 1, project_code: '0X220' }) },
     project_zone: { findFirst: jest.fn().mockResolvedValue({ id: 10, project_id: 1 }), findMany: jest.fn().mockResolvedValue([]) },
     bom_assembly: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
-    bom_assembly_progress: { upsert: jest.fn() },
+    bom_assembly_progress: { upsert: jest.fn(), findUnique: jest.fn().mockResolvedValue(null) },
+    progress_change_batch: { create: jest.fn().mockResolvedValue({ id: 1 }) },
+    progress_change_entry: { createMany: jest.fn() },
     bom_dispatch: { findMany: jest.fn().mockResolvedValue([]) },
     bim_model: { findFirst: jest.fn().mockResolvedValue(null) },
     bim_element: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
-    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
-    ...overrides,
-  } as unknown as any
+  }
+  const merged: Record<string, unknown> = { ...base }
+  for (const [key, value] of Object.entries(overrides)) {
+    const baseValue = (base as Record<string, unknown>)[key]
+    merged[key] = value && typeof value === 'object' && baseValue && typeof baseValue === 'object'
+      ? { ...baseValue, ...value }
+      : value
+  }
+  const prisma = merged as unknown as any
+  // Supports both the legacy array-of-promises form (still used by
+  // bulkUpdateAssemblyProgress's older sibling calls, if any remain) and
+  // the interactive callback form — `tx` is just the same mock prisma
+  // object, since every mocked method already lives on it directly.
+  prisma.$transaction = jest.fn((arg: unknown) =>
+    typeof arg === 'function' ? arg(prisma) : Promise.all(arg as Promise<unknown>[]),
+  )
+  return prisma
 }
 
 const EMPTY = {
@@ -21,6 +41,8 @@ const EMPTY = {
   qc_inspection: 0, primer: 0, fireproof: 0, top_coat: 0, qc_final: 0,
   plan_load_date: null, actual_load_date: null,
   loaded_pcs: 0, erected_pcs: 0,
+  erection_actual_finish_date: null, payment_status: 'Not Disbursed',
+  claimed_weight_kg: null, delivered_weight_kg: null,
 }
 const D = new Date('2026-07-01')
 
@@ -101,13 +123,56 @@ describe('computeStatus — phase ladder + shade', () => {
   })
 })
 
+describe('computePhases — independent per-phase pass + shade', () => {
+  it('no row = every phase not passed; payment always reports dark shade regardless', () => {
+    expect(computePhases(null, 4)).toEqual({
+      fabrication: { passed: false, shade: 'light' },
+      payment: { passed: false, shade: 'dark' },
+      load: { passed: false, shade: 'light' },
+      erection: { passed: false, shade: 'light' },
+    })
+  })
+
+  it('fabrication: any progress = passed/light; all stages at 100 = passed/dark', () => {
+    expect(computePhases({ ...EMPTY, cut: 1 }, 4).fabrication).toEqual({ passed: true, shade: 'light' })
+    const all100 = Object.fromEntries(FAB_STAGES.map(s => [s, 100]))
+    expect(computePhases({ ...EMPTY, ...all100 }, 4).fabrication).toEqual({ passed: true, shade: 'dark' })
+  })
+
+  it('payment: only "Paid" counts as passed; no partial state', () => {
+    expect(computePhases({ ...EMPTY, payment_status: 'Paid' }, 4).payment).toEqual({ passed: true, shade: 'dark' })
+    expect(computePhases({ ...EMPTY, payment_status: 'Not Disbursed' }, 4).payment).toEqual({ passed: false, shade: 'dark' })
+    expect(computePhases({ ...EMPTY, payment_status: 'Disbursed' }, 4).payment).toEqual({ passed: false, shade: 'dark' })
+  })
+
+  it('load: partial pcs = passed/light; full pcs = passed/dark', () => {
+    expect(computePhases({ ...EMPTY, loaded_pcs: 1 }, 4).load).toEqual({ passed: true, shade: 'light' })
+    expect(computePhases({ ...EMPTY, loaded_pcs: 4 }, 4).load).toEqual({ passed: true, shade: 'dark' })
+  })
+
+  it('erection: partial pcs = passed/light; full pcs = passed/dark — NOT folded into a "done" terminal state like computeStatus', () => {
+    expect(computePhases({ ...EMPTY, erected_pcs: 1 }, 4).erection).toEqual({ passed: true, shade: 'light' })
+    expect(computePhases({ ...EMPTY, erected_pcs: 4 }, 4).erection).toEqual({ passed: true, shade: 'dark' })
+  })
+
+  it('phases are independent — mid-fabrication + paid, and fully-erected + unpaid, both hold true simultaneously', () => {
+    const midFabPaid = computePhases({ ...EMPTY, cut: 50, payment_status: 'Paid' }, 4)
+    expect(midFabPaid.fabrication).toEqual({ passed: true, shade: 'light' })
+    expect(midFabPaid.payment).toEqual({ passed: true, shade: 'dark' })
+
+    const erectedUnpaid = computePhases({ ...EMPTY, erected_pcs: 4, payment_status: 'Not Disbursed' }, 4)
+    expect(erectedUnpaid.erection).toEqual({ passed: true, shade: 'dark' })
+    expect(erectedUnpaid.payment).toEqual({ passed: false, shade: 'dark' })
+  })
+})
+
 describe('getOverview rollup', () => {
   it('fab weighted by weight_kg; load/erection by pieces (Σ/Σ, not averaged)', async () => {
     const all100 = Object.fromEntries(FAB_STAGES.map(s => [s, 100]))
     const rows = [
-      // 10kg fully fabricated, qty 4, loaded 4, erected 0 → load dark
-      { weight_kg: 10, qty: 4, progress: { ...EMPTY, ...all100, loaded_pcs: 4 }, dispatch: { zone_id: 10 } },
-      // 30kg untouched, qty 4 → notstart
+      // 10kg fully fabricated + paid, qty 4, loaded 4, erected 0 → load dark
+      { weight_kg: 10, qty: 4, progress: { ...EMPTY, ...all100, loaded_pcs: 4, payment_status: 'Paid' }, dispatch: { zone_id: 10 } },
+      // 30kg untouched, unpaid, qty 4 → notstart
       { weight_kg: 30, qty: 4, progress: null, dispatch: { zone_id: 10 } },
     ]
     const prisma = makePrisma({
@@ -119,6 +184,8 @@ describe('getOverview rollup', () => {
 
     // fab: (10kg×100 + 30kg×0) / 40kg = 25
     expect(result.total.fab_pct).toBe(25)
+    // payment: (10kg×100 + 30kg×0) / 40kg = 25 — same weighted formula as fab_pct
+    expect(result.total.payment_pct).toBe(25)
     // load: 4 of 8 pcs = 50% — NOT the per-row average (100+0)/2
     expect(result.total.load_pct).toBe(50)
     expect(result.total.erect_pct).toBe(0)
@@ -170,11 +237,11 @@ describe('getOverview rollup', () => {
 })
 
 describe('getProjectRows', () => {
-  it('rows carry stages, pcs, three pcts, status and shade', async () => {
+  it('rows carry stages, pcs, four pcts, status, shade, payment/erection-date fields and per-phase state', async () => {
     const prisma = makePrisma({
       bom_assembly: {
         findMany: jest.fn().mockResolvedValue([
-          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 10, qty: 4, progress: { ...EMPTY, cut: 100, loaded_pcs: 2 } },
+          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 10, qty: 4, progress: { ...EMPTY, cut: 100, loaded_pcs: 2, payment_status: 'Paid' } },
         ]),
         findFirst: jest.fn(),
       },
@@ -185,8 +252,15 @@ describe('getProjectRows', () => {
       assembly_id: 1, mark: 'TC-FB1', qty: 4,
       cut: 100, buildup: 0,
       loaded_pcs: 2, erected_pcs: 0,
-      fab_pct: 10, load_pct: 50, erect_pct: 0,
+      erection_actual_finish_date: null, payment_status: 'Paid',
+      fab_pct: 10, load_pct: 50, erect_pct: 0, payment_pct: 100,
       status: 'load', shade: 'light',
+      phases: {
+        fabrication: { passed: true, shade: 'light' },
+        payment: { passed: true, shade: 'dark' },
+        load: { passed: true, shade: 'light' },
+        erection: { passed: false, shade: 'light' },
+      },
     })
   })
 })
@@ -201,7 +275,7 @@ describe('updateAssemblyProgress', () => {
   it('partial update — omitted fields stay undefined in the update clause', async () => {
     const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, cut: 50, write_uid: 1, write_date: D })
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
@@ -217,7 +291,7 @@ describe('updateAssemblyProgress', () => {
   it('clamps percents to 0..100 with rounding (guards the "50"-for-0.5 typo class)', async () => {
     const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
@@ -232,7 +306,7 @@ describe('updateAssemblyProgress', () => {
   it('clamps pcs to the assembly qty', async () => {
     const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, loaded_pcs: 4, write_uid: 1, write_date: D })
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
@@ -243,7 +317,7 @@ describe('updateAssemblyProgress', () => {
   it('coerces date strings and clears on explicit null', async () => {
     const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
@@ -254,17 +328,58 @@ describe('updateAssemblyProgress', () => {
     expect(args.update.actual_load_date).toBeNull()
   })
 
-  it('response carries the three pcts + status + shade', async () => {
+  it('payment_status passes through untouched — string, no clamping', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, payment_status: 'Paid', write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { payment_status: 'Paid' }, 1)
+    expect(upsert.mock.calls[0][0].update.payment_status).toBe('Paid')
+  })
+
+  it('claimed_weight_kg/delivered_weight_kg floor at zero, no upper bound', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { claimed_weight_kg: -5, delivered_weight_kg: 9999 }, 1)
+    expect(upsert.mock.calls[0][0].update.claimed_weight_kg).toBe(0)
+    expect(upsert.mock.calls[0][0].update.delivered_weight_kg).toBe(9999)
+  })
+
+  it('erection_actual_finish_date coerces date strings and clears on explicit null', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { erection_actual_finish_date: '2026-08-01' }, 1)
+    expect(upsert.mock.calls[0][0].update.erection_actual_finish_date).toEqual(new Date('2026-08-01'))
+
+    await svc.updateAssemblyProgress('0X220', 1, { erection_actual_finish_date: null }, 1)
+    expect(upsert.mock.calls[1][0].update.erection_actual_finish_date).toBeNull()
+  })
+
+  it('response carries the four pcts + status + shade + phases', async () => {
     const upsert = jest.fn().mockResolvedValue({
-      ...EMPTY, assembly_id: 1, cut: 100, loaded_pcs: 2, write_uid: 1, write_date: D,
+      ...EMPTY, assembly_id: 1, cut: 100, loaded_pcs: 2, payment_status: 'Paid', write_uid: 1, write_date: D,
     })
     const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4 }), findMany: jest.fn() },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
     const result = await svc.updateAssemblyProgress('0X220', 1, { cut: 100 }, 1)
-    expect(result).toMatchObject({ fab_pct: 10, load_pct: 50, erect_pct: 0, status: 'load', shade: 'light' })
+    expect(result).toMatchObject({
+      fab_pct: 10, load_pct: 50, erect_pct: 0, payment_pct: 100,
+      status: 'load', shade: 'light',
+      phases: { payment: { passed: true, shade: 'dark' } },
+    })
   })
 })
 
@@ -279,13 +394,19 @@ describe('bulkUpdateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], cut: 100, plan_load_date: '2026-07-01' }, 1)
+    const result = await svc.bulkUpdateAssemblyProgress(
+      '0X220',
+      { assembly_ids: [1, 2], cut: 100, plan_load_date: '2026-07-01', payment_status: 'Paid', erection_actual_finish_date: '2026-08-01' },
+      1,
+    )
 
     expect(result).toEqual({ updated: 2 })
     expect(upsert).toHaveBeenCalledTimes(2)
     for (const call of upsert.mock.calls) {
       expect(call[0].update.cut).toBe(100)
       expect(call[0].update.plan_load_date).toEqual(new Date('2026-07-01'))
+      expect(call[0].update.payment_status).toBe('Paid')
+      expect(call[0].update.erection_actual_finish_date).toEqual(new Date('2026-08-01'))
     }
   })
 
