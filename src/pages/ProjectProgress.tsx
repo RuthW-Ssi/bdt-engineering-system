@@ -468,8 +468,10 @@ export function ProjectProgress() {
         <ProgressImportModal projectCode={code!} onClose={() => setImportOpen(false)} />
       )}
 
-      {/* ── Tab bar — same treatment as the filter bar elsewhere (BimViewer/BomList) ── */}
-      <div className="flex items-center px-4" style={{ height: 44, background: '#F5F5F5', borderTop: '1px solid #E8E8E8', borderBottom: '1px solid #E8E8E8', flexShrink: 0, gap: 2 }}>
+      {/* ── Tab bar — same treatment as the filter bar elsewhere (BimViewer/BomList).
+          overflowX:auto + nowrap so it scrolls horizontally once there are
+          more zone tabs than fit the viewport, instead of clipping them. ── */}
+      <div className="flex items-center px-4" style={{ height: 44, background: '#F5F5F5', borderTop: '1px solid #E8E8E8', borderBottom: '1px solid #E8E8E8', flexShrink: 0, gap: 2, overflowX: 'auto', overflowY: 'hidden', flexWrap: 'nowrap' }}>
         <TabButton label="Overview" active={tab === 'overview'} onClick={() => switchTab('overview')} />
         {zones.map(z => {
           const rollup = overview?.zones.find(o => o.zone_id === z.id)
@@ -615,7 +617,7 @@ function TabButton({ label, sub, active, onClick }: { label: string; sub?: strin
         background: 'none', border: 'none',
         padding: '9px 16px', cursor: 'pointer',
         borderBottom: `2px solid ${active ? '#C8202A' : 'transparent'}`,
-        marginBottom: -1, whiteSpace: 'nowrap',
+        marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
       }}
     >
       {label}
