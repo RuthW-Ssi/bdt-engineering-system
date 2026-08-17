@@ -1,8 +1,8 @@
 import { Fragment, useState } from 'react'
 import { Search, Pencil, ChevronUp, X } from 'lucide-react'
-import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage } from '../../api/projectProgress'
-import { FAB_STAGES } from '../../api/projectProgress'
-import { STATUS_META } from './statusMeta'
+import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
+import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
+import { STATUS_META, PHASE_META } from './statusMeta'
 import { usePermission } from '../../hooks/usePermission'
 
 interface Props {
@@ -79,13 +79,17 @@ const PCS_LABEL: Record<PcsField, string> = {
   erected_pcs: 'Erected',
 }
 
-const EDIT_FIELDS = [...FAB_STAGES, ...DATE_FIELDS, ...PCS_FIELDS] as const
+const EDIT_FIELDS = [
+  ...FAB_STAGES, ...DATE_FIELDS, ...PCS_FIELDS,
+  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg', 'erection_actual_finish_date',
+] as const
 
 // Mirrors the server's clamps so what you see staged is what gets stored —
 // the real sheet has "50"-for-0.5 typo entries, clamping is the design.
 const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
 const clampPcs = (v: number, qty: number | null) =>
   Math.min(Math.max(1, Math.round(qty ?? 1)), Math.max(0, Math.round(v)))
+const nonNegDecimal = (v: number) => Math.max(0, v)
 
 function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
   return {
@@ -94,6 +98,10 @@ function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
     actual_load_date: r.actual_load_date,
     loaded_pcs: r.loaded_pcs,
     erected_pcs: r.erected_pcs,
+    payment_status: r.payment_status,
+    claimed_weight_kg: r.claimed_weight_kg ?? undefined,
+    delivered_weight_kg: r.delivered_weight_kg ?? undefined,
+    erection_actual_finish_date: r.erection_actual_finish_date,
   }
 }
 
@@ -278,6 +286,40 @@ export function ProgressAssemblyTable({
                 <span>{bulkTouched.has('set_erected_full') && bulkDraft.set_erected_full ? 'Set: full qty' : 'No change'}</span>
               </label>
             </FieldGroup>
+            <FieldGroup label="Material Payment">
+              <select
+                value={bulkTouched.has('payment_status') ? bulkDraft.payment_status ?? '' : ''}
+                onChange={e => setBulkField('payment_status', e.target.value as PaymentStatus)}
+                style={{ ...dateInput, width: 140, color: bulkTouched.has('payment_status') ? '#1A1A1A' : '#ABABAB' }}
+              >
+                <option value="" disabled>No change</option>
+                {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </FieldGroup>
+            <FieldGroup label="Claimed (kg)">
+              <input
+                type="number" min={0} placeholder="—"
+                value={bulkTouched.has('claimed_weight_kg') ? bulkDraft.claimed_weight_kg ?? '' : ''}
+                onChange={e => setBulkField('claimed_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
+                style={{ ...numInput, width: 110, color: bulkTouched.has('claimed_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
+              />
+            </FieldGroup>
+            <FieldGroup label="Delivered (kg)">
+              <input
+                type="number" min={0} placeholder="—"
+                value={bulkTouched.has('delivered_weight_kg') ? bulkDraft.delivered_weight_kg ?? '' : ''}
+                onChange={e => setBulkField('delivered_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
+                style={{ ...numInput, width: 110, color: bulkTouched.has('delivered_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
+              />
+            </FieldGroup>
+            <FieldGroup label="Erection Finish">
+              <input
+                type="date"
+                value={bulkDraft.erection_actual_finish_date ? toInputDate(bulkDraft.erection_actual_finish_date as string) : ''}
+                onChange={e => setBulkField('erection_actual_finish_date', e.target.value || null)}
+                style={{ ...dateInput, width: 140, color: bulkTouched.has('erection_actual_finish_date') ? '#1A1A1A' : '#ABABAB' }}
+              />
+            </FieldGroup>
             {canUpdate && (
               <button
                 onClick={applyBulk}
@@ -350,20 +392,24 @@ export function ProgressAssemblyTable({
                     </td>
                     <td style={td} title={STATUS_META[r.status].label}>
                       {/* Each chip's color is its own metric's completeness —
-                          not the row's single derived status — so all three
+                          not the row's single derived status — so all four
                           phases stay independently scannable at a glance. */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <ProgressChip
                           label="F" value={`${r.fab_pct}%`}
-                          color={metricColor(r.fab_pct >= 100, r.fab_pct > 0, STATUS_META.fabrication.dark, STATUS_META.fabrication.light)}
+                          color={metricColor(r.fab_pct >= 100, r.fab_pct > 0, PHASE_META.fabrication.dark, PHASE_META.fabrication.light)}
                         />
                         <ProgressChip
-                          label="L" value={`${r.load_pct}%`} title={`${r.loaded_pcs}/${qty} pcs loaded`}
-                          color={metricColor(r.loaded_pcs >= qty, r.loaded_pcs > 0, STATUS_META.load.dark, STATUS_META.load.light)}
+                          label="M" value={`${r.payment_pct}%`} title={r.payment_status}
+                          color={metricColor(r.payment_status === 'Paid', false, PHASE_META.payment.dark, PHASE_META.payment.light)}
+                        />
+                        <ProgressChip
+                          label="T" value={`${r.load_pct}%`} title={`${r.loaded_pcs}/${qty} pcs loaded`}
+                          color={metricColor(r.loaded_pcs >= qty, r.loaded_pcs > 0, PHASE_META.load.dark, PHASE_META.load.light)}
                         />
                         <ProgressChip
                           label="E" value={`${r.erect_pct}%`} title={`${r.erected_pcs}/${qty} pcs erected`}
-                          color={metricColor(r.erected_pcs >= qty, r.erected_pcs > 0, STATUS_META.done.light, STATUS_META.erection.light)}
+                          color={metricColor(r.erected_pcs >= qty, r.erected_pcs > 0, PHASE_META.erection.dark, PHASE_META.erection.light)}
                         />
                       </div>
                     </td>
@@ -422,6 +468,39 @@ export function ProgressAssemblyTable({
                             ))}
                           </div>
 
+                          {/* Material Payment — parallel to Fab/Transport/Erection, 3-state status */}
+                          <div style={groupHeader}>Material Payment</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+                            <FieldGroup label="Status">
+                              <select
+                                value={editDraft.payment_status ?? 'Not Disbursed'}
+                                disabled={saving}
+                                onChange={e => setEditDraft(d => ({ ...d, payment_status: e.target.value as PaymentStatus }))}
+                                style={{ ...dateInput, width: '100%' }}
+                              >
+                                {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                            </FieldGroup>
+                            <FieldGroup label="Claimed (kg)">
+                              <input
+                                type="number" min={0}
+                                value={editDraft.claimed_weight_kg ?? ''}
+                                disabled={saving}
+                                onChange={e => setEditDraft(d => ({ ...d, claimed_weight_kg: e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)) }))}
+                                style={numInput}
+                              />
+                            </FieldGroup>
+                            <FieldGroup label="Delivered (kg)">
+                              <input
+                                type="number" min={0}
+                                value={editDraft.delivered_weight_kg ?? ''}
+                                disabled={saving}
+                                onChange={e => setEditDraft(d => ({ ...d, delivered_weight_kg: e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)) }))}
+                                style={numInput}
+                              />
+                            </FieldGroup>
+                          </div>
+
                           {/* Transport — load dates + pieces loaded */}
                           <div style={groupHeader}>Transport</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
@@ -447,7 +526,7 @@ export function ProgressAssemblyTable({
                             </FieldGroup>
                           </div>
 
-                          {/* Erection — pieces erected (full = done) */}
+                          {/* Erection — pieces erected (full = done) + actual finish date */}
                           <div style={groupHeader}>Erection</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
                             <FieldGroup label={`${PCS_LABEL.erected_pcs} / ${qty} pcs`}>
@@ -457,6 +536,15 @@ export function ProgressAssemblyTable({
                                 disabled={saving}
                                 onChange={e => setEditDraft(d => ({ ...d, erected_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), r.qty) }))}
                                 style={numInput}
+                              />
+                            </FieldGroup>
+                            <FieldGroup label="Actual Finish">
+                              <input
+                                type="date"
+                                value={toInputDate((editDraft.erection_actual_finish_date as string | null) ?? null)}
+                                disabled={saving}
+                                onChange={e => setEditDraft(d => ({ ...d, erection_actual_finish_date: e.target.value || null }))}
+                                style={{ ...dateInput, width: '100%', color: editDraft.erection_actual_finish_date ? '#1A1A1A' : '#ABABAB' }}
                               />
                             </FieldGroup>
                           </div>

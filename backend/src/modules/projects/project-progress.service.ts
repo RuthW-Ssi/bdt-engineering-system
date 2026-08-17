@@ -1,24 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { stripContractPrefix } from '../bom-upload/xlsx-parser.service'
+import { ProgressChangeLogService, type DiffEntry } from './progress-change-log.service'
+import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, nonNegDecimal, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
+import type { FabStage, PaymentStatus } from './progress-shared'
 
-// Fabrication stage weights — the site team's own Excel weight row (REV1,
-// row 5) verbatim: sums to exactly 100. Fab% = Σ(stage% × weight) / 100.
-export const STAGE_WEIGHTS = {
-  cut: 10,
-  buildup: 10,
-  weld1: 15,
-  fitup_drill: 10,
-  weld2: 15,
-  qc_inspection: 10,
-  primer: 10,
-  fireproof: 5,
-  top_coat: 10,
-  qc_final: 5,
-} as const
-
-export type FabStage = keyof typeof STAGE_WEIGHTS
-export const FAB_STAGES = Object.keys(STAGE_WEIGHTS) as FabStage[]
+// Re-exported for backward compatibility — every other call site in this
+// module (spec file, bom-upload carry-forward) still imports these from
+// here. Canonical definitions live in progress-shared.ts (progress-change-log.service.ts
+// needs them too, and importing them from THIS file would be circular
+// since this file also imports ProgressChangeLogService above).
+export { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, nonNegDecimal, PAYMENT_STATUSES }
+export type { FabStage, PaymentStatus }
 
 export type ProgressStatus = 'notstart' | 'fabrication' | 'load' | 'erection' | 'done'
 // Light = phase in progress, dark = phase complete-and-waiting — drives the
@@ -32,6 +25,13 @@ interface ProgressFields extends FabStageFields {
   actual_load_date: Date | null
   loaded_pcs: number
   erected_pcs: number
+  erection_actual_finish_date: Date | null
+  payment_status: string
+  // Prisma Decimal, not number — same loose-typing as bom_assembly's own
+  // weight_kg/qty elsewhere in this file; converted with Number() at every
+  // read site (mapAssemblyRow, response construction), never computed on.
+  claimed_weight_kg: unknown
+  delivered_weight_kg: unknown
 }
 
 // Plain-interface DTO (paint-config precedent) — stage percents clamp
@@ -44,6 +44,10 @@ export interface UpdateAssemblyProgressDto extends Partial<FabStageFields> {
   actual_load_date?: string | null
   loaded_pcs?: number
   erected_pcs?: number
+  erection_actual_finish_date?: string | null
+  payment_status?: string
+  claimed_weight_kg?: number
+  delivered_weight_kg?: number
 }
 
 // Bulk applies ONE payload to many rows whose qty differ — raw pcs counts
@@ -54,18 +58,6 @@ export interface BulkUpdateAssemblyProgressDto
   set_loaded_full?: boolean
   set_erected_full?: boolean
 }
-
-// An assembly is at least one physical piece — this single helper feeds
-// pcs clamping, the status ladder, load/erect percents AND mirrors the
-// migration SQL's GREATEST(1, COALESCE(ROUND(qty)::int, 1)), so all four
-// places agree on what "full quantity" means for null/zero/decimal qty.
-export function effectiveQty(qty: unknown): number {
-  if (qty == null) return 1
-  return Math.max(1, Math.round(Number(qty)))
-}
-
-const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
-const clampPcs = (v: number, q: number) => Math.min(q, Math.max(0, Math.round(v)))
 
 export function computeFabPct(p: ProgressFields | null): number {
   if (!p) return 0
@@ -94,9 +86,44 @@ export function computeStatus(
   return { status: 'notstart', shade: 'light' }
 }
 
+export type PhaseKey = 'fabrication' | 'payment' | 'load' | 'erection'
+export interface PhaseState { passed: boolean; shade: ProgressShade }
+
+// Independent per-phase pass/shade — NOT a ladder, unlike computeStatus()
+// above. Each phase reasons only about its own field(s): an assembly can
+// legally pass Payment while still mid-fabrication, or pass Erection while
+// still unpaid. Feeds the 4 filter pills — clicking one highlights every
+// assembly that has passed or is passing that specific phase, regardless of
+// what other phases it's also in/past. Deliberately does not reproduce
+// computeStatus()'s terminal 'done' collapse: full erection here is its own
+// passed+dark state, not folded into anything else.
+export function computePhases(p: ProgressFields | null, qty: unknown): Record<PhaseKey, PhaseState> {
+  const q = effectiveQty(qty)
+  const fab = computeFabPct(p)
+  const loaded = p?.loaded_pcs ?? 0
+  const erected = p?.erected_pcs ?? 0
+  return {
+    fabrication: { passed: fab > 0, shade: fab >= 100 ? 'dark' : 'light' },
+    // 3-state status, but only "Paid" counts as passed — no partial state,
+    // so shade is only ever 'dark' (only read when passed === true).
+    payment: { passed: p?.payment_status === 'Paid', shade: 'dark' },
+    load: { passed: loaded > 0, shade: loaded >= q ? 'dark' : 'light' },
+    erection: { passed: erected > 0, shade: erected >= q ? 'dark' : 'light' },
+  }
+}
+
 @Injectable()
 export class ProjectProgressService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly changeLog: ProgressChangeLogService
+
+  // changeLog is an optional param (defaulted in-body, not @Optional()) so
+  // the 28+ existing `new ProjectProgressService(prisma)` call sites in
+  // project-progress.service.spec.ts keep compiling unchanged — NestJS DI
+  // still injects the real one at runtime once it's registered in
+  // ProjectsModule (standard constructor injection, no decorator needed).
+  constructor(private readonly prisma: PrismaService, changeLog?: ProgressChangeLogService) {
+    this.changeLog = changeLog ?? new ProgressChangeLogService(prisma)
+  }
 
   private async findProjectOrThrow(projectCode: string) {
     const project = await this.prisma.project.findUnique({ where: { project_code: projectCode } })
@@ -110,7 +137,7 @@ export class ProjectProgressService {
     // selected here too so pcs clamping needs no extra round-trip.
     const assembly = await this.prisma.bom_assembly.findFirst({
       where: { id: assemblyId, dispatch: { project: { project_code: projectCode } } },
-      select: { id: true, qty: true },
+      select: { id: true, qty: true, dispatch: { select: { project_id: true } } },
     })
     if (!assembly) throw new NotFoundException(`Assembly ${assemblyId} not found in project ${projectCode}`)
     const q = effectiveQty(assembly.qty)
@@ -123,29 +150,43 @@ export class ProjectProgressService {
       actual_load_date: toDate(dto.actual_load_date),
       loaded_pcs: dto.loaded_pcs === undefined ? undefined : clampPcs(dto.loaded_pcs, q),
       erected_pcs: dto.erected_pcs === undefined ? undefined : clampPcs(dto.erected_pcs, q),
+      erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
+      payment_status: dto.payment_status,
+      claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
+      delivered_weight_kg: dto.delivered_weight_kg === undefined ? undefined : nonNegDecimal(dto.delivered_weight_kg),
     }
 
-    const row = await this.prisma.bom_assembly_progress.upsert({
-      where: { assembly_id: assemblyId },
-      create: {
-        assembly_id: assemblyId,
-        ...Object.fromEntries(FAB_STAGES.map(s => [s, (fields as Record<string, number | undefined>)[s] ?? 0])),
-        plan_load_date: fields.plan_load_date ?? null,
-        actual_load_date: fields.actual_load_date ?? null,
-        loaded_pcs: fields.loaded_pcs ?? 0,
-        erected_pcs: fields.erected_pcs ?? 0,
-        write_uid: userId,
-      },
-      update: { ...fields, write_uid: userId, write_date: new Date() },
+    // Transaction so the pre-write read, the upsert, and the change-log
+    // batch it feeds are all atomic — a diff computed against a row that
+    // could still change underneath it would be a lie.
+    const row = await this.prisma.$transaction(async tx => {
+      const current = await tx.bom_assembly_progress.findUnique({ where: { assembly_id: assemblyId } })
+      const diff = this.changeLog.computeDiff(current, fields)
+      const upserted = await tx.bom_assembly_progress.upsert({
+        where: { assembly_id: assemblyId },
+        create: { assembly_id: assemblyId, ...buildProgressCreateDefaults(fields, userId) },
+        update: { ...fields, write_uid: userId, write_date: new Date() },
+      })
+      await this.changeLog.logBatch(tx, {
+        projectId: assembly.dispatch.project_id,
+        source: 'manual_edit',
+        userId,
+        rows: [{ assemblyId, diff }],
+      })
+      return upserted
     })
     const { status, shade } = computeStatus(row, assembly.qty)
     return {
       ...row,
+      claimed_weight_kg: row.claimed_weight_kg != null ? Number(row.claimed_weight_kg) : null,
+      delivered_weight_kg: row.delivered_weight_kg != null ? Number(row.delivered_weight_kg) : null,
       fab_pct: computeFabPct(row),
       load_pct: Math.round((row.loaded_pcs / q) * 100),
       erect_pct: Math.round((row.erected_pcs / q) * 100),
+      payment_pct: row.payment_status === 'Paid' ? 100 : 0,
       status,
       shade,
+      phases: computePhases(row, assembly.qty),
     }
   }
 
@@ -160,7 +201,7 @@ export class ProjectProgressService {
     const project = await this.findProjectOrThrow(projectCode)
     const owned = await this.prisma.bom_assembly.findMany({
       where: { id: { in: dto.assembly_ids }, dispatch: { project_id: project.id } },
-      select: { id: true, qty: true },
+      select: { id: true, qty: true, progress: true },
     })
     if (!owned.length) return { updated: 0 }
 
@@ -172,30 +213,40 @@ export class ProjectProgressService {
       ...Object.fromEntries(FAB_STAGES.map(s => [s, pct(dto[s])])),
       plan_load_date: toDate(dto.plan_load_date),
       actual_load_date: toDate(dto.actual_load_date),
+      erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
+      payment_status: dto.payment_status,
+      claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
+      delivered_weight_kg: dto.delivered_weight_kg === undefined ? undefined : nonNegDecimal(dto.delivered_weight_kg),
     }
 
-    await this.prisma.$transaction(
-      owned.map(({ id, qty }) => {
+    // Callback-transaction form (not the array-of-promises form this used
+    // to be) — needed so the change-log batch can be created and its id
+    // referenced by the entries in the SAME transaction as the upserts.
+    await this.prisma.$transaction(async tx => {
+      const diffRows: { assemblyId: number; diff: DiffEntry[] }[] = []
+      for (const { id, qty, progress } of owned) {
         const fields = {
           ...shared,
           loaded_pcs: dto.set_loaded_full ? effectiveQty(qty) : undefined,
           erected_pcs: dto.set_erected_full ? effectiveQty(qty) : undefined,
         }
-        return this.prisma.bom_assembly_progress.upsert({
+        diffRows.push({ assemblyId: id, diff: this.changeLog.computeDiff(progress, fields) })
+        // Every targeted row is still upserted regardless of diff (unchanged
+        // behavior — write_uid/write_date always bump on Apply, same as
+        // before) — only the LOGGING below is diff-gated, not the write.
+        await tx.bom_assembly_progress.upsert({
           where: { assembly_id: id },
-          create: {
-            assembly_id: id,
-            ...Object.fromEntries(FAB_STAGES.map(s => [s, (fields as Record<string, number | undefined>)[s] ?? 0])),
-            plan_load_date: fields.plan_load_date ?? null,
-            actual_load_date: fields.actual_load_date ?? null,
-            loaded_pcs: fields.loaded_pcs ?? 0,
-            erected_pcs: fields.erected_pcs ?? 0,
-            write_uid: userId,
-          },
+          create: { assembly_id: id, ...buildProgressCreateDefaults(fields, userId) },
           update: { ...fields, write_uid: userId, write_date: new Date() },
         })
-      }),
-    )
+      }
+      await this.changeLog.logBatch(tx, {
+        projectId: project.id,
+        source: 'bulk_edit',
+        userId,
+        rows: diffRows,
+      })
+    })
     return { updated: owned.length }
   }
 
@@ -491,11 +542,17 @@ function mapAssemblyRow(a: { id: number; assembly_mark: string; weight_kg: unkno
     actual_load_date: p?.actual_load_date ?? null,
     loaded_pcs: p?.loaded_pcs ?? 0,
     erected_pcs: p?.erected_pcs ?? 0,
+    erection_actual_finish_date: p?.erection_actual_finish_date ?? null,
+    payment_status: p?.payment_status ?? 'Not Disbursed',
+    claimed_weight_kg: p?.claimed_weight_kg != null ? Number(p.claimed_weight_kg) : null,
+    delivered_weight_kg: p?.delivered_weight_kg != null ? Number(p.delivered_weight_kg) : null,
     fab_pct: computeFabPct(p),
     load_pct: Math.round(((p?.loaded_pcs ?? 0) / q) * 100),
     erect_pct: Math.round(((p?.erected_pcs ?? 0) / q) * 100),
+    payment_pct: p?.payment_status === 'Paid' ? 100 : 0,
     status,
     shade,
+    phases: computePhases(p, a.qty),
   }
 }
 
@@ -509,6 +566,7 @@ function toPositionMark(row: ReturnType<typeof mapAssemblyRow>, count?: number) 
     fab_pct: row.fab_pct,
     load_pct: row.load_pct,
     erect_pct: row.erect_pct,
+    payment_pct: row.payment_pct,
     status: row.status,
     shade: row.shade,
   }
@@ -527,6 +585,7 @@ function toUnmatchedBimMark(mark: string, count: number) {
     fab_pct: null as number | null,
     load_pct: null as number | null,
     erect_pct: null as number | null,
+    payment_pct: null as number | null,
     status: null as ProgressStatus | null,
     shade: null as ProgressShade | null,
   }
@@ -538,6 +597,7 @@ function toUnmatchedBimMark(mark: string, count: number) {
 function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFields | null }[]) {
   let totalWeight = 0
   let weightedFab = 0
+  let weightedPayment = 0
   let totalQty = 0
   let loadedPcs = 0
   let erectedPcs = 0
@@ -546,6 +606,7 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
     const w = r.weight_kg != null ? Number(r.weight_kg) : 0
     totalWeight += w
     weightedFab += w * computeFabPct(r.progress)
+    weightedPayment += w * (r.progress?.payment_status === 'Paid' ? 100 : 0)
     const q = effectiveQty(r.qty)
     totalQty += q
     loadedPcs += Math.min(q, r.progress?.loaded_pcs ?? 0)
@@ -559,6 +620,7 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
     assembly_count: rows.length,
     total_weight_kg: totalWeight,
     fab_pct: totalWeight > 0 ? Math.round((weightedFab / totalWeight) * 100) / 100 : 0,
+    payment_pct: totalWeight > 0 ? Math.round((weightedPayment / totalWeight) * 100) / 100 : 0,
     total_qty: totalQty,
     loaded_pcs: loadedPcs,
     erected_pcs: erectedPcs,
