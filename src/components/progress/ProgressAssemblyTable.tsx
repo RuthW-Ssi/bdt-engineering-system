@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Search, Pencil, ChevronUp, X } from 'lucide-react'
 import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
@@ -169,6 +169,19 @@ export function ProgressAssemblyTable({
 
   const q = search.trim().toLowerCase()
   const visible = q ? rows.filter(r => r.mark.toLowerCase().includes(q)) : rows
+
+  // Clicking a piece in the 3D viewer sets selectedAssemblyId — scroll that
+  // row into view here so the table follows the 3D selection. If an active
+  // search hides the row, clear it first so the row exists to scroll to.
+  const rowRefs = useRef(new Map<number, HTMLTableRowElement>())
+  useEffect(() => {
+    if (selectedAssemblyId == null) return
+    if (q && !rows.some(r => r.assembly_id === selectedAssemblyId && r.mark.toLowerCase().includes(q))) {
+      setSearch('')
+      return
+    }
+    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [selectedAssemblyId, rows, q])
 
   // Three separate footer numbers matching the backend rollup exactly:
   // fab weighted by weight_kg, load/erection by pieces (Σ/Σ).
@@ -366,6 +379,10 @@ export function ProgressAssemblyTable({
               return (
                 <Fragment key={r.assembly_id}>
                   <tr
+                    ref={el => {
+                      if (el) rowRefs.current.set(r.assembly_id, el)
+                      else rowRefs.current.delete(r.assembly_id)
+                    }}
                     onClick={() => onSelectRow(r.assembly_id)}
                     style={{
                       cursor: 'pointer',
