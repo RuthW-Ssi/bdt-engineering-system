@@ -313,7 +313,14 @@ export function ProjectProgress() {
   }
 
   const handleViewerSelect = (selection: BimSelection | null) => {
-    if (!selection) return
+    if (!selection) {
+      // Clicking empty space in the 3D viewport — same "show everything"
+      // reset switchTab uses (see its comment: {globalIds:[], hideRest:false}
+      // is the shape that actually hits the reset branch, not null).
+      setFocusRequest({ globalIds: [], hideRest: false })
+      setSelectedAssemblyId(null)
+      return
+    }
     const assemblyId = assemblyByGlobalId.get(selection.globalId)
     if (assemblyId != null) setSelectedAssemblyId(assemblyId)
   }

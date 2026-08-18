@@ -180,7 +180,7 @@ export function ProgressAssemblyTable({
       setSearch('')
       return
     }
-    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [selectedAssemblyId, rows, q])
 
   // Three separate footer numbers matching the backend rollup exactly:
@@ -387,6 +387,8 @@ export function ProgressAssemblyTable({
                     style={{
                       cursor: 'pointer',
                       background: expanded ? '#FAFAFA' : checked ? '#FEF6F6' : selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
+                      boxShadow: selectedAssemblyId === r.assembly_id ? '0 2px 6px rgba(0,0,0,0.15)' : undefined,
+                      position: selectedAssemblyId === r.assembly_id ? 'relative' : undefined,
                     }}
                   >
                     <td style={{ ...td, textAlign: 'center' }}>
