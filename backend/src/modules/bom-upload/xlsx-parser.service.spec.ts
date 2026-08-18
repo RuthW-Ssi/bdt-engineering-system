@@ -87,6 +87,20 @@ describe('XlsxParserService — ASSEMBLY_LIST', () => {
     const buf = makeBuffer(['Description', 'Qty'], [['Some item', 1]])
     expect(() => svc.parse(buf, 'ASSEMBLY_LIST')).toThrow(BadRequestException)
   })
+
+  // Regression: a real Tekla "NWS Assembly List" export abbreviates the mark
+  // column as "Ass Mk" (distinct from the already-covered "Asm Mk"/"Ass Mark"
+  // variants) — this exact header caused a false "cannot find assembly mark
+  // column" reject on a real upload (DRB ROD ZONE 4 Assembly List).
+  it('recognizes the "Ass Mk" Tekla header variant', () => {
+    const buf = makeBuffer(
+      ['No.', 'Ass Mk', "Q'ty", 'Name', 'Wt', 'Area', 'Length', 'Width', 'Higth'],
+      [[1, 'DBN-A5-RB1', 2, 'RB 25', 160.44, 3.446, 19984, 50, 110]],
+    )
+    const result = svc.parse(buf, 'ASSEMBLY_LIST')
+    expect(result.assemblies).toHaveLength(1)
+    expect(result.assemblies[0]).toMatchObject({ assembly_mark: 'DBN-A5-RB1', weight_kg: 160.44 })
+  })
 })
 
 // ─── PART_LIST ────────────────────────────────────────────────────────────────
