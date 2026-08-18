@@ -46,7 +46,7 @@ export interface ParsedBomFile {
 // Column header aliases (lowercase, exact match after trim)
 const ASSEMBLY_MARK_COLS = [
   'assembly mark', 'assembly_mark', 'mark', 'assembly',
-  'asm mark', 'asm_mark', 'assmk', 'asm mk', 'ass mark',
+  'asm mark', 'asm_mark', 'assmk', 'asm mk', 'ass mark', 'ass mk',
 ]
 const PART_MARK_COLS = [
   'part mark', 'part_mark', 'member mark', 'member_mark', 'part', 'mark',
