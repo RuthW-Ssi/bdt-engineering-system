@@ -27,7 +27,14 @@ export class AuthService {
 
   async login(dto: LoginDto): Promise<{
     access_token: string
-    user: { id: number; login: string; name: string; role: string; permissions: Record<string, ModulePermission> }
+    user: {
+      id: number
+      login: string
+      name: string
+      role: string
+      job_title: string | null
+      permissions: Record<string, ModulePermission>
+    }
   }> {
     const user = await this.prisma.res_users.findFirst({
       where: { login: dto.login, active: true },
@@ -47,7 +54,7 @@ export class AuthService {
     const permissions = await getPermissionMap(this.prisma, user.id, user.role)
     return {
       access_token: this.jwt.sign(payload),
-      user: { id: user.id, login: user.login, name: user.name, role: user.role, permissions },
+      user: { id: user.id, login: user.login, name: user.name, role: user.role, job_title: user.job_title, permissions },
     }
   }
 

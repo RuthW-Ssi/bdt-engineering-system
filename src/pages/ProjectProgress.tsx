@@ -5,7 +5,7 @@ import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
 import { ProgressImportModal } from '../components/progress/ProgressImportModal'
-import { STATUS_META, PHASE_META, PHASE_ORDER } from '../components/progress/statusMeta'
+import { PHASE_META, PHASE_ORDER, defaultPhaseColor } from '../components/progress/statusMeta'
 import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
@@ -47,22 +47,6 @@ const POSITION_AXIS_INDEX: Record<PositionAxis, number> = { x: 0, y: 1, z: 2 }
 // keyof union, which also includes non-numeric `buckets`).
 const PHASE_PCT_KEY: Record<PhaseKey, 'fab_pct' | 'payment_pct' | 'load_pct' | 'erect_pct'> = {
   fabrication: 'fab_pct', payment: 'payment_pct', load: 'load_pct', erection: 'erect_pct',
-}
-
-// Single baseline color for a row when no pill filter is active — one
-// assembly can have several phases passed at once (Payment is parallel, not
-// sequential: a piece can be paid mid-fabrication), so this picks the
-// FURTHEST phase in pill order (F→M→T→E) that's passed, using that phase's
-// own dark/light shade. Not a "real" physical sequence (Payment has no
-// natural position in one) — this is a deliberate, simpler stand-in the
-// user chose over folding Payment out of the baseline color entirely.
-function defaultPhaseColor(r: ProgressZoneRow): string {
-  for (let i = PHASE_ORDER.length - 1; i >= 0; i--) {
-    const p = PHASE_ORDER[i]
-    const phase = r.phases[p]
-    if (phase.passed) return PHASE_META[p][phase.shade]
-  }
-  return STATUS_META.notstart.light
 }
 
 // Count-weighted rollup over a set of position-mark entries — untracked

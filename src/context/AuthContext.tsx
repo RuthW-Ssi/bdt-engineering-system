@@ -13,6 +13,7 @@ export interface AuthUser {
   login: string
   name: string
   role: string
+  job_title: string | null
   permissions: Record<string, ModulePermission>
 }
 

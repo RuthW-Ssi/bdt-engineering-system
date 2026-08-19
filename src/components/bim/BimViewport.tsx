@@ -225,6 +225,10 @@ interface Props {
   // default (no status selected) view, where untracked elements keeping
   // their native look is fine.
   defaultColor?: string
+  // Hides Autodesk's own default toolbar + ViewCube — for consumers that
+  // supply their own minimal chrome instead (MobileBimCard's single expand
+  // button). Desktop consumers omit this and keep the default UI.
+  hideToolbar?: boolean
 }
 
 function hexToThemingVector4(THREE: any, hex: string) {
@@ -236,7 +240,7 @@ function hexToThemingVector4(THREE: any, hex: string) {
 }
 
 export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimViewport(
-  { urn, accessToken, onSelect, focusRequest, statusColorMap, defaultColor },
+  { urn, accessToken, onSelect, focusRequest, statusColorMap, defaultColor, hideToolbar },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -321,6 +325,23 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
           const viewer = new Autodesk.Viewing.GuiViewer3D(containerRef.current)
           viewer.start()
           viewerRef.current = viewer
+
+          // setVisible(false) / unloadExtension alone don't stick — something
+          // in the default extension chain (loaded async after
+          // GEOMETRY_LOADED below) re-shows the toolbar/ViewCube DOM nodes
+          // later. Hiding the nodes directly with !important survives that
+          // since !important beats a later non-important re-show, regardless
+          // of ordering.
+          if (hideToolbar) {
+            const hideToolbarNode = () => {
+              containerRef.current?.querySelectorAll('.adsk-toolbar, .viewcubeWrapper').forEach(el => {
+                (el as HTMLElement).style.setProperty('display', 'none', 'important')
+              })
+            }
+            hideToolbarNode()
+            viewer.addEventListener(Autodesk.Viewing.GEOMETRY_LOADED_EVENT, hideToolbarNode)
+          }
+
           // Ghosting draws non-isolated geometry as dim/gray instead of fully
           // hiding it — kept on so the focused assembly still reads in the
           // context of the surrounding structure. Set explicitly (not just
