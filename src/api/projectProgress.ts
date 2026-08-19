@@ -29,6 +29,12 @@ export type FabStageFields = Record<FabStage, number>
 export interface ProgressZoneRow extends FabStageFields {
   assembly_id: number
   mark: string
+  // Only present on project-wide rows (getProgressProjectRows) — a
+  // single-zone caller (getProgressZoneRows) already knows the zone from
+  // its own request, so the backend doesn't bother repeating it per row.
+  zone_id?: number
+  zone_code?: string
+  zone_label?: string
   weight_kg: number | null
   qty: number | null
   plan_load_date: string | null
