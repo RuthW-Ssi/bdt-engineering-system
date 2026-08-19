@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight, LogOut, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { ROLE_LABELS } from '../../api/users'
 import { SECTIONS, ADMIN_SECTION, visibleItems, type NavItem } from '../layout/Sidebar'
 
 // Every feature that actually has a mobile-ready screen — desktop nav path
@@ -82,34 +83,29 @@ export function MobileNavDrawer({ onClose }: { onClose: () => void }) {
     if (readyItems.length) readySections.push({ title: section.title, items: readyItems })
   }
 
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
-  const firstName = user?.name.split(' ')[0] ?? ''
+  const department = user ? (ROLE_LABELS[user.role] ?? user.role) : ''
 
   const go = (path: string) => { navigate(path); onClose() }
 
   return (
     <div className="h-full flex flex-col bg-chrome-50">
-      <div className="bg-white border-b border-chrome-100 px-4 pt-6 pb-5">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            <img src="/assets/logo/powerkeychain-logo.png" alt="" width={18} height={18} className="object-contain" />
-            <span className="text-chrome-400" style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em' }}>SSI BUILDING TECH</span>
-          </div>
-          <button onClick={onClose} aria-label="Close menu" className="p-1.5 -mr-1.5 rounded-full text-chrome-400 active:bg-chrome-50">
-            <X size={20} />
-          </button>
-        </div>
-        <div className="flex items-center gap-3">
+      <div className="relative bg-white border-b border-chrome-100 px-4 pt-4 pb-5">
+        <button onClick={onClose} aria-label="Close menu" className="absolute top-3 right-3 p-1.5 rounded-full text-chrome-400 active:bg-chrome-50">
+          <X size={20} />
+        </button>
+        <div className="flex flex-col items-start gap-3">
           <span
-            className="flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-ssi-600"
-            style={{ background: '#FCEBEB', fontSize: 16, fontWeight: 700 }}
+            className="flex-shrink-0 w-16 h-16 rounded-full flex items-center justify-center text-ssi-600"
+            style={{ background: '#FCEBEB', fontSize: 22, fontWeight: 700 }}
           >
             {(user?.name ?? 'U').slice(0, 2).toUpperCase()}
           </span>
           <div className="min-w-0">
-            <div className="text-chrome-900 font-bold truncate" style={{ fontSize: 19 }}>{greeting}, {firstName}</div>
-            <div className="text-chrome-400 mt-0.5" style={{ fontSize: 12.5 }}>{user?.role}</div>
+            <div className="text-chrome-900 font-bold truncate" style={{ fontSize: 19 }}>{user?.name}</div>
+            {user?.job_title && (
+              <div className="text-chrome-600 truncate mt-0.5" style={{ fontSize: 13 }}>{user.job_title}</div>
+            )}
+            <div className="text-chrome-400 mt-0.5 truncate" style={{ fontSize: 12.5 }}>{department}</div>
           </div>
         </div>
       </div>

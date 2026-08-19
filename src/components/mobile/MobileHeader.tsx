@@ -1,7 +1,8 @@
-import { ChevronLeft, Menu } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronLeft, Menu, Bell } from 'lucide-react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
 import type { MobileOutletContext } from './MobileNavShell'
+import { MobileNotificationSheet } from './MobileNotificationSheet'
 
 interface Props {
   title: string
@@ -14,14 +15,15 @@ interface Props {
 
 // Shared header for the /m/* mobile progress-entry flow — no Sidebar/AppShell
 // here (those routes sit outside the desktop layout entirely), so every
-// mobile page needs its own chrome. Styled to match Topbar.tsx (the desktop
-// app bar) exactly — same h-14/white/border-chrome-100 bar, same logo, same
-// avatar badge colors — so the mobile flow reads as the same app, not a
-// bolted-on separate tool.
+// mobile page needs its own chrome. Back/hamburger button on the left, title
+// centered, notification bell on the right — opens MobileNotificationSheet,
+// a bottom-sheet mirror of the desktop Topbar's own (still-mock) dropdown.
+// Menu access is root-only (via the hamburger) — not reachable from
+// drill-down screens.
 export function MobileHeader({ title, subtitle, onBack }: Props) {
   const navigate = useNavigate()
-  const { user } = useAuth()
   const { openMenu } = useOutletContext<MobileOutletContext>()
+  const [notifOpen, setNotifOpen] = useState(false)
 
   const handleBack = () => {
     if (typeof onBack === 'function') onBack()
@@ -30,29 +32,31 @@ export function MobileHeader({ title, subtitle, onBack }: Props) {
   }
 
   return (
-    <header className="sticky top-0 z-10 h-14 bg-white border-b border-chrome-100 flex items-center px-3 gap-2.5">
+    <header className="sticky top-0 z-10 h-14 bg-white border-b border-chrome-100 flex items-center px-3 gap-2">
       <button
         onClick={onBack !== undefined ? handleBack : openMenu}
         aria-label={onBack !== undefined ? 'Back' : 'Open menu'}
-        className="flex-shrink-0 -ml-1 flex items-center justify-center w-9 h-9 rounded-full text-chrome-600 active:bg-chrome-50"
+        className="flex-shrink-0 -ml-1.5 flex items-center justify-center w-9 h-9 rounded-full text-chrome-600 active:bg-chrome-50"
       >
         {onBack !== undefined ? <ChevronLeft size={22} /> : <Menu size={20} />}
       </button>
-      <img src="/assets/logo/powerkeychain-logo.png" alt="" width={24} height={24} className="flex-shrink-0 object-contain" />
-      <div className="min-w-0 flex-1 leading-none">
-        <div className="text-chrome-900 truncate" style={{ fontSize: 14, fontWeight: 700 }}>{title}</div>
-        <div className="text-chrome-400 mt-1 truncate" style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.06em' }}>
-          {subtitle ?? 'SSI BUILDING TECH'}
-        </div>
+      <div className="flex-1 min-w-0 text-center leading-none">
+        <div className="text-chrome-900 truncate" style={{ fontSize: 15, fontWeight: 700 }}>{title}</div>
+        {subtitle && (
+          <div className="text-chrome-400 mt-1 truncate" style={{ fontSize: 11, fontWeight: 500 }}>
+            {subtitle}
+          </div>
+        )}
       </div>
-      {user && (
-        <span
-          className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-ssi-600"
-          style={{ background: '#FCEBEB', fontSize: 12, fontWeight: 500 }}
-        >
-          {user.name.slice(0, 2).toUpperCase()}
-        </span>
-      )}
+      <button
+        onClick={() => setNotifOpen(true)}
+        aria-label="Notifications"
+        className="relative flex-shrink-0 -mr-1.5 flex items-center justify-center w-9 h-9 rounded-full text-chrome-600 active:bg-chrome-50"
+      >
+        <Bell size={19} />
+        <span className="absolute" style={{ top: 7, right: 7, width: 7, height: 7, background: '#C8202A', borderRadius: 999, border: '2px solid white' }} />
+      </button>
+      <MobileNotificationSheet open={notifOpen} onClose={() => setNotifOpen(false)} />
     </header>
   )
 }
