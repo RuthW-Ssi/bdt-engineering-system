@@ -41,6 +41,15 @@ export const PHASE_META: Record<PhaseKey, { label: string; light: string; dark: 
   erection: STATUS_META.erection,
 }
 
+// Which aggregate rollup percent backs each pill's dark/light badge. Typed
+// to only the 4 numeric percent keys (not the full ProgressRollupTotals
+// keyof union, which also includes non-numeric `buckets`). Shared between
+// desktop (ProjectProgress.tsx) and mobile (MobileBimCard.tsx) — same
+// dark-once-100%-else-light rule for both.
+export const PHASE_PCT_KEY: Record<PhaseKey, 'fab_pct' | 'payment_pct' | 'load_pct' | 'erect_pct'> = {
+  fabrication: 'fab_pct', payment: 'payment_pct', load: 'load_pct', erection: 'erect_pct',
+}
+
 // Single baseline color for a row when no pill filter is active — one
 // assembly can have several phases passed at once (Payment is parallel, not
 // sequential: a piece can be paid mid-fabrication), so this picks the

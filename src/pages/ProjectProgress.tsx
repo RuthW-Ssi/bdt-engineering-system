@@ -4,7 +4,7 @@ import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Downloa
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
-import { PHASE_META, PHASE_ORDER, defaultPhaseColor } from '../components/progress/statusMeta'
+import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
@@ -40,13 +40,6 @@ type ActiveGroup =
 type PositionAxis = 'x' | 'y' | 'z'
 const POSITION_AXIS_LABEL: Record<PositionAxis, string> = { x: 'X Grid', y: 'Y Grid', z: 'Elevation' }
 const POSITION_AXIS_INDEX: Record<PositionAxis, number> = { x: 0, y: 1, z: 2 }
-
-// Which aggregate rollup percent backs each pill's dark/light badge. Typed
-// to only the 4 numeric percent keys (not the full ProgressRollupTotals
-// keyof union, which also includes non-numeric `buckets`).
-const PHASE_PCT_KEY: Record<PhaseKey, 'fab_pct' | 'payment_pct' | 'load_pct' | 'erect_pct'> = {
-  fabrication: 'fab_pct', payment: 'payment_pct', load: 'load_pct', erection: 'erect_pct',
-}
 
 // Count-weighted rollup over a set of position-mark entries — untracked
 // entries (no matching BOM row, status === null) count toward `count` but
