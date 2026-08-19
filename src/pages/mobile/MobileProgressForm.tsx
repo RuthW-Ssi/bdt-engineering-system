@@ -113,7 +113,7 @@ export function MobileProgressForm() {
         <div className={section}>Fabrication</div>
         <div className="grid grid-cols-2 gap-3">
           {FAB_STAGES.map(stage => (
-            <div key={stage}>
+            <div key={stage} className="min-w-0">
               <label className={label}>{STAGE_LABEL[stage]}</label>
               <div className="relative">
                 <input
@@ -130,25 +130,30 @@ export function MobileProgressForm() {
         </div>
 
         <div className={section}>Transport</div>
+        {/* min-w-0 on every field wrapper below: they're flex items of this
+            flex-col container, and flex items default to min-width:auto —
+            i.e. they refuse to shrink below their CONTENT's intrinsic
+            width. A native date input's rendered value is locale/OS
+            text (confirmed: an in-app WebView rendering a long Thai
+            Buddhist-era date like "23 Jul BE 2569") wide enough that the
+            wrapper div itself grew past the container before the input's
+            own width/maxWidth ever got a say — maxWidth:100% on the input
+            alone couldn't fix that, since "100% of an already-oversized
+            parent" is still oversized. min-w-0 forces the flex item to
+            actually respect the container's width, letting the input
+            (and its maxWidth:100%) constrain correctly inside it. */}
         <div className="flex flex-col gap-3">
-          {/* Stacked full-width, not a 2-col grid — a native date input's
-              rendered value is locale/OS-controlled, not something our CSS
-              can reformat, and on some devices (confirmed: an in-app
-              WebView rendering a long Thai Buddhist-era date like "23 Jul
-              BE 2569") it's too wide for a half-width column and overflows
-              past the screen edge. Full width gives it the most room to
-              render without clipping/overlapping neighboring fields. */}
-          <div>
+          <div className="min-w-0">
             <label className={label}>Plan Load</label>
             <input type="date" disabled={!canUpdate} value={toInputDate(draft.plan_load_date ?? null)}
               onChange={e => set('plan_load_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} style={{ maxWidth: '100%' }} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className={label}>Actual Load</label>
             <input type="date" disabled={!canUpdate} value={toInputDate(draft.actual_load_date ?? null)}
               onChange={e => set('actual_load_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} style={{ maxWidth: '100%' }} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className={label}>Loaded (pcs, max {qty})</label>
             <input type="number" min={0} max={qty} inputMode="numeric" disabled={!canUpdate}
               value={draft.loaded_pcs ?? 0}
@@ -159,7 +164,7 @@ export function MobileProgressForm() {
 
         <div className={section}>Material Payment</div>
         <div className="flex flex-col gap-3">
-          <div>
+          <div className="min-w-0">
             <label className={label}>Status</label>
             <select
               disabled={!canUpdate}
@@ -171,14 +176,14 @@ export function MobileProgressForm() {
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div>
+            <div className="min-w-0">
               <label className={label}>Claimed (kg)</label>
               <input type="number" min={0} inputMode="decimal" disabled={!canUpdate}
                 value={draft.claimed_weight_kg ?? ''}
                 onChange={e => set('claimed_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
                 className={`${input} disabled:bg-chrome-50`} />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className={label}>Delivered (kg)</label>
               <input type="number" min={0} inputMode="decimal" disabled={!canUpdate}
                 value={draft.delivered_weight_kg ?? ''}
@@ -190,14 +195,14 @@ export function MobileProgressForm() {
 
         <div className={section}>Erection</div>
         <div className="flex flex-col gap-3">
-          <div>
+          <div className="min-w-0">
             <label className={label}>Erected (pcs, max {qty})</label>
             <input type="number" min={0} max={qty} inputMode="numeric" disabled={!canUpdate}
               value={draft.erected_pcs ?? 0}
               onChange={e => set('erected_pcs', clampPcs(Number(e.target.value), qty))}
               className={`${input} disabled:bg-chrome-50`} />
           </div>
-          <div>
+          <div className="min-w-0">
             <label className={label}>Actual Finish Date</label>
             <input type="date" disabled={!canUpdate} value={toInputDate(draft.erection_actual_finish_date ?? null)}
               onChange={e => set('erection_actual_finish_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} style={{ maxWidth: '100%' }} />
