@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ChevronRight, Layers, LayoutDashboard, Cuboid as CuboidIcon } from 'lucide-react'
+import { ChevronRight, Layers, LayoutDashboard, Cuboid as CuboidIcon, History } from 'lucide-react'
 import { useProgressOverview, useProgressProjectRows, useProgressProjectBimMatch } from '../../hooks/useProjectProgress'
 import { useProject } from '../../hooks/useProjects'
 import { MobileHeader } from '../../components/mobile/MobileHeader'
@@ -9,7 +9,7 @@ import { MobileProgressStatCards } from '../../components/mobile/MobileProgressS
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
 import { MobileTabBar } from '../../components/mobile/MobileTabBar'
 
-type Tab = 'overview' | '3d' | 'zones'
+type Tab = 'overview' | '3d' | 'zones' | 'history'
 
 export function MobileZoneList() {
   const { code } = useParams<{ code: string }>()
@@ -82,11 +82,20 @@ export function MobileZoneList() {
 
       <MobileTabBar
         active={tab}
-        onChange={setTab}
+        onChange={t => {
+          // History is a navigation shortcut, not a panel like the other 3
+          // — it's a full standalone screen (own header/back-nav), same as
+          // desktop's project-level History button, just relocated into the
+          // tab bar per request. Doesn't update local `tab` state since the
+          // page navigates away.
+          if (t === 'history') navigate(`/m/projects/${code}/history`)
+          else setTab(t)
+        }}
         tabs={[
           { key: 'overview', label: 'Overview', icon: <LayoutDashboard size={19} /> },
           { key: '3d', label: '3D', icon: <CuboidIcon size={19} /> },
           { key: 'zones', label: 'Zone', icon: <Layers size={19} /> },
+          { key: 'history', label: 'History', icon: <History size={19} /> },
         ]}
       />
     </div>
