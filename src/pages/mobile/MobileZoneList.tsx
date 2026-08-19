@@ -51,8 +51,15 @@ export function MobileZoneList() {
         </div>
 
         {tab === '3d' && (
-          <div className="h-full p-3">
-            <MobileBimCard bimMatch={projectBimMatch} rows={projectRows} height="100%" />
+          // Capped, not h-full — on a very tall real-device viewport (some
+          // phones/browsers give this tab a lot more vertical room than
+          // typical), letting the 3D area just fill 100% of that made the
+          // model's own fitToView() frame it small and centered with a huge
+          // empty margin below — it read as "floating" rather than filling
+          // its box. A capped height keeps the card's own proportions
+          // sensible regardless of how tall the available space is.
+          <div className="p-3" style={{ height: 'min(65vh, 600px)' }}>
+            <MobileBimCard projectCode={code ?? ''} bimMatch={projectBimMatch} rows={projectRows} height="100%" />
           </div>
         )}
 
