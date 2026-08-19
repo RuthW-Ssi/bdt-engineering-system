@@ -37,8 +37,12 @@ export function MobileAssemblyList() {
 
   const rows = (data ?? []).filter(r => !q.trim() || r.mark.toLowerCase().includes(q.trim().toLowerCase()))
 
+  // h-dvh, not h-screen (100vh) — 100vh overshoots the real visible viewport
+  // on mobile browsers (doesn't subtract the address bar), which pushed the
+  // bottom tab bar (and header) below the fold on a real phone. dvh tracks
+  // the actually-visible height.
   return (
-    <div className="h-screen flex flex-col bg-chrome-50 overflow-hidden">
+    <div className="h-dvh flex flex-col bg-chrome-50 overflow-hidden">
       <MobileHeader title="Zone Progress" onBack={`/m/projects/${code}/zones`} />
 
       {/* Overview/Assembly panels stay mounted (display:none when inactive)
