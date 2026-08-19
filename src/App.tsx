@@ -4,7 +4,6 @@ import { AuthProvider } from './context/AuthContext'
 import { ProjectProvider } from './context/ProjectContext'
 import { ConfirmProvider } from './components/ui/ConfirmDialog'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { AppShell } from './components/layout/AppShell'
 import { LoginPage } from './pages/LoginPage'
 import { CustomerList } from './pages/CustomerList'
 import { ProjectList } from './pages/ProjectList'
@@ -38,6 +37,13 @@ import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
 import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
 import { BimViewer } from './pages/BimViewer'
 import { UsersPage } from './pages/UsersPage'
+import { MobileViewportGate } from './components/mobile/MobileViewportGate'
+import { MobileNavShell } from './components/mobile/MobileNavShell'
+import { DesktopViewportGate } from './components/mobile/DesktopViewportGate'
+import { MobileProjectList } from './pages/mobile/MobileProjectList'
+import { MobileZoneList } from './pages/mobile/MobileZoneList'
+import { MobileAssemblyList } from './pages/mobile/MobileAssemblyList'
+import { MobileProgressForm } from './pages/mobile/MobileProgressForm'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -68,10 +74,26 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          {/* Mobile progress-entry flow — deliberately outside the AppShell/
+              Sidebar tree (see mobile audit: the Sidebar is a fixed-width
+              desktop shell with no mobile drawer, so nothing under it works
+              on a phone). Each page is its own self-contained screen with
+              MobileHeader for back-nav; auth-gated the same as the desktop
+              routes below via the bare ProtectedRoute (no viewModules check
+              — progress entry uses the same 'project-tracking' permission
+              the desktop table already enforces, checked in-page). */}
+          <Route element={<ProtectedRoute><MobileViewportGate /></ProtectedRoute>}>
+            <Route element={<MobileNavShell />}>
+              <Route path="/m/projects" element={<MobileProjectList />} />
+              <Route path="/m/projects/:code/zones" element={<MobileZoneList />} />
+              <Route path="/m/projects/:code/zones/:zoneId" element={<MobileAssemblyList />} />
+              <Route path="/m/projects/:code/zones/:zoneId/assemblies/:assemblyId" element={<MobileProgressForm />} />
+            </Route>
+          </Route>
           <Route
             element={
               <ProtectedRoute>
-                <AppShell />
+                <DesktopViewportGate />
               </ProtectedRoute>
             }
           >
