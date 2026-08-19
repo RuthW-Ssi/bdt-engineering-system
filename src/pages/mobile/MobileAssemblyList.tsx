@@ -66,8 +66,15 @@ export function MobileAssemblyList() {
         </div>
 
         {tab === '3d' && (
-          <div className="h-full p-3">
-            <MobileBimCard bimMatch={zoneBimMatch} rows={data} height="100%" />
+          // Capped, not h-full — see MobileZoneList.tsx's identical comment.
+          <div className="p-3" style={{ height: 'min(65vh, 600px)' }}>
+            <MobileBimCard
+              projectCode={code ?? ''}
+              bimMatch={zoneBimMatch}
+              rows={data}
+              zoneLabel={zoneDetail?.label}
+              height="100%"
+            />
           </div>
         )}
 
