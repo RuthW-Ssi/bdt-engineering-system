@@ -60,7 +60,14 @@ export function MobileZoneList() {
           // viewport whose proportions rarely match the container's, not
           // something a container-height change can fully eliminate.
           <div className="h-full p-3">
-            <MobileBimCard projectCode={code ?? ''} bimMatch={projectBimMatch} rows={projectRows} height="100%" />
+            <MobileBimCard
+              projectCode={code ?? ''}
+              bimMatch={projectBimMatch}
+              rows={projectRows}
+              showPhaseFilter
+              overviewTotals={total}
+              height="100%"
+            />
           </div>
         )}
 
