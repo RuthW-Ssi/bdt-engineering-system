@@ -51,14 +51,15 @@ export function MobileZoneList() {
         </div>
 
         {tab === '3d' && (
-          // Capped, not h-full — on a very tall real-device viewport (some
-          // phones/browsers give this tab a lot more vertical room than
-          // typical), letting the 3D area just fill 100% of that made the
-          // model's own fitToView() frame it small and centered with a huge
-          // empty margin below — it read as "floating" rather than filling
-          // its box. A capped height keeps the card's own proportions
-          // sensible regardless of how tall the available space is.
-          <div className="p-3" style={{ height: 'min(65vh, 600px)' }}>
+          // h-full, not a fixed/capped height — a capped height (tried and
+          // reverted) left a visible gap of plain page background between
+          // the card and the bottom tab bar on real devices where the
+          // available space is taller than the cap. Any empty margin around
+          // the model itself inside the canvas is fitToView() preserving
+          // the model's own aspect ratio (letterboxing) — inherent to a 3D
+          // viewport whose proportions rarely match the container's, not
+          // something a container-height change can fully eliminate.
+          <div className="h-full p-3">
             <MobileBimCard projectCode={code ?? ''} bimMatch={projectBimMatch} rows={projectRows} height="100%" />
           </div>
         )}
