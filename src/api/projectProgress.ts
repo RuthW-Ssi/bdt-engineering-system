@@ -200,33 +200,11 @@ export async function bulkUpdateAssemblyProgress(
   return (await apiClient.patch(`/projects/${projectCode}/progress/assemblies/bulk`, { assembly_ids: assemblyIds, ...payload })).data
 }
 
-// Import preview/confirm — `field` is intentionally `string` here (not the
-// backend's stricter AuditableField union): this is a display-only shape,
-// no reason to duplicate that union across the API boundary.
+// Field-level diff shape shared by the History batch detail view — `field`
+// is intentionally `string` here (not the backend's stricter AuditableField
+// union): this is a display-only shape, no reason to duplicate that union
+// across the API boundary.
 export interface ProgressImportChange { zone: string; mark: string; field: string; old: unknown; new: unknown }
-export interface ProgressImportSkip { zone: string; mark: string; field: string; rawValue: unknown; reason: string }
-export interface ProgressImportUnmatched { zone: string; mark: string }
-export interface ProgressImportResult {
-  changes: ProgressImportChange[]
-  unmatchedMarks: ProgressImportUnmatched[]
-  skippedCells: ProgressImportSkip[]
-}
-
-export async function previewProgressImport(projectCode: string, file: File): Promise<ProgressImportResult> {
-  const formData = new FormData()
-  formData.append('file', file)
-  return (await apiClient.post(`/projects/${projectCode}/progress/import/preview`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })).data
-}
-
-export async function confirmProgressImport(projectCode: string, file: File): Promise<{ batchId: number | null; updated: number }> {
-  const formData = new FormData()
-  formData.append('file', file)
-  return (await apiClient.post(`/projects/${projectCode}/progress/import/confirm`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })).data
-}
 
 // Blob download — apiClient's Bearer-token interceptor is the only auth
 // path in this app, so a plain <a href> to the endpoint wouldn't carry it;

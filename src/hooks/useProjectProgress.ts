@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getProgressOverview, getProgressZoneRows, getProgressBimMatch, getProgressProjectRows, getProgressProjectBimMatch,
   getProgressPositions, updateAssemblyProgress, bulkUpdateAssemblyProgress,
-  previewProgressImport, confirmProgressImport,
   getProgressHistory, getProgressHistoryBatch, rollbackProgressBatch,
 } from '../api/projectProgress'
 import type { UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
@@ -89,29 +88,6 @@ export function useBulkUpdateAssemblyProgress(projectCode: string | undefined) {
       qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
     },
     meta: { showGlobalErrorToast: true },
-  })
-}
-
-// No showGlobalErrorToast — a structural rejection (wrong project, header
-// drift) carries a specific, actionable message the import UI displays
-// inline (per spec: skip the review modal, show the error directly),
-// rather than a toast that can get missed/dismissed.
-export function usePreviewProgressImport(projectCode: string | undefined) {
-  return useMutation({
-    mutationFn: (file: File) => previewProgressImport(projectCode!, file),
-  })
-}
-
-export function useConfirmProgressImport(projectCode: string | undefined) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (file: File) => confirmProgressImport(projectCode!, file),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
-      qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
-      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
-      qc.invalidateQueries({ queryKey: ['project-progress', 'history', projectCode] })
-    },
   })
 }
 
