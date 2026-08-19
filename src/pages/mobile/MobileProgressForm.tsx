@@ -88,7 +88,14 @@ export function MobileProgressForm() {
   }
 
   return (
-    <div className="min-h-screen bg-chrome-50 flex flex-col pb-24">
+    // Bottom padding must clear the fixed Save bar's real height, which
+    // varies with env(safe-area-inset-bottom) (the home-indicator area on
+    // notched phones) — a flat px value undershot that on real devices and
+    // left Claimed/Delivered + Erection fields hidden behind the button.
+    <div
+      className="min-h-screen bg-chrome-50 flex flex-col"
+      style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+    >
       <MobileHeader title={row.mark} subtitle={`Qty ${qty}`} onBack={() => navigate(-1)} />
 
       <div className="p-4">

@@ -1,15 +1,11 @@
 import {
   Controller, Get, Post, Patch, Body, Param, ParseIntPipe, Query, UseGuards, Res,
-  UseInterceptors, UploadedFile, BadRequestException,
 } from '@nestjs/common'
-import { FileInterceptor } from '@nestjs/platform-express'
-import { memoryStorage } from 'multer'
 import { Response } from 'express'
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiConsumes, ApiBody } from '@nestjs/swagger'
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { ProjectsService } from './projects.service'
 import { ProjectProgressService, UpdateAssemblyProgressDto, BulkUpdateAssemblyProgressDto } from './project-progress.service'
 import { ProgressExportService } from './progress-export.service'
-import { ProgressImportService } from './progress-import.service'
 import { ProgressHistoryService } from './progress-history.service'
 import { CreateProjectDto } from './dto/create-project.dto'
 import { UpdateProjectDto } from './dto/update-project.dto'
@@ -20,15 +16,6 @@ import { RequiresPermission } from '../../common/decorators/permission.decorator
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 
-interface MulterFile {
-  fieldname: string
-  originalname: string
-  encoding: string
-  mimetype: string
-  size: number
-  buffer: Buffer
-}
-
 @ApiTags('projects')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionGuard)
@@ -38,7 +25,6 @@ export class ProjectsController {
     private readonly svc: ProjectsService,
     private readonly progressSvc: ProjectProgressService,
     private readonly exportSvc: ProgressExportService,
-    private readonly importSvc: ProgressImportService,
     private readonly historySvc: ProgressHistoryService,
   ) {}
 
@@ -106,34 +92,12 @@ export class ProjectsController {
 
   @Get(':project_code/progress/export')
   @RequiresPermission('project-tracking', 'view')
-  @ApiOperation({ summary: 'Download an Excel snapshot of current progress data (one sheet per zone) for offline edit + re-import' })
+  @ApiOperation({ summary: 'Download an Excel snapshot of current progress data (one sheet per zone)' })
   async exportProgress(@Param('project_code') code: string, @Res() res: Response) {
     const { buffer, filename } = await this.exportSvc.exportProgress(code)
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`)
     res.send(buffer)
-  }
-
-  @Post(':project_code/progress/import/preview')
-  @RequiresPermission('project-tracking', 'update')
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
-  @ApiOperation({ summary: 'Parse + validate an uploaded progress Excel file, no writes — returns the field-level diff, unmatched marks, and skipped cells' })
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }))
-  async previewProgressImport(@Param('project_code') code: string, @UploadedFile() file: MulterFile) {
-    if (!file) throw new BadRequestException('No file uploaded')
-    return this.importSvc.previewImport(code, file.buffer)
-  }
-
-  @Post(':project_code/progress/import/confirm')
-  @RequiresPermission('project-tracking', 'update')
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
-  @ApiOperation({ summary: 'Re-parses the same file server-side and applies every changed cell in one transaction, logged as one import batch' })
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } }))
-  async confirmProgressImport(@Param('project_code') code: string, @UploadedFile() file: MulterFile, @CurrentUser() user: JwtPayload) {
-    if (!file) throw new BadRequestException('No file uploaded')
-    return this.importSvc.confirmImport(code, file.buffer, file.originalname, user.sub)
   }
 
   @Get(':project_code/progress/history')
