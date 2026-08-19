@@ -92,8 +92,13 @@ export function MobileProgressForm() {
     // varies with env(safe-area-inset-bottom) (the home-indicator area on
     // notched phones) — a flat px value undershot that on real devices and
     // left Claimed/Delivered + Erection fields hidden behind the button.
+    // overflow-x-hidden (not overflow-hidden — the page still needs to
+    // scroll vertically) is a backstop against native <input type="date">
+    // rendering wider than its box on some devices/WebViews — if a widget
+    // still won't shrink to maxWidth:100%, this clips the excess instead of
+    // letting it drag the rest of the page out of alignment horizontally.
     <div
-      className="min-h-screen bg-chrome-50 flex flex-col"
+      className="min-h-screen bg-chrome-50 flex flex-col overflow-x-hidden"
       style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
     >
       <MobileHeader title={row.mark} subtitle={`Qty ${qty}`} onBack={() => navigate(-1)} />
@@ -126,17 +131,22 @@ export function MobileProgressForm() {
 
         <div className={section}>Transport</div>
         <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={label}>Plan Load</label>
-              <input type="date" disabled={!canUpdate} value={toInputDate(draft.plan_load_date ?? null)}
-                onChange={e => set('plan_load_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} />
-            </div>
-            <div>
-              <label className={label}>Actual Load</label>
-              <input type="date" disabled={!canUpdate} value={toInputDate(draft.actual_load_date ?? null)}
-                onChange={e => set('actual_load_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} />
-            </div>
+          {/* Stacked full-width, not a 2-col grid — a native date input's
+              rendered value is locale/OS-controlled, not something our CSS
+              can reformat, and on some devices (confirmed: an in-app
+              WebView rendering a long Thai Buddhist-era date like "23 Jul
+              BE 2569") it's too wide for a half-width column and overflows
+              past the screen edge. Full width gives it the most room to
+              render without clipping/overlapping neighboring fields. */}
+          <div>
+            <label className={label}>Plan Load</label>
+            <input type="date" disabled={!canUpdate} value={toInputDate(draft.plan_load_date ?? null)}
+              onChange={e => set('plan_load_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} style={{ maxWidth: '100%' }} />
+          </div>
+          <div>
+            <label className={label}>Actual Load</label>
+            <input type="date" disabled={!canUpdate} value={toInputDate(draft.actual_load_date ?? null)}
+              onChange={e => set('actual_load_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} style={{ maxWidth: '100%' }} />
           </div>
           <div>
             <label className={label}>Loaded (pcs, max {qty})</label>
@@ -190,7 +200,7 @@ export function MobileProgressForm() {
           <div>
             <label className={label}>Actual Finish Date</label>
             <input type="date" disabled={!canUpdate} value={toInputDate(draft.erection_actual_finish_date ?? null)}
-              onChange={e => set('erection_actual_finish_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} />
+              onChange={e => set('erection_actual_finish_date', e.target.value || null)} className={`${input} disabled:bg-chrome-50`} style={{ maxWidth: '100%' }} />
           </div>
         </div>
       </div>
