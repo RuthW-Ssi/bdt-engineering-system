@@ -66,8 +66,10 @@ export function MobileAssemblyList() {
         </div>
 
         {tab === '3d' && (
-          // Capped, not h-full — see MobileZoneList.tsx's identical comment.
-          <div className="p-3" style={{ height: 'min(65vh, 600px)' }}>
+          // Fill the tab's full available height, flush to the bottom tab
+          // bar — see MobileZoneList.tsx's identical comment for why an
+          // earlier capped-height version was reverted.
+          <div className="h-full p-3">
             <MobileBimCard
               projectCode={code ?? ''}
               bimMatch={zoneBimMatch}
