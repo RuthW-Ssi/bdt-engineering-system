@@ -44,6 +44,7 @@ import { MobileProjectList } from './pages/mobile/MobileProjectList'
 import { MobileZoneList } from './pages/mobile/MobileZoneList'
 import { MobileAssemblyList } from './pages/mobile/MobileAssemblyList'
 import { MobileProgressForm } from './pages/mobile/MobileProgressForm'
+import { MobileProgressHistory } from './pages/mobile/MobileProgressHistory'
 
 function Placeholder({ title }: { title: string }) {
   return (
@@ -88,6 +89,7 @@ export default function App() {
               <Route path="/m/projects/:code/zones" element={<MobileZoneList />} />
               <Route path="/m/projects/:code/zones/:zoneId" element={<MobileAssemblyList />} />
               <Route path="/m/projects/:code/zones/:zoneId/assemblies/:assemblyId" element={<MobileProgressForm />} />
+              <Route path="/m/projects/:code/history" element={<MobileProgressHistory />} />
             </Route>
           </Route>
           <Route

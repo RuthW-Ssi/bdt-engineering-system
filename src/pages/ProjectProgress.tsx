@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, Upload, History } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
-import { ProgressImportModal } from '../components/progress/ProgressImportModal'
 import { PHASE_META, PHASE_ORDER, defaultPhaseColor } from '../components/progress/statusMeta'
 import { useProject } from '../hooks/useProjects'
 import {
@@ -332,7 +331,6 @@ export function ProjectProgress() {
   // interceptor means a plain <a href> to the endpoint wouldn't carry auth,
   // so this fetches as a blob first, then triggers the browser download.
   const [exporting, setExporting] = useState(false)
-  const [importOpen, setImportOpen] = useState(false)
   const handleExport = async () => {
     if (!code) return
     setExporting(true)
@@ -418,7 +416,7 @@ export function ProjectProgress() {
           <button
             onClick={handleExport}
             disabled={exporting}
-            title="Download an Excel snapshot of current progress (edit offline, re-import to apply changes)"
+            title="Download an Excel snapshot of current progress"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 12.5, fontWeight: 600,
               color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 8,
@@ -427,18 +425,6 @@ export function ProjectProgress() {
           >
             {exporting ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
             Export
-          </button>
-          <button
-            onClick={() => setImportOpen(true)}
-            title="Upload an edited progress Excel — preview the changes before applying"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6, font: 'inherit', fontSize: 12.5, fontWeight: 600,
-              color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 8,
-              padding: '6px 12px', cursor: 'pointer',
-            }}
-          >
-            <Upload size={13} />
-            Import
           </button>
           <button
             onClick={() => navigate(`/projects/${code}/progress/history`)}
@@ -454,10 +440,6 @@ export function ProjectProgress() {
           </button>
         </div>
       </div>
-
-      {importOpen && (
-        <ProgressImportModal projectCode={code!} onClose={() => setImportOpen(false)} />
-      )}
 
       {/* ── Tab bar — same treatment as the filter bar elsewhere (BimViewer/BomList).
           overflowX:auto + nowrap so it scrolls horizontally once there are
