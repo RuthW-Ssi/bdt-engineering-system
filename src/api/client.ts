@@ -24,7 +24,8 @@ apiClient.interceptors.response.use(
       _redirecting = true
       localStorage.removeItem('bdt_token')
       localStorage.removeItem('bdt_user')
-      window.location.replace('/login')
+      const next = window.location.pathname + window.location.search
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`)
     }
     return Promise.reject(err)
   },

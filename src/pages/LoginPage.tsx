@@ -1,12 +1,18 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '../context/AuthContext'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import { MOBILE_BREAKPOINT } from '../hooks/useViewportGate'
 
 export function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  // Only honor an internal path (never an absolute/external URL) — ?next=
+  // comes from ProtectedRoute's own redirect, but it's still a URL param.
+  const next = searchParams.get('next')
+  const explicitNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -18,7 +24,12 @@ export function LoginPage() {
     try {
       const authUser = await login(loginId, password)
       toast.success(`Welcome, ${authUser.name}!`)
-      navigate('/', { replace: true })
+      // An explicit ?next= (deep link, expired session) always wins. Otherwise,
+      // a narrow viewport at the moment of login means a phone — send them
+      // into the mobile progress-entry flow instead of the desktop dashboard,
+      // which is unusable below the Sidebar's ~768px breakpoint anyway.
+      const isMobileViewport = window.innerWidth < MOBILE_BREAKPOINT
+      navigate(explicitNext ?? (isMobileViewport ? '/m/projects' : '/'), { replace: true })
     } catch (err) {
       toast.error(getErrorMessage(err, 'Login failed. Please check your username/password.'))
     } finally {

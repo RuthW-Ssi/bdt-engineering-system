@@ -1,4 +1,4 @@
-import type { ProgressStatus, ProgressShade, PhaseKey } from '../../api/projectProgress'
+import type { ProgressStatus, ProgressShade, PhaseKey, ProgressZoneRow } from '../../api/projectProgress'
 
 // Order matters — rendered left→right as the isolate button strip,
 // following the real workflow: Fabrication → Transport → Erection.
@@ -39,4 +39,22 @@ export const PHASE_META: Record<PhaseKey, { label: string; light: string; dark: 
   payment: { label: 'Material Payment', light: '#2E9E9E', dark: '#2E9E9E' },
   load: STATUS_META.load,
   erection: STATUS_META.erection,
+}
+
+// Single baseline color for a row when no pill filter is active — one
+// assembly can have several phases passed at once (Payment is parallel, not
+// sequential: a piece can be paid mid-fabrication), so this picks the
+// FURTHEST phase in pill order (F→M→T→E) that's passed, using that phase's
+// own dark/light shade. Not a "real" physical sequence (Payment has no
+// natural position in one) — this is a deliberate, simpler stand-in the
+// user chose over folding Payment out of the baseline color entirely.
+// Shared between desktop (ProjectProgress.tsx) and mobile (MobileBimCard) —
+// moved here so the two never drift on how a row's color is derived.
+export function defaultPhaseColor(r: ProgressZoneRow): string {
+  for (let i = PHASE_ORDER.length - 1; i >= 0; i--) {
+    const p = PHASE_ORDER[i]
+    const phase = r.phases[p]
+    if (phase.passed) return PHASE_META[p][phase.shade]
+  }
+  return STATUS_META.notstart.light
 }

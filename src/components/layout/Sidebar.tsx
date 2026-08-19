@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../../context/AuthContext'
 import { canViewAny } from '../../lib/moduleAccess'
 
-interface NavItem {
+export interface NavItem {
   label: string
   icon: React.ReactNode
   path: string
@@ -23,7 +23,10 @@ interface NavItem {
   disabled?: boolean
 }
 
-const SECTIONS: { title: string; items: NavItem[] }[] = [
+// Exported (with ADMIN_SECTION/visibleItems below) so MobileMenu.tsx can
+// mirror this exact same nav — single source of truth, no second list to
+// drift out of sync when a feature is added here.
+export const SECTIONS: { title: string; items: NavItem[] }[] = [
   {
     title: '',
     items: [
@@ -82,7 +85,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
   },
 ]
 
-const ADMIN_SECTION: { title: string; items: NavItem[] } = {
+export const ADMIN_SECTION: { title: string; items: NavItem[] } = {
   title: 'Admin',
   items: [
     { label: 'Users', icon: <UserCog size={18} />, path: '/admin/users' },
@@ -96,7 +99,7 @@ interface Props {
   onToggleCollapse: () => void
 }
 
-function visibleItems(items: NavItem[], user: ReturnType<typeof useAuth>['user']): NavItem[] {
+export function visibleItems(items: NavItem[], user: ReturnType<typeof useAuth>['user']): NavItem[] {
   return items
     .map(item => {
       if (!item.children?.length) return item
