@@ -268,7 +268,10 @@ export class ProjectProgressService {
   }
 
   // Same shape as getZoneRows, but every zone of the project at once — feeds
-  // the Overview tab's project-wide isolate-by-status 3D view.
+  // the Overview tab's project-wide isolate-by-status 3D view. Unlike
+  // getZoneRows (caller already knows the zone from the URL), this also
+  // carries zone_code/zone_label per row — the mobile 3D tap-to-identify
+  // feature needs it since one project-wide model spans every zone.
   async getProjectRows(projectCode: string) {
     const project = await this.findProjectOrThrow(projectCode)
     const assemblies = await this.prisma.bom_assembly.findMany({
@@ -277,10 +280,16 @@ export class ProjectProgressService {
       select: {
         id: true, assembly_mark: true, weight_kg: true, qty: true,
         progress: true,
+        dispatch: { select: { zone: { select: { id: true, code: true, label: true } } } },
       },
     })
 
-    return assemblies.map(mapAssemblyRow)
+    return assemblies.map(a => ({
+      ...mapAssemblyRow(a),
+      zone_id: a.dispatch.zone.id,
+      zone_code: a.dispatch.zone.code,
+      zone_label: a.dispatch.zone.label,
+    }))
   }
 
   async getOverview(projectCode: string) {

@@ -570,6 +570,16 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
     return () => { cancelled = true }
   }, [statusColorMap, defaultColor])
 
+  // Separate from the init effect's one-time hide (which only runs once per
+  // urn/accessToken) — this reacts to hideToolbar flipping after mount, for
+  // consumers that let the user toggle the default UI back on (MobileBimCard's
+  // tool-visibility button).
+  useEffect(() => {
+    containerRef.current?.querySelectorAll('.adsk-toolbar, .viewcubeWrapper').forEach(el => {
+      (el as HTMLElement).style.setProperty('display', hideToolbar ? 'none' : '', hideToolbar ? 'important' : '')
+    })
+  }, [hideToolbar])
+
   const setNavTool = (tool: 'orbit' | 'pan') => viewerRef.current?.setActiveNavigationTool(tool)
 
   const toggleSection = () => {
