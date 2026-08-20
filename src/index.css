@@ -69,6 +69,12 @@ html, body {
 .scroll-thin::-webkit-scrollbar-thumb { background: #E0E0E0; border-radius: 999px; }
 .scroll-thin::-webkit-scrollbar-track { background: transparent; }
 
+/* Hides the scrollbar entirely — for horizontally-scrolling single-row
+   strips (e.g. mobile's phase filter pills) where a visible scrollbar
+   would look like stray UI chrome rather than a deliberate control. */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+
 /* Simulation active node — blinking red border */
 @keyframes blink-border {
   0%, 100% { box-shadow: 0 0 0 1.5px #E57373; }
