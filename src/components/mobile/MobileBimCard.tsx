@@ -175,9 +175,17 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
 
         {showPhaseFilter && (
           <div
-            className="flex-shrink-0 mt-3 bg-white border border-chrome-100 rounded-xl flex items-center justify-center flex-wrap gap-1 px-2.5 py-2"
+            className="flex-shrink-0 mt-3 bg-white border border-chrome-100 rounded-xl px-2.5 py-2"
             style={expanded ? { marginLeft: 12, marginRight: 12, marginBottom: 'calc(env(safe-area-inset-bottom) + 12px)' } : undefined}
           >
+            {/* overflow-x-auto, not flex-wrap — 4 pills (the longest label,
+                "Material Payment", alone) don't reliably fit one row's
+                width on every phone even at this compact size, and
+                wrapping to 2 rows ate too much of the already-small 3D
+                card's height on real devices (confirmed iPhone 16). A
+                single scrollable row guarantees one row on any width
+                instead of trying to out-guess every device's viewport. */}
+            <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
             {PHASE_ORDER.map(p => {
               const meta = PHASE_META[p]
               const active = activePhase === p
@@ -201,6 +209,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
                 </button>
               )
             })}
+            </div>
           </div>
         )}
       </div>
