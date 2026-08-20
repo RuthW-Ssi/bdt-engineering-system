@@ -13,7 +13,7 @@ import {
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
 import { exportProgress } from '../api/projectProgress'
-import type { BimMatchResult, ProgressBuckets, ProgressZoneRow, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
+import type { BimMatchResult, ProgressBuckets, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
@@ -252,6 +252,13 @@ export function ProjectProgress() {
     for (const r of activeRows ?? []) for (const p of PHASE_ORDER) if (r.phases[p].passed) counts[p]++
     return counts
   }, [activeRows])
+
+  // Which rollup backs each pill's dark/light completion badge — Overview's
+  // spans the whole project, a zone tab's is scoped to that zone only, same
+  // overview/zone ternary as activeRows/activeBimMatch above. ProgressZoneRollup
+  // extends ProgressRollupTotals, so both branches satisfy the same type.
+  const activeTotals: ProgressRollupTotals | undefined =
+    tab === 'overview' ? overview?.total : overview?.zones.find(z => z.zone_id === tab)
 
   const handleUpdate = (assemblyId: number, payload: UpdateAssemblyProgressPayload) =>
     updateMutation.mutate({ assemblyId, payload })
@@ -494,8 +501,9 @@ export function ProjectProgress() {
         {/* 3D viewport + isolate strip — right, stacked vertically. Gets
             the majority of the width (grid's `1fr` track) now that the
             table is a compact collapsed-by-default list. Isolate-by-status
-            is Overview-only now (whole-project scope) — a zone tab just
-            gets the plain 3D viewport + the per-row "View" zoom button. */}
+            shows on every tab now (Overview and each zone) — activeRows/
+            activeBimMatch/activeTotals are already tab-scoped, so the same
+            strip works whole-project or single-zone with no extra branching. */}
         <div className="flex flex-col" style={{ gap: 16, minHeight: 0, minWidth: 0 }}>
           <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0 }}>
             {activeBimMatch && activeBimMatch.model_id == null ? (
@@ -525,45 +533,45 @@ export function ProjectProgress() {
               )}
             </div>
 
-            {tab === 'overview' && (
-              <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, padding: '7px 10px', flexShrink: 0 }}>
-                {/* flexWrap so a narrow container wraps to a 2nd row instead
-                    of overflow-scrolling or getting cut off — smaller
-                    font/padding than the old 5-pill strip since this now
-                    also has to fit comfortably at narrower widths. */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 4, flex: 1 }}>
-                  {PHASE_ORDER.map(p => {
-                    const meta = PHASE_META[p]
-                    const active = activePhase === p
-                    // Badge reflects the phase's AGGREGATE rollup completion
-                    // (whole active scope), not any single item — dark only
-                    // once it's 100%, light while still in progress.
-                    const pct = overview ? overview.total[PHASE_PCT_KEY[p]] : 0
-                    const badgeColor = meta[pct >= 100 ? 'dark' : 'light']
-                    return (
-                      <button
-                        key={p}
-                        onClick={() => handlePhaseIsolate(p)}
-                        aria-pressed={active}
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
-                          font: 'inherit', fontSize: 10.5, fontWeight: 600, padding: '4px 8px',
-                          borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap', outline: 'none',
-                          border: `1px solid ${active ? badgeColor : '#E0E0E0'}`,
-                          background: active ? badgeColor : 'white',
-                          color: active ? 'white' : '#1A1A1A',
-                          transition: 'border-color 0.12s, background 0.12s, color 0.12s',
-                        }}
-                      >
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? 'white' : badgeColor, flexShrink: 0 }} />
-                        {meta.label}
-                        <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 9.5, opacity: 0.75 }}>{phaseCounts[p]}</span>
-                      </button>
-                    )
-                  })}
-                </div>
+            <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, padding: '7px 10px', flexShrink: 0 }}>
+              {/* flexWrap so a narrow container wraps to a 2nd row instead
+                  of overflow-scrolling or getting cut off — smaller
+                  font/padding than the old 5-pill strip since this now
+                  also has to fit comfortably at narrower widths. */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 4, flex: 1 }}>
+                {PHASE_ORDER.map(p => {
+                  const meta = PHASE_META[p]
+                  const active = activePhase === p
+                  // Badge reflects the phase's AGGREGATE rollup completion
+                  // for the current scope (whole project on Overview, just
+                  // this zone on a zone tab — see activeTotals), not any
+                  // single item — dark only once it's 100%, light while
+                  // still in progress.
+                  const pct = activeTotals ? activeTotals[PHASE_PCT_KEY[p]] : 0
+                  const badgeColor = meta[pct >= 100 ? 'dark' : 'light']
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => handlePhaseIsolate(p)}
+                      aria-pressed={active}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+                        font: 'inherit', fontSize: 10.5, fontWeight: 600, padding: '4px 8px',
+                        borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap', outline: 'none',
+                        border: `1px solid ${active ? badgeColor : '#E0E0E0'}`,
+                        background: active ? badgeColor : 'white',
+                        color: active ? 'white' : '#1A1A1A',
+                        transition: 'border-color 0.12s, background 0.12s, color 0.12s',
+                      }}
+                    >
+                      <span style={{ width: 6, height: 6, borderRadius: '50%', background: active ? 'white' : badgeColor, flexShrink: 0 }} />
+                      {meta.label}
+                      <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 9.5, opacity: 0.75 }}>{phaseCounts[p]}</span>
+                    </button>
+                  )
+                })}
               </div>
-            )}
+            </div>
           </div>
         </div>
       </div>
