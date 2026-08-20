@@ -75,6 +75,8 @@ export function MobileAssemblyList() {
               bimMatch={zoneBimMatch}
               rows={data}
               zoneLabel={zoneDetail?.label}
+              showPhaseFilter
+              overviewTotals={zoneRollup}
               height="100%"
             />
           </div>

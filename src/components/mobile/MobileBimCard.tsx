@@ -21,11 +21,13 @@ interface Props {
   // its own route params). getProgressProjectRows DOES carry it per row,
   // since one project-wide model spans every zone.
   zoneLabel?: string
-  // Mirrors desktop's Overview-tab-only phase pill strip (isolate-by-status
-  // via a color swap, not a real 3D isolate/hide) — only meaningful at
-  // project level where a project-wide model spans every zone, same scoping
-  // desktop uses (a single-zone tab gets the plain viewer, no pills).
-  // Requires `overviewTotals` for the pills' dark/light completion badge.
+  // Mirrors desktop's phase pill strip (isolate-by-status via a color swap,
+  // not a real 3D isolate/hide) — shown on both the project-level and
+  // zone-level 3D tabs, matching desktop showing it on every tab too.
+  // `rows`/`bimMatch` are already scoped correctly by the caller (project-
+  // wide vs. one zone), so the same pill logic works at either level with
+  // no extra branching here. Requires `overviewTotals` for the pills'
+  // dark/light completion badge (project total or that zone's rollup).
   showPhaseFilter?: boolean
   overviewTotals?: ProgressRollupTotals
   // Number (px) for the old small-card usage, or a CSS size string like
