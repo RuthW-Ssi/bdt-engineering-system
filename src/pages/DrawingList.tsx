@@ -2,32 +2,47 @@ import { useState } from 'react'
 import { useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Search, Upload, Trash2, Download, FileText, Loader2 } from 'lucide-react'
-import { useProducts } from '../hooks/useProducts'
+import { useProducts, useProduct } from '../hooks/useProducts'
 import { useProductDrawings, useUploadDrawing, useDeleteDrawing } from '../hooks/useDrawings'
-import { downloadDrawing } from '../api/drawings'
+import { downloadDrawing, type Drawing } from '../api/drawings'
+import { useConfirm } from '../components/ui/ConfirmDialog'
 
 export function DrawingList() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const confirm = useConfirm()
 
-  const productId = searchParams.get('product_id') ? Number(searchParams.get('product_id')) : undefined
   // useProducts' filter param is `q` (see ProductList.tsx), not `search`.
   const { data: productsData } = useProducts({ q: search || undefined, limit: 10 })
   const products = productsData?.items ?? []
-  const selectedProduct = products.find(p => p.id === productId)
 
-  const { data: drawingsList = [], isLoading: drawingsLoading } = useProductDrawings(productId)
+  // Resolved directly via GET /products/:product_code, independent of the
+  // search box's current contents — `selectProduct` clears `search` right
+  // after picking a result, and a page reload starts with `search === ''`,
+  // so deriving the selection from the live search results would silently
+  // fail for any product not in that moment's unfiltered top-10.
+  const productCode = searchParams.get('product_code') ?? ''
+  const { data: selectedProduct } = useProduct(productCode)
+  const productId = selectedProduct?.id
+
+  const { data: drawingsList = [], isLoading: drawingsLoading, isError: drawingsError } = useProductDrawings(productId)
   const uploadDrawingMutation = useUploadDrawing(productId)
   const deleteDrawingMutation = useDeleteDrawing(productId)
 
-  const selectProduct = (id: number) => {
+  const selectProduct = (product: { product_code: string }) => {
     setSearchParams(prev => {
       const next = new URLSearchParams(prev)
-      next.set('product_id', String(id))
+      next.set('product_code', product.product_code)
       return next
     })
     setSearch('')
+  }
+
+  const handleDelete = async (dwg: Drawing) => {
+    const ok = await confirm({ title: `Delete "${dwg.file_name}"?`, message: 'This cannot be undone', variant: 'danger', confirmLabel: 'Delete' })
+    if (!ok) return
+    deleteDrawingMutation.mutate(dwg.id)
   }
 
   return (
@@ -38,7 +53,7 @@ export function DrawingList() {
         <Search size={16} style={{ position: 'absolute', left: 10, top: 10, color: '#8E8E8E' }} />
         <input
           value={selectedProduct ? `${selectedProduct.product_code} — ${selectedProduct.name}` : search}
-          onChange={e => { setSearch(e.target.value); setSearchParams(prev => { const n = new URLSearchParams(prev); n.delete('product_id'); return n }) }}
+          onChange={e => { setSearch(e.target.value); setSearchParams(prev => { const n = new URLSearchParams(prev); n.delete('product_code'); return n }) }}
           placeholder="Search product by code or name..."
           style={{ width: '100%', padding: '8px 12px 8px 32px', borderRadius: 6, border: '1px solid #E0E0E0', fontSize: 13 }}
         />
@@ -47,7 +62,7 @@ export function DrawingList() {
             {products.map(p => (
               <button
                 key={p.id}
-                onClick={() => selectProduct(p.id)}
+                onClick={() => selectProduct(p)}
                 style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer' }}
               >
                 <span className="font-mono" style={{ fontWeight: 600 }}>{p.product_code}</span> — {p.name}
@@ -96,13 +111,18 @@ export function DrawingList() {
               <Loader2 size={20} className="animate-spin" />Loading...
             </div>
           )}
-          {!drawingsLoading && drawingsList.length === 0 && (
+          {drawingsError && !drawingsLoading && (
+            <div className="flex flex-col items-center justify-center gap-2" style={{ padding: 64, color: '#C8202A', fontSize: 13 }}>
+              Failed to load drawings — please try again
+            </div>
+          )}
+          {!drawingsLoading && !drawingsError && drawingsList.length === 0 && (
             <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
               <FileText size={32} style={{ opacity: 0.3 }} />
               <div style={{ fontSize: 13 }}>No drawings uploaded for {selectedProduct.product_code} yet</div>
             </div>
           )}
-          {!drawingsLoading && drawingsList.length > 0 && (
+          {!drawingsLoading && !drawingsError && drawingsList.length > 0 && (
             <div className="bg-white rounded-lg border border-chrome-100" style={{ overflow: 'hidden' }}>
               {drawingsList.map(dwg => (
                 <div
@@ -121,7 +141,7 @@ export function DrawingList() {
                     <Download size={15} />
                   </button>
                   <button
-                    onClick={() => deleteDrawingMutation.mutate(dwg.id)}
+                    onClick={() => handleDelete(dwg)}
                     disabled={deleteDrawingMutation.isPending}
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center' }}
                   >
