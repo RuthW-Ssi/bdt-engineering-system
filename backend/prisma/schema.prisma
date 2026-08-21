@@ -40,10 +40,7 @@ model res_users {
   // Sprint 3: BOM + Drawing audit
   boms_created      product_bom[]      @relation("bom_create")
   boms_written      product_bom[]      @relation("bom_write")
-  drawings_created  shop_drawing[]     @relation("drawing_create")
-  drawings_written  shop_drawing[]     @relation("drawing_write")
-  revisions_created drawing_revision[] @relation("revision_create")
-  drawing_approvals drawing_revision[] @relation("DrawingApprover")
+  drawings          drawing[]
 
   // Sprint 4: Routing audit
   workcenters_created mrp_workcenter[]         @relation("wc_create")
@@ -312,7 +309,6 @@ model project {
   zones         project_zone[]
   products      products[]
   boms          product_bom[]         @relation("ProjectBom")
-  drawings      shop_drawing[]        @relation("ProjectDrawings")
   dispatches    bom_dispatch[]        @relation("ProjectDispatches")
   bim_models    bim_model[]           @relation("ProjectBimModels")
   progress_change_batches progress_change_batch[]
@@ -396,8 +392,6 @@ model products {
   // standard_cost_total = computed via DB GENERATED column (in raw SQL migration)
 
   // Standard-only fields
-  master_drawing_id  Int?
-  master_drawing     shop_drawing? @relation("MasterDrawingProduct", fields: [master_drawing_id], references: [id])
   variant_attributes Json?
   derivation_flags   Json          @default("[]")
   confidence         String        @default("high") @db.VarChar(10)
@@ -413,8 +407,6 @@ model products {
   mark_prefix        String?             @db.VarChar(10)
   mark               mark_prefix_master? @relation(fields: [mark_prefix], references: [code])
   mark_number        String?             @db.VarChar(20)
-  shop_drawing_id    Int?
-  shop_drawing_ref   shop_drawing?       @relation("ShopDrawingProduct", fields: [shop_drawing_id], references: [id])
   revision           String?             @db.VarChar(10)
   engineer_hours_est Decimal?            @db.Decimal(8, 2)
   engineer_hours_act Decimal?            @db.Decimal(8, 2)
@@ -457,7 +449,7 @@ model products {
 
   boms                  product_bom[]      @relation("ProductBom")
   sub_product_bom_lines product_bom_line[] @relation("SubProductInBom")
-  drawings              shop_drawing[]     @relation("ProductDrawings")
+  drawings              drawing[]
   bom_assemblies        bom_assembly[]
   bom_parts             bom_part[]
 
@@ -532,56 +524,17 @@ model product_bom_line {
   operation           mrp_routing_workcenter? @relation("BomLineOp", fields: [operation_id], references: [id])
 }
 
-// ── 🟥 Shop Drawing (steel-domain — not in Odoo) ─────────────────
-model shop_drawing {
-  id                      Int            @id @default(autoincrement())
-  drawing_number          String         @unique @db.VarChar(40)
-  drawing_type            String         @db.VarChar(10)
-  product_id              Int
-  product                 products       @relation("ProductDrawings", fields: [product_id], references: [id])
-  project_id              Int?
-  project                 project?       @relation("ProjectDrawings", fields: [project_id], references: [id])
-  current_revision        String?        @db.VarChar(5)
-  state                   String         @default("draft") @db.VarChar(20)
-  cad_source              String         @default("other") @db.VarChar(20)
-  generalized_from_id     Int?
-  generalized_from        shop_drawing?  @relation("DrawingLineage", fields: [generalized_from_id], references: [id])
-  generalized_descendants shop_drawing[] @relation("DrawingLineage")
-  retention_until         DateTime?      @db.Date
-  odoo_ref_id             String?        @db.VarChar(40)
-  create_uid              Int
-  create_user             res_users      @relation("drawing_create", fields: [create_uid], references: [id])
-  create_date             DateTime       @default(now()) @db.Timestamptz
-  write_uid               Int
-  write_user              res_users      @relation("drawing_write", fields: [write_uid], references: [id])
-  write_date              DateTime       @default(now()) @db.Timestamptz
-
-  revisions       drawing_revision[]
-  master_products products[]         @relation("MasterDrawingProduct")
-  shop_products   products[]         @relation("ShopDrawingProduct")
-}
-
-// ── 🟥 Drawing Revision (A→B→C→IFC→AB lifecycle) ────────────────
-model drawing_revision {
-  id                   Int          @id @default(autoincrement())
-  drawing_id           Int
-  drawing              shop_drawing @relation(fields: [drawing_id], references: [id], onDelete: Cascade)
-  revision             String       @db.VarChar(5)
-  sequence             Int
-  change_summary       String?      @db.Text
-  file_url             String       @db.VarChar(500)
-  file_size_bytes      BigInt?
-  file_mime_type       String?      @db.VarChar(100)
-  file_checksum_sha256 String?      @db.VarChar(64)
-  approved_uid         Int?
-  approver             res_users?   @relation("DrawingApprover", fields: [approved_uid], references: [id])
-  approved_date        DateTime?    @db.Timestamptz
-  is_current           Boolean      @default(false)
-  create_uid           Int
-  create_user          res_users    @relation("revision_create", fields: [create_uid], references: [id])
-  create_date          DateTime     @default(now()) @db.Timestamptz
-
-  @@unique([drawing_id, revision])
+// ── 🟥 Drawing (rebuilt 2026-08-21 — replaces shop_drawing/drawing_revision) ──
+model drawing {
+  id             Int       @id @default(autoincrement())
+  product_id     Int
+  product        products  @relation(fields: [product_id], references: [id])
+  file_key       String    @db.VarChar(500)
+  file_name      String    @db.VarChar(255)
+  mime_type      String?   @db.VarChar(100)
+  uploaded_by_id Int
+  uploaded_by    res_users @relation(fields: [uploaded_by_id], references: [id])
+  create_date    DateTime  @default(now()) @db.Timestamptz
 }
 
 // ═══════════════════════════════════════════════════════════════
