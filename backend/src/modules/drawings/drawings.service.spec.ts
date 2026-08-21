@@ -1,5 +1,8 @@
 import { NotFoundException } from '@nestjs/common'
+import { plainToInstance } from 'class-transformer'
+import { validate } from 'class-validator'
 import { DrawingsService } from './drawings.service'
+import { CreateDrawingDto } from './dto/create-drawing.dto'
 
 function makePrisma(drawings: { id: number; file_key: string }[]) {
   return {
@@ -62,5 +65,27 @@ describe('DrawingsService', () => {
         },
       })
     })
+  })
+})
+
+describe('CreateDrawingDto validation (file_key path traversal guard)', () => {
+  const base = { product_id: 42, file_name: 'x.pdf', mime_type: 'application/pdf' }
+
+  it('rejects a file_key that escapes the drawings/ prefix via traversal', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: '../../../etc/passwd' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_key')).toBe(true)
+  })
+
+  it('rejects a file_key with traversal segments after the drawings/ prefix', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/../../../etc/passwd' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_key')).toBe(true)
+  })
+
+  it('accepts a legitimate drawings/<name> file_key', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/abc-plan.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_key')).toBe(false)
   })
 })
