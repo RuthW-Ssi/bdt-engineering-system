@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, RefreshCw, Layers, ExternalLink, Pencil, Upload, Trash2, Download, FileText } from 'lucide-react'
 import { useProduct, useProductAction, useProductMessages, useUpdateProductSpec } from '../hooks/useProducts'
 import type { PaintSpecPreset, WeldingSpecPreset } from '../api/types'
 import { useMaterialsByPrefix } from '../hooks/useMasters'
@@ -10,6 +10,8 @@ import { usePermission } from '../hooks/usePermission'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import type { ProductState } from '../api/types'
+import { useProductDrawings, useUploadDrawing, useDeleteDrawing } from '../hooks/useDrawings'
+import { drawingDownloadUrl } from '../api/drawings'
 
 const TABS = ['Overview', 'Drawings', 'Routing', 'Cost', 'Audit Log']
 
@@ -57,6 +59,10 @@ export function ProductDetail() {
   const [specSaveError, setSpecSaveError] = useState('')
 
   const { data: product, isLoading, isError } = useProduct(code ?? '')
+  const { data: drawingsList = [], isLoading: drawingsLoading } = useProductDrawings(product?.id)
+  const uploadDrawingMutation = useUploadDrawing(product?.id)
+  const deleteDrawingMutation = useDeleteDrawing(product?.id)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { mutateAsync: doAction, isPending: actioning } = useProductAction(code ?? '')
   const { data: messages = [] } = useProductMessages(code ?? '')
   const { mutateAsync: saveSpec, isPending: savingSpec } = useUpdateProductSpec(code ?? '')
@@ -415,7 +421,93 @@ export function ProductDetail() {
 
         {activeTab === 'Drawings' && (
           <div style={{ maxWidth: 860 }}>
-            {/* TODO(Task 4): real upload + list UI */}
+            <div className="flex items-center justify-between" style={{ marginBottom: 16 }}>
+              <span style={{ fontSize: 13, color: '#8E8E8E' }}>{drawingsList.length} drawing{drawingsList.length === 1 ? '' : 's'}</span>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadDrawingMutation.isPending}
+                className="flex items-center gap-1.5"
+                style={{
+                  background: '#0C447C', color: 'white', border: 'none', borderRadius: 6,
+                  padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer', opacity: uploadDrawingMutation.isPending ? 0.6 : 1,
+                }}
+              >
+                <Upload size={15} />{uploadDrawingMutation.isPending ? 'Uploading...' : 'Upload Drawing'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                style={{ display: 'none' }}
+                onChange={e => {
+                  const file = e.target.files?.[0]
+                  if (file) uploadDrawingMutation.mutate(file)
+                  e.target.value = ''
+                }}
+              />
+            </div>
+
+            {drawingsLoading && (
+              <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E' }}>
+                <Loader2 size={20} className="animate-spin" />Loading...
+              </div>
+            )}
+            {!drawingsLoading && drawingsList.length === 0 && (
+              <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
+                <FileText size={32} style={{ opacity: 0.3 }} />
+                <div style={{ fontSize: 13 }}>No drawings uploaded for {code} yet</div>
+              </div>
+            )}
+            {!drawingsLoading && drawingsList.length > 0 && (
+              <div className="bg-white rounded-lg border border-chrome-100" style={{ overflow: 'hidden' }}>
+                {drawingsList.map(dwg => (
+                  <div
+                    key={dwg.id}
+                    className="flex items-center gap-3 border-b border-chrome-100"
+                    style={{ padding: '12px 16px' }}
+                  >
+                    <FileText size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, color: '#1F1F1F', flex: 1 }}>{dwg.file_name}</span>
+                    <span style={{ fontSize: 11, color: '#8E8E8E' }}>{dwg.mime_type ?? 'unknown type'}</span>
+                    <span style={{ fontSize: 11, color: '#8E8E8E' }}>{new Date(dwg.create_date).toLocaleDateString()}</span>
+                    <button
+                      onClick={async () => {
+                        // apiClient's Bearer-token interceptor is the only auth path in
+                        // this app (see ProjectProgress.tsx's handleExport), so a plain
+                        // <a href> to this JWT-guarded endpoint can't carry the token and
+                        // 401s. Fetch authenticated instead, then trigger the browser
+                        // download via a blob URL + synthetic <a download> click.
+                        try {
+                          const token = localStorage.getItem('bdt_token')
+                          const res = await fetch(drawingDownloadUrl(dwg.file_key), {
+                            headers: token ? { Authorization: `Bearer ${token}` } : {},
+                          })
+                          if (!res.ok) throw new Error('Download failed')
+                          const blob = await res.blob()
+                          const url = URL.createObjectURL(blob)
+                          const a = document.createElement('a')
+                          a.href = url
+                          a.download = dwg.file_name
+                          a.click()
+                          URL.revokeObjectURL(url)
+                        } catch {
+                          toast.error('Failed to download drawing')
+                        }
+                      }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', display: 'flex', alignItems: 'center' }}
+                    >
+                      <Download size={15} />
+                    </button>
+                    <button
+                      onClick={() => deleteDrawingMutation.mutate(dwg.id)}
+                      disabled={deleteDrawingMutation.isPending}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center' }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
