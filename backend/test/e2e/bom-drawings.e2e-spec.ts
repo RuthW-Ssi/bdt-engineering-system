@@ -1,13 +1,16 @@
 /**
- * E2E: BOM + Drawings Sprint 3
+ * E2E: BOM Sprint 3
  * Requires live Postgres (docker compose up) with seed data.
+ * (Drawing scenarios removed 2026-08-21 — the Sprint 3 Shop Drawing module
+ * they covered was deleted; see wiki/features/drawing.md for its replacement.
+ * File kept at its original path/name to avoid an unrelated CI/test-glob change.)
  */
 import { Test, TestingModule } from '@nestjs/testing'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import * as request from 'supertest'
 import { AppModule } from '../../src/app.module'
 
-describe('BOM + Drawings E2E', () => {
+describe('BOM E2E', () => {
   let app: INestApplication
 
   // IDs created during tests — shared between its in the same describe block
