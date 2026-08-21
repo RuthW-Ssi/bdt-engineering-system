@@ -14,7 +14,6 @@ import { ProjectZonesModule } from './modules/project-zones/project-zones.module
 import { ProductsModule } from './modules/products/products.module'
 // Sprint 3
 import { BomsModule } from './modules/boms/boms.module'
-import { DrawingsModule } from './modules/drawings/drawings.module'
 import { FileStorageModule } from './modules/file-storage/file-storage.module'
 // Sprint 4
 import { RoutingsModule } from './modules/routings/routings.module'
@@ -58,7 +57,6 @@ import { UsersModule } from './modules/users/users.module'
     ProductsModule,
     // Sprint 3
     BomsModule,
-    DrawingsModule,
     FileStorageModule,
     // Sprint 4
     RoutingsModule,
