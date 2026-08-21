@@ -66,25 +66,23 @@ export function DrawingList() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {selectedProduct && (
-            <button
-              onClick={() => refetch()}
-              className="flex items-center justify-center rounded hover:bg-chrome-50"
-              style={{ width: 32, height: 32, color: '#8E8E8E' }}
-            >
-              <RefreshCw size={14} />
-            </button>
-          )}
-          {selectedProduct && (
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploadDrawingMutation.isPending}
-              className="flex items-center gap-1.5 rounded-md text-white"
-              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#0C447C', opacity: uploadDrawingMutation.isPending ? 0.6 : 1 }}
-            >
-              <Upload size={14} />{uploadDrawingMutation.isPending ? 'Uploading...' : 'Upload Drawing'}
-            </button>
-          )}
+          <button
+            onClick={() => refetch()}
+            disabled={!selectedProduct}
+            className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ width: 32, height: 32, color: '#8E8E8E' }}
+          >
+            <RefreshCw size={14} />
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!selectedProduct || uploadDrawingMutation.isPending}
+            title={!selectedProduct ? 'Search for a product above first' : undefined}
+            className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}
+          >
+            <Upload size={14} />{uploadDrawingMutation.isPending ? 'Uploading...' : 'Upload Drawing'}
+          </button>
           <input
             ref={fileInputRef}
             type="file"
