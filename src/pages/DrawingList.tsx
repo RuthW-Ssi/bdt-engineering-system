@@ -1,15 +1,16 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Search, Upload, Trash2, Download, FileText, Loader2, RefreshCw } from 'lucide-react'
 import { useProducts, useProduct } from '../hooks/useProducts'
 import { useProductDrawings, useUploadDrawing, useDeleteDrawing } from '../hooks/useDrawings'
 import { downloadDrawing, type Drawing } from '../api/drawings'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { DrawingUploadModal } from '../components/drawings/DrawingUploadModal'
 
 export function DrawingList() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = useState('')
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showUploadModal, setShowUploadModal] = useState(false)
   const confirm = useConfirm()
 
   // useProducts' filter param is `q` (see ProductList.tsx), not `search`.
@@ -75,24 +76,14 @@ export function DrawingList() {
             <RefreshCw size={14} />
           </button>
           <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!selectedProduct || uploadDrawingMutation.isPending}
+            onClick={() => setShowUploadModal(true)}
+            disabled={!selectedProduct}
             title={!selectedProduct ? 'Search for a product above first' : undefined}
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}
           >
-            <Upload size={14} />{uploadDrawingMutation.isPending ? 'Uploading...' : 'Upload Drawing'}
+            <Upload size={14} />Upload Drawing
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            style={{ display: 'none' }}
-            onChange={e => {
-              const file = e.target.files?.[0]
-              if (file) uploadDrawingMutation.mutate(file)
-              e.target.value = ''
-            }}
-          />
         </div>
       </div>
 
@@ -185,6 +176,15 @@ export function DrawingList() {
           </div>
         )}
       </div>
+
+      {showUploadModal && selectedProduct && (
+        <DrawingUploadModal
+          productLabel={`${selectedProduct.product_code} — ${selectedProduct.name}`}
+          isUploading={uploadDrawingMutation.isPending}
+          onFileConfirmed={file => uploadDrawingMutation.mutate(file, { onSuccess: () => setShowUploadModal(false) })}
+          onClose={() => setShowUploadModal(false)}
+        />
+      )}
     </div>
   )
 }
