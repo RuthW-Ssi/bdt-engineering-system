@@ -15,6 +15,7 @@ import { ProductsModule } from './modules/products/products.module'
 // Sprint 3
 import { BomsModule } from './modules/boms/boms.module'
 import { FileStorageModule } from './modules/file-storage/file-storage.module'
+import { DrawingsModule } from './modules/drawings/drawings.module'
 // Sprint 4
 import { RoutingsModule } from './modules/routings/routings.module'
 // Sprint 6
@@ -58,6 +59,7 @@ import { UsersModule } from './modules/users/users.module'
     // Sprint 3
     BomsModule,
     FileStorageModule,
+    DrawingsModule,
     // Sprint 4
     RoutingsModule,
     // Sprint 6
