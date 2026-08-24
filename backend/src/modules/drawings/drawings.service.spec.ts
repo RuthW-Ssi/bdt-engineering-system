@@ -53,12 +53,13 @@ describe('DrawingsService', () => {
       const prisma = makePrisma([])
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
-      await svc.create({ product_id: 42, file_key: 'drawings/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf' }, 7)
+      await svc.create({ project_id: 42, version: 1, file_key: 'drawings/0X220/v1/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf' }, 7)
 
       expect(prisma.drawing.create).toHaveBeenCalledWith({
         data: {
-          product_id: 42,
-          file_key: 'drawings/x.pdf',
+          project_id: 42,
+          version: 1,
+          file_key: 'drawings/0X220/v1/x.pdf',
           file_name: 'x.pdf',
           mime_type: 'application/pdf',
           uploaded_by_id: 7,
@@ -66,10 +67,34 @@ describe('DrawingsService', () => {
       })
     })
   })
+
+  describe('getLatestVersion', () => {
+    it('returns null when the project has no drawings yet', async () => {
+      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue(null) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.getLatestVersion(42)
+
+      expect(result).toEqual({ version: null })
+      expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: { project_id: 42 },
+        orderBy: { version: 'desc' },
+      }))
+    })
+
+    it('returns the highest version already used for that project', async () => {
+      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 3 }) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.getLatestVersion(42)
+
+      expect(result).toEqual({ version: 3 })
+    })
+  })
 })
 
-describe('CreateDrawingDto validation (file_key path traversal guard)', () => {
-  const base = { product_id: 42, file_name: 'x.pdf', mime_type: 'application/pdf' }
+describe('CreateDrawingDto validation (file_key path traversal + shape guard)', () => {
+  const base = { project_id: 42, version: 1, file_name: 'x.pdf', mime_type: 'application/pdf' }
 
   it('rejects a file_key that escapes the drawings/ prefix via traversal', async () => {
     const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: '../../../etc/passwd' })
@@ -78,13 +103,19 @@ describe('CreateDrawingDto validation (file_key path traversal guard)', () => {
   })
 
   it('rejects a file_key with traversal segments after the drawings/ prefix', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/../../../etc/passwd' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/v1/../../../etc/passwd' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_key')).toBe(true)
   })
 
-  it('accepts a legitimate drawings/<name> file_key', async () => {
+  it('rejects the old flat drawings/<name> shape — project_code/version segments are now required', async () => {
     const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/abc-plan.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_key')).toBe(true)
+  })
+
+  it('accepts a legitimate drawings/<project_code>/v<n>/<name> file_key', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/v1/abc-plan.pdf' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_key')).toBe(false)
   })

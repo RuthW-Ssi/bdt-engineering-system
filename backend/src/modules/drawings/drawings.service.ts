@@ -13,7 +13,8 @@ export class DrawingsService {
   create(dto: CreateDrawingDto, uploadedById: number) {
     return this.prisma.drawing.create({
       data: {
-        product_id: dto.product_id,
+        project_id: dto.project_id,
+        version: dto.version,
         file_key: dto.file_key,
         file_name: dto.file_name,
         mime_type: dto.mime_type,
@@ -22,11 +23,23 @@ export class DrawingsService {
     })
   }
 
-  findByProduct(productId: number) {
+  findByProject(projectId: number) {
     return this.prisma.drawing.findMany({
-      where: { product_id: productId },
+      where: { project_id: projectId },
       orderBy: { create_date: 'desc' },
     })
+  }
+
+  // Sparse versioning (see schema comment on drawing.version) — this is just
+  // "what's the highest version tag used so far for this project", not a
+  // count of anything. Mirrors bim.service.ts's getLatestVersion() shape.
+  async getLatestVersion(projectId: number) {
+    const latest = await this.prisma.drawing.findFirst({
+      where: { project_id: projectId },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    })
+    return { version: latest?.version ?? null }
   }
 
   async remove(id: number) {

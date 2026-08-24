@@ -1,49 +1,55 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Search, Upload, Trash2, Download, FileText, Loader2, RefreshCw } from 'lucide-react'
-import { useProducts, useProduct } from '../hooks/useProducts'
-import { useProductDrawings, useUploadDrawing, useDeleteDrawing } from '../hooks/useDrawings'
+import { Upload, Trash2, Download, FileText, Loader2, RefreshCw } from 'lucide-react'
+import { useProjectSelection } from '../hooks/useProjectSelection'
+import { useProjectDrawings, useUploadDrawings, useDeleteDrawing } from '../hooks/useDrawings'
 import { downloadDrawing, type Drawing } from '../api/drawings'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { DrawingUploadModal } from '../components/drawings/DrawingUploadModal'
+import { DrawingPreviewPanel } from '../components/drawings/DrawingPreviewPanel'
+
+const filterSelectStyle = { height: 32, padding: '0 8px', fontSize: 13, borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }
 
 export function DrawingList() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [search, setSearch] = useState('')
+  const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const confirm = useConfirm()
 
-  // useProducts' filter param is `q` (see ProductList.tsx), not `search`.
-  const { data: productsData } = useProducts({ q: search || undefined, limit: 10 })
-  const products = productsData?.items ?? []
+  const projectId = activeProject?.id
 
-  // Resolved directly via GET /products/:product_code, independent of the
-  // search box's current contents — `selectProduct` clears `search` right
-  // after picking a result, and a page reload starts with `search === ''`,
-  // so deriving the selection from the live search results would silently
-  // fail for any product not in that moment's unfiltered top-10.
-  const productCode = searchParams.get('product_code') ?? ''
-  const { data: selectedProduct } = useProduct(productCode)
-  const productId = selectedProduct?.id
+  const { data: drawingsList = [], isLoading: drawingsLoading, isError: drawingsError, refetch } = useProjectDrawings(projectId)
+  const uploadDrawingsMutation = useUploadDrawings(projectId, activeProject?.project_code)
+  const deleteDrawingMutation = useDeleteDrawing(projectId)
 
-  const { data: drawingsList = [], isLoading: drawingsLoading, isError: drawingsError, refetch } = useProductDrawings(productId)
-  const uploadDrawingMutation = useUploadDrawing(productId)
-  const deleteDrawingMutation = useDeleteDrawing(productId)
+  // Versioning is sparse — each version is "what was added in that upload
+  // action", not a full snapshot (see wiki: features/file-storage-gcs-backup-plan.md).
+  // So this is a changelog filter over the already-fetched list, not a
+  // separate fetch per version, and not a BIM-style current-snapshot switcher.
+  //
+  // `selectedVersion` is derived, not stored directly — a manually-picked
+  // version can stop existing mid-session (its last file gets deleted while
+  // it's the one being viewed), and a plain useEffect keyed on `latestVersion`
+  // wouldn't re-fire in that case (latestVersion itself doesn't change), which
+  // left the filter pinned to a now-empty version showing a blank list despite
+  // a nonzero drawing count. Recomputing this way self-corrects every render
+  // instead of needing to catch every case that should invalidate the pick.
+  const versions = [...new Set(drawingsList.map(d => d.version))].sort((a, b) => b - a)
+  const latestVersion = versions[0] ?? null
+  const [manualVersion, setManualVersion] = useState<number | null>(null)
+  useEffect(() => {
+    setManualVersion(null) // project switched — any manual pick was scoped to the old one
+  }, [projectId])
+  const selectedVersion = manualVersion != null && versions.includes(manualVersion) ? manualVersion : latestVersion
+  const visibleDrawings = selectedVersion == null ? drawingsList : drawingsList.filter(d => d.version === selectedVersion)
 
-  const selectProduct = (product: { product_code: string }) => {
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev)
-      next.set('product_code', product.product_code)
-      return next
-    })
-    setSearch('')
-  }
-
-  const clearProduct = () => setSearchParams(prev => {
-    const next = new URLSearchParams(prev)
-    next.delete('product_code')
-    return next
-  })
+  // Same derived-value approach as `selectedVersion` above, same reason —
+  // a plain effect-set selection can go stale (e.g. the previewed file gets
+  // deleted, or the version filter changes and it's no longer in view)
+  // without a clean single event to reset it on. Falls back to the first
+  // visible row automatically whenever the manual pick isn't valid anymore.
+  const [manualDrawingId, setManualDrawingId] = useState<number | null>(null)
+  const selectedDrawing = visibleDrawings.find(d => d.id === manualDrawingId) ?? visibleDrawings[0] ?? null
 
   const handleDelete = async (dwg: Drawing) => {
     const ok = await confirm({ title: `Delete "${dwg.file_name}"?`, message: 'This cannot be undone', variant: 'danger', confirmLabel: 'Delete' })
@@ -57,7 +63,7 @@ export function DrawingList() {
       <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Drawings</span>
-          {selectedProduct && (
+          {activeProject && (
             <>
               <span style={{ color: '#C2C2C2' }}>·</span>
               <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
@@ -69,7 +75,7 @@ export function DrawingList() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => refetch()}
-            disabled={!selectedProduct}
+            disabled={!activeProject}
             className="flex items-center justify-center rounded hover:bg-chrome-50 disabled:opacity-30 disabled:cursor-not-allowed"
             style={{ width: 32, height: 32, color: '#8E8E8E' }}
           >
@@ -77,111 +83,126 @@ export function DrawingList() {
           </button>
           <button
             onClick={() => setShowUploadModal(true)}
-            disabled={!selectedProduct}
-            title={!selectedProduct ? 'Search for a product above first' : undefined}
+            disabled={!activeProject}
+            title={!activeProject ? 'Select a project above first' : undefined}
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#0C447C' }}
+            style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: drawingsList.length === 0 ? '#C8202A' : '#0C447C' }}
           >
-            <Upload size={14} />Upload Drawing
+            <Upload size={14} />{drawingsList.length === 0 ? 'Upload Drawing' : 'Update'}
           </button>
         </div>
       </div>
 
-      {/* ── Filter bar — product picker ──────────────────────────── */}
+      {/* ── Filter bar — project picker (mirrors BimViewer.tsx) ──── */}
       <div className="flex items-center gap-2 px-6 border-b border-chrome-100" style={{ height: 44, background: '#F5F5F5', flexShrink: 0 }}>
-        <div className="relative">
-          <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
-          <input
-            className="border border-chrome-200 rounded-md bg-white focus:outline-none focus:border-steel-600"
-            style={{ height: 32, padding: '0 10px 0 32px', fontSize: 13, width: 280 }}
-            placeholder="Search product by code or name..."
-            value={selectedProduct ? `${selectedProduct.product_code} — ${selectedProduct.name}` : search}
-            onChange={e => { setSearch(e.target.value); clearProduct() }}
-          />
-          {search && !selectedProduct && products.length > 0 && (
-            <div className="border border-chrome-100" style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'white', borderRadius: 6, marginTop: 4, zIndex: 10, maxHeight: 240, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-              {products.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => selectProduct(p)}
-                  className="hover:bg-chrome-50"
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 12px', fontSize: 13, background: 'none', border: 'none', cursor: 'pointer' }}
-                >
-                  <span className="font-mono" style={{ fontWeight: 600, color: '#0C447C' }}>{p.product_code}</span>{' '}
-                  <span style={{ color: '#8E8E8E' }}>—</span> {p.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {selectedProduct && (
-          <button onClick={clearProduct} className="text-steel-600 hover:underline" style={{ fontSize: 12 }}>
-            Change product
-          </button>
+        <select
+          value={activeProject?.id ?? ''}
+          onChange={e => {
+            const project = projects.find(p => p.id === Number(e.target.value))
+            if (project) selectProject(project)
+          }}
+          style={{ ...filterSelectStyle, minWidth: 220 }}
+        >
+          {projects.length === 0
+            ? <option value="" disabled>No projects found</option>
+            : projects.map(p => <option key={p.id} value={p.id}>{p.project_code} — {p.name}</option>)}
+        </select>
+        {versions.length > 0 && (
+          <select
+            value={selectedVersion ?? ''}
+            onChange={e => setManualVersion(e.target.value ? Number(e.target.value) : null)}
+            style={{ ...filterSelectStyle, minWidth: 160 }}
+          >
+            {versions.map(v => {
+              const count = drawingsList.filter(d => d.version === v).length
+              return <option key={v} value={v}>v{v} ({count} file{count === 1 ? '' : 's'})</option>
+            })}
+          </select>
         )}
       </div>
 
       {/* ── Body ──────────────────────────────────────────────── */}
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 24 }}>
-        {!selectedProduct && (
+        {!activeProject && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
             <FileText size={32} style={{ opacity: 0.3 }} />
-            <div style={{ fontSize: 13 }}>Search for a product above to view or upload its drawings</div>
+            <div style={{ fontSize: 13 }}>Select a project above to view or upload its drawings</div>
           </div>
         )}
 
-        {selectedProduct && drawingsLoading && (
+        {activeProject && drawingsLoading && (
           <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E' }}>
             <Loader2 size={20} className="animate-spin" />Loading...
           </div>
         )}
-        {selectedProduct && drawingsError && !drawingsLoading && (
+        {activeProject && drawingsError && !drawingsLoading && (
           <div className="flex flex-col items-center justify-center gap-2" style={{ padding: 64, color: '#C8202A', fontSize: 13 }}>
             Failed to load drawings — please try again
           </div>
         )}
-        {selectedProduct && !drawingsLoading && !drawingsError && drawingsList.length === 0 && (
+        {activeProject && !drawingsLoading && !drawingsError && drawingsList.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
             <FileText size={32} style={{ opacity: 0.3 }} />
-            <div style={{ fontSize: 13 }}>No drawings uploaded for {selectedProduct.product_code} yet</div>
+            <div style={{ fontSize: 13 }}>No drawings uploaded for {activeProject.project_code} yet</div>
+            <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', marginTop: 4 }}
+            >
+              <Upload size={14} />Upload Drawing
+            </button>
           </div>
         )}
-        {selectedProduct && !drawingsLoading && !drawingsError && drawingsList.length > 0 && (
-          <div className="bg-white rounded-lg border border-chrome-100" style={{ overflow: 'hidden', maxWidth: 860 }}>
-            {drawingsList.map(dwg => (
-              <div
-                key={dwg.id}
-                className="flex items-center gap-3 border-b border-chrome-100 hover:bg-chrome-50"
-                style={{ padding: '12px 16px' }}
-              >
-                <FileText size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: '#1F1F1F', flex: 1 }}>{dwg.file_name}</span>
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>{dwg.mime_type ?? 'unknown type'}</span>
-                <span style={{ fontSize: 11, color: '#8E8E8E' }}>{new Date(dwg.create_date).toLocaleDateString()}</span>
-                <button
-                  onClick={() => downloadDrawing(dwg.file_key, dwg.file_name)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', display: 'flex', alignItems: 'center' }}
+        {activeProject && !drawingsLoading && !drawingsError && drawingsList.length > 0 && (
+          <div className="flex gap-4" style={{ height: '100%', minHeight: 0 }}>
+            <div
+              className="bg-white rounded-lg border border-chrome-100"
+              style={{ width: 380, flexShrink: 0, overflowY: 'auto' }}
+            >
+              {visibleDrawings.map(dwg => (
+                <div
+                  key={dwg.id}
+                  onClick={() => setManualDrawingId(dwg.id)}
+                  className="flex items-center gap-2 border-b border-chrome-100 hover:bg-chrome-50"
+                  style={{
+                    padding: '10px 12px', cursor: 'pointer',
+                    background: selectedDrawing?.id === dwg.id ? '#F5F8FC' : undefined,
+                    borderLeft: selectedDrawing?.id === dwg.id ? '3px solid #0C447C' : '3px solid transparent',
+                  }}
                 >
-                  <Download size={15} />
-                </button>
-                <button
-                  onClick={() => handleDelete(dwg)}
-                  disabled={deleteDrawingMutation.isPending}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center' }}
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))}
+                  <FileText size={15} style={{ color: '#8E8E8E', flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dwg.file_name}</div>
+                    <div style={{ fontSize: 11, color: '#8E8E8E' }}>{new Date(dwg.create_date).toLocaleDateString()}</div>
+                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); downloadDrawing(dwg.file_key, dwg.file_name) }}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                  >
+                    <Download size={14} />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDelete(dwg) }}
+                    disabled={deleteDrawingMutation.isPending}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="bg-white rounded-lg border border-chrome-100" style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <DrawingPreviewPanel drawing={selectedDrawing} />
+            </div>
           </div>
         )}
       </div>
 
-      {showUploadModal && selectedProduct && (
+      {showUploadModal && activeProject && (
         <DrawingUploadModal
-          productLabel={`${selectedProduct.product_code} — ${selectedProduct.name}`}
-          isUploading={uploadDrawingMutation.isPending}
-          onFileConfirmed={file => uploadDrawingMutation.mutate(file, { onSuccess: () => setShowUploadModal(false) })}
+          projectLabel={`${activeProject.project_code} — ${activeProject.name}`}
+          isUploading={uploadDrawingsMutation.isPending}
+          onFilesConfirmed={files => uploadDrawingsMutation.mutate(files, { onSuccess: () => setShowUploadModal(false) })}
           onClose={() => setShowUploadModal(false)}
         />
       )}

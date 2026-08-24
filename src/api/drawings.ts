@@ -1,8 +1,10 @@
 import { apiClient } from './client'
+import { getPresignedUpload, uploadViaPresignedUrl } from './file-storage'
 
 export interface Drawing {
   id: number
-  product_id: number
+  project_id: number
+  version: number
   file_key: string
   file_name: string
   mime_type: string | null
@@ -10,27 +12,39 @@ export interface Drawing {
   create_date: string
 }
 
-export async function getDrawingsByProduct(productId: number): Promise<Drawing[]> {
-  return (await apiClient.get('/drawings', { params: { product_id: productId } })).data
+export async function getDrawingsByProject(projectId: number): Promise<Drawing[]> {
+  return (await apiClient.get('/drawings', { params: { project_id: projectId } })).data
 }
 
-export async function uploadDrawing(productId: number, file: File): Promise<Drawing> {
-  // Sanitize the filename portion — the backend's CreateDrawingDto validates
-  // file_key against /^drawings\/[^/\\]+$/ (Task 3's path-traversal fix), so
-  // any '/' or '\' in the original filename must not survive into the key.
-  const safeName = file.name.replace(/[/\\]/g, '_')
-  const key = `drawings/${crypto.randomUUID()}-${safeName}`
-  const form = new FormData()
-  form.append('file', file)
-  await apiClient.post('/file-storage/upload', form, {
-    params: { key },
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+export async function getLatestDrawingVersion(projectId: number): Promise<{ version: number | null }> {
+  return (await apiClient.get('/drawings/latest-version', { params: { project_id: projectId } })).data
+}
+
+export interface UploadDrawingInput {
+  projectId: number
+  projectCode: string
+  version: number
+  file: File
+  // May differ from file.name — the caller dedupes identically-named files
+  // within one batch before calling this (see useUploadDrawings).
+  fileName: string
+}
+
+export async function uploadDrawing({ projectId, projectCode, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
+  // Sanitize the filename portion — the backend's CreateDrawingDto now
+  // validates file_key against /^drawings\/[^/\\]+\/v\d+\/[^/\\]+$/ (project
+  // code + version folder + bare filename, no other path segments), so any
+  // '/' or '\' in the original filename must not survive into the key.
+  const safeName = fileName.replace(/[/\\]/g, '_')
+  const key = `drawings/${projectCode}/v${version}/${safeName}`
+  const presigned = await getPresignedUpload(key, file.type || 'application/octet-stream')
+  await uploadViaPresignedUrl(presigned, key, file)
   return (
     await apiClient.post('/drawings', {
-      product_id: productId,
+      project_id: projectId,
+      version,
       file_key: key,
-      file_name: file.name,
+      file_name: fileName,
       mime_type: file.type || undefined,
     })
   ).data
@@ -57,4 +71,15 @@ export async function downloadDrawing(fileKey: string, fileName: string): Promis
   a.download = fileName
   a.click()
   URL.revokeObjectURL(url)
+}
+
+// Same authenticated-blob-fetch pattern as downloadDrawing(), but for
+// in-page preview instead of triggering a save-to-disk — caller owns the
+// object URL's lifecycle (revoke it once the preview unmounts/changes).
+export async function fetchDrawingBlob(fileKey: string): Promise<Blob> {
+  const res = await apiClient.get('/file-storage/download', {
+    params: { key: fileKey },
+    responseType: 'blob',
+  })
+  return res.data as Blob
 }

@@ -311,6 +311,7 @@ model project {
   boms          product_bom[]         @relation("ProjectBom")
   dispatches    bom_dispatch[]        @relation("ProjectDispatches")
   bim_models    bim_model[]           @relation("ProjectBimModels")
+  drawings      drawing[]
   progress_change_batches progress_change_batch[]
 }
 
@@ -449,7 +450,6 @@ model products {
 
   boms                  product_bom[]      @relation("ProductBom")
   sub_product_bom_lines product_bom_line[] @relation("SubProductInBom")
-  drawings              drawing[]
   bom_assemblies        bom_assembly[]
   bom_parts             bom_part[]
 
@@ -527,8 +527,13 @@ model product_bom_line {
 // ── 🟥 Drawing (rebuilt 2026-08-21 — replaces shop_drawing/drawing_revision) ──
 model drawing {
   id             Int       @id @default(autoincrement())
-  product_id     Int
-  product        products  @relation(fields: [product_id], references: [id])
+  project_id     Int
+  project        project   @relation(fields: [project_id], references: [id])
+  // Sparse, one-upload-action-per-version — see wiki:
+  // features/file-storage-gcs-backup-plan.md. NOT a full-snapshot version:
+  // a row keeps whatever version it was created with, forever; there's no
+  // "current version N contains every prior file" guarantee.
+  version        Int
   file_key       String    @db.VarChar(500)
   file_name      String    @db.VarChar(255)
   mime_type      String?   @db.VarChar(100)
