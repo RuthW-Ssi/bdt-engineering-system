@@ -127,6 +127,23 @@ export class ApsClientService {
     return { uploadKey, url: urls[0] }
   }
 
+  // Mirrors createSignedUpload()'s shape but for reads — mints a short-lived
+  // signed GET URL for an object already in our own OSS bucket. Used only by
+  // the GCS backup-copy step (BimBackupService); the primary
+  // upload/translate/viewer flow never calls this.
+  async getSignedDownloadUrl(objectKey: string): Promise<string> {
+    const token = await this.getAccessToken()
+    const res = await fetch(
+      `${OSS_URL}/buckets/${this.bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3download`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (!res.ok) {
+      throw new InternalServerErrorException(`APS signed download URL request failed (${res.status})`)
+    }
+    const { url } = await res.json()
+    return url
+  }
+
   // Called after the browser's own direct PUT to the signed URL succeeds —
   // finalizes the OSS object and returns the URN Model Derivative needs.
   async completeUpload(objectKey: string, uploadKey: string): Promise<{ urn: string }> {

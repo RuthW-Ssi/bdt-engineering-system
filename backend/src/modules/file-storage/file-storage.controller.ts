@@ -49,9 +49,16 @@ export class FileStorageController {
   }
 
   @Get('download')
-  @ApiOperation({ summary: 'Download a file from local storage' })
+  @ApiOperation({ summary: 'Download a file — redirects to a signed GCS URL when that driver is active' })
   async download(@Query('key') key: string, @Res() res: Response) {
     if (!key) throw new BadRequestException('key query param is required')
+
+    if (this.svc.driverType() === 'gcs') {
+      const url = await this.svc.getDownloadUrl(key)
+      res.redirect(url)
+      return
+    }
+
     const absolutePath = this.svc.resolveLocalPath(key)
     if (!absolutePath.startsWith(this.svc.storageRoot())) {
       throw new BadRequestException('Invalid file key')
@@ -93,6 +100,14 @@ export class FileStorageController {
     @Query('key') key: string,
     @UploadedFile() file: MulterFile,
   ) {
+    // This endpoint's multer interceptor writes straight to local disk
+    // (diskStorage above) — on the gcs driver, uploads go through
+    // presigned-upload instead (a real signed PUT URL the client PUTs
+    // directly to GCS), so a request reaching here means a client is
+    // stale/misconfigured for the active driver.
+    if (this.svc.driverType() !== 'local') {
+      throw new BadRequestException('upload endpoint is local-driver-only; use presigned-upload')
+    }
     if (!key) throw new BadRequestException('key query param is required')
     if (!file) throw new BadRequestException('No file uploaded')
     return {

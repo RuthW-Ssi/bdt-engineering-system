@@ -1,32 +1,28 @@
+import { IsInt, IsString, IsOptional, Matches } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsString, IsIn, IsOptional, IsInt, MaxLength } from 'class-validator'
 
 export class CreateDrawingDto {
-  @ApiProperty({ example: 'DWG-PROJ-001', description: 'Unique drawing number' })
-  @IsString()
-  @MaxLength(40)
-  drawing_number: string
-
-  @ApiProperty({ enum: ['master', 'project'] })
-  @IsIn(['master', 'project'])
-  drawing_type: string
-
-  @ApiProperty({ example: 'PROD-001', description: 'Product code to attach drawing to' })
-  @IsString()
-  product_code: string
-
-  @ApiPropertyOptional({ example: 1, description: 'Required when drawing_type=project' })
-  @IsOptional()
+  @ApiProperty({ example: 42 })
   @IsInt()
-  project_id?: number
+  project_id: number
 
-  @ApiPropertyOptional({ enum: ['tekla', 'autocad', 'advance', 'other'], default: 'other' })
-  @IsOptional()
-  @IsIn(['tekla', 'autocad', 'advance', 'other'])
-  cad_source?: string
+  @ApiProperty({ example: 1 })
+  @IsInt()
+  version: number
 
-  @ApiPropertyOptional()
+  @ApiProperty({ example: 'drawings/0X220/v1/plan-A.pdf' })
+  @IsString()
+  @Matches(/^drawings\/[^/\\]+\/v\d+\/[^/\\]+$/, {
+    message: 'file_key must be drawings/<project_code>/v<version>/<filename>, no other path segments',
+  })
+  file_key: string
+
+  @ApiProperty({ example: 'plan-A.pdf' })
+  @IsString()
+  file_name: string
+
+  @ApiPropertyOptional({ example: 'application/pdf' })
   @IsOptional()
   @IsString()
-  notes?: string
+  mime_type?: string
 }

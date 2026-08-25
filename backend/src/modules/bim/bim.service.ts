@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { ApsClientService } from './aps-client.service'
+import { BimBackupService } from './bim-backup.service'
 import { extractElement, type ExtractedElement } from './property-extractor'
 
 export interface BimStatusResult {
@@ -16,6 +17,7 @@ export class BimService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aps: ApsClientService,
+    private readonly backup: BimBackupService,
   ) {}
 
   list(filter?: { projectId?: number }) {
@@ -88,6 +90,18 @@ export class BimService {
     })
 
     await this.aps.translate(urn)
+
+    // Fire-and-forget — must not block this response or delay translation,
+    // and a backup failure must never fail the primary upload (see
+    // BimBackupService). Passes the objectKey already in scope here rather
+    // than re-deriving it later from the stored `urn` (a lossy base64/
+    // URL-safe transform reversal) — simpler and avoids the round-trip.
+    const project = await this.prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      select: { project_code: true },
+    })
+    void this.backup.backup(project.project_code, nextMajor, nextMinor, objectKey, this.aps)
+
     return model
   }
 
