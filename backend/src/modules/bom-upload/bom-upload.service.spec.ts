@@ -1,4 +1,3 @@
-import * as fs from 'fs'
 import { BadRequestException, NotFoundException, Logger } from '@nestjs/common'
 import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions, requiresNcFile } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
@@ -6,9 +5,20 @@ import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
-jest.spyOn(fs, 'mkdirSync').mockImplementation(() => undefined as any)
-jest.spyOn(fs, 'writeFileSync').mockImplementation(() => undefined)
-jest.spyOn(fs, 'unlinkSync').mockImplementation(() => undefined)
+// `upload()`'s pre-transaction key-building step reads project/zone/sub-zone
+// codes for the new GCS-shaped storage key — every prisma mock in this file
+// that reaches that code path needs these, matching the zone_id=2/
+// sub_zone_id=null the fixtures below use everywhere.
+function zoneMocks() {
+  return {
+    project_zone: {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ code: 'Z1', project: { project_code: 'TEST' } }),
+    },
+    sub_zone: {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ code: 'SZ1' }),
+    },
+  }
+}
 
 function makePrisma(overrides: Partial<ReturnType<typeof buildPrisma>> = {}) {
   return { ...buildPrisma(), ...overrides }
@@ -48,6 +58,7 @@ function buildPrisma() {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
+    ...zoneMocks(),
   }
 }
 
@@ -109,8 +120,11 @@ function makeRevisionRow() {
   return { id: 10, dispatch_id: 1, doc_type: 'ASSEMBLY_LIST', original_filename: 'assembly_list.xlsx', create_date: new Date(), create_user: { id: 1, name: 'Admin' } }
 }
 
-function makeStorage(root = '/tmp/storage') {
-  return { storageRoot: jest.fn().mockReturnValue(root) }
+function makeStorage() {
+  return {
+    putObject: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
+  }
 }
 
 function makeParser(parsed: Partial<ParsedBomFile> = {}): Pick<XlsxParserService, 'parse' | 'peekContractNo'> {
@@ -293,8 +307,7 @@ describe('BomUploadService.upload()', () => {
     await svc.upload([makeFileInput()], [], 1, 2, null, 99)
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
-    expect(fs.writeFileSync).toHaveBeenCalledTimes(1)
-    expect(fs.mkdirSync).toHaveBeenCalledTimes(1)
+    expect(storage.putObject).toHaveBeenCalledTimes(1)
   })
 
   it('status is "complete" when both assemblies and parts parsed', async () => {
@@ -319,6 +332,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     const parser = {
@@ -361,6 +375,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     const parser = makeParser({ assemblies: [{ assembly_mark: 'A1' }], parts: [], assemblyParts: [] })
@@ -386,6 +401,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
     const parser = {
       peekContractNo: jest.fn().mockReturnValue(''),
@@ -443,6 +459,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     // A1↔P1 and A2↔P2 match; A1↔P3 doesn't (P3 was never in the Part List) —
@@ -503,6 +520,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     // A1↔P1 listed twice (e.g. the same part legitimately re-listed for one
@@ -562,6 +580,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     // "A1" and "X P1" both exist (valid pair). "A1 X" does NOT exist as an
@@ -603,11 +622,14 @@ describe('BomUploadService.upload()', () => {
   it('rolls back saved files when $transaction throws', async () => {
     const prisma = {
       $transaction: jest.fn().mockRejectedValue(new Error('DB down')),
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) },
+      ...zoneMocks(),
     }
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, makeWorkOrders() as any)
+    const storage = makeStorage()
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, makeWorkOrders() as any)
 
     await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1)).rejects.toThrow('DB down')
-    expect(fs.unlinkSync).toHaveBeenCalledTimes(1)
+    expect(storage.delete).toHaveBeenCalledTimes(1)
   })
 
   it('throws BadRequestException when no files provided', async () => {
@@ -662,6 +684,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     const parser = {
@@ -710,6 +733,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     const workOrders = makeWorkOrders()
@@ -742,14 +766,14 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
 
     const workOrders = makeWorkOrders()
     workOrders.applyBomChangeHolds = jest.fn().mockRejectedValue(new Error('transient DB read error'))
 
-    const unlinkCallsBefore = (fs.unlinkSync as jest.Mock).mock.calls.length
-
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, workOrders as any)
+    const storage = makeStorage()
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any, workOrders as any)
     const result = await svc.upload([makeFileInput()], [], 1, 2, null, 1)
 
     expect(workOrders.applyBomChangeHolds).toHaveBeenCalledWith(950)
@@ -758,7 +782,7 @@ describe('BomUploadService.upload()', () => {
     // The already-committed dispatch's saved files must NOT be rolled back — a
     // hold-evaluation failure touches a different aggregate (work_order), not
     // the BOM upload itself.
-    expect((fs.unlinkSync as jest.Mock).mock.calls.length).toBe(unlinkCallsBefore)
+    expect(storage.delete).not.toHaveBeenCalled()
   })
 })
 
@@ -877,6 +901,11 @@ describe('BomUploadService — revision resolution', () => {
       bom_dispatch: {
         count: jest.fn().mockResolvedValue(1),
         findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
+        // Same value the inner-transaction mock above resolves to — this
+        // is the pre-read used only for the GCS key's `-rev<n>` segment
+        // (see bom-upload.service.ts), mirroring (not replacing) the
+        // transaction's own authoritative revision computation.
+        findFirst: jest.fn().mockResolvedValue(latestRevision == null ? null : { revision: latestRevision }),
         findMany: jest.fn(({ select }: any = {}) =>
           select?.revision
             ? Promise.resolve([{ id: 1, revision: 1 }])
@@ -886,6 +915,7 @@ describe('BomUploadService — revision resolution', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      ...zoneMocks(),
     }
     return { prisma, innerCreateSpy }
   }
@@ -1178,6 +1208,7 @@ function makePersistentPrisma() {
     bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
     bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
     bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    ...zoneMocks(),
   }
 
   return { prisma, assemblies, parts, dispatches }

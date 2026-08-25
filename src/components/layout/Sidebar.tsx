@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
-  ClipboardList, Scissors, Cuboid, UserCog,
+  ClipboardList, Scissors, Cuboid, UserCog, FileText,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { canViewAny } from '../../lib/moduleAccess'
@@ -48,6 +48,7 @@ export const SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: 'Engineer Products', icon: <Package size={18} />, path: '/engineer-products', viewModules: ['products'] },
       { label: 'BOM', icon: <GitBranch size={18} />, path: '/bom', viewModules: ['boms'] },
       { label: 'BIM', icon: <Cuboid size={18} />, path: '/bim-viewer', viewModules: ['bim'] },
+      { label: 'Drawings', icon: <FileText size={18} />, path: '/drawings' },
       {
         label: 'Routings', icon: <Workflow size={18} />, path: '/routings',
         children: [

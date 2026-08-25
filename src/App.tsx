@@ -36,6 +36,7 @@ import { CuttingPlanList } from './pages/CuttingPlanList'
 import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
 import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
 import { BimViewer } from './pages/BimViewer'
+import { DrawingList } from './pages/DrawingList'
 import { UsersPage } from './pages/UsersPage'
 import { MobileViewportGate } from './components/mobile/MobileViewportGate'
 import { MobileNavShell } from './components/mobile/MobileNavShell'
@@ -115,6 +116,7 @@ export default function App() {
             <Route path="/bom/dispatch/:id/paint" element={<ProtectedRoute viewModules={['boms']}><BomPaintConfig /></ProtectedRoute>} />
             <Route path="/bom/dispatch/:id" element={<ProtectedRoute viewModules={['boms']}><BomDispatchDetail /></ProtectedRoute>} />
             <Route path="/bim-viewer" element={<ProtectedRoute viewModules={['bim']}><BimViewer /></ProtectedRoute>} />
+            <Route path="/drawings" element={<ProtectedRoute><DrawingList /></ProtectedRoute>} />
             <Route path="/routings" element={<ProtectedRoute viewModules={['routings']}><RoutingList /></ProtectedRoute>} />
             <Route path="/routings/new" element={<ProtectedRoute viewModules={['routings']}><RoutingBuilder /></ProtectedRoute>} />
             <Route path="/routings/:id/edit" element={<ProtectedRoute viewModules={['routings']}><RoutingBuilder /></ProtectedRoute>} />

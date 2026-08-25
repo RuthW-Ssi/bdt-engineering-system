@@ -1,18 +1,20 @@
 /**
- * E2E: BOM + Drawings Sprint 3
+ * E2E: BOM Sprint 3
  * Requires live Postgres (docker compose up) with seed data.
+ * (Drawing scenarios removed 2026-08-21 — the Sprint 3 Shop Drawing module
+ * they covered was deleted; see wiki/features/drawing.md for its replacement.
+ * File kept at its original path/name to avoid an unrelated CI/test-glob change.)
  */
 import { Test, TestingModule } from '@nestjs/testing'
 import { INestApplication, ValidationPipe } from '@nestjs/common'
 import * as request from 'supertest'
 import { AppModule } from '../../src/app.module'
 
-describe('BOM + Drawings E2E', () => {
+describe('BOM E2E', () => {
   let app: INestApplication
 
   // IDs created during tests — shared between its in the same describe block
   let newBomId: number
-  let newDrawingId: number
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile()
@@ -93,126 +95,6 @@ describe('BOM + Drawings E2E', () => {
         .post(`/api/v1/boms/${draftBomId}/lines`)
         .set('x-user-id', '1')
         .send({ product_qty: 1, product_uom_id: 1 })
-      expect(res.status).toBe(400)
-    })
-  })
-
-  // ─── Scenario 3: Drawing lifecycle ───────────────────────────────────────────
-
-  describe('Scenario 3 — Drawing lifecycle: draft → in_review → approved → released', () => {
-    it('GET /drawings?product_code=CUS-00001 → returns seeded drawing', async () => {
-      const res = await request(app.getHttpServer())
-        .get('/api/v1/drawings')
-        .query({ product_code: 'CUS-00001' })
-      expect(res.status).toBe(200)
-      expect(Array.isArray(res.body)).toBe(true)
-    })
-
-    it('POST /drawings → creates new drawing for CUS-00001', async () => {
-      const timestamp = Date.now()
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/drawings')
-        .set('x-user-id', '1')
-        .send({
-          drawing_number: `DWG-TEST-${timestamp}`,
-          drawing_type: 'project',
-          product_code: 'CUS-00001',
-          project_id: 1,
-          cad_source: 'autocad',
-        })
-      expect(res.status).toBe(201)
-      newDrawingId = res.body.id
-      expect(res.body.state).toBe('draft')
-    })
-
-    it('POST /drawings/:id/revisions → adds revision A with is_current=true', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${newDrawingId}/revisions`)
-        .set('x-user-id', '1')
-        .send({
-          revision: 'A',
-          change_summary: 'First issue',
-          file_url: '/storage/drawings/test-revA.pdf',
-          file_mime_type: 'application/pdf',
-          file_size_bytes: 512000,
-        })
-      expect(res.status).toBe(201)
-      const currentRev = res.body.revisions.find((r: any) => r.is_current)
-      expect(currentRev?.revision).toBe('A')
-    })
-
-    it('POST action_submit_review → draft → in_review', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${newDrawingId}/action_submit_review`)
-        .set('x-user-id', '1')
-      expect(res.status).toBe(200)
-      expect(res.body.state).toBe('in_review')
-    })
-
-    it('POST action_approve → in_review → approved', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${newDrawingId}/action_approve`)
-        .set('x-user-id', '1')
-        .send({ approved_uid: 1 })
-      expect(res.status).toBe(200)
-      expect(res.body.state).toBe('approved')
-    })
-
-    it('POST action_release → approved → released, retention_until set', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${newDrawingId}/action_release`)
-        .set('x-user-id', '1')
-      expect(res.status).toBe(200)
-      expect(res.body.state).toBe('released')
-    })
-  })
-
-  // ─── Scenario 4: Revision sequence — B replaces A ────────────────────────────
-
-  describe('Scenario 4 — Adding revision B marks A as not current', () => {
-    let drawingForRevTest: number
-
-    beforeAll(async () => {
-      // Create a fresh drawing for this test
-      const timestamp = Date.now()
-      const res = await request(app.getHttpServer())
-        .post('/api/v1/drawings')
-        .set('x-user-id', '1')
-        .send({
-          drawing_number: `DWG-REVTEST-${timestamp}`,
-          drawing_type: 'project',
-          product_code: 'CUS-00001',
-          project_id: 1,
-          cad_source: 'tekla',
-        })
-      drawingForRevTest = res.body.id
-
-      await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${drawingForRevTest}/revisions`)
-        .set('x-user-id', '1')
-        .send({ revision: 'A', change_summary: 'Initial', file_url: '/storage/test-A.pdf' })
-    })
-
-    it('add revision B → A.is_current=false, B.is_current=true', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${drawingForRevTest}/revisions`)
-        .set('x-user-id', '1')
-        .send({ revision: 'B', change_summary: 'Rev B update', file_url: '/storage/test-B.pdf' })
-      expect(res.status).toBe(201)
-
-      const revisions: any[] = res.body.revisions
-      const revA = revisions.find(r => r.revision === 'A')
-      const revB = revisions.find(r => r.revision === 'B')
-      expect(revA?.is_current).toBe(false)
-      expect(revB?.is_current).toBe(true)
-      expect(res.body.current_revision).toBe('B')
-    })
-
-    it('add revision A again → 400 (out of sequence)', async () => {
-      const res = await request(app.getHttpServer())
-        .post(`/api/v1/drawings/${drawingForRevTest}/revisions`)
-        .set('x-user-id', '1')
-        .send({ revision: 'A', change_summary: 'Duplicate', file_url: '/storage/test-A2.pdf' })
       expect(res.status).toBe(400)
     })
   })

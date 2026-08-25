@@ -38,4 +38,10 @@ export class LocalFileStorageDriver implements FileStorageDriver {
       fs.unlinkSync(filePath)
     }
   }
+
+  async putObject(key: string, buffer: Buffer, _contentType?: string): Promise<void> {
+    const filePath = this.resolvePath(key)
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, buffer)
+  }
 }

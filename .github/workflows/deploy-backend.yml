@@ -57,8 +57,10 @@ jobs:
             --set-secrets ADMIN_SEED_PASSWORD=staging-bdt-engineering-admin-seed-password:latest \
             --set-secrets APS_CLIENT_ID=staging-bdt-engineering-aps-client-id:latest \
             --set-secrets APS_CLIENT_SECRET=staging-bdt-engineering-aps-client-secret:latest \
+            --set-secrets FILE_STORAGE_GCS_CREDENTIALS_JSON=staging-bdt-engineering-gcs-credentials:latest \
             --set-env-vars NODE_ENV=production \
-            --set-env-vars FILE_STORAGE_DRIVER=local \
+            --set-env-vars FILE_STORAGE_DRIVER=gcs \
+            --set-env-vars FILE_STORAGE_GCS_BUCKET=bdt-file-storage-staging \
             --set-env-vars FILE_STORAGE_LOCAL_PATH=/tmp/storage \
             --set-env-vars APS_BUCKET_KEY=bdt-bim-dev \
             --port 3000 \
