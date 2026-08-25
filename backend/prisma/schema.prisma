@@ -525,6 +525,7 @@ model product_bom_line {
 }
 
 // ── 🟥 Drawing (rebuilt 2026-08-21 — replaces shop_drawing/drawing_revision) ──
+// project_id/version scoping + GCS backup wiring shipped to staging 2026-08-24/25.
 model drawing {
   id             Int       @id @default(autoincrement())
   project_id     Int
