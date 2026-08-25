@@ -2,8 +2,6 @@ import {
   Injectable, Logger, NotFoundException, BadRequestException,
 } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
-import * as fs from 'fs'
-import * as path from 'path'
 import * as crypto from 'crypto'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
@@ -140,16 +138,46 @@ export class BomUploadService {
     const dedupedParts = this.buildDedupedParts(rawPartList?.parts ?? [], ncMap)
 
     // 3. Save files to storage (outside transaction — I/O first)
-    const now = new Date()
-    const datePrefix = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`
+    //    Key is `bom/<project_code>/<zone_code>/[<subzone_code>/]<name>-rev<n>.<ext>`
+    //    — the revision segment is read non-transactionally here (same query
+    //    shape the transaction below repeats for the authoritative value),
+    //    not inside the $transaction: keeping that transaction short was an
+    //    explicit existing design priority (see its own comment below), and
+    //    file I/O (here, a GCS round-trip on the gcs driver) inside a DB
+    //    transaction is exactly what that priority warns against. Accepted
+    //    tradeoff: two near-simultaneous uploads to the same project/zone
+    //    could compute the same "next revision" for their filenames while
+    //    the transaction's authoritative `bom_dispatch.revision` still
+    //    correctly sequences — a visible filename/DB mismatch, not a data
+    //    integrity bug, and low-probability given this is a human-paced
+    //    upload flow. Same risk class BIM already accepts for its own
+    //    outside-any-lock nextMajor/nextMinor computation.
+    const zone = await this.prisma.project_zone.findUniqueOrThrow({
+      where: { id: zoneId },
+      select: { code: true, project: { select: { project_code: true } } },
+    })
+    const subZone = subZoneId
+      ? await this.prisma.sub_zone.findUniqueOrThrow({ where: { id: subZoneId }, select: { code: true } })
+      : null
+    const latestForKey = await this.prisma.bom_dispatch.findFirst({
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
+      orderBy: { revision: 'desc' },
+      select: { revision: true },
+    })
+    const revisionForKey = !latestForKey
+      ? 1
+      : revisionChoice === 'continue' ? latestForKey.revision : latestForKey.revision + 1
+
     const savedKeys: { docType: BomDocType; key: string; sha256: string }[] = []
 
     for (const f of files) {
       const sha256 = crypto.createHash('sha256').update(f.buffer).digest('hex')
-      const key = `bom/${datePrefix}/${f.docType.toLowerCase()}/${Date.now()}-${f.originalname}`
-      const fullPath = path.join(this.storage.storageRoot(), key)
-      fs.mkdirSync(path.dirname(fullPath), { recursive: true })
-      fs.writeFileSync(fullPath, f.buffer)
+      const dot = f.originalname.lastIndexOf('.')
+      const base = dot > 0 ? f.originalname.slice(0, dot) : f.originalname
+      const ext = dot > 0 ? f.originalname.slice(dot) : ''
+      const subZoneSegment = subZone ? `${subZone.code}/` : ''
+      const key = `bom/${zone.project.project_code}/${zone.code}/${subZoneSegment}${base}-rev${revisionForKey}${ext}`
+      await this.storage.putObject(key, f.buffer, f.mimetype)
       savedKeys.push({ docType: f.docType, key, sha256 })
     }
 
@@ -401,7 +429,7 @@ export class BomUploadService {
     } catch (err) {
       // Rollback: delete saved files
       for (const { key } of savedKeys) {
-        try { fs.unlinkSync(path.join(this.storage.storageRoot(), key)) } catch {}
+        try { await this.storage.delete(key) } catch {}
       }
       throw err
     }

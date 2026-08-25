@@ -1,18 +1,17 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, FileText, Download, AlertCircle, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
+import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, RefreshCw, Layers, ExternalLink, Pencil } from 'lucide-react'
 import { useProduct, useProductAction, useProductMessages, useUpdateProductSpec } from '../hooks/useProducts'
 import type { PaintSpecPreset, WeldingSpecPreset } from '../api/types'
 import { useMaterialsByPrefix } from '../hooks/useMasters'
-import { useDrawings } from '../hooks/useDrawings'
 import { useRouting, useStdCost } from '../hooks/useRoutings'
 import { usePermission } from '../hooks/usePermission'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
 import type { ProductState } from '../api/types'
 
-const TABS = ['Overview', 'Drawings', 'Routing', 'Cost', 'Audit Log']
+const TABS = ['Overview', 'Routing', 'Cost', 'Audit Log']
 
 const ROUTING_STATE_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   draft:    { bg: '#F5F5F5', text: '#555', label: 'Draft' },
@@ -24,28 +23,6 @@ function fmtTime(min: number) {
   const h = Math.floor(min / 60)
   const m = Math.round(min % 60)
   return h > 0 ? `${h}h ${m}m` : `${m}m`
-}
-
-const DRAWING_STATE_STYLE: Record<string, { bg: string; text: string; border: string }> = {
-  draft:      { bg: '#F5F5F5',  text: '#555555', border: '#C2C2C2' },
-  in_review:  { bg: '#FAEEDA',  text: '#854F0B', border: '#FAC775' },
-  approved:   { bg: '#EAF3DE',  text: '#27500A', border: '#C0DD97' },
-  released:   { bg: '#E6F1FB',  text: '#0C447C', border: '#B5D4F4' },
-  superseded: { bg: '#F3E8FF',  text: '#6D28D9', border: '#C4B5FD' },
-  obsolete:   { bg: '#F5F5F5',  text: '#8E8E8E', border: '#E0E0E0' },
-}
-
-const DRAWING_STATE_LABELS: Record<string, string> = {
-  draft: 'Draft', in_review: 'In Review', approved: 'Approved',
-  released: 'Released', superseded: 'Superseded', obsolete: 'Obsolete',
-}
-
-function formatFileSize(bytes: string | null): string {
-  if (!bytes) return ''
-  const n = Number(bytes)
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} MB`
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)} KB`
-  return `${n} B`
 }
 
 interface ActionDef { action: string; label: string; bg: string; confirm: string; destructive?: boolean }
@@ -83,7 +60,6 @@ export function ProductDetail() {
   const { mutateAsync: doAction, isPending: actioning } = useProductAction(code ?? '')
   const { data: messages = [] } = useProductMessages(code ?? '')
   const { mutateAsync: saveSpec, isPending: savingSpec } = useUpdateProductSpec(code ?? '')
-  const { drawings, loading: drawingsLoading, error: drawingsError } = useDrawings(code)
   const { routing, state: routingState, totalTimeMin, loading: routingLoading, recompute } = useRouting(code)
   const { stdCost, recompute: recomputeCost } = useStdCost(code)
 
@@ -434,109 +410,6 @@ export function ProductDetail() {
                 </div>
               </div>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'Drawings' && (
-          <div style={{ maxWidth: 860 }}>
-            {drawingsLoading && (
-              <div className="flex items-center justify-center gap-2" style={{ padding: 64, color: '#8E8E8E' }}>
-                <Loader2 size={20} className="animate-spin" />Loading...
-              </div>
-            )}
-            {drawingsError && !drawingsLoading && (
-              <div className="flex items-center gap-2" style={{ padding: 32, color: '#C8202A', fontSize: 13 }}>
-                <AlertCircle size={16} />{drawingsError}
-              </div>
-            )}
-            {!drawingsLoading && !drawingsError && drawings.length === 0 && (
-              <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
-                <FileText size={32} style={{ opacity: 0.3 }} />
-                <div style={{ fontSize: 13 }}>No Shop Drawings found for {code}</div>
-              </div>
-            )}
-            {!drawingsLoading && drawings.map(dwg => {
-              const st = DRAWING_STATE_STYLE[dwg.state] ?? DRAWING_STATE_STYLE.draft
-              const revs = [...dwg.revisions].sort((a, b) => b.sequence - a.sequence)
-              return (
-                <div key={dwg.id} className="bg-white rounded-lg border border-chrome-100 mb-4" style={{ overflow: 'hidden' }}>
-                  {/* Drawing header */}
-                  <div className="flex items-center gap-3 border-b border-chrome-100" style={{ padding: '14px 20px' }}>
-                    <FileText size={16} style={{ color: '#8E8E8E', flexShrink: 0 }} />
-                    <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{dwg.drawing_number}</span>
-                    <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '2px 8px', fontSize: 11, color: '#555' }}>
-                      {dwg.drawing_type}
-                    </span>
-                    <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '2px 8px', fontSize: 11, color: '#555' }}>
-                      {dwg.cad_source}
-                    </span>
-                    <span style={{ background: st.bg, border: `1px solid ${st.border}`, borderRadius: 999, padding: '2px 10px', fontSize: 11, fontWeight: 500, color: st.text }}>
-                      {DRAWING_STATE_LABELS[dwg.state] ?? dwg.state}
-                    </span>
-                    {dwg.current_revision && (
-                      <span style={{ fontSize: 12, color: '#8E8E8E', marginLeft: 'auto' }}>
-                        Rev <span className="font-mono" style={{ fontWeight: 700, color: '#0C447C' }}>{dwg.current_revision}</span> (current)
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Revisions table */}
-                  {revs.length === 0 ? (
-                    <div style={{ padding: '16px 20px', fontSize: 12, color: '#8E8E8E' }}>No revisions yet</div>
-                  ) : (
-                    <>
-                      {/* Column headers */}
-                      <div style={{
-                        display: 'grid', gridTemplateColumns: '60px 1fr 80px 80px 120px 44px',
-                        padding: '6px 20px', background: '#F5F5F5', borderBottom: '1px solid #E0E0E0',
-                        fontSize: 11, fontWeight: 600, color: '#8E8E8E', textTransform: 'uppercase',
-                      }}>
-                        <div>Rev</div><div>Description</div><div>Size</div><div>Type</div><div>Date</div><div />
-                      </div>
-                      {revs.map(rev => (
-                        <div key={rev.id} style={{
-                          display: 'grid', gridTemplateColumns: '60px 1fr 80px 80px 120px 44px',
-                          alignItems: 'center', padding: '10px 20px',
-                          borderBottom: '1px solid #F5F5F5',
-                          background: rev.is_current ? '#F0F7FF' : 'white',
-                        }}>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono" style={{
-                              fontSize: 13, fontWeight: 700,
-                              color: rev.is_current ? '#0C447C' : '#555',
-                              background: rev.is_current ? '#DCE8F8' : '#F5F5F5',
-                              border: `1px solid ${rev.is_current ? '#B5D4F4' : '#E0E0E0'}`,
-                              borderRadius: 4, padding: '1px 6px',
-                            }}>{rev.revision}</span>
-                          </div>
-                          <div style={{ fontSize: 12, color: '#555', paddingRight: 12 }} className="truncate">
-                            {rev.change_summary || <span style={{ color: '#C2C2C2' }}>—</span>}
-                          </div>
-                          <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatFileSize(rev.file_size_bytes)}</div>
-                          <div style={{ fontSize: 11, color: '#8E8E8E' }}>{rev.file_mime_type?.split('/')[1]?.toUpperCase() ?? '—'}</div>
-                          <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-                            {new Date(rev.create_date).toLocaleDateString('en-GB')}
-                            {rev.approver && <div style={{ fontSize: 10, color: '#C2C2C2' }}>Approved by {rev.approver.name}</div>}
-                          </div>
-                          <div className="flex items-center justify-center">
-                            <a
-                              href={rev.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="flex items-center justify-center rounded hover:bg-chrome-100"
-                              style={{ width: 28, height: 28, color: '#0C447C' }}
-                              title="Download"
-                            >
-                              <Download size={14} />
-                            </a>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              )
-            })}
           </div>
         )}
 
