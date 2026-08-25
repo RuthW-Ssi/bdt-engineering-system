@@ -384,10 +384,10 @@ export function BomUpload() {
             </span>
           </label>
           <FileDropzone
-            maxFiles={200}
+            maxFiles={1500}
             currentCount={ncFiles.length}
             acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 200 files"
+            hint=".nc1 · max 20 MB / file · up to 1500 files"
             onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
             disabled={false}
           />

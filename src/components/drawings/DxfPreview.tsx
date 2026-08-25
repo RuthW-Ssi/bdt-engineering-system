@@ -300,12 +300,17 @@ export function DxfPreview({ blob, onMetadata }: Props) {
     viewer.Render()
   }
 
-  const toolbarBtnStyle = (active: boolean) => ({
+  // background/color live in className (not inline style) so the inactive
+  // state's hover:bg-chrome-50 can actually apply — an inline `background`
+  // always wins over a stylesheet :hover rule regardless of hover state,
+  // which silently no-op'd an earlier version of this hover treatment.
+  const toolbarBtnStyle = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     width: 30, height: 30, borderRadius: 6, cursor: 'pointer',
-    border: '1px solid #E0E0E0', background: active ? '#0C447C' : 'white',
-    color: active ? 'white' : '#555',
-  })
+    border: '1px solid #E0E0E0',
+  } as const
+  const toolbarBtnClass = (active: boolean) =>
+    active ? 'bg-steel-800 text-white' : 'bg-white text-chrome-600 hover:bg-chrome-50'
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 300 }}>
@@ -314,13 +319,13 @@ export function DxfPreview({ blob, onMetadata }: Props) {
       {status === 'ready' && (
         <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
           <div className="flex items-center gap-1.5">
-            <button title="Fit to view" onClick={handleFitView} style={toolbarBtnStyle(false)}>
+            <button title="Fit to view" onClick={handleFitView} className={toolbarBtnClass(false)} style={toolbarBtnStyle}>
               <Maximize2 size={14} />
             </button>
-            <button title="Layers" onClick={() => setLayersOpen(o => !o)} style={toolbarBtnStyle(layersOpen)}>
+            <button title="Layers" onClick={() => setLayersOpen(o => !o)} className={toolbarBtnClass(layersOpen)} style={toolbarBtnStyle}>
               <LayersIcon size={14} />
             </button>
-            <button title="Show segment lengths" onClick={handleToggleDimensions} style={toolbarBtnStyle(dimensionsOn)}>
+            <button title="Show segment lengths" onClick={handleToggleDimensions} className={toolbarBtnClass(dimensionsOn)} style={toolbarBtnStyle}>
               <Ruler size={14} />
             </button>
           </div>
@@ -331,7 +336,7 @@ export function DxfPreview({ blob, onMetadata }: Props) {
               style={{ padding: 8, minWidth: 160, maxHeight: 220, overflowY: 'auto', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
             >
               {layers.map(l => (
-                <label key={l.name} className="flex items-center gap-2" style={{ fontSize: 12, padding: '3px 2px', cursor: 'pointer' }}>
+                <label key={l.name} className="flex items-center gap-2 rounded hover:bg-chrome-50" style={{ fontSize: 12, padding: '3px 2px', cursor: 'pointer' }}>
                   <input type="checkbox" checked={l.visible} onChange={() => handleToggleLayer(l.name)} />
                   <span style={{ width: 8, height: 8, borderRadius: 2, background: l.color, flexShrink: 0 }} />
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.displayName}</span>

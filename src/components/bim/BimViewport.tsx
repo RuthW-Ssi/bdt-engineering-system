@@ -349,6 +349,15 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
           // preference can't silently turn it off.
           viewer.setGhosting(true)
 
+          // Tekla's IFC export includes reference/grid line entities as real
+          // line geometry (not just structural members) — Autodesk's default
+          // is to show them, which reads as stray white grid lines cutting
+          // across the floor and structure. Same toggle as the viewer's own
+          // Settings panel ("Display Lines") — set explicitly here so it's
+          // off by default on every load instead of requiring a manual
+          // toggle each time (confirmed 2026-08-05, real user report).
+          viewer.hideLines(true)
+
           // setSelectionColor is the built-in highlight overlay path (same
           // one viewer.select() already uses successfully below) — NOT
           // per-fragment material theming, so it isn't affected by the HLOD
