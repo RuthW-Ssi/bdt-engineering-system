@@ -16,21 +16,21 @@ export class DrawingsController {
   constructor(private readonly svc: DrawingsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Record an uploaded drawing file against a project' })
+  @ApiOperation({ summary: 'Record an uploaded drawing file against a zone (or sub-zone)' })
   create(@Body() dto: CreateDrawingDto, @CurrentUser() user: JwtPayload) {
     return this.svc.create(dto, user.sub)
   }
 
   @Get()
-  @ApiOperation({ summary: 'List drawings for a project' })
-  findByProject(@Query() query: QueryDrawingDto) {
-    return this.svc.findByProject(Number(query.project_id))
+  @ApiOperation({ summary: 'List drawings for a zone (or sub-zone)' })
+  findByZone(@Query() query: QueryDrawingDto) {
+    return this.svc.findByZone(query.zone_id, query.sub_zone_id ?? null)
   }
 
   @Get('latest-version')
-  @ApiOperation({ summary: 'Highest version already used for a project — null if none yet' })
+  @ApiOperation({ summary: 'Highest version already used for a zone (or sub-zone) — null if none yet' })
   getLatestVersion(@Query() query: QueryLatestDrawingVersionDto) {
-    return this.svc.getLatestVersion(query.project_id)
+    return this.svc.getLatestVersion(query.zone_id, query.sub_zone_id ?? null)
   }
 
   @Delete(':id')

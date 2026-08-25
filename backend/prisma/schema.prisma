@@ -332,6 +332,7 @@ model project_zone {
   products      products[]
   sub_zones     sub_zone[]
   dispatches    bom_dispatch[]        @relation("ZoneDispatches")
+  drawings      drawing[]
 
   @@unique([project_id, code])
 }
@@ -352,6 +353,7 @@ model sub_zone {
   write_date  DateTime     @updatedAt @db.Timestamptz
 
   dispatches    bom_dispatch[]        @relation("SubZoneDispatches")
+  drawings      drawing[]
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -527,20 +529,26 @@ model product_bom_line {
 // ── 🟥 Drawing (rebuilt 2026-08-21 — replaces shop_drawing/drawing_revision) ──
 // project_id/version scoping + GCS backup wiring shipped to staging 2026-08-24/25.
 model drawing {
-  id             Int       @id @default(autoincrement())
+  id             Int          @id @default(autoincrement())
   project_id     Int
-  project        project   @relation(fields: [project_id], references: [id])
+  project        project      @relation(fields: [project_id], references: [id])
+  zone_id        Int
+  zone           project_zone @relation(fields: [zone_id], references: [id])
+  sub_zone_id    Int?
+  sub_zone       sub_zone?    @relation(fields: [sub_zone_id], references: [id])
   // Sparse, one-upload-action-per-version — see wiki:
   // features/file-storage-gcs-backup-plan.md. NOT a full-snapshot version:
   // a row keeps whatever version it was created with, forever; there's no
-  // "current version N contains every prior file" guarantee.
+  // "current version N contains every prior file" guarantee. Scoped per
+  // zone(+sub-zone) since 2026-08-25's Zone rescope — see wiki:
+  // features/drawing-zone-scope-plan.md.
   version        Int
-  file_key       String    @db.VarChar(500)
-  file_name      String    @db.VarChar(255)
-  mime_type      String?   @db.VarChar(100)
+  file_key       String       @db.VarChar(500)
+  file_name      String       @db.VarChar(255)
+  mime_type      String?      @db.VarChar(100)
   uploaded_by_id Int
-  uploaded_by    res_users @relation(fields: [uploaded_by_id], references: [id])
-  create_date    DateTime  @default(now()) @db.Timestamptz
+  uploaded_by    res_users    @relation(fields: [uploaded_by_id], references: [id])
+  create_date    DateTime     @default(now()) @db.Timestamptz
 }
 
 // ═══════════════════════════════════════════════════════════════
