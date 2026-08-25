@@ -4,6 +4,8 @@ import { getPresignedUpload, uploadViaPresignedUrl } from './file-storage'
 export interface Drawing {
   id: number
   project_id: number
+  zone_id: number
+  sub_zone_id: number | null
   version: number
   file_key: string
   file_name: string
@@ -12,17 +14,21 @@ export interface Drawing {
   create_date: string
 }
 
-export async function getDrawingsByProject(projectId: number): Promise<Drawing[]> {
-  return (await apiClient.get('/drawings', { params: { project_id: projectId } })).data
+export async function getDrawingsByZone(zoneId: number, subZoneId: number | null): Promise<Drawing[]> {
+  return (await apiClient.get('/drawings', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
-export async function getLatestDrawingVersion(projectId: number): Promise<{ version: number | null }> {
-  return (await apiClient.get('/drawings/latest-version', { params: { project_id: projectId } })).data
+export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null): Promise<{ version: number | null }> {
+  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
 export interface UploadDrawingInput {
   projectId: number
   projectCode: string
+  zoneId: number
+  zoneCode: string
+  subZoneId: number | null
+  subZoneCode: string | null
   version: number
   file: File
   // May differ from file.name — the caller dedupes identically-named files
@@ -30,18 +36,22 @@ export interface UploadDrawingInput {
   fileName: string
 }
 
-export async function uploadDrawing({ projectId, projectCode, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
-  // Sanitize the filename portion — the backend's CreateDrawingDto now
-  // validates file_key against /^drawings\/[^/\\]+\/v\d+\/[^/\\]+$/ (project
-  // code + version folder + bare filename, no other path segments), so any
-  // '/' or '\' in the original filename must not survive into the key.
+export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
+  // Sanitize the filename portion — the backend's CreateDrawingDto validates
+  // file_key against /^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?v\d+\/[^/\\]+$/
+  // (project code + zone code + optional sub-zone code + version folder +
+  // bare filename), so any '/' or '\' in the original filename must not
+  // survive into the key.
   const safeName = fileName.replace(/[/\\]/g, '_')
-  const key = `drawings/${projectCode}/v${version}/${safeName}`
+  const subZoneSegment = subZoneCode ? `${subZoneCode}/` : ''
+  const key = `drawings/${projectCode}/${zoneCode}/${subZoneSegment}v${version}/${safeName}`
   const presigned = await getPresignedUpload(key, file.type || 'application/octet-stream')
   await uploadViaPresignedUrl(presigned, key, file)
   return (
     await apiClient.post('/drawings', {
       project_id: projectId,
+      zone_id: zoneId,
+      sub_zone_id: subZoneId ?? undefined,
       version,
       file_key: key,
       file_name: fileName,
