@@ -166,8 +166,11 @@ export function DrawingList() {
                   className="flex items-center gap-2 border-b border-chrome-100 hover:bg-chrome-50"
                   style={{
                     padding: '10px 12px', cursor: 'pointer',
-                    background: selectedDrawing?.id === dwg.id ? '#F5F8FC' : undefined,
-                    borderLeft: selectedDrawing?.id === dwg.id ? '3px solid #0C447C' : '3px solid transparent',
+                    // #FCEBEB (ssi-50) is the app-wide active/selected-row
+                    // color (ProjectList/WoList/MoList/ProjectProgress all
+                    // use it) — this used to be a one-off light blue that
+                    // didn't match any other feature's selection styling.
+                    background: selectedDrawing?.id === dwg.id ? '#FCEBEB' : undefined,
                   }}
                 >
                   <FileText size={15} style={{ color: '#8E8E8E', flexShrink: 0 }} />
