@@ -12,6 +12,11 @@ export interface Drawing {
   mime_type: string | null
   uploaded_by_id: number
   create_date: string
+  // Populated asynchronously after the primary GCS upload completes — see
+  // DrawingApsService. null until the APS preview push has started.
+  aps_urn: string | null
+  aps_translation_status: 'processing' | 'complete' | 'failed' | null
+  aps_translation_error: string | null
 }
 
 export async function getDrawingsByZone(zoneId: number, subZoneId: number | null): Promise<Drawing[]> {
@@ -64,6 +69,27 @@ export async function deleteDrawing(id: number): Promise<void> {
   await apiClient.delete(`/drawings/${id}`)
 }
 
+export interface DrawingApsStatusResult {
+  id: number
+  status: string | null
+  error: string | null
+}
+
+// Polled by useDrawingApsStatus while a .dwg's APS 2D-preview translation
+// is still running.
+export async function getDrawingApsStatus(id: number): Promise<DrawingApsStatusResult> {
+  return (await apiClient.get(`/drawings/${id}/aps-status`)).data
+}
+
+export interface DrawingApsViewerToken {
+  urn: string | null
+  access_token: string
+}
+
+export async function getDrawingApsViewerToken(id: number): Promise<DrawingApsViewerToken> {
+  return (await apiClient.get(`/drawings/${id}/aps-viewer-token`)).data
+}
+
 // GET /file-storage/download is JWT-guarded — a bare <a href> can't attach
 // the Authorization header, so this fetches the file as an authenticated
 // blob and triggers a synthetic download, matching the exact pattern
@@ -81,15 +107,4 @@ export async function downloadDrawing(fileKey: string, fileName: string): Promis
   a.download = fileName
   a.click()
   URL.revokeObjectURL(url)
-}
-
-// Same authenticated-blob-fetch pattern as downloadDrawing(), but for
-// in-page preview instead of triggering a save-to-disk — caller owns the
-// object URL's lifecycle (revoke it once the preview unmounts/changes).
-export async function fetchDrawingBlob(fileKey: string): Promise<Blob> {
-  const res = await apiClient.get('/file-storage/download', {
-    params: { key: fileKey },
-    responseType: 'blob',
-  })
-  return res.data as Blob
 }
