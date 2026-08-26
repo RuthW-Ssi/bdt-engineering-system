@@ -51,16 +51,17 @@ export class DrawingApsService {
       const objectKey = `${Date.now()}-${fileName}`.replace(/[^\w.\-]/g, '_')
       const { uploadKey, url } = await this.aps.createSignedUpload(objectKey, this.aps.drawingBucketKey)
 
-      // Server-to-server streaming PUT — unlike BIM's browser-direct upload,
-      // the bytes are already on our backend (fetched from GCS above), so
-      // OUR backend is the one pushing them into APS OSS. `duplex: 'half'`
-      // is required by Node's fetch (undici) whenever the request body is a
-      // stream rather than a buffer/string.
-      const putRes = await fetch(url, {
-        method: 'PUT',
-        body: fetched.body,
-        duplex: 'half',
-      } as RequestInit)
+      // Buffered, not streamed. A streaming request body (`body: fetched.body`
+      // + `duplex: 'half'`) has no known length up front, so Node's fetch
+      // sends it as `Transfer-Encoding: chunked` — confirmed live 2026-08-26
+      // that APS's signed S3-style upload URL rejects that outright with a
+      // 501, unlike BIM's browser-direct PUT (a browser sends a File/Blob
+      // with a definite Content-Length, never chunked). Drawing files are
+      // capped at 50MB (DrawingUploadModal.tsx's MAX_DRAWING_SIZE) — small
+      // enough to buffer safely, unlike BIM's IFC exports (up to 120MB),
+      // which is why BimBackupService's GCS-direction copy stays streamed.
+      const buffer = Buffer.from(await fetched.arrayBuffer())
+      const putRes = await fetch(url, { method: 'PUT', body: buffer })
       if (!putRes.ok) {
         throw new Error(`APS object upload failed (${putRes.status})`)
       }
