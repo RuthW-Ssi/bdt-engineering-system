@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ApsClientService } from './aps-client.service'
+import { ApsClientService } from '../aps/aps-client.service'
 import { BimBackupService } from './bim-backup.service'
 import { extractElement, type ExtractedElement } from './property-extractor'
 

@@ -1,0 +1,56 @@
+# QA Findings — Drawing DWG APS 2D Preview
+
+- **feature:** Drawing DWG-only upload + fire-and-forget push into Autodesk Platform Services (APS) OSS for an in-browser 2D preview, on top of the already-shipped zone-scope rework
+- **branch under review:** `origin/dev` (5 commits ahead of `origin/staging`: `5e8a81b` move BIM to JPN bucket / reserve Drawing's bucket key, `fbb21e5` DB migration for APS preview tracking columns, `768ca37` extract `ApsClientService` into shared `aps` module, `4cf6fcd` DWG APS 2D-preview backend, `57caae3` DWG-only preview + removal of DXF/PDF/PNG/JPG preview path) — PR [#132](https://github.com/RuthW-Ssi/bdt-engineering-system/pull/132) (`dev` → `staging` promotion) not yet merged; PR #131 (feature branch → `dev`) already merged
+- **date:** 2026-08-26
+- **reviewer:** qa (this run — no Notion task exists for this increment; DoD substituted from the checklist confirmed live in chat with the user, matched against the actual `git diff origin/staging..origin/dev`)
+- **scope of this review:** QA lens only (release-readiness / DoD-coverage / doc-alignment / regression check). Security ran in parallel — see `docs/security/findings/2026-08-26-drawing-aps-preview.md` (Verdict: WARN, F-001 High-taxonomy BOLA re-confirmed as pre-existing app-wide pattern and explicitly not BLOCKed, F-002 Low informational).
+
+## QA-01 — No wiki test summary exists for this increment
+
+- **where:** `wiki/tech/testing/per-feature/drawing.md`
+- **what:** The only wiki test summary for the `drawing` feature is dated 2026-08-25 and is explicitly scoped to the *previous* increment ("Test summary · drawing (Zone-scope rescope)"). It contains zero mention of APS, DWG-only restriction, `DrawingApsService`, or the new `aps-status`/`aps-viewer-token` endpoints. No summary exists documenting this increment's 26 new/changed tests (11 `DrawingApsService` + 3 new `DrawingsService` behavior tests + the full-suite regression check).
+- **severity:** Medium
+- **evidence:** `head -30 wiki/tech/testing/per-feature/drawing.md` → title line `# Test summary · drawing (Zone-scope rescope)`, frontmatter `_Last updated: 2026-08-25 ... criteria drawn from the approved spec at wiki/features/drawing-zone-scope-plan.md_`. `grep -n -i "aps" wiki/tech/testing/per-feature/drawing.md` → 0 hits.
+- **fix_route:** tester (or whoever writes the summary for same-day self-spec increments) — add a dated section/page covering this increment's DoD-to-test mapping, mirroring the zone-scope precedent's format.
+
+## QA-02 — `wiki/features/drawing.md` not updated for DWG-only + APS-preview architecture; describes removed code as current
+
+- **where:** `wiki/features/drawing.md` (line ~131 area, preview-dispatch description)
+- **what:** The page still describes the *old* per-extension preview dispatch ("PDF/PNG/JPG → native `<img>`, everything else (chiefly `.dwg`, a closed binary CAD ...) ... DXF renders via `DxfPreview`/`dxf-viewer`") as the current behavior. That entire dispatch was removed by commit `57caae3` and replaced with a single DWG-only path (`DrawingPreviewPanel` → `DrawingApsPreview`, Autodesk Viewer SDK, 2D mode). The page has no mention of: `APS_BIM_BUCKET_KEY`/`APS_DRAWING_BUCKET_KEY`, the shared `ApsModule`/`ApsClientService` extraction, `DrawingApsService`, the new `GET /drawings/:id/aps-status` / `GET /drawings/:id/aps-viewer-token` endpoints, or the `aps_urn`/`aps_translation_status`/`aps_translation_error` columns added to `drawing`.
+- **severity:** Medium
+- **evidence:** `grep -n -i "aps\|\.dwg" wiki/features/drawing.md` → only 1 `.dwg` hit, inside the now-stale "closed binary CAD" fallback description; `git log --since=2026-08-23 -- wiki/` shows no commit touching `wiki/features/drawing.md` (or any new `drawing-aps-preview.md` page) after `75d9996` (2026-08-24, predates this increment's first commit `5e8a81b`). `git status` in the wiki repo shows uncommitted working-tree edits to `wiki/index.md`/`wiki/tech/shared/infra.md` that *also* still describe "DXF preview" as current — confirming this isn't just a stale-but-queued-for-commit situation, the content itself hasn't been drafted yet.
+- **fix_route:** wiki-integrator — update `wiki/features/drawing.md` (and `wiki/index.md`'s Sprint 32 summary line, and `wiki/tech/backend/api.md`/`data-model.md` for the two new endpoints + three new columns) to reflect DWG-only + APS-preview as current state; per this project's convention (feedback_wiki_update.md) this should have happened before this release-gate run.
+
+## QA-03 — No Notion task filed for this increment
+
+- **where:** This increment's entire lifecycle (spec confirmation → implementation → this release-gate run)
+- **what:** Per the task brief, all DoD criteria were "confirmed live in conversation with the user" rather than filed as a Notion Task/Feature — a same-day follow-up to the already-shipped zone-scope work, same pattern as that immediately-preceding increment (which itself later got a Low finding, QA-02, for the same gap in `docs/qa/findings/2026-08-25-drawing-zone-scope.md`).
+- **severity:** Low — informational, explicitly substituted per this run's instructions; content was verified against the actual diff line-by-line (see "Independent verification performed" below) and found accurate.
+- **evidence:** No Notion page reference anywhere in the 5 commit messages; task brief for this run states "No Notion task exists for this increment."
+- **fix_route:** pm/notion-mirror — file a Notion Feature + Task retroactively (matching the `2026-08-24-drawing-gcs-dxf.md` and `2026-08-25-drawing-zone-scope.md` precedent) so this shipped work is discoverable from the sprint board.
+
+## QA-04 — No manual/live test evidence against real APS credentials
+
+- **where:** Entire APS integration (`DrawingApsService.pushToAps`/`checkStatus`/`getViewerToken`, `DrawingApsPreview.tsx`)
+- **what:** All 11 `DrawingApsService` tests mock `fetch`/`ApsClientService` — none of them exercise a real Autodesk Model Derivative translation. This branch has not yet been deployed to staging (PR #132, the `dev`→`staging` promotion, is still open), so there is no environment with real `APS_CLIENT_ID`/`APS_CLIENT_SECRET` + the `bdt-drawing-staging` JPN bucket to test a live DWG upload → translate → 2D-viewer-render round trip against.
+- **severity:** Low/Info — expected and acceptable at this stage per the task brief; not a defect, a coverage gap that can only be closed once this branch reaches an environment with real APS credentials.
+- **evidence:** `grep -c "jest.fn\|jest.mock" backend/src/modules/drawings/drawing-aps.service.spec.ts` confirms all APS calls are mocked; no `docs/test-scripts/drawing-aps-preview/` report or Playwright session log exists (checked, none found); no screenshot/chat/Notion evidence of a live 2D preview render.
+- **fix_route:** user/tester — do a real click-through (upload a `.dwg`, watch it translate, confirm the 2D viewer renders) once this branch is live on staging with real APS credentials; recommended as a post-merge follow-up, not a pre-merge blocker.
+
+## QA-05 — PR #132's "Vercel – bdt-app" check shows failed, but is a pre-existing, non-regression pattern
+
+- **where:** `gh pr checks 132` → `Vercel – bdt-app` = fail (`https://vercel.com/building-technology/bdt-app/CF834rgXHAbG6h2cuDP7bJhyHLUD`)
+- **what:** One of three CI checks on PR #132 shows "Error." Investigated rather than taken at face value: `gh pr checks 130` (the immediately-preceding "Promote dev → staging" PR, for the zone-scope work, already merged 2026-08-25) shows the **identical** failure pattern on the same `bdt-app` Vercel project — same error, empty `previewUrl`. The PR's own Vercel bot comment confirms two separate Vercel projects are linked to this repo: `bdt-engineering-system` (status `Ready`, live preview URL `bdt-engineering-system-git-dev-building-technology.vercel.app`) and `bdt-app` (status `FAILED`, no preview URL at all — `nextCommitStatus: "FAILED"`, `previewUrl: ""`). `bdt-engineering-system` is the one that's actually Ready/deployed; `bdt-app` reads as an orphaned or misconfigured second project that has never successfully deployed across at least the last two promotion PRs.
+- **severity:** Low/Info — not a regression introduced by this diff (identical failure predates it, reproducing on PR #130 which merged successfully), and the actual deployed project passes clean with a live preview.
+- **evidence:** `gh pr checks 132` and `gh pr checks 130` side-by-side — same `bdt-app` project, same fail state, both showing empty preview URLs; `gh pr view 132 --json comments` Vercel bot comment shows `bdt-engineering-system` = Ready/Preview vs `bdt-app` = Error/no preview.
+- **fix_route:** devops — investigate and either fix or unlink the stale `bdt-app` Vercel project so it stops appearing as a failing required(?) check on every PR; not specific to this increment.
+
+## Independent verification performed in this pass (not findings — confirms claims accurate)
+
+- Re-ran `cd backend && npx jest drawing-aps drawings.service bim` → 5 suites / 48 tests, all passing. Broken down: `drawing-aps.service.spec.ts` 11/11, `drawings.service.spec.ts` 15/15 (12 pre-existing + 3 new: fires push on `.dwg`, skips non-`.dwg`, case-insensitive `.DWG`), and the 3 "BIM" suites the `bim` pattern actually matches (`bim-backup.service.spec.ts` 4, `bom-diff-bim-match.service.spec.ts` 10, `wo-bim-match.service.spec.ts` 8 = 22 total) — matches commit `768ca37`'s and `4cf6fcd`'s claimed counts exactly.
+- Re-ran the full backend suite (`cd backend && npx jest`) → 620 passed / 17 failed / 637 total, failing suites exactly `template-binding.service.spec.ts`, `cycle-time.service.spec.ts`, `project-progress.service.spec.ts`, `bom-matching.service.spec.ts` — matches the known-pre-existing baseline exactly, no new regressions.
+- `npx tsc --noEmit` (backend) — clean. `npx tsc -p tsconfig.app.json --noEmit` (frontend) — clean. `cd backend && npm run build` (`nest build`) — clean. `pnpm build` from repo root (real `tsc -b && vite build`) — clean, both steps succeeded.
+- Diffed `aps-client.service.ts` byte-for-byte: every bucket-scoped method (`ensureBucket`/`createSignedUpload`/`getSignedDownloadUrl`/`completeUpload`) defaults `bucketKey: string = this.bucketKey` (the BIM bucket), and `translate(urn, views: Array<'2d'|'3d'> = ['3d'])` defaults to BIM's existing 3D behavior; diffed all 3 BIM call sites (`bim.service.ts`, `bim-backup.service.ts`, `property-extractor.ts`) and confirmed the only change is the import path, zero call-site logic changed.
+- Grepped the full repo for `dxf-viewer`, `DxfPreview`, `APS_BUCKET_KEY` (old name), `fetchDrawingBlob` — zero hits outside historical docs (`docs/qa/findings/2026-07-21-bim-viewer.md`, `docs/security/findings/2026-07-21-bim-viewer.md`, both pre-dating this increment and correctly referencing the old name in their own historical context). `dxf-viewer` removed from `package.json` and `pnpm-lock.yaml`.
+- Confirmed `backend/.env.example`, `configuration.ts`, `schema.prisma`, and the new migration (`20260826100553_add_aps_preview_to_drawing`) match the checklist's confirmed decisions exactly: `APS_BIM_BUCKET_KEY=bdt-bim-staging`, `APS_DRAWING_BUCKET_KEY=bdt-drawing-staging`, 3 new nullable `drawing` columns.

@@ -3,7 +3,7 @@ import { Storage } from '@google-cloud/storage'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web'
-import { ApsClientService } from './aps-client.service'
+import { ApsClientService } from '../aps/aps-client.service'
 
 // Backup-copy-only — BIM's primary storage stays Autodesk OSS (the
 // translation/viewer pipeline is hard-wired to it; the uploaded bytes never

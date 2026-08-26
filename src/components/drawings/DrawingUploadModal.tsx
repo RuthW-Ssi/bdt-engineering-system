@@ -2,18 +2,18 @@ import { useState } from 'react'
 import { X, Upload, Loader2, FileText } from 'lucide-react'
 import { FileDropzone } from '../bom/FileDropzone'
 
-const DRAWING_FORMATS = ['.pdf', '.dwg', '.dxf', '.png', '.jpg', '.jpeg']
+const DRAWING_FORMATS = ['.dwg']
 const MAX_DRAWING_SIZE = 50_000_000 // 50MB
 const MAX_FILES = 1500 // a project's worth of sheets in one go, not unbounded
 
 interface Props {
-  projectLabel: string
+  scopeLabel: string
   isUploading: boolean
   onFilesConfirmed: (files: File[]) => void
   onClose: () => void
 }
 
-export function DrawingUploadModal({ projectLabel, isUploading, onFilesConfirmed, onClose }: Props) {
+export function DrawingUploadModal({ scopeLabel, isUploading, onFilesConfirmed, onClose }: Props) {
   // Staged, not uploaded yet — matches BimUploadModal's pattern: picking
   // files only stages them, the Upload button below is what actually sends
   // them, giving a chance to double-check (or remove and re-pick) first.
@@ -46,7 +46,7 @@ export function DrawingUploadModal({ projectLabel, isUploading, onFilesConfirmed
         </div>
 
         <div style={{ fontSize: 12, color: '#8E8E8E' }}>
-          {projectLabel}
+          {scopeLabel}
         </div>
 
         {stagedFiles.length > 0 && (
@@ -74,7 +74,7 @@ export function DrawingUploadModal({ projectLabel, isUploading, onFilesConfirmed
             currentCount={stagedFiles.length}
             acceptedFormats={DRAWING_FORMATS}
             maxSizeBytes={MAX_DRAWING_SIZE}
-            hint="PDF, DWG, DXF, PNG, JPG · up to 50 MB each"
+            hint="DWG · up to 50 MB each"
             onFilesAdded={accepted => setStagedFiles(files => [...files, ...accepted])}
             disabled={isUploading}
           />

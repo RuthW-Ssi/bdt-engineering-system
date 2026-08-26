@@ -1,20 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { getDrawingsByProject, getLatestDrawingVersion, uploadDrawing, deleteDrawing } from '../api/drawings'
+import {
+  getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing,
+  getDrawingApsStatus, getDrawingApsViewerToken,
+} from '../api/drawings'
 
-export function useProjectDrawings(projectId: number | undefined) {
+export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | null) {
   return useQuery({
-    queryKey: ['drawings', projectId],
-    queryFn: () => getDrawingsByProject(projectId!),
-    enabled: projectId != null,
+    queryKey: ['drawings', zoneId, subZoneId],
+    queryFn: () => getDrawingsByZone(zoneId!, subZoneId),
+    enabled: zoneId != null,
   })
 }
 
 // Two files with the identical name in one batch would otherwise collide on
-// the same GCS key (drawings/<code>/v<n>/<name>) and silently overwrite one
-// another — append a "-2", "-3"... suffix before the extension for repeats
-// within THIS batch only (cross-version collisions can't happen, different
-// version folders).
+// the same GCS key (drawings/<code>/<zone>/[<subzone>/]v<n>/<name>) and
+// silently overwrite one another — append a "-2", "-3"... suffix before the
+// extension for repeats within THIS batch only (cross-version collisions
+// can't happen, different version folders).
 function dedupeFileNames(files: File[]): string[] {
   const seen = new Map<string, number>()
   return files.map(f => {
@@ -28,29 +31,46 @@ function dedupeFileNames(files: File[]): string[] {
   })
 }
 
+interface UploadDrawingsScope {
+  projectId: number | undefined
+  projectCode: string | undefined
+  zoneId: number | undefined
+  zoneCode: string | undefined
+  subZoneId: number | null
+  subZoneCode: string | null
+}
+
 // Uploads every staged file independently (allSettled, not Promise.all) so
 // one bad file (rejected by the backend's traversal/size checks) doesn't
-// abort the others — the project-level flow expects many sheets in one go.
-// One upload action = one version, applied to every file in the batch —
-// the next version is fetched once here, not once per file (mirrors how
-// BIM's upload computes nextMajor/nextMinor once per upload, not per file).
-export function useUploadDrawings(projectId: number | undefined, projectCode: string | undefined) {
+// abort the others. One upload action = one version of THIS zone(+sub-zone)'s
+// drawing set — the next version is fetched once here, not once per file
+// (mirrors how BIM's upload computes nextMajor/nextMinor once per upload,
+// not per file). Version numbering is scoped per zone(+sub-zone), not per
+// project, since 2026-08-25's Zone rescope — uploading to Zone A never
+// bumps Zone B's version counter.
+export function useUploadDrawings(scope: UploadDrawingsScope) {
+  const { projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode } = scope
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (files: File[]) => {
-      const { version: latest } = await getLatestDrawingVersion(projectId!)
+      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId)
       const nextVersion = (latest ?? 0) + 1
       const fileNames = dedupeFileNames(files)
       const results = await Promise.allSettled(
         files.map((file, i) =>
-          uploadDrawing({ projectId: projectId!, projectCode: projectCode!, version: nextVersion, file, fileName: fileNames[i] }),
+          uploadDrawing({
+            projectId: projectId!, projectCode: projectCode!,
+            zoneId: zoneId!, zoneCode: zoneCode!,
+            subZoneId, subZoneCode,
+            version: nextVersion, file, fileName: fileNames[i],
+          }),
         ),
       )
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       return { uploaded: results.length - failed.length, failed }
     },
     onSuccess: ({ failed }) => {
-      qc.invalidateQueries({ queryKey: ['drawings', projectId] })
+      qc.invalidateQueries({ queryKey: ['drawings', zoneId, subZoneId] })
       if (failed.length > 0) {
         toast.error(`${failed.length} file${failed.length === 1 ? '' : 's'} failed to upload — please try again`)
       }
@@ -59,11 +79,40 @@ export function useUploadDrawings(projectId: number | undefined, projectCode: st
   })
 }
 
-export function useDeleteDrawing(projectId: number | undefined) {
+export function useDeleteDrawing(zoneId: number | undefined, subZoneId: number | null) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => deleteDrawing(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['drawings', projectId] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['drawings', zoneId, subZoneId] }),
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete drawing — please try again'),
+  })
+}
+
+// Polls while the .dwg's APS 2D-preview translation is still running; stops
+// once complete/failed so we don't keep hitting Autodesk's manifest endpoint
+// after we already have an answer. Mirrors useBimStatus. Keeps polling on
+// `null` too (not just 'processing') — right after upload, the fire-and-
+// forget push may not have flipped the row to 'processing' yet, and a
+// null-stops-polling condition would strand the UI on "Generating
+// preview..." forever instead of picking the transition up shortly after.
+export function useDrawingApsStatus(id: number | null) {
+  return useQuery({
+    queryKey: ['drawings', 'aps-status', id],
+    queryFn: () => getDrawingApsStatus(id!),
+    enabled: id != null,
+    refetchInterval: query => {
+      const status = query.state.data?.status
+      return status === 'complete' || status === 'failed' ? false : 2500
+    },
+    meta: { skipGlobalErrorToast: true },
+  })
+}
+
+export function useDrawingApsViewerToken(id: number | null) {
+  return useQuery({
+    queryKey: ['drawings', 'aps-viewer-token', id],
+    queryFn: () => getDrawingApsViewerToken(id!),
+    enabled: id != null,
+    staleTime: 50 * 60 * 1000, // APS 2-legged tokens are valid ~1h
   })
 }

@@ -1,4 +1,4 @@
-import type { ApsPropertyItem } from './aps-client.service'
+import type { ApsPropertyItem } from '../aps/aps-client.service'
 
 export interface ExtractedElement {
   viewerId: number
