@@ -1,8 +1,9 @@
-import { NestFactory } from '@nestjs/core'
+import { NestFactory, HttpAdapterHost } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import * as compression from 'compression'
 import { AppModule } from './app.module'
+import { LoggingExceptionFilter } from './common/filters/logging-exception.filter'
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule)
@@ -15,6 +16,11 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
   )
+  // See the filter's own comment — Nest's default filter never logs
+  // HttpException instances (e.g. every `throw new
+  // InternalServerErrorException(...)` in ApsClientService), which left
+  // real 500s completely invisible in Cloud Run's logs.
+  app.useGlobalFilters(new LoggingExceptionFilter(app.get(HttpAdapterHost).httpAdapter))
 
   const config = new DocumentBuilder()
     .setTitle('BDT Engineering System API')
