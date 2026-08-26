@@ -16,15 +16,20 @@ const VIEWER_SCOPES = 'viewables:read'
 // in the JPN region (moved there 2026-08-26 to match where Cloud Run/Vercel/
 // Supabase already run — see wiki: features/drawing.md). Model Derivative is
 // a genuinely separate regional service from OSS: every translate-job POST
-// and manifest/metadata GET must carry an `x-ads-region` header matching the
-// source object's bucket region, or Autodesk can't locate it at all —
-// confirmed live 2026-08-26 (every translate()/getManifest() call started
-// failing right after the bucket region move, with no application-level
-// exception ever logged — the request to Autodesk itself was failing
-// silently past our own try/catch boundaries in a way that never reached
-// NestJS's exception filter cleanly). Region value is the exact ISO
-// 3166-alpha-3 code Autodesk uses for bucket regions (matches what the APS
-// console's bucket-region picker shows, e.g. "JPN").
+// and manifest/metadata GET must carry a `region` header matching the source
+// object's bucket region, or Autodesk can't locate it. Confirmed live
+// 2026-08-26 in two stages: first every translate()/getManifest() call
+// failed silently (no application-level exception logged at all — the
+// request to Autodesk was failing in a way that never reached NestJS's
+// exception filter cleanly); after adding a region header, the real error
+// surfaced ("APS translate job failed (403)") because the header name was
+// initially wrong (`x-ads-region`, based on an imprecise secondary source) —
+// the ACTUAL header Autodesk's Model Derivative OpenAPI spec defines is
+// literally named `region` (confirmed directly from
+// aps-sdk-openapi/modelderivative/modelderivative.yaml, not a paraphrased
+// blog/search summary). Region value is the exact ISO 3166-alpha-3 code
+// Autodesk uses for bucket regions (matches what the APS console's
+// bucket-region picker shows, e.g. "JPN").
 const MD_REGION = 'JPN'
 
 export interface ApsManifest {
@@ -201,7 +206,7 @@ export class ApsClientService {
     const token = await this.getAccessToken()
     const res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}`, 'x-ads-region': MD_REGION },
+      headers: { Authorization: `Bearer ${token}`, region: MD_REGION },
     })
     if (!res.ok && res.status !== 404) {
       throw new InternalServerErrorException(`APS manifest delete failed (${res.status})`)
@@ -217,7 +222,7 @@ export class ApsClientService {
     const token = await this.getAccessToken()
     const res = await fetch(`${MD_URL}/designdata/job`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'x-ads-region': MD_REGION },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', region: MD_REGION },
       body: JSON.stringify({
         input: { urn },
         output: { formats: [{ type: 'svf2', views }] },
@@ -232,7 +237,7 @@ export class ApsClientService {
   async getManifest(urn: string): Promise<ApsManifest> {
     const token = await this.getAccessToken()
     const res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
-      headers: { Authorization: `Bearer ${token}`, 'x-ads-region': MD_REGION },
+      headers: { Authorization: `Bearer ${token}`, region: MD_REGION },
     })
     if (!res.ok) {
       throw new InternalServerErrorException(`APS manifest fetch failed (${res.status})`)
@@ -252,7 +257,7 @@ export class ApsClientService {
   // gate processing→complete on it actually being ready.
   async hasQueryableMetadata(urn: string): Promise<boolean> {
     const token = await this.getAccessToken()
-    const authHeader = { Authorization: `Bearer ${token}`, 'x-ads-region': MD_REGION }
+    const authHeader = { Authorization: `Bearer ${token}`, region: MD_REGION }
     const metaRes = await fetch(`${MD_URL}/designdata/${urn}/metadata`, { headers: authHeader })
     if (!metaRes.ok) return false
     const metaBody = await metaRes.json()
@@ -277,7 +282,7 @@ export class ApsClientService {
   // is cheap next to holding the entire collection in memory twice over.
   async *streamProperties(urn: string): AsyncGenerator<ApsPropertyItem> {
     const token = await this.getAccessToken()
-    const authHeader = { Authorization: `Bearer ${token}`, 'x-ads-region': MD_REGION }
+    const authHeader = { Authorization: `Bearer ${token}`, region: MD_REGION }
 
     const metaRes = await fetch(`${MD_URL}/designdata/${urn}/metadata`, { headers: authHeader })
     if (!metaRes.ok) {
