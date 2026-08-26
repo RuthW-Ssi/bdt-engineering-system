@@ -62,8 +62,8 @@ jobs:
             --set-env-vars FILE_STORAGE_DRIVER=gcs \
             --set-env-vars FILE_STORAGE_GCS_BUCKET=bdt-file-storage-staging \
             --set-env-vars FILE_STORAGE_LOCAL_PATH=/tmp/storage \
-            --set-env-vars APS_BIM_BUCKET_KEY=bdt-bim-staging \
-            --set-env-vars APS_DRAWING_BUCKET_KEY=bdt-drawing-staging \
+            --set-env-vars APS_BIM_BUCKET_KEY=bdt_bim_staging \
+            --set-env-vars APS_DRAWING_BUCKET_KEY=bdt_drawing_staging \
             --port 3000 \
             --min-instances 0 \
             --max-instances 3 \
