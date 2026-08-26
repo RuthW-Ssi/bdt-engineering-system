@@ -40,7 +40,7 @@ export class ApsClientService {
     return process.env.APS_CLIENT_SECRET
   }
   get bucketKey() {
-    return process.env.APS_BUCKET_KEY || 'bdt-bim-dev'
+    return process.env.APS_BIM_BUCKET_KEY || 'bdt-bim-dev'
   }
 
   private requireCredentials() {
