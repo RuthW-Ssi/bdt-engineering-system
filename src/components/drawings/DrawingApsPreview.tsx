@@ -66,7 +66,24 @@ export function DrawingApsPreview({ urn, accessToken }: Props) {
 
           Autodesk.Viewing.Document.load(
             `urn:${urn}`,
-            (doc: any) => viewer.loadDocumentNode(doc, doc.getRoot().getDefaultGeometry()),
+            (doc: any) => {
+              // A DWG's 2D translation commonly produces one geometry node
+              // per layout (Model Space + however many Paper Space sheets
+              // the source file has), and none of them may be flagged
+              // "useAsDefault" — getDefaultGeometry() then returns undefined,
+              // and handing that to loadDocumentNode() throws inside
+              // Autodesk's own bundle (confirmed live 2026-08-26: "Cannot
+              // read properties of undefined (reading 'search')" in
+              // Viewer3D.js). Fall back to the first real 2D geometry node.
+              const defaultGeometry = doc.getRoot().getDefaultGeometry()
+              const geometry = defaultGeometry
+                ?? Autodesk.Viewing.Document.getSubItemsWithProperties(doc.getRoot(), { type: 'geometry', role: '2d' }, true)[0]
+              if (!geometry) {
+                setLoadError('This DWG has no 2D sheet Autodesk could translate')
+                return
+              }
+              viewer.loadDocumentNode(doc, geometry)
+            },
             (errorCode: number) => setLoadError(`Failed to load preview (Autodesk error code ${errorCode})`),
           )
         })
