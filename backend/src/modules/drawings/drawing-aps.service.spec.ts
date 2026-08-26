@@ -51,6 +51,19 @@ function webStreamFromString(s: string) {
   })
 }
 
+// pushToAps() buffers the GCS fetch via .arrayBuffer() (not a streaming
+// pass-through — see the fix comment in drawing-aps.service.ts for why),
+// so every mocked GCS-fetch response needs both `body` (checked for
+// truthiness) and a working `.arrayBuffer()`.
+function fakeGcsFetchResponse(s: string) {
+  return {
+    ok: true,
+    status: 200,
+    body: webStreamFromString(s),
+    arrayBuffer: jest.fn().mockResolvedValue(new TextEncoder().encode(s).buffer),
+  }
+}
+
 afterEach(() => {
   global.fetch = ORIGINAL_FETCH
   jest.restoreAllMocks()
@@ -65,7 +78,7 @@ describe('DrawingApsService.pushToAps', () => {
     global.fetch = jest
       .fn()
       // 1st call: fetch the file back out of GCS
-      .mockResolvedValueOnce({ ok: true, status: 200, body: webStreamFromString('fake dwg bytes') })
+      .mockResolvedValueOnce(fakeGcsFetchResponse('fake dwg bytes'))
       // 2nd call: PUT the bytes to the APS signed upload URL
       .mockResolvedValueOnce({ ok: true, status: 200 }) as unknown as typeof fetch
 
@@ -74,6 +87,11 @@ describe('DrawingApsService.pushToAps', () => {
 
     expect(aps.ensureBucket).toHaveBeenCalledWith('bdt-drawing-staging')
     expect(aps.createSignedUpload).toHaveBeenCalledWith(expect.any(String), 'bdt-drawing-staging')
+    // Buffered, not streamed — a Buffer body carries a known Content-Length
+    // (see the fix comment for why chunked/streaming got rejected by APS).
+    const putCall = (global.fetch as jest.Mock).mock.calls[1]
+    expect(Buffer.isBuffer(putCall[1].body)).toBe(true)
+    expect(putCall[1].duplex).toBeUndefined()
     expect(aps.completeUpload).toHaveBeenCalledWith(expect.any(String), 'up-key', 'bdt-drawing-staging')
     expect(aps.translate).toHaveBeenCalledWith('urn:new', ['2d'])
     expect(drawing.aps_urn).toBe('urn:new')
@@ -102,7 +120,7 @@ describe('DrawingApsService.pushToAps', () => {
     const fileStorage = makeFileStorage()
     global.fetch = jest
       .fn()
-      .mockResolvedValueOnce({ ok: true, status: 200, body: webStreamFromString('fake dwg bytes') })
+      .mockResolvedValueOnce(fakeGcsFetchResponse('fake dwg bytes'))
       .mockResolvedValueOnce({ ok: false, status: 500 }) as unknown as typeof fetch
 
     const svc = new DrawingApsService(prisma as any, aps as any, fileStorage as any)
