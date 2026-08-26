@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common'
+import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
 import { Readable } from 'node:stream'
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web'
 import { chain } from 'stream-chain'
@@ -54,6 +54,16 @@ export interface ApsPropertyItem {
 // compatibility with BIM's existing call sites, which never pass one).
 @Injectable()
 export class ApsClientService {
+  // TEMPORARY (added 2026-08-26, remove once the live region-header 403 is
+  // root-caused) -- our own error message swallows Autodesk's raw response
+  // body via `body?.diagnostic ?? body?.reason ?? 'unknown error'`, and
+  // Cloud Run's logs have shown nothing at all for this specific failure
+  // path (confirmed via direct `gcloud logging read`, several attempts,
+  // zero entries beyond the httpRequest access log). Logging the raw
+  // response text directly is the fastest way to see what Autodesk is
+  // actually saying.
+  private readonly logger = new Logger(ApsClientService.name)
+
   private tokenCache?: { token: string; expiresAt: number }
   private viewerTokenCache?: { token: string; expiresAt: number }
 
@@ -203,12 +213,23 @@ export class ApsClientService {
   // manifest before every translate (first upload included, harmless no-op
   // there) guarantees exactly one derivative ever exists for a urn.
   async deleteManifest(urn: string): Promise<void> {
+    this.logger.log(`[TEMP-DIAG] deleteManifest: starting, urn=${urn}`)
     const token = await this.getAccessToken()
-    const res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}`, region: MD_REGION },
-    })
+    this.logger.log('[TEMP-DIAG] deleteManifest: got token, calling DELETE manifest')
+    let res: Response
+    try {
+      res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}`, region: MD_REGION },
+      })
+    } catch (err) {
+      this.logger.error(`[TEMP-DIAG] deleteManifest: fetch() itself threw (network-level)`, err instanceof Error ? err.stack : String(err))
+      throw err
+    }
+    this.logger.log(`[TEMP-DIAG] deleteManifest: response status=${res.status}`)
     if (!res.ok && res.status !== 404) {
+      const raw = await res.text().catch(() => '<failed to read body>')
+      this.logger.error(`[TEMP-DIAG] deleteManifest: failed, status=${res.status}, raw body=${raw}`)
       throw new InternalServerErrorException(`APS manifest delete failed (${res.status})`)
     }
   }
@@ -218,20 +239,39 @@ export class ApsClientService {
   // sheet data, not a 3D model; requesting '3d' for it would fail or produce
   // nothing useful).
   async translate(urn: string, views: Array<'2d' | '3d'> = ['3d']): Promise<void> {
+    this.logger.log(`[TEMP-DIAG] translate: starting, urn=${urn}, views=${views.join(',')}`)
     await this.deleteManifest(urn)
+    this.logger.log('[TEMP-DIAG] translate: deleteManifest done, getting token')
     const token = await this.getAccessToken()
-    const res = await fetch(`${MD_URL}/designdata/job`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', region: MD_REGION },
-      body: JSON.stringify({
-        input: { urn },
-        output: { formats: [{ type: 'svf2', views }] },
-      }),
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => null)
-      throw new InternalServerErrorException(`APS translate job failed (${res.status}): ${body?.diagnostic ?? body?.reason ?? 'unknown error'}`)
+    this.logger.log('[TEMP-DIAG] translate: got token, POSTing designdata/job')
+    let res: Response
+    try {
+      res = await fetch(`${MD_URL}/designdata/job`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', region: MD_REGION },
+        body: JSON.stringify({
+          input: { urn },
+          output: { formats: [{ type: 'svf2', views }] },
+        }),
+      })
+    } catch (err) {
+      this.logger.error(`[TEMP-DIAG] translate: fetch() itself threw (network-level)`, err instanceof Error ? err.stack : String(err))
+      throw err
     }
+    this.logger.log(`[TEMP-DIAG] translate: response status=${res.status}`)
+    if (!res.ok) {
+      const raw = await res.text().catch(() => '<failed to read body>')
+      this.logger.error(`[TEMP-DIAG] translate: failed, status=${res.status}, raw body=${raw}`)
+      const body = (() => {
+        try {
+          return JSON.parse(raw)
+        } catch {
+          return null
+        }
+      })()
+      throw new InternalServerErrorException(`APS translate job failed (${res.status}): ${body?.diagnostic ?? body?.reason ?? raw ?? 'unknown error'}`)
+    }
+    this.logger.log('[TEMP-DIAG] translate: job accepted OK')
   }
 
   async getManifest(urn: string): Promise<ApsManifest> {
