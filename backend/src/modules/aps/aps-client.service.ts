@@ -1,4 +1,4 @@
-import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common'
+import { Injectable, InternalServerErrorException } from '@nestjs/common'
 import { Readable } from 'node:stream'
 import type { ReadableStream as NodeWebReadableStream } from 'node:stream/web'
 import { chain } from 'stream-chain'
@@ -12,25 +12,18 @@ const MD_URL = 'https://developer.api.autodesk.com/modelderivative/v2'
 const SERVER_SCOPES = 'data:read data:write data:create bucket:create bucket:read'
 const VIEWER_SCOPES = 'viewables:read'
 
-// Both OSS buckets this app uses (bdt-bim-staging, bdt-drawing-staging) live
-// in the JPN region (moved there 2026-08-26 to match where Cloud Run/Vercel/
-// Supabase already run — see wiki: features/drawing.md). Model Derivative is
-// a genuinely separate regional service from OSS: every translate-job POST
-// and manifest/metadata GET must carry a `region` header matching the source
-// object's bucket region, or Autodesk can't locate it. Confirmed live
-// 2026-08-26 in two stages: first every translate()/getManifest() call
-// failed silently (no application-level exception logged at all — the
-// request to Autodesk was failing in a way that never reached NestJS's
-// exception filter cleanly); after adding a region header, the real error
-// surfaced ("APS translate job failed (403)") because the header name was
-// initially wrong (`x-ads-region`, based on an imprecise secondary source) —
-// the ACTUAL header Autodesk's Model Derivative OpenAPI spec defines is
-// literally named `region` (confirmed directly from
-// aps-sdk-openapi/modelderivative/modelderivative.yaml, not a paraphrased
-// blog/search summary). Region value is the exact ISO 3166-alpha-3 code
-// Autodesk uses for bucket regions (matches what the APS console's
-// bucket-region picker shows, e.g. "JPN").
-const MD_REGION = 'JPN'
+// This app's OSS buckets live in the (default) US region — briefly moved to
+// JPN on 2026-08-26 to match where Cloud Run/Vercel/Supabase run, then
+// reverted the same day: Model Derivative translate jobs against a JPN
+// bucket got hard-denied with 403 "Token exchange access denied — Policy
+// 'ProductAccessRequiresCapacity' has effect: deny", confirmed via a live
+// side-by-side test (a fresh US-region bucket passed the same entitlement
+// check that JPN failed). This is an Autodesk-side capacity/entitlement
+// limitation on this account, scoped to region, not a header or code bug —
+// this account only has Model Derivative capacity provisioned for US. No
+// `region` header is sent below: Autodesk's Model Derivative API defaults to
+// US when the header is omitted, which now matches every bucket's actual
+// region again.
 
 export interface ApsManifest {
   status: 'pending' | 'inprogress' | 'success' | 'failed' | 'timeout'
@@ -54,16 +47,6 @@ export interface ApsPropertyItem {
 // compatibility with BIM's existing call sites, which never pass one).
 @Injectable()
 export class ApsClientService {
-  // TEMPORARY (added 2026-08-26, remove once the live region-header 403 is
-  // root-caused) -- our own error message swallows Autodesk's raw response
-  // body via `body?.diagnostic ?? body?.reason ?? 'unknown error'`, and
-  // Cloud Run's logs have shown nothing at all for this specific failure
-  // path (confirmed via direct `gcloud logging read`, several attempts,
-  // zero entries beyond the httpRequest access log). Logging the raw
-  // response text directly is the fastest way to see what Autodesk is
-  // actually saying.
-  private readonly logger = new Logger(ApsClientService.name)
-
   private tokenCache?: { token: string; expiresAt: number }
   private viewerTokenCache?: { token: string; expiresAt: number }
 
@@ -213,23 +196,12 @@ export class ApsClientService {
   // manifest before every translate (first upload included, harmless no-op
   // there) guarantees exactly one derivative ever exists for a urn.
   async deleteManifest(urn: string): Promise<void> {
-    this.logger.log(`[TEMP-DIAG] deleteManifest: starting, urn=${urn}`)
     const token = await this.getAccessToken()
-    this.logger.log('[TEMP-DIAG] deleteManifest: got token, calling DELETE manifest')
-    let res: Response
-    try {
-      res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}`, region: MD_REGION },
-      })
-    } catch (err) {
-      this.logger.error(`[TEMP-DIAG] deleteManifest: fetch() itself threw (network-level)`, err instanceof Error ? err.stack : String(err))
-      throw err
-    }
-    this.logger.log(`[TEMP-DIAG] deleteManifest: response status=${res.status}`)
+    const res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    })
     if (!res.ok && res.status !== 404) {
-      const raw = await res.text().catch(() => '<failed to read body>')
-      this.logger.error(`[TEMP-DIAG] deleteManifest: failed, status=${res.status}, raw body=${raw}`)
       throw new InternalServerErrorException(`APS manifest delete failed (${res.status})`)
     }
   }
@@ -239,45 +211,26 @@ export class ApsClientService {
   // sheet data, not a 3D model; requesting '3d' for it would fail or produce
   // nothing useful).
   async translate(urn: string, views: Array<'2d' | '3d'> = ['3d']): Promise<void> {
-    this.logger.log(`[TEMP-DIAG] translate: starting, urn=${urn}, views=${views.join(',')}`)
     await this.deleteManifest(urn)
-    this.logger.log('[TEMP-DIAG] translate: deleteManifest done, getting token')
     const token = await this.getAccessToken()
-    this.logger.log('[TEMP-DIAG] translate: got token, POSTing designdata/job')
-    let res: Response
-    try {
-      res = await fetch(`${MD_URL}/designdata/job`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', region: MD_REGION },
-        body: JSON.stringify({
-          input: { urn },
-          output: { formats: [{ type: 'svf2', views }] },
-        }),
-      })
-    } catch (err) {
-      this.logger.error(`[TEMP-DIAG] translate: fetch() itself threw (network-level)`, err instanceof Error ? err.stack : String(err))
-      throw err
-    }
-    this.logger.log(`[TEMP-DIAG] translate: response status=${res.status}`)
+    const res = await fetch(`${MD_URL}/designdata/job`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: { urn },
+        output: { formats: [{ type: 'svf2', views }] },
+      }),
+    })
     if (!res.ok) {
-      const raw = await res.text().catch(() => '<failed to read body>')
-      this.logger.error(`[TEMP-DIAG] translate: failed, status=${res.status}, raw body=${raw}`)
-      const body = (() => {
-        try {
-          return JSON.parse(raw)
-        } catch {
-          return null
-        }
-      })()
-      throw new InternalServerErrorException(`APS translate job failed (${res.status}): ${body?.diagnostic ?? body?.reason ?? raw ?? 'unknown error'}`)
+      const body = await res.json().catch(() => null)
+      throw new InternalServerErrorException(`APS translate job failed (${res.status}): ${body?.diagnostic ?? body?.reason ?? 'unknown error'}`)
     }
-    this.logger.log('[TEMP-DIAG] translate: job accepted OK')
   }
 
   async getManifest(urn: string): Promise<ApsManifest> {
     const token = await this.getAccessToken()
     const res = await fetch(`${MD_URL}/designdata/${urn}/manifest`, {
-      headers: { Authorization: `Bearer ${token}`, region: MD_REGION },
+      headers: { Authorization: `Bearer ${token}` },
     })
     if (!res.ok) {
       throw new InternalServerErrorException(`APS manifest fetch failed (${res.status})`)
@@ -297,7 +250,7 @@ export class ApsClientService {
   // gate processing→complete on it actually being ready.
   async hasQueryableMetadata(urn: string): Promise<boolean> {
     const token = await this.getAccessToken()
-    const authHeader = { Authorization: `Bearer ${token}`, region: MD_REGION }
+    const authHeader = { Authorization: `Bearer ${token}` }
     const metaRes = await fetch(`${MD_URL}/designdata/${urn}/metadata`, { headers: authHeader })
     if (!metaRes.ok) return false
     const metaBody = await metaRes.json()
@@ -322,7 +275,7 @@ export class ApsClientService {
   // is cheap next to holding the entire collection in memory twice over.
   async *streamProperties(urn: string): AsyncGenerator<ApsPropertyItem> {
     const token = await this.getAccessToken()
-    const authHeader = { Authorization: `Bearer ${token}`, region: MD_REGION }
+    const authHeader = { Authorization: `Bearer ${token}` }
 
     const metaRes = await fetch(`${MD_URL}/designdata/${urn}/metadata`, { headers: authHeader })
     if (!metaRes.ok) {
