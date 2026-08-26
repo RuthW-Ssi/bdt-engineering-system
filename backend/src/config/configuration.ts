@@ -45,7 +45,11 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
-  APS_BUCKET_KEY: string
+  APS_BIM_BUCKET_KEY: string
+
+  @IsOptional()
+  @IsString()
+  APS_DRAWING_BUCKET_KEY: string
 }
 
 export function validate(config: Record<string, unknown>) {

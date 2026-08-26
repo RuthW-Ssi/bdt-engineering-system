@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
+import { DrawingApsService } from './drawing-aps.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 
 @Injectable()
@@ -8,10 +9,11 @@ export class DrawingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fileStorage: FileStorageService,
+    private readonly drawingAps: DrawingApsService,
   ) {}
 
-  create(dto: CreateDrawingDto, uploadedById: number) {
-    return this.prisma.drawing.create({
+  async create(dto: CreateDrawingDto, uploadedById: number) {
+    const drawing = await this.prisma.drawing.create({
       data: {
         project_id: dto.project_id,
         zone_id: dto.zone_id,
@@ -23,6 +25,16 @@ export class DrawingsService {
         uploaded_by_id: uploadedById,
       },
     })
+
+    // Fire-and-forget — DWG preview generation must never block or fail the
+    // primary GCS upload response. Only .dwg carries anything APS can
+    // usefully translate into a 2D view; DrawingUploadModal only ever
+    // offers .dwg, but this check stays defensive rather than assuming.
+    if (drawing.file_name.toLowerCase().endsWith('.dwg')) {
+      void this.drawingAps.pushToAps(drawing.id, drawing.file_key, drawing.file_name)
+    }
+
+    return drawing
   }
 
   findByZone(zoneId: number, subZoneId: number | null) {
