@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { X, Upload, Loader2, FileText } from 'lucide-react'
 import { FileDropzone } from '../bom/FileDropzone'
 
-const DRAWING_FORMATS = ['.pdf', '.dwg', '.dxf', '.png', '.jpg', '.jpeg']
+const DRAWING_FORMATS = ['.dwg']
 const MAX_DRAWING_SIZE = 50_000_000 // 50MB
 const MAX_FILES = 1500 // a project's worth of sheets in one go, not unbounded
 
@@ -74,7 +74,7 @@ export function DrawingUploadModal({ scopeLabel, isUploading, onFilesConfirmed, 
             currentCount={stagedFiles.length}
             acceptedFormats={DRAWING_FORMATS}
             maxSizeBytes={MAX_DRAWING_SIZE}
-            hint="PDF, DWG, DXF, PNG, JPG · up to 50 MB each"
+            hint="DWG · up to 50 MB each"
             onFilesAdded={accepted => setStagedFiles(files => [...files, ...accepted])}
             disabled={isUploading}
           />

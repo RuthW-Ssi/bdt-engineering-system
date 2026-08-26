@@ -27,7 +27,11 @@ export interface ApsPropertyItem {
 
 // Thin wrapper over Autodesk Platform Services (APS, formerly Forge): 2-legged
 // OAuth, OSS bucket/object upload, Model Derivative translate + manifest +
-// metadata/properties. No Prisma/domain logic here — see BimService.
+// metadata/properties. No Prisma/domain logic here — see BimService /
+// DrawingApsService. Shared by two independent features (BIM, Drawing) that
+// each own a separate OSS bucket — every bucket-scoped method takes an
+// explicit `bucketKey` (defaulting to the BIM bucket for backward
+// compatibility with BIM's existing call sites, which never pass one).
 @Injectable()
 export class ApsClientService {
   private tokenCache?: { token: string; expiresAt: number }
@@ -40,7 +44,10 @@ export class ApsClientService {
     return process.env.APS_CLIENT_SECRET
   }
   get bucketKey() {
-    return process.env.APS_BUCKET_KEY || 'bdt-bim-dev'
+    return process.env.APS_BIM_BUCKET_KEY || 'bdt-bim-dev'
+  }
+  get drawingBucketKey() {
+    return process.env.APS_DRAWING_BUCKET_KEY || 'bdt-drawing-dev'
   }
 
   private requireCredentials() {
@@ -92,12 +99,12 @@ export class ApsClientService {
     return { token: body.access_token, expiresAt: Date.now() + (body.expires_in - 60) * 1000 }
   }
 
-  async ensureBucket(): Promise<void> {
+  async ensureBucket(bucketKey: string = this.bucketKey): Promise<void> {
     const token = await this.getAccessToken()
     const res = await fetch(`${OSS_URL}/buckets`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bucketKey: this.bucketKey, policyKey: 'persistent' }),
+      body: JSON.stringify({ bucketKey, policyKey: 'persistent' }),
     })
     // 409 = bucket already exists, which is the expected steady state.
     if (!res.ok && res.status !== 409) {
@@ -114,10 +121,10 @@ export class ApsClientService {
   // under real Tekla IFC export sizes; routing the bytes through our infra
   // at all would 413 regardless of our own 100MB multer limit, which never
   // even gets evaluated since the request dies upstream first.
-  async createSignedUpload(objectKey: string): Promise<{ uploadKey: string; url: string }> {
+  async createSignedUpload(objectKey: string, bucketKey: string = this.bucketKey): Promise<{ uploadKey: string; url: string }> {
     const token = await this.getAccessToken()
     const signRes = await fetch(
-      `${OSS_URL}/buckets/${this.bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
+      `${OSS_URL}/buckets/${bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
       { headers: { Authorization: `Bearer ${token}` } },
     )
     if (!signRes.ok) {
@@ -128,13 +135,13 @@ export class ApsClientService {
   }
 
   // Mirrors createSignedUpload()'s shape but for reads — mints a short-lived
-  // signed GET URL for an object already in our own OSS bucket. Used only by
-  // the GCS backup-copy step (BimBackupService); the primary
-  // upload/translate/viewer flow never calls this.
-  async getSignedDownloadUrl(objectKey: string): Promise<string> {
+  // signed GET URL for an object already in an OSS bucket. Used by the BIM
+  // GCS backup-copy step (BimBackupService) and by DrawingApsService's
+  // GCS-to-APS push (opposite direction, same primitive).
+  async getSignedDownloadUrl(objectKey: string, bucketKey: string = this.bucketKey): Promise<string> {
     const token = await this.getAccessToken()
     const res = await fetch(
-      `${OSS_URL}/buckets/${this.bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3download`,
+      `${OSS_URL}/buckets/${bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3download`,
       { headers: { Authorization: `Bearer ${token}` } },
     )
     if (!res.ok) {
@@ -144,12 +151,13 @@ export class ApsClientService {
     return url
   }
 
-  // Called after the browser's own direct PUT to the signed URL succeeds —
-  // finalizes the OSS object and returns the URN Model Derivative needs.
-  async completeUpload(objectKey: string, uploadKey: string): Promise<{ urn: string }> {
+  // Called after the browser's (or our own backend's, for Drawing) direct PUT
+  // to the signed URL succeeds — finalizes the OSS object and returns the URN
+  // Model Derivative needs.
+  async completeUpload(objectKey: string, uploadKey: string, bucketKey: string = this.bucketKey): Promise<{ urn: string }> {
     const token = await this.getAccessToken()
     const completeRes = await fetch(
-      `${OSS_URL}/buckets/${this.bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
+      `${OSS_URL}/buckets/${bucketKey}/objects/${encodeURIComponent(objectKey)}/signeds3upload`,
       {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -185,7 +193,11 @@ export class ApsClientService {
     }
   }
 
-  async translate(urn: string): Promise<void> {
+  // `views` defaults to ['3d'] to keep BIM's existing IFC/Tekla call sites
+  // unchanged — Drawing's DWG preview passes ['2d'] instead (DWG carries 2D
+  // sheet data, not a 3D model; requesting '3d' for it would fail or produce
+  // nothing useful).
+  async translate(urn: string, views: Array<'2d' | '3d'> = ['3d']): Promise<void> {
     await this.deleteManifest(urn)
     const token = await this.getAccessToken()
     const res = await fetch(`${MD_URL}/designdata/job`, {
@@ -193,7 +205,7 @@ export class ApsClientService {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         input: { urn },
-        output: { formats: [{ type: 'svf2', views: ['3d'] }] },
+        output: { formats: [{ type: 'svf2', views }] },
       }),
     })
     if (!res.ok) {

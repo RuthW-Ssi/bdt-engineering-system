@@ -1,6 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing } from '../api/drawings'
+import {
+  getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing,
+  getDrawingApsStatus, getDrawingApsViewerToken,
+} from '../api/drawings'
 
 export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | null) {
   return useQuery({
@@ -82,5 +85,34 @@ export function useDeleteDrawing(zoneId: number | undefined, subZoneId: number |
     mutationFn: (id: number) => deleteDrawing(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['drawings', zoneId, subZoneId] }),
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to delete drawing — please try again'),
+  })
+}
+
+// Polls while the .dwg's APS 2D-preview translation is still running; stops
+// once complete/failed so we don't keep hitting Autodesk's manifest endpoint
+// after we already have an answer. Mirrors useBimStatus. Keeps polling on
+// `null` too (not just 'processing') — right after upload, the fire-and-
+// forget push may not have flipped the row to 'processing' yet, and a
+// null-stops-polling condition would strand the UI on "Generating
+// preview..." forever instead of picking the transition up shortly after.
+export function useDrawingApsStatus(id: number | null) {
+  return useQuery({
+    queryKey: ['drawings', 'aps-status', id],
+    queryFn: () => getDrawingApsStatus(id!),
+    enabled: id != null,
+    refetchInterval: query => {
+      const status = query.state.data?.status
+      return status === 'complete' || status === 'failed' ? false : 2500
+    },
+    meta: { skipGlobalErrorToast: true },
+  })
+}
+
+export function useDrawingApsViewerToken(id: number | null) {
+  return useQuery({
+    queryKey: ['drawings', 'aps-viewer-token', id],
+    queryFn: () => getDrawingApsViewerToken(id!),
+    enabled: id != null,
+    staleTime: 50 * 60 * 1000, // APS 2-legged tokens are valid ~1h
   })
 }
