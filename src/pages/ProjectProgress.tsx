@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Downloa
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
+import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPanel'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { useProject } from '../hooks/useProjects'
 import {
@@ -112,6 +113,13 @@ export function ProjectProgress() {
   const zoneParam = searchParams.get('zone')
   const tab: 'overview' | number = zoneParam ? Number(zoneParam) : 'overview'
   const activeZoneId = tab === 'overview' ? null : tab
+
+  // Right-column toggle between the 3D viewport and the Drawing quick-look
+  // panel — Drawing has no whole-project concept (always zone-scoped), so
+  // Overview always shows 3D regardless of this state; the toggle itself is
+  // hidden there too (see the tab bar / right-column render below).
+  const [rightPanelView, setRightPanelView] = useState<'3d' | 'drawing'>('3d')
+  const showDrawingPanel = tab !== 'overview' && rightPanelView === 'drawing'
 
   // If the URL names a zone that doesn't belong to this project (stale
   // link, typo'd id), fall back to Overview instead of silently showing an
@@ -505,8 +513,16 @@ export function ProjectProgress() {
             activeBimMatch/activeTotals are already tab-scoped, so the same
             strip works whole-project or single-zone with no extra branching. */}
         <div className="flex flex-col" style={{ gap: 16, minHeight: 0, minWidth: 0 }}>
+          {tab !== 'overview' && (
+            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+              <ViewToggleButton label="3D Model" active={rightPanelView === '3d'} onClick={() => setRightPanelView('3d')} />
+              <ViewToggleButton label="Drawing" active={rightPanelView === 'drawing'} onClick={() => setRightPanelView('drawing')} />
+            </div>
+          )}
           <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0 }}>
-            {activeBimMatch && activeBimMatch.model_id == null ? (
+            {showDrawingPanel ? (
+              <ProgressDrawingPanel zoneId={activeZoneId!} />
+            ) : activeBimMatch && activeBimMatch.model_id == null ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB', gap: 8, textAlign: 'center', padding: 16 }}>
                 <CuboidIcon size={28} />
                 <span style={{ fontSize: 13 }}>No completed BIM model for this project yet — the table still works</span>
@@ -533,6 +549,10 @@ export function ProjectProgress() {
               )}
             </div>
 
+            {/* Phase-isolate only affects the 3D viewport's highlighting —
+                hide it while the Drawing panel is showing instead of leaving
+                controls visible that silently do nothing in that view. */}
+            {!showDrawingPanel && (
             <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, padding: '7px 10px', flexShrink: 0 }}>
               {/* flexWrap so a narrow container wraps to a 2nd row instead
                   of overflow-scrolling or getting cut off — smaller
@@ -572,9 +592,29 @@ export function ProjectProgress() {
                 })}
               </div>
             </div>
+            )}
           </div>
         </div>
       </div>
+  )
+}
+
+function ViewToggleButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      style={{
+        font: 'inherit', fontSize: 11.5, fontWeight: 600, padding: '5px 12px',
+        borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap', outline: 'none',
+        border: `1px solid ${active ? '#C8202A' : '#E0E0E0'}`,
+        background: active ? '#C8202A' : 'white',
+        color: active ? 'white' : '#1A1A1A',
+        transition: 'border-color 0.12s, background 0.12s, color 0.12s',
+      }}
+    >
+      {label}
+    </button>
   )
 }
 
