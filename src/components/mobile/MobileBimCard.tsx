@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Loader2, Cuboid as CuboidIcon, Maximize2, Minimize2, SlidersHorizontal, SquarePen } from 'lucide-react'
+import { Loader2, Cuboid as CuboidIcon, FileText, Maximize2, Minimize2, SlidersHorizontal, SquarePen } from 'lucide-react'
 import { BimViewport } from '../bim/BimViewport'
 import type { BimSelection } from '../bim/BimViewport'
 import { useBimViewerToken } from '../../hooks/useBim'
 import { PHASE_ORDER, PHASE_META, PHASE_PCT_KEY, defaultPhaseColor } from '../progress/statusMeta'
 import { MobileProgressSheet } from './MobileProgressSheet'
+import { MobileDrawingSheet } from './MobileDrawingSheet'
 import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey } from '../../api/projectProgress'
 
 // View-only mirror of desktop ProjectProgress.tsx's base (non-isolate) 3D
@@ -42,6 +43,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
   const [showToolbar, setShowToolbar] = useState(false)
   const [selected, setSelected] = useState<{ row: ProgressZoneRow; zone?: string } | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [drawingSheetOpen, setDrawingSheetOpen] = useState(false)
   const [activePhase, setActivePhase] = useState<PhaseKey | null>(null)
 
   const matchByAssembly = useMemo(
@@ -147,6 +149,13 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
               >
                 <SquarePen size={13} />
               </button>
+              <button
+                onClick={() => setDrawingSheetOpen(true)}
+                aria-label="Show drawing"
+                className="flex items-center justify-center w-6 h-6 rounded-md bg-white/15 active:bg-white/30"
+              >
+                <FileText size={13} />
+              </button>
             </div>
           )}
 
@@ -218,6 +227,12 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         projectCode={projectCode}
+        row={selected?.row ?? null}
+      />
+
+      <MobileDrawingSheet
+        open={drawingSheetOpen}
+        onClose={() => setDrawingSheetOpen(false)}
         row={selected?.row ?? null}
       />
     </>
