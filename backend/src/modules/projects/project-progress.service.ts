@@ -21,10 +21,13 @@ export type ProgressShade = 'light' | 'dark'
 type FabStageFields = Record<FabStage, number>
 
 interface ProgressFields extends FabStageFields {
+  fab_plan_finish_date: Date | null
+  fab_actual_finish_date: Date | null
   plan_load_date: Date | null
   actual_load_date: Date | null
   loaded_pcs: number
   erected_pcs: number
+  erection_plan_finish_date: Date | null
   erection_actual_finish_date: Date | null
   payment_status: string
   // Prisma Decimal, not number — same loose-typing as bom_assembly's own
@@ -40,10 +43,13 @@ interface ProgressFields extends FabStageFields {
 // 'YYYY-MM-DD' strings with explicit null clearing, pcs clamp to the
 // assembly's own qty. Omitted fields are left unchanged.
 export interface UpdateAssemblyProgressDto extends Partial<FabStageFields> {
+  fab_plan_finish_date?: string | null
+  fab_actual_finish_date?: string | null
   plan_load_date?: string | null
   actual_load_date?: string | null
   loaded_pcs?: number
   erected_pcs?: number
+  erection_plan_finish_date?: string | null
   erection_actual_finish_date?: string | null
   payment_status?: string
   claimed_weight_kg?: number
@@ -146,10 +152,13 @@ export class ProjectProgressService {
     const pct = (v: number | undefined) => (v === undefined ? undefined : clampPct(v))
     const fields = {
       ...Object.fromEntries(FAB_STAGES.map(s => [s, pct(dto[s])])),
+      fab_plan_finish_date: toDate(dto.fab_plan_finish_date),
+      fab_actual_finish_date: toDate(dto.fab_actual_finish_date),
       plan_load_date: toDate(dto.plan_load_date),
       actual_load_date: toDate(dto.actual_load_date),
       loaded_pcs: dto.loaded_pcs === undefined ? undefined : clampPcs(dto.loaded_pcs, q),
       erected_pcs: dto.erected_pcs === undefined ? undefined : clampPcs(dto.erected_pcs, q),
+      erection_plan_finish_date: toDate(dto.erection_plan_finish_date),
       erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
       payment_status: dto.payment_status,
       claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
@@ -211,8 +220,11 @@ export class ProjectProgressService {
     // (one absolute count can't apply to rows with different qty).
     const shared = {
       ...Object.fromEntries(FAB_STAGES.map(s => [s, pct(dto[s])])),
+      fab_plan_finish_date: toDate(dto.fab_plan_finish_date),
+      fab_actual_finish_date: toDate(dto.fab_actual_finish_date),
       plan_load_date: toDate(dto.plan_load_date),
       actual_load_date: toDate(dto.actual_load_date),
+      erection_plan_finish_date: toDate(dto.erection_plan_finish_date),
       erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
       payment_status: dto.payment_status,
       claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
@@ -547,10 +559,13 @@ function mapAssemblyRow(a: { id: number; assembly_mark: string; weight_kg: unkno
     weight_kg: a.weight_kg != null ? Number(a.weight_kg) : null,
     qty: a.qty != null ? Number(a.qty) : null,
     ...Object.fromEntries(FAB_STAGES.map(s => [s, p?.[s] ?? 0])),
+    fab_plan_finish_date: p?.fab_plan_finish_date ?? null,
+    fab_actual_finish_date: p?.fab_actual_finish_date ?? null,
     plan_load_date: p?.plan_load_date ?? null,
     actual_load_date: p?.actual_load_date ?? null,
     loaded_pcs: p?.loaded_pcs ?? 0,
     erected_pcs: p?.erected_pcs ?? 0,
+    erection_plan_finish_date: p?.erection_plan_finish_date ?? null,
     erection_actual_finish_date: p?.erection_actual_finish_date ?? null,
     payment_status: p?.payment_status ?? 'Not Disbursed',
     claimed_weight_kg: p?.claimed_weight_kg != null ? Number(p.claimed_weight_kg) : null,

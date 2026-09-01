@@ -3,11 +3,23 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ChevronRight, Layers, LayoutDashboard, Cuboid as CuboidIcon, History } from 'lucide-react'
 import { useProgressOverview, useProgressProjectRows, useProgressProjectBimMatch } from '../../hooks/useProjectProgress'
 import { useProject } from '../../hooks/useProjects'
+import { useProjectZones } from '../../hooks/useProjectZones'
 import { MobileHeader } from '../../components/mobile/MobileHeader'
 import { MobileDateRangeCard } from '../../components/mobile/MobileDateRangeCard'
 import { MobileProgressStatCards } from '../../components/mobile/MobileProgressStatCards'
+import { MobileDelaySummary } from '../../components/mobile/MobileDelaySummary'
+import { MobileDelayFormulaSheet } from '../../components/mobile/MobileDelayFormulaSheet'
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
 import { MobileTabBar } from '../../components/mobile/MobileTabBar'
+import { computeDelayInfo, DELAY_STATUS_COLOR, type DelayInfo } from '../../components/progress/delayStatus'
+import { Info as InfoIcon } from 'lucide-react'
+
+// Same format as ProjectList.tsx's/MobileDateRangeCard's fmtDate — kept as a
+// local copy, matching this repo's convention of a small per-file duplicate
+// over a shared date-format util.
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
+}
 
 type Tab = 'overview' | '3d' | 'zones' | 'history'
 
@@ -19,8 +31,12 @@ export function MobileZoneList() {
   const { data: project } = useProject(code)
   const { data: projectRows } = useProgressProjectRows(code, true)
   const { data: projectBimMatch } = useProgressProjectBimMatch(code, true)
+  const { data: projectZones } = useProjectZones(project?.id)
   const zones = data?.zones ?? []
   const total = data?.total
+  const zoneMetaById = new Map((projectZones ?? []).map(z => [z.id, z]))
+  const [zoneSheetOpen, setZoneSheetOpen] = useState(false)
+  const [zoneSheetData, setZoneSheetData] = useState<{ label: string; info: DelayInfo } | null>(null)
 
   // h-dvh, not h-screen (100vh) — 100vh overshoots the real visible viewport
   // on mobile browsers (doesn't subtract the address bar), which pushed the
@@ -48,6 +64,7 @@ export function MobileZoneList() {
             />
           )}
           {total && <MobileProgressStatCards total={total} />}
+          {projectZones && <MobileDelaySummary zones={zones} zoneMeta={projectZones} />}
         </div>
 
         {tab === '3d' && (
@@ -76,24 +93,61 @@ export function MobileZoneList() {
           {!isLoading && zones.length === 0 && (
             <div className="text-center text-chrome-400 text-sm py-10">No zones found</div>
           )}
-          {zones.map(z => (
-            <button
-              key={z.zone_id}
-              onClick={() => navigate(`/m/projects/${code}/zones/${z.zone_id}`)}
-              className="flex items-center gap-3 bg-white border border-chrome-100 rounded-xl p-4 text-left active:bg-chrome-50"
-            >
-              <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-steel-50 flex items-center justify-center">
-                <Layers size={18} className="text-steel-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="font-semibold text-chrome-900 text-[15px] truncate">{z.zone_label}</div>
-                <div className="text-xs text-chrome-400 font-mono">{z.zone_code} · {z.assembly_count} pcs · Fab {Math.round(z.fab_pct)}%</div>
-              </div>
-              <ChevronRight size={18} className="text-chrome-200 flex-shrink-0" />
-            </button>
-          ))}
+          {zones.map(z => {
+            const meta = zoneMetaById.get(z.zone_id)
+            const delayInfo = meta ? computeDelayInfo(meta.target_erection_start, meta.target_erection_end, z.erect_pct) : null
+            return (
+              <button
+                key={z.zone_id}
+                onClick={() => navigate(`/m/projects/${code}/zones/${z.zone_id}`)}
+                className="flex items-center gap-3 bg-white border border-chrome-100 rounded-xl p-4 text-left active:bg-chrome-50"
+              >
+                <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-steel-50 flex items-center justify-center">
+                  <Layers size={18} className="text-steel-600" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-chrome-900 text-[15px] truncate">{z.zone_label}</div>
+                  <div className="text-xs text-chrome-400 font-mono">{z.zone_code} · {z.assembly_count} pcs · Fab {Math.round(z.fab_pct)}%</div>
+                  {meta?.target_erection_start && meta?.target_erection_end && (
+                    <span
+                      onClick={e => {
+                        if (!delayInfo) return
+                        e.stopPropagation()
+                        setZoneSheetData({ label: z.zone_label, info: delayInfo })
+                        setZoneSheetOpen(true)
+                      }}
+                      className="flex items-center gap-1.5 text-xs font-mono mt-0.5"
+                      style={{ color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : undefined }}
+                    >
+                      {delayInfo && (
+                        <span
+                          className="flex-shrink-0 w-1.5 h-1.5 rounded-full"
+                          style={{ background: DELAY_STATUS_COLOR[delayInfo.status] }}
+                          aria-hidden
+                        />
+                      )}
+                      <span className={delayInfo ? undefined : 'text-chrome-400'}>
+                        {fmtDate(meta.target_erection_start)} → {fmtDate(meta.target_erection_end)}
+                      </span>
+                      {delayInfo && <InfoIcon size={11} className="flex-shrink-0" style={{ opacity: 0.6 }} />}
+                    </span>
+                  )}
+                </div>
+                <ChevronRight size={18} className="text-chrome-200 flex-shrink-0" />
+              </button>
+            )
+          })}
         </div>
       </div>
+
+      {zoneSheetData && (
+        <MobileDelayFormulaSheet
+          open={zoneSheetOpen}
+          onClose={() => setZoneSheetOpen(false)}
+          zoneLabel={zoneSheetData.label}
+          info={zoneSheetData.info}
+        />
+      )}
 
       <MobileTabBar
         active={tab}

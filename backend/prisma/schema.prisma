@@ -1007,12 +1007,17 @@ model bom_assembly_progress {
   fireproof                    Int          @default(0)
   top_coat                     Int          @default(0)
   qc_final                     Int          @default(0)
+  // Fabrication — phase-level plan/actual finish (distinct from the 10
+  // per-stage percents above), manual entry only, no auto-fill on 100%.
+  fab_plan_finish_date         DateTime?    @db.Date
+  fab_actual_finish_date       DateTime?    @db.Date
   // Transport
   plan_load_date               DateTime?    @db.Date
   actual_load_date             DateTime?    @db.Date
   loaded_pcs                   Int          @default(0)
   // Erection — erected_pcs == qty ⇒ terminal "done" status (ladder only)
   erected_pcs                  Int          @default(0)
+  erection_plan_finish_date    DateTime?    @db.Date
   erection_actual_finish_date  DateTime?    @db.Date
   // Material Payment — parallel phase, fixed 3-value status (not a boolean)
   payment_status                String       @default("Not Disbursed") @db.VarChar(20)

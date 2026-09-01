@@ -52,10 +52,13 @@ export type PaymentStatus = (typeof PAYMENT_STATUSES)[number]
 export function buildProgressCreateDefaults(fields: Record<string, any>, writeUid: number) {
   return {
     ...Object.fromEntries(FAB_STAGES.map(s => [s, (fields as Record<string, number | undefined>)[s] ?? 0])),
+    fab_plan_finish_date: fields.fab_plan_finish_date ?? null,
+    fab_actual_finish_date: fields.fab_actual_finish_date ?? null,
     plan_load_date: fields.plan_load_date ?? null,
     actual_load_date: fields.actual_load_date ?? null,
     loaded_pcs: fields.loaded_pcs ?? 0,
     erected_pcs: fields.erected_pcs ?? 0,
+    erection_plan_finish_date: fields.erection_plan_finish_date ?? null,
     erection_actual_finish_date: fields.erection_actual_finish_date ?? null,
     payment_status: fields.payment_status ?? 'Not Disbursed',
     claimed_weight_kg: fields.claimed_weight_kg ?? null,

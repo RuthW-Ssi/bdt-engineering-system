@@ -39,9 +39,10 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
 const EMPTY = {
   cut: 0, buildup: 0, weld1: 0, fitup_drill: 0, weld2: 0,
   qc_inspection: 0, primer: 0, fireproof: 0, top_coat: 0, qc_final: 0,
+  fab_plan_finish_date: null, fab_actual_finish_date: null,
   plan_load_date: null, actual_load_date: null,
   loaded_pcs: 0, erected_pcs: 0,
-  erection_actual_finish_date: null, payment_status: 'Not Disbursed',
+  erection_plan_finish_date: null, erection_actual_finish_date: null, payment_status: 'Not Disbursed',
   claimed_weight_kg: null, delivered_weight_kg: null,
 }
 const D = new Date('2026-07-01')
@@ -365,6 +366,36 @@ describe('updateAssemblyProgress', () => {
     expect(upsert.mock.calls[1][0].update.erection_actual_finish_date).toBeNull()
   })
 
+  it('fab_plan_finish_date/fab_actual_finish_date coerce date strings and clear on explicit null', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { fab_plan_finish_date: '2026-07-15', fab_actual_finish_date: '2026-07-20' }, 1)
+    expect(upsert.mock.calls[0][0].update.fab_plan_finish_date).toEqual(new Date('2026-07-15'))
+    expect(upsert.mock.calls[0][0].update.fab_actual_finish_date).toEqual(new Date('2026-07-20'))
+
+    await svc.updateAssemblyProgress('0X220', 1, { fab_plan_finish_date: null, fab_actual_finish_date: null }, 1)
+    expect(upsert.mock.calls[1][0].update.fab_plan_finish_date).toBeNull()
+    expect(upsert.mock.calls[1][0].update.fab_actual_finish_date).toBeNull()
+  })
+
+  it('erection_plan_finish_date coerces date strings and clears on explicit null', async () => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await svc.updateAssemblyProgress('0X220', 1, { erection_plan_finish_date: '2026-08-10' }, 1)
+    expect(upsert.mock.calls[0][0].update.erection_plan_finish_date).toEqual(new Date('2026-08-10'))
+
+    await svc.updateAssemblyProgress('0X220', 1, { erection_plan_finish_date: null }, 1)
+    expect(upsert.mock.calls[1][0].update.erection_plan_finish_date).toBeNull()
+  })
+
   it('response carries the four pcts + status + shade + phases', async () => {
     const upsert = jest.fn().mockResolvedValue({
       ...EMPTY, assembly_id: 1, cut: 100, loaded_pcs: 2, payment_status: 'Paid', write_uid: 1, write_date: D,
@@ -396,7 +427,11 @@ describe('bulkUpdateAssemblyProgress', () => {
     const svc = new ProjectProgressService(prisma)
     const result = await svc.bulkUpdateAssemblyProgress(
       '0X220',
-      { assembly_ids: [1, 2], cut: 100, plan_load_date: '2026-07-01', payment_status: 'Paid', erection_actual_finish_date: '2026-08-01' },
+      {
+        assembly_ids: [1, 2], cut: 100, plan_load_date: '2026-07-01', payment_status: 'Paid',
+        fab_plan_finish_date: '2026-07-10', fab_actual_finish_date: '2026-07-15',
+        erection_plan_finish_date: '2026-07-25', erection_actual_finish_date: '2026-08-01',
+      },
       1,
     )
 
@@ -406,6 +441,9 @@ describe('bulkUpdateAssemblyProgress', () => {
       expect(call[0].update.cut).toBe(100)
       expect(call[0].update.plan_load_date).toEqual(new Date('2026-07-01'))
       expect(call[0].update.payment_status).toBe('Paid')
+      expect(call[0].update.fab_plan_finish_date).toEqual(new Date('2026-07-10'))
+      expect(call[0].update.fab_actual_finish_date).toEqual(new Date('2026-07-15'))
+      expect(call[0].update.erection_plan_finish_date).toEqual(new Date('2026-07-25'))
       expect(call[0].update.erection_actual_finish_date).toEqual(new Date('2026-08-01'))
     }
   })

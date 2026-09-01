@@ -9,14 +9,19 @@ import { FAB_STAGES, clampPct, nonNegDecimal } from './progress-shared'
 // on which fields are auditable.
 export const AUDITABLE_FIELDS = [
   ...FAB_STAGES,
+  'fab_plan_finish_date', 'fab_actual_finish_date',
   'plan_load_date', 'actual_load_date', 'loaded_pcs', 'erected_pcs',
-  'erection_actual_finish_date', 'payment_status', 'claimed_weight_kg', 'delivered_weight_kg',
+  'erection_plan_finish_date', 'erection_actual_finish_date', 'payment_status', 'claimed_weight_kg', 'delivered_weight_kg',
 ] as const
 export type AuditableField = (typeof AUDITABLE_FIELDS)[number]
 
 export interface DiffEntry { field: AuditableField; old: string | number | null; new: string | number | null }
 
-const DATE_FIELDS = new Set(['plan_load_date', 'actual_load_date', 'erection_actual_finish_date'])
+const DATE_FIELDS = new Set([
+  'fab_plan_finish_date', 'fab_actual_finish_date',
+  'plan_load_date', 'actual_load_date',
+  'erection_plan_finish_date', 'erection_actual_finish_date',
+])
 const DECIMAL_FIELDS = new Set(['claimed_weight_kg', 'delivered_weight_kg'])
 
 // "No row" defaults — mirrors bom_assembly_progress's own column defaults,

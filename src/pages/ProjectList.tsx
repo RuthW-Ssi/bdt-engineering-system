@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Loader2, Plus, FolderOpen, Building2, Calendar } from 'lucide-react'
+import { Search, Loader2, Plus, FolderOpen, Building2, Calendar, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
-import { useProjects, useCreateProject } from '../hooks/useProjects'
+import { useProjects, useCreateProject, useUpdateProject } from '../hooks/useProjects'
 import { useCustomers } from '../hooks/useCustomers'
 import { useActiveProject } from '../context/ProjectContext'
 import { usePermission } from '../hooks/usePermission'
@@ -44,7 +44,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
-function ProjectCard({ p, isActive, onClick }: { p: ProjectDTO; isActive: boolean; onClick: () => void }) {
+function ProjectCard({ p, isActive, onClick, onEdit, canEdit }: { p: ProjectDTO; isActive: boolean; onClick: () => void; onEdit: (p: ProjectDTO) => void; canEdit: boolean }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -119,6 +119,16 @@ function ProjectCard({ p, isActive, onClick }: { p: ProjectDTO; isActive: boolea
             <span style={{ color: '#C2C2C2' }}>No dates set</span>
           )}
         </div>
+
+        {canEdit && (
+          <button
+            onClick={e => { e.stopPropagation(); onEdit(p) }}
+            title="Edit project"
+            style={{ display: 'flex', alignItems: 'center', color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', padding: 4, flexShrink: 0 }}
+          >
+            <Pencil size={13} />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -132,20 +142,37 @@ export function ProjectList() {
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState<Partial<CreateProjectPayload>>(EMPTY_FORM)
   const [touched, setTouched] = useState(false)
+  const [editingProjectCode, setEditingProjectCode] = useState<string | null>(null)
 
   const navigate = useNavigate()
   const { activeProject, setActiveProject } = useActiveProject()
   const { data, isLoading } = useProjects({ q: search || undefined, state: stateFilter || undefined, limit: 100 })
   const { data: customersData } = useCustomers({ active: 'true', limit: 200 })
   const createMut = useCreateProject()
+  const updateMut = useUpdateProject()
   const canCreate = usePermission('projects', 'create')
+  const canUpdate = usePermission('projects', 'update')
 
   const items = data?.items ?? []
   const customers = customersData?.items ?? []
   const isValid = !!form.project_code?.trim() && !!form.name?.trim() && !!form.customer_id
 
   function openModal() {
+    setEditingProjectCode(null)
     setForm(EMPTY_FORM)
+    setTouched(false)
+    setModalOpen(true)
+  }
+
+  function openEditModal(p: ProjectDTO) {
+    setEditingProjectCode(p.project_code)
+    setForm({
+      project_code: p.project_code,
+      name: p.name,
+      customer_id: p.customer?.id,
+      start_date: p.start_date?.slice(0, 10) ?? undefined,
+      target_handover: p.target_handover?.slice(0, 10) ?? undefined,
+    })
     setTouched(false)
     setModalOpen(true)
   }
@@ -154,10 +181,17 @@ export function ProjectList() {
     setTouched(true)
     if (!isValid) return
     try {
-      const created = await createMut.mutateAsync(form as CreateProjectPayload)
-      toast.success('Project created')
-      setModalOpen(false)
-      setActiveProject(created)
+      if (editingProjectCode) {
+        const updated = await updateMut.mutateAsync({ projectCode: editingProjectCode, payload: form })
+        toast.success('Project updated')
+        setModalOpen(false)
+        if (activeProject?.project_code === editingProjectCode) setActiveProject(updated)
+      } else {
+        const created = await createMut.mutateAsync(form as CreateProjectPayload)
+        toast.success('Project created')
+        setModalOpen(false)
+        setActiveProject(created)
+      }
     } catch {
       // Global handler (meta.showGlobalErrorToast on the mutation) already showed
       // the error toast — stop here so the modal stays open for the user to retry.
@@ -230,6 +264,8 @@ export function ProjectList() {
               p={p}
               isActive={activeProject?.id === p.id}
               onClick={() => { setActiveProject(p); navigate(`/projects/${p.project_code}/progress`) }}
+              onEdit={openEditModal}
+              canEdit={canUpdate}
             />
           ))
         )}
@@ -239,7 +275,7 @@ export function ProjectList() {
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '28px 32px', width: 460, boxShadow: '0 4px 24px rgba(0,0,0,0.16)' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>Create New Project</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>{editingProjectCode ? 'Edit Project' : 'Create New Project'}</h2>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -248,7 +284,9 @@ export function ProjectList() {
                   value={form.project_code ?? ''}
                   onChange={e => setForm(f => ({ ...f, project_code: e.target.value }))}
                   placeholder="e.g. 0X203"
-                  style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${errBorder('project_code')}`, borderRadius: 4, fontFamily: 'monospace' }}
+                  disabled={!!editingProjectCode}
+                  title={editingProjectCode ? 'Project code cannot be changed after creation' : undefined}
+                  style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${errBorder('project_code')}`, borderRadius: 4, fontFamily: 'monospace', background: editingProjectCode ? '#F5F5F5' : '#fff', color: editingProjectCode ? '#8E8E8E' : undefined }}
                 />
                 {touched && !form.project_code?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a Project Code</span>}
               </div>
@@ -310,10 +348,12 @@ export function ProjectList() {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={createMut.isPending}
-                style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: createMut.isPending ? '#C2C2C2' : '#C8202A', color: '#fff', cursor: createMut.isPending ? 'not-allowed' : 'pointer' }}
+                disabled={createMut.isPending || updateMut.isPending}
+                style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: (createMut.isPending || updateMut.isPending) ? '#C2C2C2' : '#C8202A', color: '#fff', cursor: (createMut.isPending || updateMut.isPending) ? 'not-allowed' : 'pointer' }}
               >
-                {createMut.isPending ? 'Creating...' : 'Create Project'}
+                {editingProjectCode
+                  ? (updateMut.isPending ? 'Saving...' : 'Save Changes')
+                  : (createMut.isPending ? 'Creating...' : 'Create Project')}
               </button>
             </div>
           </div>

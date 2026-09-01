@@ -1,7 +1,8 @@
 import { Calendar } from 'lucide-react'
 
-// Same format as ProjectList.tsx's fmtDate (desktop) — kept as a local copy
-// since that one lives in a page file, not a shared module.
+// Same format as ProjectList.tsx's fmtDate (desktop) — kept as a local copy,
+// matching this repo's convention of a small per-file duplicate over a
+// shared date-format util (every other list/detail page does the same).
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
