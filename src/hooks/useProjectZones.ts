@@ -22,7 +22,7 @@ export function useCreateZone(projectId: number) {
 export function useUpdateZone(projectId: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ zoneId, payload }: { zoneId: number; payload: { erection_sequence?: number; label?: string } }) =>
+    mutationFn: ({ zoneId, payload }: { zoneId: number; payload: Partial<CreateZonePayload> }) =>
       projectZonesApi.update(projectId, zoneId, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['project-zones', projectId] }),
     meta: { showGlobalErrorToast: true },

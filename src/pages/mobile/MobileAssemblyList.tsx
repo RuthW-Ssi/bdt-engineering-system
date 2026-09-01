@@ -1,14 +1,16 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Search, ChevronRight, LayoutDashboard, Cuboid as CuboidIcon, Boxes } from 'lucide-react'
+import { Search, ChevronRight, Info as InfoIcon, LayoutDashboard, Cuboid as CuboidIcon, Boxes } from 'lucide-react'
 import { useProgressZoneRows, useProgressOverview, useProgressBimMatch } from '../../hooks/useProjectProgress'
 import { useProject } from '../../hooks/useProjects'
 import { useProjectZones } from '../../hooks/useProjectZones'
 import { MobileHeader } from '../../components/mobile/MobileHeader'
 import { MobileDateRangeCard } from '../../components/mobile/MobileDateRangeCard'
 import { MobileProgressStatCards } from '../../components/mobile/MobileProgressStatCards'
+import { MobileDelayFormulaSheet } from '../../components/mobile/MobileDelayFormulaSheet'
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
 import { MobileTabBar } from '../../components/mobile/MobileTabBar'
+import { computeDelayInfo, DELAY_STATUS_COLOR, type DelayStatus } from '../../components/progress/delayStatus'
 
 const STATUS_DOT: Record<string, string> = {
   notstart: '#C2C2C2',
@@ -16,6 +18,13 @@ const STATUS_DOT: Record<string, string> = {
   load: '#185FA5',
   erection: '#639922',
   done: '#27500A',
+}
+
+// Short status words only (Overdue/At risk/On track) — the tooltip-grade
+// "Complete"/"Not due yet" copy stays desktop-only since mobile has no
+// hover surface to reveal a longer explanation on demand.
+const DELAY_STATUS_LABEL: Record<DelayStatus, string> = {
+  overdue: 'Overdue', at_risk: 'At risk', on_track: 'On track',
 }
 
 type Tab = 'overview' | '3d' | 'assembly'
@@ -27,6 +36,7 @@ export function MobileAssemblyList() {
   const [tab, setTab] = useState<Tab>('overview')
   const { data, isLoading } = useProgressZoneRows(code, zoneIdNum)
   const [q, setQ] = useState('')
+  const [zoneInfoOpen, setZoneInfoOpen] = useState(false)
 
   const { data: overview } = useProgressOverview(code)
   const { data: project } = useProject(code)
@@ -34,6 +44,9 @@ export function MobileAssemblyList() {
   const { data: zoneBimMatch } = useProgressBimMatch(code, zoneIdNum)
   const zoneRollup = overview?.zones.find(z => z.zone_id === zoneIdNum)
   const zoneDetail = projectZones?.find(z => z.id === zoneIdNum)
+  const zoneDelayInfo = zoneDetail && zoneRollup
+    ? computeDelayInfo(zoneDetail.target_erection_start, zoneDetail.target_erection_end, zoneRollup.erect_pct)
+    : null
 
   const rows = (data ?? []).filter(r => !q.trim() || r.mark.toLowerCase().includes(q.trim().toLowerCase()))
 
@@ -61,6 +74,25 @@ export function MobileAssemblyList() {
               start={zoneDetail.target_erection_start}
               end={zoneDetail.target_erection_end}
             />
+          )}
+          {zoneDelayInfo && (
+            <button
+              onClick={() => setZoneInfoOpen(true)}
+              className="w-full flex items-center gap-2 bg-white border border-chrome-100 rounded-xl px-4 py-3 text-left active:bg-chrome-50"
+            >
+              <span
+                className="flex-shrink-0 w-2 h-2 rounded-full"
+                style={{ background: DELAY_STATUS_COLOR[zoneDelayInfo.status] }}
+                aria-hidden
+              />
+              <span className="text-[13.5px] flex-1">
+                <b style={{ color: DELAY_STATUS_COLOR[zoneDelayInfo.status] }}>{DELAY_STATUS_LABEL[zoneDelayInfo.status]}</b>
+                {zoneDelayInfo.expectedPct !== null && (
+                  <span className="text-chrome-400"> — expected ~{zoneDelayInfo.expectedPct.toFixed(0)}%, actual {zoneDelayInfo.actualPct.toFixed(0)}%</span>
+                )}
+              </span>
+              <InfoIcon size={13} className="flex-shrink-0" style={{ opacity: 0.5 }} />
+            </button>
           )}
           {zoneRollup && <MobileProgressStatCards total={zoneRollup} />}
         </div>
@@ -122,6 +154,15 @@ export function MobileAssemblyList() {
           </div>
         </div>
       </div>
+
+      {zoneDetail && zoneDelayInfo && (
+        <MobileDelayFormulaSheet
+          open={zoneInfoOpen}
+          onClose={() => setZoneInfoOpen(false)}
+          zoneLabel={zoneDetail.label}
+          info={zoneDelayInfo}
+        />
+      )}
 
       <MobileTabBar
         active={tab}

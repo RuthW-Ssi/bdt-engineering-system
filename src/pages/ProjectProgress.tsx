@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Info } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
 import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPanel'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
+import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../components/progress/delayStatus'
+import type { DelayInfo } from '../components/progress/delayStatus'
 import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
@@ -14,10 +17,60 @@ import {
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
 import { exportProgress } from '../api/projectProgress'
-import type { BimMatchResult, ProgressBuckets, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
+import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
+
+// Same convention as ProjectList.tsx's own date column.
+const formatDate = (iso: string | null) =>
+  iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'
+
+function DelayTooltipContent({ info }: { info: DelayInfo }) {
+  const { label, rest } = delayTooltipParts(info)
+  return <><b style={{ color: DELAY_STATUS_COLOR[info.status] }}>{label}</b> {rest}</>
+}
+
+// Zone table's status dot + tooltip. Rendered via a portal straight into
+// document.body, positioned from a real getBoundingClientRect() — the
+// table's own scroll container is overflowX/Y:auto, which clipped a
+// same-DOM-tree absolutely-positioned tooltip on every edge we tried
+// (left, then top). A portal escapes that clipping entirely since the
+// tooltip is no longer a descendant of the clipping container at all.
+function DelayDot({ info }: { info: DelayInfo }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+
+  const show = () => {
+    const rect = ref.current?.getBoundingClientRect()
+    if (rect) setPos({ top: rect.top, right: window.innerWidth - rect.right })
+  }
+  const hide = () => setPos(null)
+
+  return (
+    <>
+      <span
+        ref={ref}
+        onMouseEnter={show}
+        onMouseLeave={hide}
+        style={{ display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', background: DELAY_STATUS_COLOR[info.status], flexShrink: 0, cursor: 'help' }}
+      />
+      {pos && createPortal(
+        <div
+          style={{
+            position: 'fixed', top: pos.top, right: pos.right, transform: 'translateY(-100%)', marginTop: -8,
+            width: 260, background: 'white', color: '#4A4A4A', fontSize: 11, lineHeight: 1.5, fontWeight: 400,
+            padding: '10px 12px', borderRadius: 8, zIndex: 9999, textAlign: 'left', pointerEvents: 'none',
+            border: '1px solid #E0E0E0', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          }}
+        >
+          <DelayTooltipContent info={info} />
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
 
 type PositionsResult = NonNullable<ReturnType<typeof useProgressPositions>['data']>
 type PositionMarkRow = PositionsResult['groups'][number]['marks'][number]
@@ -395,6 +448,13 @@ export function ProjectProgress() {
             currently showing (moved out of an overlay on the viewport itself,
             since the Forge viewer's own canvas painted over it). */}
         <div className="flex items-center gap-2">
+          {tab === 'overview' && (project.start_date || project.target_handover) && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F5F5', borderRadius: 999, padding: '5px 12px', fontSize: 12, color: '#8E8E8E' }}>
+              <Calendar size={12} /> <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, color: '#1A1A1A' }}>{formatDate(project.start_date)}</b>
+              {' → '}
+              <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, color: '#1A1A1A' }}>{formatDate(project.target_handover)}</b>
+            </span>
+          )}
           {activeBimMatch?.model_id != null && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F5F5', borderRadius: 999, padding: '5px 12px', fontSize: 12, color: '#8E8E8E' }}>
               <CuboidIcon size={12} />
@@ -412,9 +472,9 @@ export function ProjectProgress() {
               ("here's the whole-project number while I'm zoomed into one zone"). */}
           {overview && tab !== 'overview' && (
             <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, background: '#F5F5F5', borderRadius: 999, padding: '5px 14px', fontSize: 12, color: '#8E8E8E', fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }}>
-              F <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.fab_pct.toFixed(1)}%</b>
+              F <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.fab_pct.toFixed(0)}%</b>
               <span style={{ color: '#D0D0D0' }}>·</span>
-              M <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.payment_pct.toFixed(1)}%</b>
+              M <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.payment_pct.toFixed(0)}%</b>
               <span style={{ color: '#D0D0D0' }}>·</span>
               T <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.load_pct}%</b>
               <span style={{ color: '#D0D0D0' }}>·</span>
@@ -483,6 +543,7 @@ export function ProjectProgress() {
           {tab === 'overview' ? (
             <OverviewPanel
               overview={overview}
+              zones={zones}
               view={view}
               onSetView={v => { setView(v); setActiveGroup(null) }}
               positionAxis={positionAxis}
@@ -502,6 +563,8 @@ export function ProjectProgress() {
               onUpdate={handleUpdate}
               onBulkUpdate={handleBulkUpdate}
               saving={updateMutation.isPending || bulkUpdateMutation.isPending}
+              rightPanelView={rightPanelView}
+              onSetRightPanelView={setRightPanelView}
             />
           )}
         </div>
@@ -511,14 +574,11 @@ export function ProjectProgress() {
             table is a compact collapsed-by-default list. Isolate-by-status
             shows on every tab now (Overview and each zone) — activeRows/
             activeBimMatch/activeTotals are already tab-scoped, so the same
-            strip works whole-project or single-zone with no extra branching. */}
+            strip works whole-project or single-zone with no extra branching.
+            The 3D Model/Drawing switch itself moved into ProgressAssemblyTable's
+            own header (next to the search box) — it controls this panel from
+            across the grid via the rightPanelView prop drilled down to it. */}
         <div className="flex flex-col" style={{ gap: 16, minHeight: 0, minWidth: 0 }}>
-          {tab !== 'overview' && (
-            <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-              <ViewToggleButton label="3D Model" active={rightPanelView === '3d'} onClick={() => setRightPanelView('3d')} />
-              <ViewToggleButton label="Drawing" active={rightPanelView === 'drawing'} onClick={() => setRightPanelView('drawing')} />
-            </div>
-          )}
           <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0 }}>
             {showDrawingPanel ? (
               <ProgressDrawingPanel zoneId={activeZoneId!} />
@@ -599,25 +659,6 @@ export function ProjectProgress() {
   )
 }
 
-function ViewToggleButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        font: 'inherit', fontSize: 11.5, fontWeight: 600, padding: '5px 12px',
-        borderRadius: 999, cursor: 'pointer', whiteSpace: 'nowrap', outline: 'none',
-        border: `1px solid ${active ? '#C8202A' : '#E0E0E0'}`,
-        background: active ? '#C8202A' : 'white',
-        color: active ? 'white' : '#1A1A1A',
-        transition: 'border-color 0.12s, background 0.12s, color 0.12s',
-      }}
-    >
-      {label}
-    </button>
-  )
-}
-
 // Matches BomList's content-tab convention (fontSize 12, padding 9px 16px)
 // rather than a bespoke one — same visual language app-wide.
 function TabButton({ label, sub, active, onClick }: { label: string; sub?: string; active: boolean; onClick: () => void }) {
@@ -646,10 +687,11 @@ function TabButton({ label, sub, active, onClick }: { label: string; sub?: strin
 // outer full-page wrapper of its own and the stat-card grid is 2-wide
 // instead of 4-wide to fit comfortably.
 function OverviewPanel({
-  overview, view, onSetView, positionAxis, onSetPositionAxis,
+  overview, zones, view, onSetView, positionAxis, onSetPositionAxis,
   activeGroup, onToggleGroup, positions, positionBuckets,
 }: {
   overview: ReturnType<typeof useProgressOverview>['data']
+  zones: ProjectZoneDTO[]
   view: 'zone' | 'position'
   onSetView: (view: 'zone' | 'position') => void
   positionAxis: PositionAxis
@@ -672,33 +714,97 @@ function OverviewPanel({
   }
   const tdStyle: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #EDEFF2' }
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
+  const byId = new Map(zones.map(z => [z.id, z]))
 
   const { total } = overview
+
+  // Aggregate delay status across every zone for the Assemblies card's
+  // summary line — worst-first (any overdue zone dominates the headline).
+  let overdueCount = 0, atRiskCount = 0, scheduledCount = 0
+  for (const z of overview.zones) {
+    const meta = byId.get(z.zone_id)
+    const info = computeDelayInfo(meta?.target_erection_start, meta?.target_erection_end, z.erect_pct)
+    if (info === null) continue
+    scheduledCount++
+    if (info.status === 'overdue') overdueCount++
+    else if (info.status === 'at_risk') atRiskCount++
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       {/* Summary stat cards — quick at-a-glance read before the per-zone
-          breakdown table below; mirrors CuttingPlanDetail's StatCard pattern. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-        {/* Four separate phase numbers, deliberately no combined total
-            (spec) — each phase has its own responsible team in the real
-            workflow, a synthetic blend would match nobody's number. */}
+          breakdown table below; mirrors CuttingPlanDetail's StatCard pattern.
+          Progress gets its own full-width row (4 bars needs more room to
+          breathe than a half-width card gives it) instead of sitting
+          shoulder to shoulder with single-number cards of very different
+          content density — Weight/Assemblies/Done are the same "hero
+          number" shape, so they group into one row together. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
         <StatCard label="Progress" value="" accent="#C8202A">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginTop: 2 }}>
+          {/* Four separate phase numbers, deliberately no combined total
+              (spec) — each phase has its own responsible team in the real
+              workflow, a synthetic blend would match nobody's number. */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
             <PhaseBar label="Fab" pct={total.fab_pct} color={PHASE_META.fabrication.dark} />
             <PhaseBar label="Pay" pct={total.payment_pct} color={PHASE_META.payment.dark} />
             <PhaseBar label="Trans" pct={total.load_pct} color={PHASE_META.load.dark} />
             <PhaseBar label="Erect" pct={total.erect_pct} color={PHASE_META.erection.dark} />
           </div>
         </StatCard>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
-        <StatCard label="Assemblies" value={total.assembly_count} />
+        <StatCard label="Assemblies" value={total.assembly_count}>
+          {scheduledCount > 0 && (
+            <div style={{ fontSize: 11.5, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {overdueCount > 0 && (
+                <span style={{ color: DELAY_STATUS_COLOR.overdue, fontWeight: 600 }}>{overdueCount} {overdueCount === 1 ? 'zone' : 'zones'} overdue</span>
+              )}
+              {overdueCount > 0 && atRiskCount > 0 && <span style={{ color: '#D0D0D0' }}>·</span>}
+              {atRiskCount > 0 && (
+                <span style={{ color: DELAY_STATUS_COLOR.at_risk, fontWeight: 600 }}>{atRiskCount} {atRiskCount === 1 ? 'zone' : 'zones'} at risk</span>
+              )}
+              {overdueCount === 0 && atRiskCount === 0 && (
+                <span style={{ color: DELAY_STATUS_COLOR.on_track, fontWeight: 600 }}>✓ All zones on track</span>
+              )}
+              {/* Native `title` tooltips turned out unreliable here, so this
+                  is a real CSS hover tooltip instead — same group/group-hover
+                  pattern as Sidebar.tsx's collapsed-nav tooltip. */}
+              <span className="group" style={{ position: 'relative', display: 'inline-flex', cursor: 'help', flexShrink: 0 }}>
+                <Info size={12} style={{ color: '#C2C2C2' }} />
+                {/* Left-anchored (not centered) — the scrollable ancestor's
+                    overflowY:auto forces overflowX:auto too (CSS quirk: an
+                    axis set to non-visible flips the other from visible to
+                    auto), which clipped a centered tooltip's left edge. */}
+                <div
+                  className="absolute opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity"
+                  style={{
+                    bottom: '100%', left: 0, marginBottom: 8,
+                    width: 260, background: 'white', color: '#4A4A4A', fontSize: 11, lineHeight: 1.5,
+                    padding: '10px 12px', borderRadius: 8, zIndex: 60, textAlign: 'left', fontWeight: 400,
+                    border: '1px solid #E0E0E0', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                  }}
+                >
+                  <div style={{ marginBottom: 10 }}>
+                    <b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target erection end date has passed and the zone isn't 100% erected.
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — erection window is still open, but erect % is more than 15 points behind the % of the window's time already elapsed.
+                  </div>
+                  <div>
+                    <b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — erect % is keeping pace (or ahead), 100% complete, or the window hasn't started yet.
+                  </div>
+                </div>
+              </span>
+            </div>
+          )}
+        </StatCard>
         <StatCard label="Done" value={total.buckets.done} accent="#2E9E5F">
-          <div style={{ fontSize: 11.5, color: '#8E8E8E', marginTop: 8 }}>
+          <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 8, whiteSpace: 'nowrap' }}>
             <span style={{ ...mono, color: '#4A85C4' }}>{total.buckets.in_progress}</span> in progress ·{' '}
             <span style={{ ...mono, color: '#ABABAB' }}>{total.buckets.notstart}</span> not started
           </div>
         </StatCard>
+      </div>
       </div>
 
       {/* flex:1 — the card's white background stretches to fill whatever
@@ -751,9 +857,9 @@ function OverviewPanel({
               <thead>
                 <tr>
                   <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Zone</th>
-                  <th style={{ ...thStyle, textAlign: 'right', position: 'sticky', top: 0, background: 'white' }}>Weight</th>
                   <th style={{ ...thStyle, textAlign: 'right', position: 'sticky', top: 0, background: 'white' }}>Assemblies</th>
                   <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Progress</th>
+                  <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -763,6 +869,8 @@ function OverviewPanel({
                   // filtering it out entirely (still a real zone, just empty).
                   const empty = z.assembly_count === 0
                   const active = activeGroup?.type === 'zone' && activeGroup.id === z.zone_id
+                  const zoneMeta = byId.get(z.zone_id)
+                  const delayInfo = computeDelayInfo(zoneMeta?.target_erection_start, zoneMeta?.target_erection_end, z.erect_pct)
                   return (
                     <tr
                       key={z.zone_id}
@@ -770,13 +878,15 @@ function OverviewPanel({
                       style={{ cursor: empty ? 'default' : 'pointer', background: active ? '#FCEBEB' : undefined }}
                     >
                       <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>{z.zone_label}</td>
-                      <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#8E8E8E' }}>{(z.total_weight_kg / 1000).toFixed(1)} t</td>
-                      <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A' }}>{z.assembly_count}</td>
-                      <td style={tdStyle}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <ZoneStatusBar buckets={z.buckets} assemblyCount={z.assembly_count} />
-                          <span style={{ ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
-                            F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
+                      <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
+                      <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
+                        F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
+                      </td>
+                      <td style={{ ...tdStyle, ...mono, fontSize: 11, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {delayInfo && <DelayDot info={delayInfo} />}
+                          <span style={{ fontWeight: delayInfo?.status === 'overdue' ? 700 : 400 }}>
+                            {formatDate(zoneMeta?.target_erection_start ?? null)} → {formatDate(zoneMeta?.target_erection_end ?? null)}
                           </span>
                         </div>
                       </td>
@@ -891,23 +1001,6 @@ function PositionRollupTable({
 // Replaces separate not-start/in-progress/done columns with one glanceable
 // stacked bar (same 3-bucket split, just encoded as proportion instead of
 // three more numbers) — the counts are still there on hover.
-function ZoneStatusBar({ buckets, assemblyCount }: { buckets: ProgressBuckets; assemblyCount: number }) {
-  if (assemblyCount === 0) {
-    return <div style={{ width: 90, height: 6, borderRadius: 99, background: '#EDEFF2', flexShrink: 0 }} />
-  }
-  const segment = (n: number): React.CSSProperties => ({ width: `${(n / assemblyCount) * 100}%`, height: '100%' })
-  return (
-    <div
-      title={`${buckets.done} done · ${buckets.in_progress} in progress · ${buckets.notstart} not started`}
-      style={{ display: 'flex', width: 90, height: 6, borderRadius: 99, overflow: 'hidden', flexShrink: 0, background: '#EDEFF2' }}
-    >
-      <div style={{ ...segment(buckets.done), background: '#2E9E5F' }} />
-      <div style={{ ...segment(buckets.in_progress), background: '#4A85C4' }} />
-      <div style={{ ...segment(buckets.notstart), background: '#C7CBD1' }} />
-    </div>
-  )
-}
-
 function StatCard({ label, value, accent, children }: {
   label: string
   value: string | number
@@ -928,13 +1021,14 @@ function StatCard({ label, value, accent, children }: {
 // Labeled mini progress bar — one per phase in the Overview "Progress" card.
 function PhaseBar({ label, pct, color }: { label: string; pct: number; color: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', width: 34, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
-      <div style={{ flex: 1, height: 6, borderRadius: 99, background: '#EDEFF2', overflow: 'hidden' }}>
-        <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: color }} />
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', width: 40, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
+      <div style={{ flex: 1, height: 8, borderRadius: 99, background: '#EDEFF2', overflow: 'hidden' }}>
+        <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: color, borderRadius: 99 }} />
       </div>
-      <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5, width: 44, textAlign: 'right', flexShrink: 0 }}>
-        {label === 'Fab' ? pct.toFixed(1) : pct}%
+      <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, width: 40, textAlign: 'right', flexShrink: 0 }}>
+        {pct.toFixed(0)}%
       </b>
     </div>
   )

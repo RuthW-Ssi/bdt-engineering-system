@@ -6,8 +6,9 @@ import type { ProgressImportChange } from '../../api/projectProgress'
 const FIELD_LABEL: Record<string, string> = {
   cut: 'Cut', buildup: 'Build-Up', weld1: 'Weld', fitup_drill: 'Fitup/Drill', weld2: 'Weld (2)',
   qc_inspection: 'QC Inspection', primer: 'Primer', fireproof: 'Fireproof', top_coat: 'TOP', qc_final: 'QC Final Inspection',
+  fab_plan_finish_date: 'Fabrication Plan Finish', fab_actual_finish_date: 'Fabrication Actual Finish',
   plan_load_date: 'PlanLoad', actual_load_date: 'Actual Load', loaded_pcs: 'จำนวนที่โหลด (Pcs.)',
-  erected_pcs: 'Erection by Pcs.', erection_actual_finish_date: 'Actual Erection',
+  erected_pcs: 'Erection by Pcs.', erection_plan_finish_date: 'Erection Plan Finish', erection_actual_finish_date: 'Actual Erection',
   payment_status: 'Payment Status', claimed_weight_kg: 'Claimed Weight (kg)', delivered_weight_kg: 'Delivered Weight (kg)',
 }
 
