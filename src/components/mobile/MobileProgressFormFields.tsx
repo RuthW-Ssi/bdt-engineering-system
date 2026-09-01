@@ -22,6 +22,8 @@ const toInputDate = (v: string | null) => (v ? v.slice(0, 10) : '')
 function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
   return {
     ...Object.fromEntries(FAB_STAGES.map(s => [s, r[s]])),
+    fab_plan_finish_date: r.fab_plan_finish_date,
+    fab_actual_finish_date: r.fab_actual_finish_date,
     plan_load_date: r.plan_load_date,
     actual_load_date: r.actual_load_date,
     loaded_pcs: r.loaded_pcs,
@@ -29,13 +31,16 @@ function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
     payment_status: r.payment_status,
     claimed_weight_kg: r.claimed_weight_kg ?? undefined,
     delivered_weight_kg: r.delivered_weight_kg ?? undefined,
+    erection_plan_finish_date: r.erection_plan_finish_date,
     erection_actual_finish_date: r.erection_actual_finish_date,
   }
 }
 
 const EDIT_FIELDS = [
-  ...FAB_STAGES, 'plan_load_date', 'actual_load_date', 'loaded_pcs', 'erected_pcs',
-  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg', 'erection_actual_finish_date',
+  ...FAB_STAGES, 'fab_plan_finish_date', 'fab_actual_finish_date',
+  'plan_load_date', 'actual_load_date', 'loaded_pcs', 'erected_pcs',
+  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg',
+  'erection_plan_finish_date', 'erection_actual_finish_date',
 ] as const
 
 function diffDraft(draft: UpdateAssemblyProgressPayload, original: ProgressZoneRow): UpdateAssemblyProgressPayload {
@@ -112,6 +117,26 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
             </div>
           ))}
         </div>
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div className="min-w-0">
+            <label className={label}>Plan Finish</label>
+            <MobileDateWheelPicker
+              label="Plan Finish"
+              value={toInputDate(draft.fab_plan_finish_date ?? null)}
+              onChange={v => set('fab_plan_finish_date', v)}
+              disabled={!canUpdate}
+            />
+          </div>
+          <div className="min-w-0">
+            <label className={label}>Actual Finish</label>
+            <MobileDateWheelPicker
+              label="Actual Finish"
+              value={toInputDate(draft.fab_actual_finish_date ?? null)}
+              onChange={v => set('fab_actual_finish_date', v)}
+              disabled={!canUpdate}
+            />
+          </div>
+        </div>
 
         <div className={section}>Transport</div>
         <div className="flex flex-col gap-3">
@@ -184,14 +209,25 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
               onChange={e => set('erected_pcs', clampPcs(Number(e.target.value), qty))}
               className={`${input} disabled:bg-chrome-50`} />
           </div>
-          <div className="min-w-0">
-            <label className={label}>Actual Finish Date</label>
-            <MobileDateWheelPicker
-              label="Actual Finish Date"
-              value={toInputDate(draft.erection_actual_finish_date ?? null)}
-              onChange={v => set('erection_actual_finish_date', v)}
-              disabled={!canUpdate}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="min-w-0">
+              <label className={label}>Plan Finish</label>
+              <MobileDateWheelPicker
+                label="Plan Finish"
+                value={toInputDate(draft.erection_plan_finish_date ?? null)}
+                onChange={v => set('erection_plan_finish_date', v)}
+                disabled={!canUpdate}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className={label}>Actual Finish</label>
+              <MobileDateWheelPicker
+                label="Actual Finish"
+                value={toInputDate(draft.erection_actual_finish_date ?? null)}
+                onChange={v => set('erection_actual_finish_date', v)}
+                disabled={!canUpdate}
+              />
+            </div>
           </div>
         </div>
       </div>

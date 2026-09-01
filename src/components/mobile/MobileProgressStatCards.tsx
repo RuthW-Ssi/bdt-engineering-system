@@ -9,7 +9,7 @@ function PhaseBarRow({ label, pct, color }: { label: string; pct: number; color:
         <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
       </div>
       <b className="font-mono text-[11.5px] w-11 text-right flex-shrink-0 text-chrome-900">
-        {label === 'Fab' ? pct.toFixed(1) : pct}%
+        {pct.toFixed(0)}%
       </b>
     </div>
   )

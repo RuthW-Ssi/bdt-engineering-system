@@ -21,4 +21,8 @@ export const projectsApi = {
   create(payload: CreateProjectPayload): Promise<ProjectDTO> {
     return apiClient.post('/projects', payload).then(r => r.data)
   },
+
+  update(project_code: string, payload: Partial<CreateProjectPayload>): Promise<ProjectDTO> {
+    return apiClient.patch(`/projects/${project_code}`, payload).then(r => r.data)
+  },
 }

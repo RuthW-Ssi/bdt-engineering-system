@@ -14,6 +14,49 @@ interface Props {
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
   onBulkUpdate: (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) => void
   saving: boolean
+  // Controls the right-column panel (3D viewport vs Drawing quick-look) —
+  // lives here, next to the search box, instead of its own row above the
+  // 3D panel on the other side of the grid.
+  rightPanelView: '3d' | 'drawing'
+  onSetRightPanelView: (view: '3d' | 'drawing') => void
+}
+
+// iOS-style on/off switch with the two states labeled on either side,
+// rather than a segmented pill pair — each label is independently
+// clickable (not just the knob), so there's no ambiguity about which
+// state a click lands on.
+function ViewToggleSwitch({ value, onChange }: { value: '3d' | 'drawing'; onChange: (v: '3d' | 'drawing') => void }) {
+  const isDrawing = value === 'drawing'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+      <button
+        onClick={() => onChange('3d')}
+        style={{ font: 'inherit', fontSize: 11.5, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', color: isDrawing ? '#ABABAB' : '#1A1A1A', padding: 0 }}
+      >
+        3D
+      </button>
+      <button
+        onClick={() => onChange(isDrawing ? '3d' : 'drawing')}
+        aria-pressed={isDrawing}
+        title={isDrawing ? 'Switch to 3D Model' : 'Switch to Drawing'}
+        style={{
+          position: 'relative', width: 34, height: 19, borderRadius: 99, border: 'none', cursor: 'pointer', padding: 0, flexShrink: 0,
+          background: isDrawing ? '#C8202A' : '#D5D5D5', transition: 'background 0.15s',
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 2, left: isDrawing ? 17 : 2, width: 15, height: 15, borderRadius: '50%', background: 'white',
+          transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.25)',
+        }} />
+      </button>
+      <button
+        onClick={() => onChange('drawing')}
+        style={{ font: 'inherit', fontSize: 11.5, fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer', color: isDrawing ? '#1A1A1A' : '#ABABAB', padding: 0 }}
+      >
+        Drawing
+      </button>
+    </div>
+  )
 }
 
 const th: React.CSSProperties = {
@@ -72,6 +115,23 @@ const DATE_LABEL: Record<DateField, string> = {
   actual_load_date: 'Actual Load',
 }
 
+// Phase-level Plan/Actual Finish — Fabrication has no per-stage date (the
+// 10 stages above are percent-only); Erection pairs this with its existing
+// Actual Finish. Both mirror Transport's Plan→Actual ordering convention.
+const FAB_DATE_FIELDS = ['fab_plan_finish_date', 'fab_actual_finish_date'] as const
+type FabDateField = (typeof FAB_DATE_FIELDS)[number]
+const FAB_DATE_LABEL: Record<FabDateField, string> = {
+  fab_plan_finish_date: 'Plan Finish',
+  fab_actual_finish_date: 'Actual Finish',
+}
+
+const ERECTION_DATE_FIELDS = ['erection_plan_finish_date', 'erection_actual_finish_date'] as const
+type ErectionDateField = (typeof ERECTION_DATE_FIELDS)[number]
+const ERECTION_DATE_LABEL: Record<ErectionDateField, string> = {
+  erection_plan_finish_date: 'Plan Finish',
+  erection_actual_finish_date: 'Actual Finish',
+}
+
 const PCS_FIELDS = ['loaded_pcs', 'erected_pcs'] as const
 type PcsField = (typeof PCS_FIELDS)[number]
 const PCS_LABEL: Record<PcsField, string> = {
@@ -80,8 +140,8 @@ const PCS_LABEL: Record<PcsField, string> = {
 }
 
 const EDIT_FIELDS = [
-  ...FAB_STAGES, ...DATE_FIELDS, ...PCS_FIELDS,
-  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg', 'erection_actual_finish_date',
+  ...FAB_STAGES, ...FAB_DATE_FIELDS, ...DATE_FIELDS, ...PCS_FIELDS,
+  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg', ...ERECTION_DATE_FIELDS,
 ] as const
 
 // Mirrors the server's clamps so what you see staged is what gets stored —
@@ -94,6 +154,8 @@ const nonNegDecimal = (v: number) => Math.max(0, v)
 function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
   return {
     ...Object.fromEntries(FAB_STAGES.map(s => [s, r[s]])),
+    fab_plan_finish_date: r.fab_plan_finish_date,
+    fab_actual_finish_date: r.fab_actual_finish_date,
     plan_load_date: r.plan_load_date,
     actual_load_date: r.actual_load_date,
     loaded_pcs: r.loaded_pcs,
@@ -101,6 +163,7 @@ function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
     payment_status: r.payment_status,
     claimed_weight_kg: r.claimed_weight_kg ?? undefined,
     delivered_weight_kg: r.delivered_weight_kg ?? undefined,
+    erection_plan_finish_date: r.erection_plan_finish_date,
     erection_actual_finish_date: r.erection_actual_finish_date,
   }
 }
@@ -144,6 +207,7 @@ const groupHeader: React.CSSProperties = {
 
 export function ProgressAssemblyTable({
   rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, saving,
+  rightPanelView, onSetRightPanelView,
 }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
   const [search, setSearch] = useState('')
@@ -229,14 +293,17 @@ export function ProgressAssemblyTable({
         <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#8E8E8E' }}>
           Assemblies
         </div>
-        <div style={{ position: 'relative', width: 200 }}>
-          <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#ABABAB' }} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search mark..."
-            style={{ width: '100%', font: 'inherit', fontSize: 12.5, color: '#1A1A1A', background: '#F7F7F7', border: '1px solid #E0E0E0', borderRadius: 8, padding: '6px 10px 6px 28px' }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ position: 'relative', width: 200 }}>
+            <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#ABABAB' }} />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search mark..."
+              style={{ width: '100%', font: 'inherit', fontSize: 12.5, color: '#1A1A1A', background: '#F7F7F7', border: '1px solid #E0E0E0', borderRadius: 8, padding: '6px 10px 6px 28px' }}
+            />
+          </div>
+          <ViewToggleSwitch value={rightPanelView} onChange={onSetRightPanelView} />
         </div>
       </div>
 
@@ -366,7 +433,7 @@ export function ProgressAssemblyTable({
               <th style={th}>Mark</th>
               <th style={{ ...th, textAlign: 'right' }}>Weight</th>
               <th style={th}>Progress</th>
-              <th style={{ ...th, textAlign: 'center' }}>3D</th>
+              <th style={{ ...th, textAlign: 'center' }} />
               <th style={{ ...th, textAlign: 'center' }}>Edit</th>
             </tr>
           </thead>
@@ -415,7 +482,7 @@ export function ProgressAssemblyTable({
                           phases stay independently scannable at a glance. */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <ProgressChip
-                          label="F" value={`${r.fab_pct}%`}
+                          label="F" value={`${r.fab_pct.toFixed(0)}%`}
                           color={metricColor(r.fab_pct >= 100, r.fab_pct > 0, PHASE_META.fabrication.dark, PHASE_META.fabrication.light)}
                         />
                         <ProgressChip
@@ -473,15 +540,28 @@ export function ProgressAssemblyTable({
                     return (
                       <tr style={{ background: '#FAFAFA' }}>
                         <td colSpan={6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
-                          {/* Fabrication — 10 weighted stages, percent each */}
+                          {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
                           <div style={groupHeader}>Fabrication</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
                             {FAB_STAGES.map(stage => (
                               <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
                                 <PctInput
                                   value={editDraft[stage] ?? 0}
                                   disabled={saving}
                                   onChange={e => setEditDraft(d => ({ ...d, [stage]: e.target.value === '' ? 0 : clampPct(Number(e.target.value)) }))}
+                                />
+                              </FieldGroup>
+                            ))}
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+                            {FAB_DATE_FIELDS.map(field => (
+                              <FieldGroup key={field} label={FAB_DATE_LABEL[field]}>
+                                <input
+                                  type="date"
+                                  value={toInputDate((editDraft[field] as string | null) ?? null)}
+                                  disabled={saving}
+                                  onChange={e => setEditDraft(d => ({ ...d, [field]: e.target.value || null }))}
+                                  style={{ ...dateInput, width: '100%', color: editDraft[field] ? '#1A1A1A' : '#ABABAB' }}
                                 />
                               </FieldGroup>
                             ))}
@@ -545,9 +625,20 @@ export function ProgressAssemblyTable({
                             </FieldGroup>
                           </div>
 
-                          {/* Erection — pieces erected (full = done) + actual finish date */}
+                          {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual→count order), then pieces erected (full = done) */}
                           <div style={groupHeader}>Erection</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
+                            {ERECTION_DATE_FIELDS.map(field => (
+                              <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
+                                <input
+                                  type="date"
+                                  value={toInputDate((editDraft[field] as string | null) ?? null)}
+                                  disabled={saving}
+                                  onChange={e => setEditDraft(d => ({ ...d, [field]: e.target.value || null }))}
+                                  style={{ ...dateInput, width: '100%', color: editDraft[field] ? '#1A1A1A' : '#ABABAB' }}
+                                />
+                              </FieldGroup>
+                            ))}
                             <FieldGroup label={`${PCS_LABEL.erected_pcs} / ${qty} pcs`}>
                               <input
                                 type="number" min={0} max={qty}
@@ -555,15 +646,6 @@ export function ProgressAssemblyTable({
                                 disabled={saving}
                                 onChange={e => setEditDraft(d => ({ ...d, erected_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), r.qty) }))}
                                 style={numInput}
-                              />
-                            </FieldGroup>
-                            <FieldGroup label="Actual Finish">
-                              <input
-                                type="date"
-                                value={toInputDate((editDraft.erection_actual_finish_date as string | null) ?? null)}
-                                disabled={saving}
-                                onChange={e => setEditDraft(d => ({ ...d, erection_actual_finish_date: e.target.value || null }))}
-                                style={{ ...dateInput, width: '100%', color: editDraft.erection_actual_finish_date ? '#1A1A1A' : '#ABABAB' }}
                               />
                             </FieldGroup>
                           </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Loader2, ChevronDown, GripVertical, Check, X } from 'lucide-react'
+import { Plus, Loader2, ChevronDown, GripVertical, Check, X, Pencil } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DndContext,
@@ -34,9 +34,11 @@ function SortableZoneRow({
   onAddSub,
   onDeleteSub,
   onOpenProgress,
+  onEdit,
   reorderMode,
   canAddSub,
   canDeleteSub,
+  canEdit,
 }: {
   zone: any
   index: number
@@ -46,9 +48,11 @@ function SortableZoneRow({
   onAddSub: (zoneId: number) => void
   onDeleteSub: (id: number) => void
   onOpenProgress: (zoneId: number) => void
+  onEdit: (zone: any) => void
   reorderMode: boolean
   canAddSub: boolean
   canDeleteSub: boolean
+  canEdit: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: zone.id })
 
@@ -105,6 +109,15 @@ function SortableZoneRow({
         </div>
         {!reorderMode && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {canEdit && (
+              <button
+                onClick={e => { e.stopPropagation(); onEdit(zone) }}
+                title="Edit zone"
+                style={{ display: 'flex', alignItems: 'center', color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}
+              >
+                <Pencil size={13} />
+              </button>
+            )}
             {canAddSub && (
               <button
                 onClick={e => { e.stopPropagation(); onAddSub(zone.id) }}
@@ -177,6 +190,7 @@ export function ZoneList() {
   const [zoneModal, setZoneModal] = useState(false)
   const [zoneForm, setZoneForm] = useState<Partial<CreateZonePayload>>({})
   const [zoneTouched, setZoneTouched] = useState(false)
+  const [editingZoneId, setEditingZoneId] = useState<number | null>(null)
 
   const [subModal, setSubModal] = useState<{ open: boolean; zoneId: number | null }>({ open: false, zoneId: null })
   const [subForm, setSubForm] = useState({ name: '', code: '', start_date: '', due_date: '' })
@@ -239,19 +253,39 @@ export function ZoneList() {
     const nextSeq = zoneList.length > 0
       ? Math.max(...zoneList.map(z => z.erection_sequence ?? 0)) + 1
       : 1
+    setEditingZoneId(null)
     setZoneForm({ code: '', label: '', erection_sequence: nextSeq })
     setZoneTouched(false)
     setZoneModal(true)
   }
 
-  async function handleCreateZone() {
+  // Backend @db.Date values arrive as full ISO datetimes — <input type="date"> wants YYYY-MM-DD.
+  function openEditZoneModal(zone: ProjectZoneDTO) {
+    setEditingZoneId(zone.id)
+    setZoneForm({
+      code: zone.code,
+      label: zone.label,
+      target_erection_start: zone.target_erection_start?.slice(0, 10) ?? undefined,
+      target_erection_end: zone.target_erection_end?.slice(0, 10) ?? undefined,
+    })
+    setZoneTouched(false)
+    setZoneModal(true)
+  }
+
+  async function handleSaveZone() {
     setZoneTouched(true)
     if (!zoneForm.code?.trim() || !zoneForm.label?.trim() || !projectId) return
     try {
-      const created = await createZoneMut.mutateAsync(zoneForm as CreateZonePayload)
-      toast.success('Zone created')
-      setZoneModal(false)
-      setExpandedZone(created.id)
+      if (editingZoneId != null) {
+        await updateZoneMut.mutateAsync({ zoneId: editingZoneId, payload: zoneForm })
+        toast.success('Zone updated')
+        setZoneModal(false)
+      } else {
+        const created = await createZoneMut.mutateAsync(zoneForm as CreateZonePayload)
+        toast.success('Zone created')
+        setZoneModal(false)
+        setExpandedZone(created.id)
+      }
     } catch {
       // Global handler (meta.showGlobalErrorToast on the mutation) already showed
       // the error toast — stop here so the modal stays open for the user to retry.
@@ -382,9 +416,11 @@ export function ZoneList() {
                     onAddSub={id => { setSubModal({ open: true, zoneId: id }); setExpandedZone(id) }}
                     onDeleteSub={id => deleteSubMut.mutate(id, { onSuccess: () => toast.success('Sub-zone deleted') })}
                     onOpenProgress={id => activeProject && navigate(`/projects/${activeProject.project_code}/progress?zone=${id}`)}
+                    onEdit={openEditZoneModal}
                     reorderMode={reorderMode}
                     canAddSub={canCreateSub}
                     canDeleteSub={canDeleteSub}
+                    canEdit={canUpdateZone}
                   />
                 ))}
               </SortableContext>
@@ -397,7 +433,7 @@ export function ZoneList() {
       {zoneModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '28px 32px', width: 460, boxShadow: '0 4px 24px rgba(0,0,0,0.16)' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Add Zone</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{editingZoneId != null ? 'Edit Zone' : 'Add Zone'}</h2>
             <p style={{ fontSize: 12, color: '#8E8E8E', marginBottom: 20 }}>
               Project: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#C8202A' }}>{activeProject?.project_code}</span> · {activeProject?.name}
             </p>
@@ -408,7 +444,9 @@ export function ZoneList() {
                   value={zoneForm.code ?? ''}
                   onChange={e => setZoneForm(f => ({ ...f, code: e.target.value }))}
                   placeholder="e.g. A1, WH"
-                  style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${zoneTouched && !zoneForm.code?.trim() ? '#C8202A' : '#C2C2C2'}`, borderRadius: 4, fontFamily: 'monospace' }}
+                  disabled={editingZoneId != null}
+                  title={editingZoneId != null ? 'Code cannot be changed after creation' : undefined}
+                  style={{ padding: '7px 10px', fontSize: 13, border: `1px solid ${zoneTouched && !zoneForm.code?.trim() ? '#C8202A' : '#C2C2C2'}`, borderRadius: 4, fontFamily: 'monospace', background: editingZoneId != null ? '#F5F5F5' : '#fff', color: editingZoneId != null ? '#8E8E8E' : undefined }}
                 />
                 {zoneTouched && !zoneForm.code?.trim() && <span style={{ fontSize: 11, color: '#C8202A' }}>Please enter a Code</span>}
               </div>
@@ -448,11 +486,13 @@ export function ZoneList() {
                 Cancel
               </button>
               <button
-                onClick={handleCreateZone}
-                disabled={createZoneMut.isPending}
-                style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: createZoneMut.isPending ? '#C2C2C2' : '#C8202A', color: '#fff', cursor: createZoneMut.isPending ? 'not-allowed' : 'pointer' }}
+                onClick={handleSaveZone}
+                disabled={createZoneMut.isPending || updateZoneMut.isPending}
+                style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: (createZoneMut.isPending || updateZoneMut.isPending) ? '#C2C2C2' : '#C8202A', color: '#fff', cursor: (createZoneMut.isPending || updateZoneMut.isPending) ? 'not-allowed' : 'pointer' }}
               >
-                {createZoneMut.isPending ? 'Creating...' : 'Create Zone'}
+                {editingZoneId != null
+                  ? (updateZoneMut.isPending ? 'Saving...' : 'Save Changes')
+                  : (createZoneMut.isPending ? 'Creating...' : 'Create Zone')}
               </button>
             </div>
           </div>
