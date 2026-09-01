@@ -149,13 +149,25 @@ interface Props {
 
 export function MobileDateWheelPicker({ value, onChange, disabled, label }: Props) {
   const [open, setOpen] = useState(false)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+
+  // The sheet slides up and covers the bottom ~40% of the screen — for a
+  // field near the bottom of a long form (e.g. Erection, the last section),
+  // that's exactly where the tapped field itself sits, hiding it behind the
+  // sheet it opened. Scroll it to the top of the viewport first so it stays
+  // visible for context while picking.
+  const handleOpen = () => {
+    buttonRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setOpen(true)
+  }
 
   return (
     <>
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className="w-full flex items-center justify-between gap-2 bg-white border border-chrome-200 rounded-lg px-3 py-3 text-[15px] text-left disabled:bg-chrome-50"
       >
         <span className={value ? 'text-chrome-900' : 'text-chrome-400'}>{value ? formatDisplay(value) : 'Select date'}</span>

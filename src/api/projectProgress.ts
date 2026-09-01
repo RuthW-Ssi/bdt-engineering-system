@@ -37,10 +37,13 @@ export interface ProgressZoneRow extends FabStageFields {
   zone_label?: string
   weight_kg: number | null
   qty: number | null
+  fab_plan_finish_date: string | null
+  fab_actual_finish_date: string | null
   plan_load_date: string | null
   actual_load_date: string | null
   loaded_pcs: number
   erected_pcs: number
+  erection_plan_finish_date: string | null
   erection_actual_finish_date: string | null
   payment_status: PaymentStatus
   claimed_weight_kg: number | null
@@ -144,10 +147,13 @@ export interface BimMatchResult {
 // Partial update — omitted fields stay unchanged, explicit null clears a
 // date. Percents clamp server-side to 0..100, pcs to the assembly's qty.
 export interface UpdateAssemblyProgressPayload extends Partial<FabStageFields> {
+  fab_plan_finish_date?: string | null
+  fab_actual_finish_date?: string | null
   plan_load_date?: string | null
   actual_load_date?: string | null
   loaded_pcs?: number
   erected_pcs?: number
+  erection_plan_finish_date?: string | null
   erection_actual_finish_date?: string | null
   payment_status?: PaymentStatus
   claimed_weight_kg?: number

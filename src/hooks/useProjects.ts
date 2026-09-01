@@ -26,3 +26,13 @@ export function useCreateProject() {
     meta: { showGlobalErrorToast: true },
   })
 }
+
+export function useUpdateProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ projectCode, payload }: { projectCode: string; payload: Partial<CreateProjectPayload> }) =>
+      projectsApi.update(projectCode, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
+    meta: { showGlobalErrorToast: true },
+  })
+}

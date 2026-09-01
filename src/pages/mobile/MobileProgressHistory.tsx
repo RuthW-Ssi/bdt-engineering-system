@@ -24,10 +24,17 @@ function BatchCard({ code, batch }: { code: string; batch: ProgressHistoryBatch 
   const { data: detail } = useProgressHistoryBatch(code, expanded ? batch.id : null)
 
   return (
-    <div className="bg-white border border-chrome-100 rounded-xl overflow-hidden">
+    // No overflow-hidden on this wrapper — it was only ever there to clip
+    // the button's active-state background to the rounded corners (moved
+    // onto the button itself below via rounded-t-xl), but on an
+    // auto-height box it also silently clips any content taller than
+    // whatever height the box actually resolves to, with zero visual
+    // indication that anything is missing. Full-list visibility matters
+    // more here than that one cosmetic corner case.
+    <div className="bg-white border border-chrome-100 rounded-xl">
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-3 p-3.5 text-left active:bg-chrome-50"
+        className={`w-full flex items-center gap-3 p-3.5 text-left active:bg-chrome-50 ${expanded ? 'rounded-t-xl' : 'rounded-xl'}`}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -46,14 +53,20 @@ function BatchCard({ code, batch }: { code: string; batch: ProgressHistoryBatch 
       </button>
 
       {expanded && (
-        <div className="border-t border-chrome-100 p-3 flex flex-col gap-2">
+        <div className="border-t border-chrome-100 p-3 pb-4 rounded-b-xl flex flex-col gap-2.5">
           {!detail ? (
             <div className="text-center py-4"><Loader2 size={16} className="animate-spin text-chrome-300 inline" /></div>
           ) : detail.changes.length === 0 ? (
             <div className="text-center text-xs text-chrome-400 py-2">No field changes in this batch</div>
           ) : (
             detail.changes.map((c, i) => (
-              <div key={i} className="text-xs leading-relaxed">
+              // break-words — a long raw field value (e.g. a full ISO
+              // timestamp or a long import filename) has no natural break
+              // point, which on some mobile WebViews has overflowed a
+              // rounded/clipped box instead of wrapping (same class of
+              // real-device-only rendering bug as the native <input
+              // type=date> issue documented in MobileDateWheelPicker.tsx).
+              <div key={i} className="text-xs leading-relaxed break-words flex-shrink-0">
                 <span className="font-mono font-semibold text-chrome-900">{c.mark}</span>
                 <span className="text-chrome-400"> · {c.field}: </span>
                 <span className="text-chrome-400 line-through">{String(c.old ?? '—')}</span>
