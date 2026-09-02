@@ -581,7 +581,11 @@ export function ProjectProgress() {
         <div className="flex flex-col" style={{ gap: 16, minHeight: 0, minWidth: 0 }}>
           <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0 }}>
             {showDrawingPanel ? (
-              <ProgressDrawingPanel zoneId={activeZoneId!} />
+              <ProgressDrawingPanel
+                key={selectedAssemblyId ?? 'none'}
+                zoneId={activeZoneId!}
+                mark={(zoneRows ?? []).find(r => r.assembly_id === selectedAssemblyId)?.mark ?? null}
+              />
             ) : activeBimMatch && activeBimMatch.model_id == null ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', background: '#F0F0F0', border: '0.5px solid #E0E0E0', color: '#ABABAB', gap: 8, textAlign: 'center', padding: 16 }}>
                 <CuboidIcon size={28} />

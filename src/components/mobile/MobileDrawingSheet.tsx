@@ -36,7 +36,7 @@ export function MobileDrawingSheet({ open, onClose, row }: Props) {
         {/* Only mounted while open, same as MobileProgressSheet. */}
         {open && row?.zone_id != null && (
           <div className="flex-1 min-h-0 p-3">
-            <ProgressDrawingPanel zoneId={row.zone_id} />
+            <ProgressDrawingPanel key={row.mark} zoneId={row.zone_id} mark={row.mark} />
           </div>
         )}
       </div>
