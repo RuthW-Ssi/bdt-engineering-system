@@ -276,7 +276,13 @@ export class ProjectProgressService {
       },
     })
 
-    return assemblies.map(mapAssemblyRow)
+    // zone_id wasn't on this row shape at all until the mobile Drawing
+    // sheet needed it (MobileDrawingSheet/MobileBimCard's "show drawing"
+    // button) — it silently no-op'd at zone level since the frontend type
+    // declares zone_id optional, while getProjectRows (which always
+    // attached it) worked fine. We already fetched `zone` above; just carry
+    // its id through instead of adding a query for something already known.
+    return assemblies.map(a => ({ ...mapAssemblyRow(a), zone_id: zone.id }))
   }
 
   // Same shape as getZoneRows, but every zone of the project at once — feeds
