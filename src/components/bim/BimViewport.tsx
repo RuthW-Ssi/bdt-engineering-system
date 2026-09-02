@@ -100,20 +100,32 @@ export interface BimFocusRequest {
 const BULK_PROPS_CHUNK_SIZE = 5000
 const BULK_PROPS_CONCURRENCY = 1
 
-// 'IfcGUID' (LcRevitData_Element:...) was a red herring — confirmed
-// 2026-07-21 via a full unfiltered property dump that the real, universal
-// identity field is GLOBALID under the "IFC" category (LcIFCProperty:
-// IFCString), exactly the same "properties.IFC.GLOBALID" path our own
-// backend already uses for bim_element.global_id. Some elements ALSO carry
-// an unrelated GLOBALID under other categories (e.g. "Tekla Bolt" — that
-// Pset's own id, a different value entirely), so the category must be
+// 'IfcGUID' (LcRevitData_Element:...) was a red herring for one model —
+// confirmed 2026-07-21 via a full unfiltered property dump that the real,
+// universal identity field for THAT translation was GLOBALID under the
+// "IFC" category (LcIFCProperty:IFCString), the same "properties.IFC.GLOBALID"
+// path our own backend uses for bim_element.global_id. Some elements ALSO
+// carry an unrelated GLOBALID under other categories (e.g. "Tekla Bolt" —
+// that Pset's own id, a different value entirely), so the category must be
 // checked too, not just the display name.
-const GLOBAL_ID_CATEGORY = 'IFC'
-const GLOBAL_ID_NAME = 'GLOBALID'
+//
+// Confirmed 2026-09-02 against project 0X222's model that this is NOT
+// actually universal: that translation exposes no "IFC"/GLOBALID pair at
+// all (a live property dump found zero matches across every category), yet
+// the identical semantic value is present under "Element"/"IfcGUID" instead
+// — the exact pair the note above once called a red herring. Different
+// translations (Revit-vs-Tekla export path, IFC schema version) apparently
+// expose the same GlobalId under different category/name pairs, so this
+// checks both rather than assuming one is universal. Order matters only in
+// that IFC/GLOBALID is tried first when a dbId happens to carry both.
+const GLOBAL_ID_CANDIDATES: Array<{ category: string; name: string }> = [
+  { category: 'IFC', name: 'GLOBALID' },
+  { category: 'Element', name: 'IfcGUID' },
+]
 
 function getBulkPropertiesChunk(viewer: any, dbIds: number[]): Promise<Array<{ dbId: number; properties: Array<{ displayName: string; displayValue: string; displayCategory?: string }> }>> {
   return new Promise((resolve, reject) => {
-    viewer.model.getBulkProperties(dbIds, { propFilter: [GLOBAL_ID_NAME] }, resolve, reject)
+    viewer.model.getBulkProperties(dbIds, { propFilter: GLOBAL_ID_CANDIDATES.map(c => c.name) }, resolve, reject)
   })
 }
 
@@ -136,7 +148,9 @@ async function buildGuidIndex(viewer: any): Promise<{ guidToDbId: Map<string, nu
       const chunk = chunks[nextChunk++]
       const results = await getBulkPropertiesChunk(viewer, chunk)
       for (const r of results) {
-        const guid = r.properties.find(p => p.displayCategory === GLOBAL_ID_CATEGORY && p.displayName === GLOBAL_ID_NAME)?.displayValue
+        const guid = GLOBAL_ID_CANDIDATES
+          .map(c => r.properties.find(p => p.displayCategory === c.category && p.displayName === c.name)?.displayValue)
+          .find(Boolean)
         if (!guid) continue
         guidToDbId.set(guid, r.dbId)
         dbIdToGuid.set(r.dbId, guid)
@@ -320,6 +334,13 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
       .then(() => {
         if (cancelled || !containerRef.current) return
         const Autodesk = window.Autodesk
+        // Our OSS buckets live in the JPN region (see aps-client.service.ts).
+        // Without this flag the Viewer SDK's own manifest/derivative CDN
+        // lookups default to the legacy US-only endpoint and 404 on
+        // anything translated in one of Autodesk's newer regions (JPN/GBR/
+        // DEU/CAN/IND) — must be set before Initializer, has no effect after.
+        // https://aps.autodesk.com/blog/expanding-regional-offerings-uk-germany-japan-india-and-canada-phase-ii
+        Autodesk.Viewing.FeatureFlags.set('DS_ENDPOINTS', true)
         Autodesk.Viewing.Initializer({ env: 'AutodeskProduction', accessToken }, () => {
           if (cancelled) return
           const viewer = new Autodesk.Viewing.GuiViewer3D(containerRef.current)
