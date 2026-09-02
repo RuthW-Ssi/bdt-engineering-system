@@ -58,6 +58,13 @@ export function DrawingApsPreview({ urn, accessToken }: Props) {
       .then(() => {
         if (cancelled || !containerRef.current) return
         const Autodesk = window.Autodesk
+        // Our OSS buckets live in the JPN region (see aps-client.service.ts).
+        // Without this flag the Viewer SDK's own manifest/derivative CDN
+        // lookups default to the legacy US-only endpoint and 404 on
+        // anything translated in one of Autodesk's newer regions (JPN/GBR/
+        // DEU/CAN/IND) — must be set before Initializer, has no effect after.
+        // https://aps.autodesk.com/blog/expanding-regional-offerings-uk-germany-japan-india-and-canada-phase-ii
+        Autodesk.Viewing.FeatureFlags.set('DS_ENDPOINTS', true)
         Autodesk.Viewing.Initializer({ env: 'AutodeskProduction', accessToken }, () => {
           if (cancelled) return
           const viewer = new Autodesk.Viewing.GuiViewer3D(containerRef.current)
