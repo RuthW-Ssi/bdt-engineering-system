@@ -1081,9 +1081,19 @@ export class BomUploadService {
     }
 
     if (placeholder) {
-      const matchedPlaceholderAssemblyIds = matched
-        .filter(p => p.assembly.dispatch_id === placeholder.id)
-        .map(p => p.assembly.id)
+      // Reviewed correction: determine matched placeholder assemblies from
+      // bom_assembly directly (by mark), NOT from the progress-derived
+      // `matched` list above. A placeholder assembly with no
+      // bom_assembly_progress row (never touched by a user) would otherwise
+      // never be discovered here and would linger ACTIVE in "Pending BOM"
+      // forever even after its mark is superseded by real BOM.
+      const placeholderAssemblies = await this.prisma.bom_assembly.findMany({
+        where: { dispatch_id: placeholder.id, status: 'ACTIVE' },
+        select: { id: true, assembly_mark: true },
+      })
+      const matchedPlaceholderAssemblyIds = placeholderAssemblies
+        .filter(a => assemblyIdByMark.has(a.assembly_mark))
+        .map(a => a.id)
       if (matchedPlaceholderAssemblyIds.length) {
         await this.prisma.bom_assembly.updateMany({
           where: { id: { in: matchedPlaceholderAssemblyIds } },
