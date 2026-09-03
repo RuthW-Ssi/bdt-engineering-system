@@ -143,9 +143,14 @@ export function MobileAssemblyList() {
                   aria-hidden
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="font-mono font-semibold text-chrome-900 text-[14.5px] truncate">{r.mark}</div>
+                  <div className="font-mono font-semibold text-chrome-900 text-[14.5px] truncate">
+                    {r.mark}
+                    {r.stale && <span className="ml-1.5 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">⚠ stale</span>}
+                  </div>
                   <div className="text-xs text-chrome-400">
-                    Fab {Math.round(r.fab_pct)}% · Load {r.loaded_pcs}/{r.qty ?? 1} · Erect {r.erected_pcs}/{r.qty ?? 1}
+                    {r.is_placeholder
+                      ? `Fab ${Math.round(r.fab_pct)}%`
+                      : `Fab ${Math.round(r.fab_pct)}% · Load ${r.loaded_pcs}/${r.qty ?? 1} · Erect ${r.erected_pcs}/${r.qty ?? 1}`}
                   </div>
                 </div>
                 <ChevronRight size={18} className="text-chrome-200 flex-shrink-0" />

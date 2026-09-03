@@ -32,7 +32,11 @@ export function MobileProgressForm() {
       className="min-h-screen bg-chrome-50 flex flex-col overflow-x-hidden"
       style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
     >
-      <MobileHeader title={row.mark} subtitle={`Qty ${row.qty ?? 1}`} onBack={() => navigate(-1)} />
+      <MobileHeader
+        title={row.mark}
+        subtitle={row.is_placeholder ? 'Pending BOM' : `Qty ${row.qty ?? 1}`}
+        onBack={() => navigate(-1)}
+      />
       <MobileProgressFormFields code={code!} row={row} variant="page" onSaved={() => navigate(-1)} />
     </div>
   )
