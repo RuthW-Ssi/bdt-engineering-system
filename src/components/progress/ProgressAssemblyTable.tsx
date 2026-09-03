@@ -556,7 +556,7 @@ export function ProgressAssemblyTable({
                     }
                     return (
                       <tr style={{ background: '#FAFAFA' }}>
-                        <td colSpan={6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
+                        <td colSpan={isPlaceholderZone ? 5 : 6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
                           {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
                           <div style={groupHeader}>Fabrication</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
@@ -697,7 +697,7 @@ export function ProgressAssemblyTable({
             })}
             {!visible.length && (
               <tr>
-                <td colSpan={6} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
+                <td colSpan={isPlaceholderZone ? 5 : 6} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
                   {rows.length ? 'No marks match the search' : 'No BOM assemblies uploaded for this zone yet'}
                 </td>
               </tr>
@@ -706,7 +706,7 @@ export function ProgressAssemblyTable({
           {rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
+                <td colSpan={isPlaceholderZone ? 5 : 6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
                   {rows.length} assemblies · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total
                   {' · '}fab <b style={{ ...mono, color: '#1A1A1A' }}>{fabPct.toFixed(1)}%</b>
                   {' · '}load <b style={{ ...mono, color: '#1A1A1A' }} title={`${loadedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0}%</b>
