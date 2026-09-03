@@ -656,6 +656,7 @@ describe('getZoneRows — placeholder zone', () => {
     expect(rows[0].is_placeholder).toBe(false)
     expect(rows[0].stale).toBe(false)
     expect(prisma.bim_element.findMany).not.toHaveBeenCalled()
+    expect(prisma.bim_model.findFirst).not.toHaveBeenCalled()
   })
 })
 
