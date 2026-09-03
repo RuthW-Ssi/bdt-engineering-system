@@ -35,6 +35,15 @@ export interface ProgressZoneRow extends FabStageFields {
   zone_id?: number
   zone_code?: string
   zone_label?: string
+  // BIM-first progress entry (2026-09) — true when this row came from the
+  // placeholder ("Pending BOM") zone/dispatch rather than a real BOM upload.
+  // Drives hiding weight_kg/qty columns (unreliable pre-BOM) in the table.
+  is_placeholder: boolean
+  // Only meaningful when is_placeholder is true — this mark is no longer
+  // present in the project's latest BIM model version (removed or renamed).
+  // Row stays visible for manual review; see the design doc's "BIM
+  // re-upload" section.
+  stale: boolean
   weight_kg: number | null
   qty: number | null
   fab_plan_finish_date: string | null
@@ -84,6 +93,7 @@ export interface ProgressZoneRollup extends ProgressRollupTotals {
   zone_id: number
   zone_code: string
   zone_label: string
+  is_placeholder: boolean
 }
 
 export interface ProgressOverview {
