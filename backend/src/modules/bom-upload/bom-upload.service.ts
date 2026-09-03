@@ -1044,11 +1044,23 @@ export class BomUploadService {
         claimed_weight_kg: true,
         delivered_weight_kg: true,
         write_uid: true,
-        assembly: { select: { id: true, dispatch_id: true, assembly_mark: true } },
+        assembly: { select: { id: true, dispatch_id: true, assembly_mark: true, status: true } },
       },
     })
 
-    const matched = prevProgress.filter(p => assemblyIdByMark.has(p.assembly.assembly_mark))
+    // A placeholder-sourced progress row whose assembly is already INACTIVE
+    // means it was reconciled by an earlier upload — the placeholder dispatch
+    // is never deleted (it's project-wide, permanent), so without this guard
+    // it would keep matching on every future upload for this zone, colliding
+    // with the SAME mark's current real progress and non-deterministically
+    // overwriting it. prev-sourced rows are NOT filtered by status — prev's
+    // own assemblies are legitimately INACTIVE at this point (deactivated
+    // earlier in this same upload transaction) and that's exactly the
+    // historical data this query must carry forward from.
+    const matched = prevProgress.filter(p =>
+      assemblyIdByMark.has(p.assembly.assembly_mark) &&
+      (p.assembly.dispatch_id !== placeholder?.id || p.assembly.status === 'ACTIVE'),
+    )
     const toCreate = matched.map(p => ({
       assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
       cut: p.cut,

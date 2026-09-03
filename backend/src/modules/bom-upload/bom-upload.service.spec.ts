@@ -1439,7 +1439,7 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
 
   // Full-shaped progress row builder — every test below needs the same
   // field set, only `assembly` (mark/dispatch_id/id) and `cut` vary.
-  function progressRow(assembly: { id: number; dispatch_id: number; assembly_mark: string }, cut = 80) {
+  function progressRow(assembly: { id: number; dispatch_id: number; assembly_mark: string; status?: string }, cut = 80) {
     return {
       cut, buildup: 0, weld1: 0, fitup_drill: 0, weld2: 0, qc_inspection: 0, primer: 0, fireproof: 0, top_coat: 0, qc_final: 0,
       fab_plan_finish_date: null, fab_actual_finish_date: null, plan_load_date: null, actual_load_date: null,
@@ -1465,8 +1465,12 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
           // dispatch_id: 800 matches the mocked placeholder dispatch's id
           // below — only used for the progress-copy source here; which
           // assemblies get deactivated is now decided by the bom_assembly
-          // query below, not by this row's presence.
-          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001' }, 80),
+          // query below, not by this row's presence. status: 'ACTIVE'
+          // because this placeholder assembly hasn't been reconciled yet
+          // (that happens later in this same call) — see the
+          // "excludes a stale reconciled placeholder row" test below for the
+          // INACTIVE case.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'ACTIVE' }, 80),
         ]),
         createMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
@@ -1579,8 +1583,9 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
         findMany: jest.fn().mockResolvedValue([
           // prev-sourced: a real assembly from the prior real dispatch.
           progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-002' }, 55),
-          // placeholder-sourced: same shape as the first test above.
-          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001' }, 80),
+          // placeholder-sourced: same shape as the first test above — ACTIVE
+          // because it hasn't been reconciled yet.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'ACTIVE' }, 80),
         ]),
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
@@ -1614,5 +1619,76 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
       where: { id: { in: [501] } },
       data: { status: 'INACTIVE' },
     })
+  })
+
+  it('Finding 1 regression: excludes a stale, already-reconciled INACTIVE placeholder progress row that collides on the SAME mark as current real (prev) progress, keeping the real value', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          // 1st call = prior real dispatch (id 700), 2nd call = placeholder (id 800)
+          return Promise.resolve(dispatchFindFirstCall === 1 ? { id: 700 } : { id: 800 })
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          // Current real progress for this mark — assembly is INACTIVE
+          // because it was deactivated earlier in THIS same upload
+          // transaction (the legitimate "prev" case, must be kept).
+          progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-001', status: 'INACTIVE' }, 90),
+          // Stale placeholder progress for the SAME mark — reconciled by an
+          // EARLIER upload (assembly already INACTIVE from that prior
+          // reconciliation, long before this upload ran). Must be excluded.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'INACTIVE' }, 20),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // Placeholder dispatch has no ACTIVE assemblies left for this mark —
+        // it was already reconciled by an earlier upload.
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-001', 999]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    const data = (prisma.bom_assembly_progress.createMany as jest.Mock).mock.calls[0][0].data
+    const rowsFor999 = data.filter((r: any) => r.assembly_id === 999)
+    expect(rowsFor999).toHaveLength(1)
+    expect(rowsFor999[0].cut).toBe(90) // prev/real value, not the stale placeholder's 20
+  })
+
+  it('Finding 1 regression: still includes a placeholder-sourced row when its assembly is still ACTIVE (not yet reconciled) — does not regress the existing dual-source case', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          return Promise.resolve(dispatchFindFirstCall === 1 ? { id: 700 } : { id: 800 })
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-001', status: 'INACTIVE' }, 90),
+          // Same mark, placeholder-sourced, still ACTIVE (not yet reconciled) — must be included.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'ACTIVE' }, 20),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 501, assembly_mark: 'WH-CO-001' }]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-001', 999]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    const data = (prisma.bom_assembly_progress.createMany as jest.Mock).mock.calls[0][0].data
+    expect(data).toHaveLength(2)
+    expect(data.map((r: any) => r.cut).sort()).toEqual([20, 90])
   })
 })
