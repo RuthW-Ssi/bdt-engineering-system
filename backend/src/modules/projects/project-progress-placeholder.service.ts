@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 
 const PLACEHOLDER_ZONE_CODE = '__PENDING_BOM__'
-const PLACEHOLDER_ZONE_LABEL = '⏳ Pending BOM'
+const PLACEHOLDER_ZONE_LABEL = 'Pending BOM'
 
 // BIM-first progress entry (2026-09) — see wiki
 // project-progress-phase-tracking.md#2026-09-03--bim-first-progress-entry-design.

@@ -329,6 +329,8 @@ export class ProjectProgressService {
       zone_id: a.dispatch.zone.id,
       zone_code: a.dispatch.zone.code,
       zone_label: a.dispatch.zone.label,
+      is_placeholder: false,
+      stale: false,
     }))
   }
 
