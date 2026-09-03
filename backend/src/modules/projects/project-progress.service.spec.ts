@@ -621,6 +621,44 @@ describe('getProjectBimMatch', () => {
   })
 })
 
+describe('getZoneRows — placeholder zone', () => {
+  it('tags every row is_placeholder=true and flags marks missing from the latest bim_model as stale', async () => {
+    const prisma = makePrisma({
+      project_zone: { findFirst: jest.fn().mockResolvedValue({ id: 900, project_id: 1, is_placeholder: true }) },
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'WH-CO-001', weight_kg: null, qty: null, progress: null },
+          { id: 2, assembly_mark: 'WH-CO-002', weight_kg: null, qty: null, progress: null },
+        ]),
+      },
+      bim_model: { findFirst: jest.fn().mockResolvedValue({ id: 50, major_version: 1, minor_version: 0 }) },
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: 'WH-CO-001' }]) }, // WH-CO-002 no longer in the model
+    })
+    const svc = new ProjectProgressService(prisma)
+    const rows = await svc.getZoneRows('0X220', 900)
+
+    expect(rows).toHaveLength(2)
+    expect(rows.every(r => r.is_placeholder === true)).toBe(true)
+    expect(rows.find(r => r.mark === 'WH-CO-001')!.stale).toBe(false)
+    expect(rows.find(r => r.mark === 'WH-CO-002')!.stale).toBe(true)
+  })
+
+  it('a normal (non-placeholder) zone never queries bim_element and reports is_placeholder=false, stale=false', async () => {
+    const prisma = makePrisma({
+      project_zone: { findFirst: jest.fn().mockResolvedValue({ id: 10, project_id: 1, is_placeholder: false }) },
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([{ id: 1, assembly_mark: 'WH-CO-001', weight_kg: 100, qty: 2, progress: null }]),
+      },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const rows = await svc.getZoneRows('0X220', 10)
+
+    expect(rows[0].is_placeholder).toBe(false)
+    expect(rows[0].stale).toBe(false)
+    expect(prisma.bim_element.findMany).not.toHaveBeenCalled()
+  })
+})
+
 describe('getProjectPositions', () => {
   it('groups (position, mark) pairs — a bay can hold several marks, a mark can span several bays', async () => {
     const prisma = makePrisma({

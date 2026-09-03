@@ -276,13 +276,35 @@ export class ProjectProgressService {
       },
     })
 
+    // BIM-first progress entry (2026-09) — only the one placeholder zone per
+    // project needs this: which of its marks are still present in the
+    // project's latest complete BIM model, vs. stale (removed or renamed in
+    // a newer version — see the design doc's "BIM re-upload" section). A
+    // normal zone's marks come from real BOM and are never "stale" this way.
+    let staleMarks: Set<string> | null = null
+    if (zone.is_placeholder) {
+      const latestModel = await this.findLatestCompleteModel(project.id)
+      const currentMarks = latestModel
+        ? new Set((await this.prisma.bim_element.findMany({
+            where: { model_id: latestModel.id, ifc_type: 'IfcElementAssembly', mark: { not: null } },
+            select: { mark: true },
+          })).map(e => e.mark as string))
+        : new Set<string>()
+      staleMarks = new Set(assemblies.filter(a => !currentMarks.has(a.assembly_mark)).map(a => a.assembly_mark))
+    }
+
     // zone_id wasn't on this row shape at all until the mobile Drawing
     // sheet needed it (MobileDrawingSheet/MobileBimCard's "show drawing"
     // button) — it silently no-op'd at zone level since the frontend type
     // declares zone_id optional, while getProjectRows (which always
     // attached it) worked fine. We already fetched `zone` above; just carry
     // its id through instead of adding a query for something already known.
-    return assemblies.map(a => ({ ...mapAssemblyRow(a), zone_id: zone.id }))
+    return assemblies.map(a => ({
+      ...mapAssemblyRow(a),
+      zone_id: zone.id,
+      is_placeholder: zone.is_placeholder,
+      stale: staleMarks ? staleMarks.has(a.assembly_mark) : false,
+    }))
   }
 
   // Same shape as getZoneRows, but every zone of the project at once — feeds
