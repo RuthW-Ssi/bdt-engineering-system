@@ -337,14 +337,14 @@ export class ProjectProgressService {
     const zones = await this.prisma.project_zone.findMany({
       where: { project_id: project.id, active: true },
       orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }],
-      select: { id: true, code: true, label: true },
+      select: { id: true, code: true, label: true, is_placeholder: true },
     })
 
     // One query for the whole project, grouped in JS — assembly counts per
     // project are in the hundreds, not worth per-zone round-trips.
     const assemblies = await this.prisma.bom_assembly.findMany({
       where: { status: 'ACTIVE', dispatch: { project_id: project.id } },
-      select: { weight_kg: true, qty: true, progress: true, dispatch: { select: { zone_id: true } } },
+      select: { weight_kg: true, qty: true, progress: true, dispatch: { select: { zone_id: true, source: true } } },
     })
 
     const perZone = zones.map(z => {
@@ -353,9 +353,14 @@ export class ProjectProgressService {
     })
     return {
       zones: perZone.map(({ zone, ...agg }) => ({
-        zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, ...agg,
+        zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, is_placeholder: zone.is_placeholder, ...agg,
       })),
-      total: rollup(assemblies),
+      // BIM-first progress entry (2026-09) — the placeholder zone's own row
+      // above still reports its real (if unweighted) assembly count, but the
+      // PROJECT total must never include BIM-only data the eventual real BOM
+      // will supersede (weight_kg/qty are null on placeholder rows anyway,
+      // which would otherwise silently understate a mixed total).
+      total: rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')),
     }
   }
 

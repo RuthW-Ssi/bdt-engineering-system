@@ -235,6 +235,33 @@ describe('getOverview rollup', () => {
     expect(result.total.loaded_pcs).toBe(4)
     expect(result.total.load_pct).toBe(100)
   })
+
+  describe('getOverview — placeholder zone exclusion', () => {
+    it('includes the placeholder zone in zones[] (tagged is_placeholder) but excludes its assemblies from total', async () => {
+      const prisma = makePrisma({
+        project_zone: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 10, code: 'Z1', label: 'Zone 1', is_placeholder: false },
+            { id: 900, code: '__PENDING_BOM__', label: '⏳ Pending BOM', is_placeholder: true },
+          ]),
+        },
+        bom_assembly: {
+          findMany: jest.fn().mockResolvedValue([
+            { weight_kg: 1000, qty: 2, progress: null, dispatch: { zone_id: 10, source: 'BOM_UPLOAD' } },
+            { weight_kg: null, qty: null, progress: null, dispatch: { zone_id: 900, source: 'BIM_PLACEHOLDER' } },
+          ]),
+        },
+      })
+      const svc = new ProjectProgressService(prisma)
+      const overview = await svc.getOverview('0X220')
+
+      expect(overview.zones).toHaveLength(2)
+      expect(overview.zones.find(z => z.zone_id === 900)!.is_placeholder).toBe(true)
+      expect(overview.zones.find(z => z.zone_id === 900)!.assembly_count).toBe(1) // its own row still counts for itself
+      expect(overview.total.assembly_count).toBe(1) // but the PROJECT total excludes it
+      expect(overview.total.total_weight_kg).toBe(1000)
+    })
+  })
 })
 
 describe('getProjectRows', () => {

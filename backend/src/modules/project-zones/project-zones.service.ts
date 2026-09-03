@@ -8,7 +8,14 @@ export class ProjectZonesService {
 
   async findAll(projectId: number) {
     return this.prisma.project_zone.findMany({
-      where: { project_id: projectId, active: true },
+      // BIM-first progress entry (2026-09) — the one placeholder zone per
+      // project must never appear in a zone picker used for real BOM upload
+      // or Work Order creation (see project-progress-phase-tracking.md's
+      // design doc, "Explicit exclusions"). The Progress page itself gets
+      // this zone through ProjectsService.findOne's own `zones` include,
+      // which is intentionally NOT filtered — that's the one place it's
+      // supposed to appear, as its own tab.
+      where: { project_id: projectId, active: true, is_placeholder: false },
       orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }],
       include: { sub_zones: { where: { active: true }, orderBy: [{ code: 'asc' }, { name: 'asc' }] } },
     })
