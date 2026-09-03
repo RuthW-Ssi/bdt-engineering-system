@@ -37,6 +37,9 @@ describe('ProgressPlaceholderService.syncFromBim', () => {
     const result = await svc.syncFromBim(1, 50, 7)
     expect(result).toEqual({ created: 0, skipped: 0 })
     expect(prisma.bim_element.findMany).not.toHaveBeenCalled()
+    expect(prisma.bom_assembly.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ dispatch: expect.objectContaining({ source: 'BOM_UPLOAD' }) }),
+    }))
   })
 
   it('creates a placeholder zone+dispatch and upserts marks by createMany+skipDuplicates', async () => {
