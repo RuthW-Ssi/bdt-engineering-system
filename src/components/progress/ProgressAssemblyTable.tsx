@@ -258,6 +258,11 @@ export function ProgressAssemblyTable({
   const loadedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.loaded_pcs), 0)
   const erectedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.erected_pcs), 0)
 
+  // BIM-first progress entry (2026-09) — one zone's table is either all
+  // placeholder rows or all real rows (rows come from a single getZoneRows
+  // call), so the first row is a safe representative check.
+  const isPlaceholderZone = rows.length > 0 && rows[0].is_placeholder
+
   const setBulkField = <K extends keyof BulkUpdateAssemblyProgressPayload>(field: K, value: BulkUpdateAssemblyProgressPayload[K]) => {
     setBulkDraft(d => ({ ...d, [field]: value }))
     setBulkTouched(t => new Set(t).add(field))
@@ -431,7 +436,7 @@ export function ProgressAssemblyTable({
                 />
               </th>
               <th style={th}>Mark</th>
-              <th style={{ ...th, textAlign: 'right' }}>Weight</th>
+              {!isPlaceholderZone && <th style={{ ...th, textAlign: 'right' }}>Weight</th>}
               <th style={th}>Progress</th>
               <th style={{ ...th, textAlign: 'center' }} />
               <th style={{ ...th, textAlign: 'center' }}>Edit</th>
@@ -472,10 +477,22 @@ export function ProgressAssemblyTable({
                         style={{ width: 15, height: 15, accentColor: '#C8202A', cursor: 'pointer' }}
                       />
                     </td>
-                    <td style={{ ...td, ...mono, fontWeight: 600 }}>{r.mark}</td>
-                    <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
-                      {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
+                    <td style={{ ...td, ...mono, fontWeight: 600 }}>
+                      {r.mark}
+                      {r.stale && (
+                        <span
+                          title="Not found in the latest 3D model version — needs manual review"
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#B8860B', background: '#FFF6E0', padding: '1px 6px', borderRadius: 4 }}
+                        >
+                          ⚠ stale
+                        </span>
+                      )}
                     </td>
+                    {!isPlaceholderZone && (
+                      <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
+                        {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
+                      </td>
+                    )}
                     <td style={td} title={STATUS_META[r.status].label}>
                       {/* Each chip's color is its own metric's completeness —
                           not the row's single derived status — so all four

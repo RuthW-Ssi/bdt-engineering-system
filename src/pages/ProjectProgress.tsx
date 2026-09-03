@@ -522,6 +522,7 @@ export function ProjectProgress() {
               label={z.label}
               sub={rollup ? `${(rollup.total_weight_kg / 1000).toFixed(1)}t` : undefined}
               active={tab === z.id}
+              placeholder={z.is_placeholder}
               onClick={() => switchTab(z.id)}
             />
           )
@@ -665,21 +666,21 @@ export function ProjectProgress() {
 
 // Matches BomList's content-tab convention (fontSize 12, padding 9px 16px)
 // rather than a bespoke one — same visual language app-wide.
-function TabButton({ label, sub, active, onClick }: { label: string; sub?: string; active: boolean; onClick: () => void }) {
+function TabButton({ label, sub, active, placeholder, onClick }: { label: string; sub?: string; active: boolean; placeholder?: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       aria-selected={active}
       style={{
         font: 'inherit', fontSize: 12, fontWeight: active ? 600 : 400,
-        color: active ? '#C8202A' : '#555',
+        color: active ? '#C8202A' : placeholder ? '#B8860B' : '#555',
         background: 'none', border: 'none',
         padding: '9px 16px', cursor: 'pointer',
         borderBottom: `2px solid ${active ? '#C8202A' : 'transparent'}`,
         marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
       }}
     >
-      {label}
+      {placeholder ? '⏳ ' : ''}{label}
       {sub && <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, color: '#ABABAB', marginLeft: 5 }}>{sub}</span>}
     </button>
   )
@@ -881,7 +882,9 @@ function OverviewPanel({
                       onClick={() => !empty && onToggleGroup({ type: 'zone', id: z.zone_id })}
                       style={{ cursor: empty ? 'default' : 'pointer', background: active ? '#FCEBEB' : undefined }}
                     >
-                      <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>{z.zone_label}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>
+                        {z.is_placeholder ? '⏳ ' : ''}{z.zone_label}
+                      </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
                       <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
                         F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
