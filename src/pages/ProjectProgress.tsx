@@ -542,7 +542,6 @@ export function ProjectProgress() {
               label={z.label}
               sub={rollup ? `${(rollup.total_weight_kg / 1000).toFixed(1)}t` : undefined}
               active={tab === z.id}
-              placeholder={z.is_placeholder}
               onClick={() => switchTab(z.id)}
             />
           )
@@ -686,14 +685,14 @@ export function ProjectProgress() {
 
 // Matches BomList's content-tab convention (fontSize 12, padding 9px 16px)
 // rather than a bespoke one — same visual language app-wide.
-function TabButton({ label, sub, active, placeholder, onClick }: { label: string; sub?: string; active: boolean; placeholder?: boolean; onClick: () => void }) {
+function TabButton({ label, sub, active, onClick }: { label: string; sub?: string; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       aria-selected={active}
       style={{
         font: 'inherit', fontSize: 12, fontWeight: active ? 600 : 400,
-        color: active ? '#C8202A' : placeholder ? '#B8860B' : '#555',
+        color: active ? '#C8202A' : '#555',
         background: 'none', border: 'none',
         padding: '9px 16px', cursor: 'pointer',
         borderBottom: `2px solid ${active ? '#C8202A' : 'transparent'}`,
