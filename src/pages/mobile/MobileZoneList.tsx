@@ -93,7 +93,7 @@ export function MobileZoneList() {
           {!isLoading && zones.length === 0 && (
             <div className="text-center text-chrome-400 text-sm py-10">No zones found</div>
           )}
-          {zones.map(z => {
+          {zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
             const meta = zoneMetaById.get(z.zone_id)
             const delayInfo = meta ? computeDelayInfo(meta.target_erection_start, meta.target_erection_end, z.erect_pct) : null
             return (

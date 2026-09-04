@@ -516,6 +516,11 @@ export function ProjectProgress() {
         <TabButton label="Overview" active={tab === 'overview'} onClick={() => switchTab('overview')} />
         {zones.map(z => {
           const rollup = overview?.zones.find(o => o.zone_id === z.id)
+          // A fully-reconciled placeholder zone (every assembly deactivated)
+          // has nothing left to review — drop its tab instead of leaving an
+          // empty "Pending BOM" tab forever. Only hide once we KNOW it's
+          // empty (rollup loaded), not while overview is still fetching.
+          if (z.is_placeholder && rollup && rollup.assembly_count === 0) return null
           return (
             <TabButton
               key={z.id}
@@ -868,7 +873,7 @@ function OverviewPanel({
                 </tr>
               </thead>
               <tbody>
-                {overview.zones.map(z => {
+                {overview.zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
                   // No BOM uploaded for this zone yet — mute the row so the eye
                   // goes to zones that actually have work in them, instead of
                   // filtering it out entirely (still a real zone, just empty).
