@@ -107,7 +107,7 @@ export function MobileZoneList() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-chrome-900 text-[15px] truncate">
-                    {z.is_placeholder ? '⏳ ' : ''}{z.zone_label}
+                    {z.zone_label}
                   </div>
                   <div className="text-xs text-chrome-400 font-mono">{z.zone_code} · {z.assembly_count} pcs · Fab {Math.round(z.fab_pct)}%</div>
                   {meta?.target_erection_start && meta?.target_erection_end && (

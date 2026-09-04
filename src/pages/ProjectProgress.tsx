@@ -700,7 +700,7 @@ function TabButton({ label, sub, active, placeholder, onClick }: { label: string
         marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
       }}
     >
-      {placeholder ? '⏳ ' : ''}{label}
+      {label}
       {sub && <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, color: '#ABABAB', marginLeft: 5 }}>{sub}</span>}
     </button>
   )
@@ -903,7 +903,7 @@ function OverviewPanel({
                       style={{ cursor: empty ? 'default' : 'pointer', background: active ? '#FCEBEB' : undefined }}
                     >
                       <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>
-                        {z.is_placeholder ? '⏳ ' : ''}{z.zone_label}
+                        {z.zone_label}
                       </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
                       <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
