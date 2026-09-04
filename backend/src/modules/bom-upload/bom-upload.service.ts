@@ -976,6 +976,16 @@ export class BomUploadService {
   // assemblies onto this upload's new assembly rows, keyed by mark —
   // mirrors carryForwardPaintConfig above. The old rows stay attached to
   // the now-INACTIVE assemblies (harmless; every read path filters ACTIVE).
+  //
+  // BIM-first progress entry (2026-09) extension: also searches the
+  // project's placeholder dispatch (bom_dispatch.source='BIM_PLACEHOLDER',
+  // never zone-scoped since a placeholder assembly has no real zone yet) for
+  // marks matching this upload. Matched placeholder assemblies get their
+  // progress copied the same way, then flip to INACTIVE so they drop out of
+  // the "Pending BOM" list — this is the ONE place placeholder rows ever get
+  // deactivated (BIM re-uploads upsert them in place instead, see
+  // ProgressPlaceholderService). Unmatched placeholder rows are untouched —
+  // they stay ACTIVE for manual review, per the design doc.
   private async carryForwardProgress(
     dispatchId: number,
     projectId: number,
@@ -996,14 +1006,21 @@ export class BomUploadService {
       orderBy: { id: 'desc' },
       select: { id: true },
     })
-    if (!prev) return
+
+    const placeholder = await this.prisma.bom_dispatch.findFirst({
+      where: { project_id: projectId, source: 'BIM_PLACEHOLDER' },
+      select: { id: true },
+    })
+
+    const sourceDispatchIds = [prev?.id, placeholder?.id].filter((id): id is number => id != null)
+    if (!sourceDispatchIds.length) return
 
     // Phase-tracking columns (Sprint 26). Pcs carry forward as absolute
     // counts — if a re-upload changes an assembly's qty, the service-side
     // clamp corrects on the next edit (same-mark qty churn is rare and
     // carry-forward has never re-validated).
     const prevProgress = await this.prisma.bom_assembly_progress.findMany({
-      where: { assembly: { dispatch_id: prev.id } },
+      where: { assembly: { dispatch_id: { in: sourceDispatchIds } } },
       select: {
         cut: true,
         buildup: true,
@@ -1027,41 +1044,75 @@ export class BomUploadService {
         claimed_weight_kg: true,
         delivered_weight_kg: true,
         write_uid: true,
-        assembly: { select: { assembly_mark: true } },
+        assembly: { select: { id: true, dispatch_id: true, assembly_mark: true, status: true } },
       },
     })
 
-    const toCreate = prevProgress
-      .filter(p => assemblyIdByMark.has(p.assembly.assembly_mark))
-      .map(p => ({
-        assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
-        cut: p.cut,
-        buildup: p.buildup,
-        weld1: p.weld1,
-        fitup_drill: p.fitup_drill,
-        weld2: p.weld2,
-        qc_inspection: p.qc_inspection,
-        primer: p.primer,
-        fireproof: p.fireproof,
-        top_coat: p.top_coat,
-        qc_final: p.qc_final,
-        fab_plan_finish_date: p.fab_plan_finish_date,
-        fab_actual_finish_date: p.fab_actual_finish_date,
-        plan_load_date: p.plan_load_date,
-        actual_load_date: p.actual_load_date,
-        loaded_pcs: p.loaded_pcs,
-        erected_pcs: p.erected_pcs,
-        erection_plan_finish_date: p.erection_plan_finish_date,
-        erection_actual_finish_date: p.erection_actual_finish_date,
-        payment_status: p.payment_status,
-        claimed_weight_kg: p.claimed_weight_kg,
-        delivered_weight_kg: p.delivered_weight_kg,
-        write_uid: p.write_uid,
-      }))
+    // A placeholder-sourced progress row whose assembly is already INACTIVE
+    // means it was reconciled by an earlier upload — the placeholder dispatch
+    // is never deleted (it's project-wide, permanent), so without this guard
+    // it would keep matching on every future upload for this zone, colliding
+    // with the SAME mark's current real progress and non-deterministically
+    // overwriting it. prev-sourced rows are NOT filtered by status — prev's
+    // own assemblies are legitimately INACTIVE at this point (deactivated
+    // earlier in this same upload transaction) and that's exactly the
+    // historical data this query must carry forward from.
+    const matched = prevProgress.filter(p =>
+      assemblyIdByMark.has(p.assembly.assembly_mark) &&
+      (p.assembly.dispatch_id !== placeholder?.id || p.assembly.status === 'ACTIVE'),
+    )
+    const toCreate = matched.map(p => ({
+      assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
+      cut: p.cut,
+      buildup: p.buildup,
+      weld1: p.weld1,
+      fitup_drill: p.fitup_drill,
+      weld2: p.weld2,
+      qc_inspection: p.qc_inspection,
+      primer: p.primer,
+      fireproof: p.fireproof,
+      top_coat: p.top_coat,
+      qc_final: p.qc_final,
+      fab_plan_finish_date: p.fab_plan_finish_date,
+      fab_actual_finish_date: p.fab_actual_finish_date,
+      plan_load_date: p.plan_load_date,
+      actual_load_date: p.actual_load_date,
+      loaded_pcs: p.loaded_pcs,
+      erected_pcs: p.erected_pcs,
+      erection_plan_finish_date: p.erection_plan_finish_date,
+      erection_actual_finish_date: p.erection_actual_finish_date,
+      payment_status: p.payment_status,
+      claimed_weight_kg: p.claimed_weight_kg,
+      delivered_weight_kg: p.delivered_weight_kg,
+      write_uid: p.write_uid,
+    }))
 
     if (toCreate.length) {
       await this.prisma.bom_assembly_progress.createMany({ data: toCreate, skipDuplicates: true })
-      this.logger.log(`Progress carry-forward: ${toCreate.length} rows from dispatch ${prev.id} → ${dispatchId}`)
+      this.logger.log(`Progress carry-forward: ${toCreate.length} rows from dispatch(es) ${sourceDispatchIds.join(',')} → ${dispatchId}`)
+    }
+
+    if (placeholder) {
+      // Reviewed correction: determine matched placeholder assemblies from
+      // bom_assembly directly (by mark), NOT from the progress-derived
+      // `matched` list above. A placeholder assembly with no
+      // bom_assembly_progress row (never touched by a user) would otherwise
+      // never be discovered here and would linger ACTIVE in "Pending BOM"
+      // forever even after its mark is superseded by real BOM.
+      const placeholderAssemblies = await this.prisma.bom_assembly.findMany({
+        where: { dispatch_id: placeholder.id, status: 'ACTIVE' },
+        select: { id: true, assembly_mark: true },
+      })
+      const matchedPlaceholderAssemblyIds = placeholderAssemblies
+        .filter(a => assemblyIdByMark.has(a.assembly_mark))
+        .map(a => a.id)
+      if (matchedPlaceholderAssemblyIds.length) {
+        await this.prisma.bom_assembly.updateMany({
+          where: { id: { in: matchedPlaceholderAssemblyIds } },
+          data: { status: 'INACTIVE' },
+        })
+        this.logger.log(`Placeholder reconciliation: ${matchedPlaceholderAssemblyIds.length} assemblies deactivated on dispatch ${placeholder.id}`)
+      }
     }
   }
 }

@@ -184,6 +184,21 @@ export function ProjectProgress() {
   }, [zoneParam, zones, setSearchParams])
 
   const { data: overview } = useProgressOverview(code)
+
+  // If the active tab is the placeholder zone and it just got fully
+  // reconciled (assembly_count drops to 0 — e.g. a real BOM upload landed
+  // elsewhere while this tab was open), its TabButton vanishes from the
+  // bar per the hide-when-empty guard below — bounce to Overview instead
+  // of leaving this zone-scoped pane rendering under no visibly-active tab.
+  useEffect(() => {
+    if (!activeZoneId || !overview) return
+    const meta = zones.find(z => z.id === activeZoneId)
+    const rollup = overview.zones.find(o => o.zone_id === activeZoneId)
+    if (meta?.is_placeholder && rollup && rollup.assembly_count === 0) {
+      setSearchParams(p => { p.delete('zone'); return p }, { replace: true })
+    }
+  }, [activeZoneId, overview, zones, setSearchParams])
+
   const { data: zoneRows } = useProgressZoneRows(code, activeZoneId)
   const { data: bimMatch } = useProgressBimMatch(code, activeZoneId)
   // Project-wide variants only fetch while the Overview tab is open — the
@@ -516,12 +531,18 @@ export function ProjectProgress() {
         <TabButton label="Overview" active={tab === 'overview'} onClick={() => switchTab('overview')} />
         {zones.map(z => {
           const rollup = overview?.zones.find(o => o.zone_id === z.id)
+          // A fully-reconciled placeholder zone (every assembly deactivated)
+          // has nothing left to review — drop its tab instead of leaving an
+          // empty "Pending BOM" tab forever. Only hide once we KNOW it's
+          // empty (rollup loaded), not while overview is still fetching.
+          if (z.is_placeholder && rollup && rollup.assembly_count === 0) return null
           return (
             <TabButton
               key={z.id}
               label={z.label}
               sub={rollup ? `${(rollup.total_weight_kg / 1000).toFixed(1)}t` : undefined}
               active={tab === z.id}
+              placeholder={z.is_placeholder}
               onClick={() => switchTab(z.id)}
             />
           )
@@ -665,21 +686,21 @@ export function ProjectProgress() {
 
 // Matches BomList's content-tab convention (fontSize 12, padding 9px 16px)
 // rather than a bespoke one — same visual language app-wide.
-function TabButton({ label, sub, active, onClick }: { label: string; sub?: string; active: boolean; onClick: () => void }) {
+function TabButton({ label, sub, active, placeholder, onClick }: { label: string; sub?: string; active: boolean; placeholder?: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       aria-selected={active}
       style={{
         font: 'inherit', fontSize: 12, fontWeight: active ? 600 : 400,
-        color: active ? '#C8202A' : '#555',
+        color: active ? '#C8202A' : placeholder ? '#B8860B' : '#555',
         background: 'none', border: 'none',
         padding: '9px 16px', cursor: 'pointer',
         borderBottom: `2px solid ${active ? '#C8202A' : 'transparent'}`,
         marginBottom: -1, whiteSpace: 'nowrap', flexShrink: 0,
       }}
     >
-      {label}
+      {placeholder ? '⏳ ' : ''}{label}
       {sub && <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 10.5, color: '#ABABAB', marginLeft: 5 }}>{sub}</span>}
     </button>
   )
@@ -867,7 +888,7 @@ function OverviewPanel({
                 </tr>
               </thead>
               <tbody>
-                {overview.zones.map(z => {
+                {overview.zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
                   // No BOM uploaded for this zone yet — mute the row so the eye
                   // goes to zones that actually have work in them, instead of
                   // filtering it out entirely (still a real zone, just empty).
@@ -881,7 +902,9 @@ function OverviewPanel({
                       onClick={() => !empty && onToggleGroup({ type: 'zone', id: z.zone_id })}
                       style={{ cursor: empty ? 'default' : 'pointer', background: active ? '#FCEBEB' : undefined }}
                     >
-                      <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>{z.zone_label}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>
+                        {z.is_placeholder ? '⏳ ' : ''}{z.zone_label}
+                      </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
                       <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
                         F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>

@@ -328,6 +328,12 @@ model project_zone {
   crane_assignment      String?   @db.VarChar(60)
   notes                 String?   @db.Text
   active                Boolean   @default(true)
+  // BIM-first progress entry (2026-09) — true only for the one synthetic
+  // "Pending BOM" zone per project that holds BIM-sourced placeholder
+  // assemblies before a real BOM exists. Excluded from delay detection
+  // (never has target dates), project rollup totals, and zone pickers used
+  // by BOM upload / Work Order creation.
+  is_placeholder        Boolean   @default(false)
 
   products      products[]
   sub_zones     sub_zone[]
@@ -822,6 +828,15 @@ model bom_dispatch {
   sub_zone              sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
   status                String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
   upload_mode           String       @default("combined") @db.VarChar(20) // combined | separate
+  // BIM-first progress entry (2026-09) — 'BOM_UPLOAD' (default, every real
+  // upload) | 'BIM_PLACEHOLDER' (the one stable per-project dispatch that
+  // holds BIM-sourced assemblies before real BOM exists — see
+  // ProgressPlaceholderService). Unlike real dispatches, a placeholder
+  // dispatch is never superseded by a new row; BIM re-uploads upsert into it.
+  // DB-enforced singularity per project via a hand-written partial unique
+  // index (migration add_bim_placeholder_dispatch_unique_index) — not
+  // expressible declaratively in Prisma schema syntax for PostgreSQL.
+  source                String       @default("BOM_UPLOAD") @db.VarChar(20)
   revision              Int          @default(1) // explicit revision number — user-controlled at upload time (see BomUploadService.upload)
   uploaded_at           DateTime     @default(now()) @db.Timestamptz
   // Aggregate counts — cached after processing

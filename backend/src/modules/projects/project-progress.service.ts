@@ -276,13 +276,35 @@ export class ProjectProgressService {
       },
     })
 
+    // BIM-first progress entry (2026-09) — only the one placeholder zone per
+    // project needs this: which of its marks are still present in the
+    // project's latest complete BIM model, vs. stale (removed or renamed in
+    // a newer version — see the design doc's "BIM re-upload" section). A
+    // normal zone's marks come from real BOM and are never "stale" this way.
+    let staleMarks: Set<string> | null = null
+    if (zone.is_placeholder) {
+      const latestModel = await this.findLatestCompleteModel(project.id)
+      const currentMarks = latestModel
+        ? new Set((await this.prisma.bim_element.findMany({
+            where: { model_id: latestModel.id, ifc_type: 'IfcElementAssembly', mark: { not: null } },
+            select: { mark: true },
+          })).map(e => e.mark as string))
+        : new Set<string>()
+      staleMarks = new Set(assemblies.filter(a => !currentMarks.has(a.assembly_mark)).map(a => a.assembly_mark))
+    }
+
     // zone_id wasn't on this row shape at all until the mobile Drawing
     // sheet needed it (MobileDrawingSheet/MobileBimCard's "show drawing"
     // button) — it silently no-op'd at zone level since the frontend type
     // declares zone_id optional, while getProjectRows (which always
     // attached it) worked fine. We already fetched `zone` above; just carry
     // its id through instead of adding a query for something already known.
-    return assemblies.map(a => ({ ...mapAssemblyRow(a), zone_id: zone.id }))
+    return assemblies.map(a => ({
+      ...mapAssemblyRow(a),
+      zone_id: zone.id,
+      is_placeholder: zone.is_placeholder,
+      stale: staleMarks ? staleMarks.has(a.assembly_mark) : false,
+    }))
   }
 
   // Same shape as getZoneRows, but every zone of the project at once — feeds
@@ -307,6 +329,8 @@ export class ProjectProgressService {
       zone_id: a.dispatch.zone.id,
       zone_code: a.dispatch.zone.code,
       zone_label: a.dispatch.zone.label,
+      is_placeholder: false,
+      stale: false,
     }))
   }
 
@@ -315,14 +339,14 @@ export class ProjectProgressService {
     const zones = await this.prisma.project_zone.findMany({
       where: { project_id: project.id, active: true },
       orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }],
-      select: { id: true, code: true, label: true },
+      select: { id: true, code: true, label: true, is_placeholder: true },
     })
 
     // One query for the whole project, grouped in JS — assembly counts per
     // project are in the hundreds, not worth per-zone round-trips.
     const assemblies = await this.prisma.bom_assembly.findMany({
       where: { status: 'ACTIVE', dispatch: { project_id: project.id } },
-      select: { weight_kg: true, qty: true, progress: true, dispatch: { select: { zone_id: true } } },
+      select: { weight_kg: true, qty: true, progress: true, dispatch: { select: { zone_id: true, source: true } } },
     })
 
     const perZone = zones.map(z => {
@@ -331,9 +355,14 @@ export class ProjectProgressService {
     })
     return {
       zones: perZone.map(({ zone, ...agg }) => ({
-        zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, ...agg,
+        zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, is_placeholder: zone.is_placeholder, ...agg,
       })),
-      total: rollup(assemblies),
+      // BIM-first progress entry (2026-09) — the placeholder zone's own row
+      // above still reports its real (if unweighted) assembly count, but the
+      // PROJECT total must never include BIM-only data the eventual real BOM
+      // will supersede (weight_kg/qty are null on placeholder rows anyway,
+      // which would otherwise silently understate a mixed total).
+      total: rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')),
     }
   }
 

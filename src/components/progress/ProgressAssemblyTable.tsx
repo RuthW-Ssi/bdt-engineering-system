@@ -258,6 +258,11 @@ export function ProgressAssemblyTable({
   const loadedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.loaded_pcs), 0)
   const erectedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.erected_pcs), 0)
 
+  // BIM-first progress entry (2026-09) — one zone's table is either all
+  // placeholder rows or all real rows (rows come from a single getZoneRows
+  // call), so the first row is a safe representative check.
+  const isPlaceholderZone = rows.length > 0 && rows[0].is_placeholder
+
   const setBulkField = <K extends keyof BulkUpdateAssemblyProgressPayload>(field: K, value: BulkUpdateAssemblyProgressPayload[K]) => {
     setBulkDraft(d => ({ ...d, [field]: value }))
     setBulkTouched(t => new Set(t).add(field))
@@ -431,7 +436,7 @@ export function ProgressAssemblyTable({
                 />
               </th>
               <th style={th}>Mark</th>
-              <th style={{ ...th, textAlign: 'right' }}>Weight</th>
+              {!isPlaceholderZone && <th style={{ ...th, textAlign: 'right' }}>Weight</th>}
               <th style={th}>Progress</th>
               <th style={{ ...th, textAlign: 'center' }} />
               <th style={{ ...th, textAlign: 'center' }}>Edit</th>
@@ -472,10 +477,22 @@ export function ProgressAssemblyTable({
                         style={{ width: 15, height: 15, accentColor: '#C8202A', cursor: 'pointer' }}
                       />
                     </td>
-                    <td style={{ ...td, ...mono, fontWeight: 600 }}>{r.mark}</td>
-                    <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
-                      {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
+                    <td style={{ ...td, ...mono, fontWeight: 600 }}>
+                      {r.mark}
+                      {r.stale && (
+                        <span
+                          title="Not found in the latest 3D model version — needs manual review"
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#B8860B', background: '#FFF6E0', padding: '1px 6px', borderRadius: 4 }}
+                        >
+                          ⚠ stale
+                        </span>
+                      )}
                     </td>
+                    {!isPlaceholderZone && (
+                      <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
+                        {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
+                      </td>
+                    )}
                     <td style={td} title={STATUS_META[r.status].label}>
                       {/* Each chip's color is its own metric's completeness —
                           not the row's single derived status — so all four
@@ -539,7 +556,7 @@ export function ProgressAssemblyTable({
                     }
                     return (
                       <tr style={{ background: '#FAFAFA' }}>
-                        <td colSpan={6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
+                        <td colSpan={isPlaceholderZone ? 5 : 6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
                           {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
                           <div style={groupHeader}>Fabrication</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
@@ -680,7 +697,7 @@ export function ProgressAssemblyTable({
             })}
             {!visible.length && (
               <tr>
-                <td colSpan={6} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
+                <td colSpan={isPlaceholderZone ? 5 : 6} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
                   {rows.length ? 'No marks match the search' : 'No BOM assemblies uploaded for this zone yet'}
                 </td>
               </tr>
@@ -689,7 +706,7 @@ export function ProgressAssemblyTable({
           {rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
+                <td colSpan={isPlaceholderZone ? 5 : 6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
                   {rows.length} assemblies · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total
                   {' · '}fab <b style={{ ...mono, color: '#1A1A1A' }}>{fabPct.toFixed(1)}%</b>
                   {' · '}load <b style={{ ...mono, color: '#1A1A1A' }} title={`${loadedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0}%</b>

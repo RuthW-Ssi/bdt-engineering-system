@@ -1420,3 +1420,275 @@ describe('BomUploadService — slot-scoped status supersession (write path)', ()
     expect(store.parts.find(p => p.part_mark === 'P2')?.status).toBe('ACTIVE')
   })
 })
+
+describe('BomUploadService — carryForwardProgress with a placeholder dispatch', () => {
+  function makeService(prismaOverrides: Record<string, unknown>) {
+    const prisma = {
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) }, // no prior REAL dispatch for this zone
+      bom_assembly_progress: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      bom_assembly: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), findMany: jest.fn().mockResolvedValue([]) },
+      ...prismaOverrides,
+    }
+    const storage = {} as any
+    const parser = {} as any
+    const matching = {} as any
+    const diffService = {} as any
+    const workOrders = {} as any
+    return { service: new BomUploadService(prisma as any, storage, parser, matching, diffService, workOrders), prisma }
+  }
+
+  // Full-shaped progress row builder — every test below needs the same
+  // field set, only `assembly` (mark/dispatch_id/id) and `cut` vary.
+  function progressRow(assembly: { id: number; dispatch_id: number; assembly_mark: string; status?: string }, cut = 80) {
+    return {
+      cut, buildup: 0, weld1: 0, fitup_drill: 0, weld2: 0, qc_inspection: 0, primer: 0, fireproof: 0, top_coat: 0, qc_final: 0,
+      fab_plan_finish_date: null, fab_actual_finish_date: null, plan_load_date: null, actual_load_date: null,
+      loaded_pcs: 0, erected_pcs: 0, erection_plan_finish_date: null, erection_actual_finish_date: null,
+      payment_status: 'Not Disbursed', claimed_weight_kg: null, delivered_weight_kg: null, write_uid: 7,
+      assembly,
+    }
+  }
+
+  it('copies progress from matched placeholder-dispatch assemblies into the new real rows, then deactivates the matched placeholder rows', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          // 1st call inside carryForwardProgress = "previous real dispatch of this zone" → none
+          // 2nd call = "this project's placeholder dispatch" → found
+          return Promise.resolve(dispatchFindFirstCall === 1 ? null : { id: 800 })
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          // dispatch_id: 800 matches the mocked placeholder dispatch's id
+          // below — only used for the progress-copy source here; which
+          // assemblies get deactivated is now decided by the bom_assembly
+          // query below, not by this row's presence. status: 'ACTIVE'
+          // because this placeholder assembly hasn't been reconciled yet
+          // (that happens later in this same call) — see the
+          // "excludes a stale reconciled placeholder row" test below for the
+          // INACTIVE case.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'ACTIVE' }, 80),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        // ACTIVE assemblies currently on the placeholder dispatch — this is
+        // what the implementation now scans (by mark) to decide what to
+        // deactivate, independent of whether they had progress.
+        findMany: jest.fn().mockResolvedValue([{ id: 501, assembly_mark: 'WH-CO-001' }]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-001', 999]]) // the brand-new real bom_assembly id from this upload
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    expect(prisma.bom_assembly_progress.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({ assembly_id: 999, cut: 80 })],
+      skipDuplicates: true,
+    }))
+    // Matched placeholder assembly (id 501) flips INACTIVE — unmatched ones must not.
+    expect(prisma.bom_assembly.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: [501] } },
+      data: { status: 'INACTIVE' },
+    })
+  })
+
+  it('deactivates a matched placeholder assembly even when it has NO bom_assembly_progress row (never touched by a user)', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          return Promise.resolve(dispatchFindFirstCall === 1 ? null : { id: 800 })
+        }),
+      },
+      // No progress rows at all — the placeholder assembly was never
+      // touched by a user, so it has zero bom_assembly_progress rows.
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 502, assembly_mark: 'WH-CO-003' }]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-003', 1000]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    // No progress to carry forward — createMany must not be called with rows.
+    expect(prisma.bom_assembly_progress.createMany).not.toHaveBeenCalled()
+    // But the matched placeholder assembly must still be deactivated.
+    expect(prisma.bom_assembly.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: [502] } },
+      data: { status: 'INACTIVE' },
+    })
+  })
+
+  it('does nothing extra when the project has no placeholder dispatch', async () => {
+    const { service, prisma } = makeService({})
+    const assemblyIdByMark = new Map([['WH-CO-001', 999]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+    expect(prisma.bom_assembly.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('backward compatibility: with only a prior REAL dispatch (no placeholder), carries progress forward exactly like the old single-source behavior and never touches bom_assembly', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          // 1st call = "previous real dispatch of this zone" → found (id 700)
+          // 2nd call = "this project's placeholder dispatch" → none
+          return Promise.resolve(dispatchFindFirstCall === 1 ? { id: 700 } : null)
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-002' }, 55),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-002', 1001]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    expect(prisma.bom_assembly_progress.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: [expect.objectContaining({ assembly_id: 1001, cut: 55 })],
+      skipDuplicates: true,
+    }))
+    // No placeholder in play at all — neither the new lookup nor the
+    // deactivation call should ever fire.
+    expect(prisma.bom_assembly.findMany).not.toHaveBeenCalled()
+    expect(prisma.bom_assembly.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('with both a prior REAL dispatch and a placeholder matched in the same run, carries progress from both sources but only deactivates the placeholder-sourced assembly', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          // 1st call = prior real dispatch (id 700), 2nd call = placeholder (id 800)
+          return Promise.resolve(dispatchFindFirstCall === 1 ? { id: 700 } : { id: 800 })
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          // prev-sourced: a real assembly from the prior real dispatch.
+          progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-002' }, 55),
+          // placeholder-sourced: same shape as the first test above — ACTIVE
+          // because it hasn't been reconciled yet.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'ACTIVE' }, 80),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        // Only the placeholder dispatch's ACTIVE assemblies come back here —
+        // the prev-sourced assembly (601) belongs to the real dispatch 700,
+        // not the placeholder dispatch, so it must never appear in this list.
+        findMany: jest.fn().mockResolvedValue([{ id: 501, assembly_mark: 'WH-CO-001' }]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([
+      ['WH-CO-002', 1001],
+      ['WH-CO-001', 999],
+    ])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    // Progress carries forward from BOTH sources.
+    expect(prisma.bom_assembly_progress.createMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.arrayContaining([
+        expect.objectContaining({ assembly_id: 1001, cut: 55 }),
+        expect.objectContaining({ assembly_id: 999, cut: 80 }),
+      ]),
+      skipDuplicates: true,
+    }))
+    expect((prisma.bom_assembly_progress.createMany as jest.Mock).mock.calls[0][0].data).toHaveLength(2)
+    // Only the placeholder-sourced assembly (501) is deactivated — the
+    // prev-sourced real assembly (601) must be absent from this list.
+    expect(prisma.bom_assembly.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: [501] } },
+      data: { status: 'INACTIVE' },
+    })
+  })
+
+  it('Finding 1 regression: excludes a stale, already-reconciled INACTIVE placeholder progress row that collides on the SAME mark as current real (prev) progress, keeping the real value', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          // 1st call = prior real dispatch (id 700), 2nd call = placeholder (id 800)
+          return Promise.resolve(dispatchFindFirstCall === 1 ? { id: 700 } : { id: 800 })
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          // Current real progress for this mark — assembly is INACTIVE
+          // because it was deactivated earlier in THIS same upload
+          // transaction (the legitimate "prev" case, must be kept).
+          progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-001', status: 'INACTIVE' }, 90),
+          // Stale placeholder progress for the SAME mark — reconciled by an
+          // EARLIER upload (assembly already INACTIVE from that prior
+          // reconciliation, long before this upload ran). Must be excluded.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'INACTIVE' }, 20),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // Placeholder dispatch has no ACTIVE assemblies left for this mark —
+        // it was already reconciled by an earlier upload.
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-001', 999]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    const data = (prisma.bom_assembly_progress.createMany as jest.Mock).mock.calls[0][0].data
+    const rowsFor999 = data.filter((r: any) => r.assembly_id === 999)
+    expect(rowsFor999).toHaveLength(1)
+    expect(rowsFor999[0].cut).toBe(90) // prev/real value, not the stale placeholder's 20
+  })
+
+  it('Finding 1 regression: still includes a placeholder-sourced row when its assembly is still ACTIVE (not yet reconciled) — does not regress the existing dual-source case', async () => {
+    let dispatchFindFirstCall = 0
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn(() => {
+          dispatchFindFirstCall++
+          return Promise.resolve(dispatchFindFirstCall === 1 ? { id: 700 } : { id: 800 })
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          progressRow({ id: 601, dispatch_id: 700, assembly_mark: 'WH-CO-001', status: 'INACTIVE' }, 90),
+          // Same mark, placeholder-sourced, still ACTIVE (not yet reconciled) — must be included.
+          progressRow({ id: 501, dispatch_id: 800, assembly_mark: 'WH-CO-001', status: 'ACTIVE' }, 20),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      bom_assembly: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findMany: jest.fn().mockResolvedValue([{ id: 501, assembly_mark: 'WH-CO-001' }]),
+      },
+    })
+
+    const assemblyIdByMark = new Map([['WH-CO-001', 999]])
+    await (service as any).carryForwardProgress(1234, 1, 10, null, assemblyIdByMark)
+
+    const data = (prisma.bom_assembly_progress.createMany as jest.Mock).mock.calls[0][0].data
+    expect(data).toHaveLength(2)
+    expect(data.map((r: any) => r.cut).sort()).toEqual([20, 90])
+  })
+})

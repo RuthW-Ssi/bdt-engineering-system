@@ -93,7 +93,7 @@ export function MobileZoneList() {
           {!isLoading && zones.length === 0 && (
             <div className="text-center text-chrome-400 text-sm py-10">No zones found</div>
           )}
-          {zones.map(z => {
+          {zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
             const meta = zoneMetaById.get(z.zone_id)
             const delayInfo = meta ? computeDelayInfo(meta.target_erection_start, meta.target_erection_end, z.erect_pct) : null
             return (
@@ -106,7 +106,9 @@ export function MobileZoneList() {
                   <Layers size={18} className="text-steel-600" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="font-semibold text-chrome-900 text-[15px] truncate">{z.zone_label}</div>
+                  <div className="font-semibold text-chrome-900 text-[15px] truncate">
+                    {z.is_placeholder ? '⏳ ' : ''}{z.zone_label}
+                  </div>
                   <div className="text-xs text-chrome-400 font-mono">{z.zone_code} · {z.assembly_count} pcs · Fab {Math.round(z.fab_pct)}%</div>
                   {meta?.target_erection_start && meta?.target_erection_end && (
                     <span
