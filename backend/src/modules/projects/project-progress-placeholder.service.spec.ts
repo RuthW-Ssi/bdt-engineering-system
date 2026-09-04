@@ -81,4 +81,50 @@ describe('ProgressPlaceholderService.syncFromBim', () => {
     expect(prisma.project_zone.create).not.toHaveBeenCalled()
     expect(prisma.bom_dispatch.create).not.toHaveBeenCalled()
   })
+
+  // bom_assembly.assembly_mark is VarChar(60); bim_element.mark is
+  // VarChar(100) — an oversized mark must not zero out the whole batch.
+  it('includes a mark exactly 60 chars long normally', async () => {
+    const mark60 = 'A'.repeat(60)
+    const prisma = makePrisma({
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: mark60 }]) },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    })
+    const svc = new ProgressPlaceholderService(prisma)
+    const result = await svc.syncFromBim(1, 50, 7)
+    const createManyArg = (prisma.bom_assembly.createMany as jest.Mock).mock.calls[0][0]
+    expect(createManyArg.data).toHaveLength(1)
+    expect(createManyArg.data[0].assembly_mark).toBe(mark60)
+    expect(result).toEqual({ created: 1, skipped: 0 })
+  })
+
+  it('excludes a mark of 61+ chars from createMany but still creates the other valid marks in the same batch', async () => {
+    const mark61 = 'B'.repeat(61)
+    const validMark = 'WH-CO-010'
+    const prisma = makePrisma({
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: validMark }, { mark: mark61 }]) },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    })
+    const svc = new ProgressPlaceholderService(prisma)
+    const result = await svc.syncFromBim(1, 50, 7)
+    const createManyArg = (prisma.bom_assembly.createMany as jest.Mock).mock.calls[0][0]
+    expect(createManyArg.data).toHaveLength(1)
+    expect(createManyArg.data[0].assembly_mark).toBe(validMark)
+    expect(result).toEqual({ created: 1, skipped: 1 })
+  })
+
+  it('returns {created: 0, skipped: N} and never touches zone/dispatch/createMany when ALL marks in the batch are oversized', async () => {
+    const mark61a = 'C'.repeat(61)
+    const mark61b = 'D'.repeat(70)
+    const prisma = makePrisma({
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: mark61a }, { mark: mark61b }]) },
+    })
+    const svc = new ProgressPlaceholderService(prisma)
+    const result = await svc.syncFromBim(1, 50, 7)
+    expect(result).toEqual({ created: 0, skipped: 2 })
+    expect(prisma.project_zone.findFirst).not.toHaveBeenCalled()
+    expect(prisma.project_zone.create).not.toHaveBeenCalled()
+    expect(prisma.bom_dispatch.create).not.toHaveBeenCalled()
+    expect(prisma.bom_assembly.createMany).not.toHaveBeenCalled()
+  })
 })

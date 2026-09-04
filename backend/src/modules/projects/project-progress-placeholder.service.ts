@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 
 const PLACEHOLDER_ZONE_CODE = '__PENDING_BOM__'
@@ -14,6 +14,8 @@ const PLACEHOLDER_ZONE_LABEL = 'Pending BOM'
 // per version).
 @Injectable()
 export class ProgressPlaceholderService {
+  private readonly logger = new Logger(ProgressPlaceholderService.name)
+
   constructor(private readonly prisma: PrismaService) {}
 
   // Called after a BIM model's element extraction completes (see
@@ -30,8 +32,23 @@ export class ProgressPlaceholderService {
       where: { model_id: modelId, ifc_type: 'IfcElementAssembly', mark: { not: null } },
       select: { mark: true },
     })
-    const marks = [...new Set(elements.map(e => e.mark as string))]
-    if (!marks.length) return { created: 0, skipped: 0 }
+    const allMarks = [...new Set(elements.map(e => e.mark as string))]
+    if (!allMarks.length) return { created: 0, skipped: 0 }
+
+    // bom_assembly.assembly_mark is VarChar(60); bim_element.mark is
+    // VarChar(100) — a BIM mark over 60 chars would throw inside
+    // createMany below and, since the caller (BimService.checkStatus)
+    // wraps this whole method in a best-effort catch, silently zero out
+    // the ENTIRE project's placeholder sync for this upload rather than
+    // just skipping the one oversized mark. Filter it out here instead so
+    // one bad mark can't take down every other mark in the same model.
+    const MAX_ASSEMBLY_MARK_LENGTH = 60
+    const marks = allMarks.filter(m => m.length <= MAX_ASSEMBLY_MARK_LENGTH)
+    const oversized = allMarks.filter(m => m.length > MAX_ASSEMBLY_MARK_LENGTH)
+    if (oversized.length) {
+      this.logger.warn(`Skipping ${oversized.length} BIM mark(s) over ${MAX_ASSEMBLY_MARK_LENGTH} chars for project ${projectId}: ${oversized.join(', ')}`)
+    }
+    if (!marks.length) return { created: 0, skipped: allMarks.length }
 
     const zone = await this.ensurePlaceholderZone(projectId)
     const dispatch = await this.ensurePlaceholderDispatch(projectId, zone.id, userId)
@@ -45,7 +62,7 @@ export class ProgressPlaceholderService {
       })),
       skipDuplicates: true, // (dispatch_id, assembly_mark) unique — existing marks silently skipped, never updated
     })
-    return { created: result.count, skipped: marks.length - result.count }
+    return { created: result.count, skipped: allMarks.length - result.count }
   }
 
   private async ensurePlaceholderZone(projectId: number) {
