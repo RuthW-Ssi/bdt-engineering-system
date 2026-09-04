@@ -833,6 +833,9 @@ model bom_dispatch {
   // holds BIM-sourced assemblies before real BOM exists — see
   // ProgressPlaceholderService). Unlike real dispatches, a placeholder
   // dispatch is never superseded by a new row; BIM re-uploads upsert into it.
+  // DB-enforced singularity per project via a hand-written partial unique
+  // index (migration add_bim_placeholder_dispatch_unique_index) — not
+  // expressible declaratively in Prisma schema syntax for PostgreSQL.
   source                String       @default("BOM_UPLOAD") @db.VarChar(20)
   revision              Int          @default(1) // explicit revision number — user-controlled at upload time (see BomUploadService.upload)
   uploaded_at           DateTime     @default(now()) @db.Timestamptz

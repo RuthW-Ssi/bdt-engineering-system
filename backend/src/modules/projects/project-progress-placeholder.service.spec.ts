@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { ProgressPlaceholderService } from './project-progress-placeholder.service'
 
 function makePrisma(overrides: Record<string, unknown> = {}) {
@@ -127,4 +128,53 @@ describe('ProgressPlaceholderService.syncFromBim', () => {
     expect(prisma.bom_dispatch.create).not.toHaveBeenCalled()
     expect(prisma.bom_assembly.createMany).not.toHaveBeenCalled()
   })
+})
+
+describe('ProgressPlaceholderService — concurrent placeholder creation race (P2002)', () => {
+  // Two BIM extractions finishing near-simultaneously for the same project
+  // could both pass the findFirst check before either row exists. The
+  // resulting unique-constraint violation on create() should resolve to
+  // the race winner via re-fetch, not crash.
+  it('ensurePlaceholderZone re-fetches and returns the winner when create() races into a P2002', async () => {
+    const winnerZone = { id: 901, project_id: 1, is_placeholder: true }
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '6.0.0' })
+    const findFirstMock = jest.fn()
+      .mockResolvedValueOnce(null) // first check: no existing zone yet
+      .mockResolvedValueOnce(winnerZone) // re-fetch after P2002: the race winner
+    const prisma = makePrisma({
+      project_zone: { findFirst: findFirstMock, create: jest.fn().mockRejectedValue(p2002) },
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: 'WH-CO-020' }]) },
+      bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue({ id: 800, project_id: 1, zone_id: 901, source: 'BIM_PLACEHOLDER' }),
+        create: jest.fn(),
+      },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    })
+    const svc = new ProgressPlaceholderService(prisma)
+    const result = await svc.syncFromBim(1, 50, 7)
+    expect(findFirstMock).toHaveBeenCalledTimes(2)
+    expect(result).toEqual({ created: 1, skipped: 0 })
+  })
+
+  it('ensurePlaceholderDispatch re-fetches and returns the winner when create() races into a P2002', async () => {
+    const winnerDispatch = { id: 801, project_id: 1, zone_id: 900, source: 'BIM_PLACEHOLDER' }
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', { code: 'P2002', clientVersion: '6.0.0' })
+    const findFirstMock = jest.fn()
+      .mockResolvedValueOnce(null) // first check: no existing dispatch yet
+      .mockResolvedValueOnce(winnerDispatch) // re-fetch after P2002: the race winner
+    const prisma = makePrisma({
+      bom_dispatch: { findFirst: findFirstMock, create: jest.fn().mockRejectedValue(p2002) },
+      bim_element: { findMany: jest.fn().mockResolvedValue([{ mark: 'WH-CO-021' }]) },
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    })
+    const svc = new ProgressPlaceholderService(prisma)
+    const result = await svc.syncFromBim(1, 50, 7)
+    expect(findFirstMock).toHaveBeenCalledTimes(2)
+    expect(result).toEqual({ created: 1, skipped: 0 })
+  })
+
+  // Non-race path (create() never throws) already covered by the
+  // "reuses an existing placeholder zone/dispatch" test in the describe
+  // block above — findFirst hits on the first call, create() is never
+  // invoked at all, so there's nothing race-specific left to verify here.
 })

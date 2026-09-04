@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 
 const PLACEHOLDER_ZONE_CODE = '__PENDING_BOM__'
@@ -70,9 +71,22 @@ export class ProgressPlaceholderService {
       where: { project_id: projectId, is_placeholder: true },
     })
     if (existing) return existing
-    return this.prisma.project_zone.create({
-      data: { project_id: projectId, code: PLACEHOLDER_ZONE_CODE, label: PLACEHOLDER_ZONE_LABEL, is_placeholder: true },
-    })
+    try {
+      return await this.prisma.project_zone.create({
+        data: { project_id: projectId, code: PLACEHOLDER_ZONE_CODE, label: PLACEHOLDER_ZONE_LABEL, is_placeholder: true },
+      })
+    } catch (err) {
+      // Race: a concurrent BIM completion for the same project created it
+      // first — (project_id, code) unique constraint threw. Whoever won,
+      // it's the same logical placeholder zone; re-fetch and use it.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const winner = await this.prisma.project_zone.findFirst({
+          where: { project_id: projectId, is_placeholder: true },
+        })
+        if (winner) return winner
+      }
+      throw err
+    }
   }
 
   private async ensurePlaceholderDispatch(projectId: number, zoneId: number, userId: number) {
@@ -80,11 +94,24 @@ export class ProgressPlaceholderService {
       where: { project_id: projectId, source: 'BIM_PLACEHOLDER' },
     })
     if (existing) return existing
-    return this.prisma.bom_dispatch.create({
-      data: {
-        project_id: projectId, zone_id: zoneId, status: 'ready', source: 'BIM_PLACEHOLDER',
-        create_uid: userId, write_uid: userId,
-      },
-    })
+    try {
+      return await this.prisma.bom_dispatch.create({
+        data: {
+          project_id: projectId, zone_id: zoneId, status: 'ready', source: 'BIM_PLACEHOLDER',
+          create_uid: userId, write_uid: userId,
+        },
+      })
+    } catch (err) {
+      // Race: a concurrent BIM completion for the same project created it
+      // first — the partial unique index on (project_id) WHERE
+      // source='BIM_PLACEHOLDER' threw. Re-fetch and use the winner.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        const winner = await this.prisma.bom_dispatch.findFirst({
+          where: { project_id: projectId, source: 'BIM_PLACEHOLDER' },
+        })
+        if (winner) return winner
+      }
+      throw err
+    }
   }
 }
