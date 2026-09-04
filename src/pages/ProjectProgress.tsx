@@ -184,6 +184,21 @@ export function ProjectProgress() {
   }, [zoneParam, zones, setSearchParams])
 
   const { data: overview } = useProgressOverview(code)
+
+  // If the active tab is the placeholder zone and it just got fully
+  // reconciled (assembly_count drops to 0 — e.g. a real BOM upload landed
+  // elsewhere while this tab was open), its TabButton vanishes from the
+  // bar per the hide-when-empty guard below — bounce to Overview instead
+  // of leaving this zone-scoped pane rendering under no visibly-active tab.
+  useEffect(() => {
+    if (!activeZoneId || !overview) return
+    const meta = zones.find(z => z.id === activeZoneId)
+    const rollup = overview.zones.find(o => o.zone_id === activeZoneId)
+    if (meta?.is_placeholder && rollup && rollup.assembly_count === 0) {
+      setSearchParams(p => { p.delete('zone'); return p }, { replace: true })
+    }
+  }, [activeZoneId, overview, zones, setSearchParams])
+
   const { data: zoneRows } = useProgressZoneRows(code, activeZoneId)
   const { data: bimMatch } = useProgressBimMatch(code, activeZoneId)
   // Project-wide variants only fetch while the Overview tab is open — the
