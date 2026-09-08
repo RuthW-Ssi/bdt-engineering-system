@@ -1041,8 +1041,6 @@ export class BomUploadService {
         erection_plan_finish_date: true,
         erection_actual_finish_date: true,
         payment_status: true,
-        claimed_weight_kg: true,
-        delivered_weight_kg: true,
         write_uid: true,
         assembly: { select: { id: true, dispatch_id: true, assembly_mark: true, status: true } },
       },
@@ -1082,8 +1080,6 @@ export class BomUploadService {
       erection_plan_finish_date: p.erection_plan_finish_date,
       erection_actual_finish_date: p.erection_actual_finish_date,
       payment_status: p.payment_status,
-      claimed_weight_kg: p.claimed_weight_kg,
-      delivered_weight_kg: p.delivered_weight_kg,
       write_uid: p.write_uid,
     }))
 

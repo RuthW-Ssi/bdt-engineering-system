@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { stripContractPrefix } from '../bom-upload/xlsx-parser.service'
 import { ProgressChangeLogService, type DiffEntry } from './progress-change-log.service'
-import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, nonNegDecimal, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
+import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
 import type { FabStage, PaymentStatus } from './progress-shared'
 
 // Re-exported for backward compatibility — every other call site in this
@@ -10,7 +10,7 @@ import type { FabStage, PaymentStatus } from './progress-shared'
 // here. Canonical definitions live in progress-shared.ts (progress-change-log.service.ts
 // needs them too, and importing them from THIS file would be circular
 // since this file also imports ProgressChangeLogService above).
-export { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, nonNegDecimal, PAYMENT_STATUSES }
+export { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, PAYMENT_STATUSES }
 export type { FabStage, PaymentStatus }
 
 export type ProgressStatus = 'notstart' | 'fabrication' | 'load' | 'erection' | 'done'
@@ -30,11 +30,6 @@ interface ProgressFields extends FabStageFields {
   erection_plan_finish_date: Date | null
   erection_actual_finish_date: Date | null
   payment_status: string
-  // Prisma Decimal, not number — same loose-typing as bom_assembly's own
-  // weight_kg/qty elsewhere in this file; converted with Number() at every
-  // read site (mapAssemblyRow, response construction), never computed on.
-  claimed_weight_kg: unknown
-  delivered_weight_kg: unknown
 }
 
 // Plain-interface DTO (paint-config precedent) — stage percents clamp
@@ -52,8 +47,6 @@ export interface UpdateAssemblyProgressDto extends Partial<FabStageFields> {
   erection_plan_finish_date?: string | null
   erection_actual_finish_date?: string | null
   payment_status?: string
-  claimed_weight_kg?: number
-  delivered_weight_kg?: number
 }
 
 // Bulk applies ONE payload to many rows whose qty differ — loaded_pcs/
@@ -160,8 +153,6 @@ export class ProjectProgressService {
       erection_plan_finish_date: toDate(dto.erection_plan_finish_date),
       erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
       payment_status: dto.payment_status,
-      claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
-      delivered_weight_kg: dto.delivered_weight_kg === undefined ? undefined : nonNegDecimal(dto.delivered_weight_kg),
     }
 
     // Transaction so the pre-write read, the upsert, and the change-log
@@ -184,10 +175,13 @@ export class ProjectProgressService {
       return upserted
     })
     const { status, shade } = computeStatus(row, assembly.qty)
+    // claimed_weight_kg/delivered_weight_kg dropped from the API surface —
+    // the DB columns still exist (unused now) but the app no longer reads
+    // or writes them, so they're excluded here rather than left as raw
+    // Prisma Decimal values on the response.
+    const { claimed_weight_kg: _claimed, delivered_weight_kg: _delivered, ...rowWithoutRemovedFields } = row
     return {
-      ...row,
-      claimed_weight_kg: row.claimed_weight_kg != null ? Number(row.claimed_weight_kg) : null,
-      delivered_weight_kg: row.delivered_weight_kg != null ? Number(row.delivered_weight_kg) : null,
+      ...rowWithoutRemovedFields,
       fab_pct: computeFabPct(row),
       load_pct: Math.round((row.loaded_pcs / q) * 100),
       erect_pct: Math.round((row.erected_pcs / q) * 100),
@@ -291,8 +285,6 @@ export class ProjectProgressService {
       erection_plan_finish_date: toDate(dto.erection_plan_finish_date),
       erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
       payment_status: dto.payment_status,
-      claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
-      delivered_weight_kg: dto.delivered_weight_kg === undefined ? undefined : nonNegDecimal(dto.delivered_weight_kg),
     }
 
     // Callback-transaction form (not the array-of-promises form this used
@@ -673,8 +665,6 @@ function mapAssemblyRow(a: { id: number; assembly_mark: string; weight_kg: unkno
     erection_plan_finish_date: p?.erection_plan_finish_date ?? null,
     erection_actual_finish_date: p?.erection_actual_finish_date ?? null,
     payment_status: p?.payment_status ?? 'Not Disbursed',
-    claimed_weight_kg: p?.claimed_weight_kg != null ? Number(p.claimed_weight_kg) : null,
-    delivered_weight_kg: p?.delivered_weight_kg != null ? Number(p.delivered_weight_kg) : null,
     fab_pct: computeFabPct(p),
     load_pct: Math.round(((p?.loaded_pcs ?? 0) / q) * 100),
     erect_pct: Math.round(((p?.erected_pcs ?? 0) / q) * 100),

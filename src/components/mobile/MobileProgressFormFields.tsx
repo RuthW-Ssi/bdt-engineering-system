@@ -19,7 +19,6 @@ const STAGE_LABEL: Record<FabStage, string> = {
 // this is the only other consumer and the two forms otherwise share nothing.
 const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
 const clampPcs = (v: number, qty: number | null) => Math.min(Math.max(1, Math.round(qty ?? 1)), Math.max(0, Math.round(v)))
-const nonNegDecimal = (v: number) => Math.max(0, v)
 const toInputDate = (v: string | null) => (v ? v.slice(0, 10) : '')
 
 function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
@@ -32,8 +31,6 @@ function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
     loaded_pcs: r.loaded_pcs,
     erected_pcs: r.erected_pcs,
     payment_status: r.payment_status,
-    claimed_weight_kg: r.claimed_weight_kg ?? undefined,
-    delivered_weight_kg: r.delivered_weight_kg ?? undefined,
     erection_plan_finish_date: r.erection_plan_finish_date,
     erection_actual_finish_date: r.erection_actual_finish_date,
   }
@@ -42,8 +39,7 @@ function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
 const EDIT_FIELDS = [
   ...FAB_STAGES, 'fab_plan_finish_date', 'fab_actual_finish_date',
   'plan_load_date', 'actual_load_date', 'loaded_pcs', 'erected_pcs',
-  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg',
-  'erection_plan_finish_date', 'erection_actual_finish_date',
+  'payment_status', 'erection_plan_finish_date', 'erection_actual_finish_date',
 ] as const
 
 function diffDraft(draft: UpdateAssemblyProgressPayload, original: ProgressZoneRow): UpdateAssemblyProgressPayload {
@@ -202,22 +198,6 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
             >
               {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="min-w-0">
-              <label className={label}>Claimed (kg)</label>
-              <input type="number" min={0} inputMode="decimal" disabled={!canUpdate}
-                value={draft.claimed_weight_kg ?? ''}
-                onChange={e => set('claimed_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
-                className={`${input} disabled:bg-chrome-50`} />
-            </div>
-            <div className="min-w-0">
-              <label className={label}>Delivered (kg)</label>
-              <input type="number" min={0} inputMode="decimal" disabled={!canUpdate}
-                value={draft.delivered_weight_kg ?? ''}
-                onChange={e => set('delivered_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
-                className={`${input} disabled:bg-chrome-50`} />
-            </div>
           </div>
         </div>
 

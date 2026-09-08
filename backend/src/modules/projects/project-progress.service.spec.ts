@@ -43,7 +43,6 @@ const EMPTY = {
   plan_load_date: null, actual_load_date: null,
   loaded_pcs: 0, erected_pcs: 0,
   erection_plan_finish_date: null, erection_actual_finish_date: null, payment_status: 'Not Disbursed',
-  claimed_weight_kg: null, delivered_weight_kg: null,
 }
 const D = new Date('2026-07-01')
 
@@ -415,18 +414,6 @@ describe('updateAssemblyProgress', () => {
     const svc = new ProjectProgressService(prisma)
     await svc.updateAssemblyProgress('0X220', 1, { payment_status: 'Paid' }, 1)
     expect(upsert.mock.calls[0][0].update.payment_status).toBe('Paid')
-  })
-
-  it('claimed_weight_kg/delivered_weight_kg floor at zero, no upper bound', async () => {
-    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
-    const prisma = makePrisma({
-      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
-      bom_assembly_progress: { upsert },
-    })
-    const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { claimed_weight_kg: -5, delivered_weight_kg: 9999 }, 1)
-    expect(upsert.mock.calls[0][0].update.claimed_weight_kg).toBe(0)
-    expect(upsert.mock.calls[0][0].update.delivered_weight_kg).toBe(9999)
   })
 
   it('erection_actual_finish_date coerces date strings and clears on explicit null', async () => {

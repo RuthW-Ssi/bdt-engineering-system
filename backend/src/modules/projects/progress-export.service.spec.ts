@@ -44,7 +44,6 @@ function colLetter(n: number): string {
 
 const MARK_COL = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.kind === 'mark') + 1 // 1-indexed
 const CUT_COL = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.field === 'cut') + 1
-const CLAIMED_WEIGHT_COL = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.field === 'claimed_weight_kg') + 1
 const PAYMENT_STATUS_COL = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.field === 'payment_status') + 1
 const ERECTED_PCS_COL = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.field === 'erected_pcs') + 1
 const SUM_PROGRESS_COL = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.computed === 'fab_overall_pct') + 1
@@ -92,11 +91,12 @@ describe('ProgressExportService.exportProgress', () => {
     const sheet = wb.getWorksheet('Zone-A')!
     const row2 = (sheet.getRow(2).values as unknown[]).slice(1)
     const fabStartCol = computeColumnGroups().find(g => g.group === 'fabrication')!.startCol
+    const paymentStartCol = computeColumnGroups().find(g => g.group === 'payment')!.startCol
     expect(row2[0]).toBe('ลำดับ')
     expect(row2[MARK_COL - 1]).toBe('Number')
     expect(row2[fabStartCol - 1]).toBe(GROUP_LABELS.fabrication)
     expect(row2[SUM_PROGRESS_COL - 1]).toBe('SUM Progress By PCS.')
-    expect(row2[PAYMENT_STATUS_COL - 2]).toBe(GROUP_LABELS.payment) // payment group's first column
+    expect(row2[paymentStartCol - 1]).toBe(GROUP_LABELS.payment) // payment group's first column
   })
 
   it('row 3 ("ผู้รับผิดชอบ") carries the legacy sheet\'s own responsible-person text per group', async () => {
@@ -143,7 +143,7 @@ describe('ProgressExportService.exportProgress', () => {
     const progress = {
       cut: 100, buildup: 100, weld1: 100, fitup_drill: 100, weld2: 100, qc_inspection: 100, primer: 100, fireproof: 100, top_coat: 100, qc_final: 100,
       plan_load_date: null, actual_load_date: null, loaded_pcs: 0,
-      claimed_weight_kg: 12.5, delivered_weight_kg: null, payment_status: 'Paid',
+      payment_status: 'Paid',
       erected_pcs: 1, erection_actual_finish_date: null,
     }
     const prisma = makePrisma({
@@ -159,7 +159,6 @@ describe('ProgressExportService.exportProgress', () => {
     const wb = await readBack(buffer)
     const dataRow = (wb.getWorksheet('Zone-A')!.getRow(DATA_START_ROW).values as unknown[]).slice(1)
     expect(dataRow[CUT_COL - 1]).toBe(100)
-    expect(dataRow[CLAIMED_WEIGHT_COL - 1]).toBe(12.5)
     expect(dataRow[PAYMENT_STATUS_COL - 1]).toBe('Paid')
     expect(dataRow[ERECTED_PCS_COL - 1]).toBe(1)
     // all 10 fab stages at 100% -> row's own weighted overall fab % is 100
@@ -176,7 +175,7 @@ describe('ProgressExportService.exportProgress', () => {
     const progress = {
       cut: 100, buildup: 100, weld1: 100, fitup_drill: 100, weld2: 100, qc_inspection: 100, primer: 100, fireproof: 100, top_coat: 100, qc_final: 100,
       plan_load_date: null, actual_load_date: new Date('2026-06-01'), loaded_pcs: 5,
-      claimed_weight_kg: 12.5, delivered_weight_kg: null, payment_status: 'Paid',
+      payment_status: 'Paid',
       erected_pcs: 1, erection_actual_finish_date: new Date('2026-06-05'),
     }
     const prisma = makePrisma({
@@ -203,7 +202,6 @@ describe('ProgressExportService.exportProgress', () => {
     expect(fillArgb(r, CUT_COL)).toBe('FFF4FCA6') // fab stage data cell
     expect(fillArgb(r, ERECTED_PCS_COL)).toBe('FFF4FCA6') // Erection by Pcs.
     expect(fillArgb(r, MARK_COL)).toBeUndefined() // readonly/reference columns stay unfilled
-    expect(fillArgb(r, CLAIMED_WEIGHT_COL)).toBeUndefined() // editable but not fab-tracked in the legacy sheet either
     expect(fillArgb(r, PAYMENT_STATUS_COL)).toBeUndefined() // no flat fill — colored via conditional formatting instead
   })
 

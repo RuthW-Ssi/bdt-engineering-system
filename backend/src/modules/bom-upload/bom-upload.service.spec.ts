@@ -1444,7 +1444,7 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
       cut, buildup: 0, weld1: 0, fitup_drill: 0, weld2: 0, qc_inspection: 0, primer: 0, fireproof: 0, top_coat: 0, qc_final: 0,
       fab_plan_finish_date: null, fab_actual_finish_date: null, plan_load_date: null, actual_load_date: null,
       loaded_pcs: 0, erected_pcs: 0, erection_plan_finish_date: null, erection_actual_finish_date: null,
-      payment_status: 'Not Disbursed', claimed_weight_kg: null, delivered_weight_kg: null, write_uid: 7,
+      payment_status: 'Not Disbursed', write_uid: 7,
       assembly,
     }
   }

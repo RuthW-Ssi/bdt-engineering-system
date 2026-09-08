@@ -55,8 +55,6 @@ export interface ProgressZoneRow extends FabStageFields {
   erection_plan_finish_date: string | null
   erection_actual_finish_date: string | null
   payment_status: PaymentStatus
-  claimed_weight_kg: number | null
-  delivered_weight_kg: number | null
   // Four separate numbers, deliberately no combined total (spec) —
   // fab/payment weighted by weight_kg, load/erect by pieces of qty.
   fab_pct: number
@@ -180,8 +178,6 @@ export interface UpdateAssemblyProgressPayload extends Partial<FabStageFields> {
   erection_plan_finish_date?: string | null
   erection_actual_finish_date?: string | null
   payment_status?: PaymentStatus
-  claimed_weight_kg?: number
-  delivered_weight_kg?: number
 }
 
 // Bulk applies ONE payload to rows whose qty differ — loaded_pcs/erected_pcs
