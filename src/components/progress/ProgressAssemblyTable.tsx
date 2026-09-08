@@ -357,6 +357,18 @@ export function ProgressAssemblyTable({
               </FieldGroup>
             ))}
           </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16, marginBottom: 12 }}>
+            {FAB_DATE_FIELDS.map(field => (
+              <FieldGroup key={field} label={FAB_DATE_LABEL[field]}>
+                <input
+                  type="date"
+                  value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
+                  onChange={e => setBulkField(field, e.target.value || null)}
+                  style={{ ...dateInput, width: 140, color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                />
+              </FieldGroup>
+            ))}
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16 }}>
             {DATE_FIELDS.map(field => (
               <FieldGroup key={field} label={DATE_LABEL[field]}>
@@ -418,14 +430,16 @@ export function ProgressAssemblyTable({
                 style={{ ...numInput, width: 110, color: bulkTouched.has('delivered_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
               />
             </FieldGroup>
-            <FieldGroup label="Erection Finish">
-              <input
-                type="date"
-                value={bulkDraft.erection_actual_finish_date ? toInputDate(bulkDraft.erection_actual_finish_date as string) : ''}
-                onChange={e => setBulkField('erection_actual_finish_date', e.target.value || null)}
-                style={{ ...dateInput, width: 140, color: bulkTouched.has('erection_actual_finish_date') ? '#1A1A1A' : '#ABABAB' }}
-              />
-            </FieldGroup>
+            {ERECTION_DATE_FIELDS.map(field => (
+              <FieldGroup key={field} label={`Erection ${ERECTION_DATE_LABEL[field]}`}>
+                <input
+                  type="date"
+                  value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
+                  onChange={e => setBulkField(field, e.target.value || null)}
+                  style={{ ...dateInput, width: 140, color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                />
+              </FieldGroup>
+            ))}
             {canUpdate && (
               <button
                 onClick={applyBulk}
