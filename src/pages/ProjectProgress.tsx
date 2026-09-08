@@ -739,6 +739,7 @@ function OverviewPanel({
   positions: ReturnType<typeof useProgressPositions>['data']
   positionBuckets: PositionBucket[]
 }) {
+  const [planTab, setPlanTab] = useState<'fab' | 'erection'>('fab')
   if (!overview) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
@@ -779,19 +780,34 @@ function OverviewPanel({
           number" shape, so they group into one row together. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
         <StatCard label="Progress" value="" accent="#C8202A">
-          {/* Deliberately no combined total (spec) — each phase has its own
-              responsible team in the real workflow, a synthetic blend would
-              match nobody's number. Fab/Erect used to be percent bars here
-              too, but a single % can't show plan-vs-actual per assembly the
-              way a date-grouped breakdown can (see PlanDateTable) — Pay/Trans
-              have no plan-date field, so they keep the plain bar. */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
-            <PhaseBar label="Pay" pct={total.payment_pct} color={PHASE_META.payment.dark} />
-            <PhaseBar label="Trans" pct={total.load_pct} color={PHASE_META.load.dark} />
+          {/* Fab/Erection only — Payment/Transport progress is already
+              visible elsewhere on this page (the isolate-by-status pills
+              under the 3D panel, and the F/M/T/E columns in the zone table
+              below), so this card is scoped to the two phases that actually
+              have a plan-date field to compare against (see PlanDateTable).
+              One tab at a time instead of stacking both tables — same
+              segmented-pill style as the Zone/Position toggle below. */}
+          <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, marginTop: 4, width: 'fit-content' }}>
+            {(['fab', 'erection'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setPlanTab(t)}
+                style={{
+                  font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
+                  padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
+                }}
+              >
+                {t}
+              </button>
+            ))}
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14 }}>
-            <PlanDateTable label="Fab Plan" color={PHASE_META.fabrication.dark} rows={overview.fab_plan_breakdown} />
-            <PlanDateTable label="Erection Plan" color={PHASE_META.erection.dark} rows={overview.erection_plan_breakdown} />
+          <div style={{ marginTop: 12 }}>
+            {planTab === 'fab' ? (
+              <PlanDateTable label="Fab Plan" color={PHASE_META.fabrication.dark} rows={overview.fab_plan_breakdown} />
+            ) : (
+              <PlanDateTable label="Erection Plan" color={PHASE_META.erection.dark} rows={overview.erection_plan_breakdown} />
+            )}
           </div>
         </StatCard>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -1059,22 +1075,6 @@ function StatCard({ label, value, accent, children }: {
         <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 26, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 9 }}>{value}</div>
       )}
       {children}
-    </div>
-  )
-}
-
-// Labeled mini progress bar — one per phase in the Overview "Progress" card.
-function PhaseBar({ label, pct, color }: { label: string; pct: number; color: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', width: 40, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
-      <div style={{ flex: 1, height: 8, borderRadius: 99, background: '#EDEFF2', overflow: 'hidden' }}>
-        <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: color, borderRadius: 99 }} />
-      </div>
-      <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, width: 40, textAlign: 'right', flexShrink: 0 }}>
-        {pct.toFixed(0)}%
-      </b>
     </div>
   )
 }
