@@ -134,8 +134,8 @@ export class ProjectsController {
   }
 
   @Post(':project_code/progress/assemblies/:assembly_id/restore')
-  @RequiresPermission('project-tracking', 'update')
-  @ApiOperation({ summary: 'Restore a user-deleted placeholder assembly — 404s if it was not user-deleted (e.g. reconciled into real BOM instead)' })
+  @RequiresPermission('project-tracking', 'delete')
+  @ApiOperation({ summary: 'Restore a user-deleted placeholder assembly — 404s if it was not user-deleted (e.g. reconciled into real BOM instead). Gated on the delete permission, not update — restoring is the inverse of deleting, so it needs the same authorization tier.' })
   restorePlaceholderAssembly(
     @Param('project_code') code: string,
     @Param('assembly_id', ParseIntPipe) assemblyId: number,
@@ -171,8 +171,8 @@ export class ProjectsController {
   }
 
   @Delete(':project_code/progress/assemblies/:assembly_id')
-  @RequiresPermission('project-tracking', 'update')
-  @ApiOperation({ summary: 'Soft-delete a placeholder (BIM-sourced, pre-BOM) assembly — 404s if the assembly is not a placeholder-dispatch assembly in this project' })
+  @RequiresPermission('project-tracking', 'delete')
+  @ApiOperation({ summary: 'Soft-delete a placeholder (BIM-sourced, pre-BOM) assembly — 404s if the assembly is not a placeholder-dispatch assembly in this project. Requires the delete permission specifically, not update.' })
   deletePlaceholderAssembly(
     @Param('project_code') code: string,
     @Param('assembly_id', ParseIntPipe) assemblyId: number,

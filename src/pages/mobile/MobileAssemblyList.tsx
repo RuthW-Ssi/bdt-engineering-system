@@ -54,7 +54,9 @@ export function MobileAssemblyList() {
 
   const rows = (data ?? []).filter(r => !q.trim() || r.mark.toLowerCase().includes(q.trim().toLowerCase()))
   const isPlaceholderZone = (data?.length ?? 0) > 0 && data![0].is_placeholder
-  const canUpdate = usePermission('project-tracking', 'update')
+  // Restore is gated on 'delete' (its own tier), not 'update' — see the
+  // design note on projects.controller.ts's deletePlaceholderAssembly.
+  const canDelete = usePermission('project-tracking', 'delete')
   const [showDeleted, setShowDeleted] = useState(false)
   const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted)
   const restoreMutation = useRestorePlaceholderAssembly(code)
@@ -195,7 +197,7 @@ export function MobileAssemblyList() {
                           {new Date(d.deleted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
                         </span>
                       </div>
-                      {canUpdate && (
+                      {canDelete && (
                         <button
                           onClick={() => restoreMutation.mutate(d.assembly_id)}
                           disabled={restoreMutation.isPending}

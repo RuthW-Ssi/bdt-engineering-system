@@ -71,6 +71,10 @@ interface Props {
 
 export function MobileProgressFormFields({ code, row, onSaved, variant }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
+  // Delete is gated on its own permission tier, separate from ordinary
+  // progress-entry 'update' — see the design note on projects.controller.ts's
+  // deletePlaceholderAssembly endpoint.
+  const canDelete = usePermission('project-tracking', 'delete')
   const updateMutation = useUpdateAssemblyProgress(code)
   const navigate = useNavigate()
   const confirm = useConfirm()
@@ -254,7 +258,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
             destructive action reachable mid-modal felt like the wrong place
             for it. Positioned last, after every field, not up by the header
             — matches where a "danger zone" action reads best on this form. */}
-        {variant === 'page' && row.is_placeholder && canUpdate && (
+        {variant === 'page' && row.is_placeholder && canDelete && (
           <button
             onClick={handleDelete}
             disabled={deleteMutation.isPending}

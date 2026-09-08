@@ -225,6 +225,10 @@ export function ProgressAssemblyTable({
   rightPanelView, onSetRightPanelView,
 }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
+  // Delete/restore of a placeholder assembly is gated on its own permission
+  // tier, separate from ordinary progress-entry 'update' — see the design
+  // note on projects.controller.ts's deletePlaceholderAssembly endpoint.
+  const canDelete = usePermission('project-tracking', 'delete')
   const confirm = useConfirm()
   const [search, setSearch] = useState('')
   // Accordion — one row's edit panel open at a time, keeps the list compact
@@ -565,7 +569,7 @@ export function ProgressAssemblyTable({
                       {/* Delete only ever applies to placeholder (Pending BOM)
                           assemblies — a real BOM assembly is managed by BOM
                           upload/re-upload, never manually removable here. */}
-                      {canUpdate && isPlaceholderZone && (
+                      {canDelete && isPlaceholderZone && (
                       <button
                         onClick={async e => {
                           e.stopPropagation()
@@ -794,7 +798,7 @@ export function ProgressAssemblyTable({
                       {new Date(d.deleted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
                     </span>
                   </div>
-                  {canUpdate && (
+                  {canDelete && (
                     <button
                       onClick={() => onRestore(d.assembly_id)}
                       disabled={restoring}

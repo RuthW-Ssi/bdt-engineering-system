@@ -26,10 +26,14 @@
 // vice versa. All the `:project_code/progress/*` routes in
 // `projects.controller.ts` moved from `@RequiresPermission('projects', ...)`
 // to `@RequiresPermission('project-tracking', ...)`. Unlike `projects`,
-// `project-tracking` is NOT in `ALWAYS_VIEW_MODULES` — both `view` and
-// `update` need an explicit per-user grant (no `create`/`delete` concept;
-// progress rows are upserted against existing assemblies, never created/
-// deleted as their own entity).
+// `project-tracking` is NOT in `ALWAYS_VIEW_MODULES` — `view`, `update`,
+// AND (as of 2026-09, BIM-first progress entry) `delete` each need an
+// explicit per-user grant. `create` still has no concept — progress rows
+// are upserted against existing assemblies, never created as their own
+// entity — but `delete`/restore of a placeholder (pre-BOM) assembly is a
+// real, gated action now: deletePlaceholderAssembly/restorePlaceholderAssembly
+// in projects.controller.ts require `delete`, deliberately separate from
+// the `update` grant every other progress-entry write uses.
 //
 // `materials`, `products` added next (2026-08-03) — "Engineer Products"
 // nav page (Library + Standard + Custom tabs, backed by BOTH the
