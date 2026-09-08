@@ -345,6 +345,11 @@ export function ProgressAssemblyTable({
               <X size={13} /> Clear
             </button>
           </div>
+          {/* Grouped to match the single-row edit panel below (Fabrication /
+              Material Payment / Transport / Erection, same group headers and
+              grid layout) — this used to be one undifferentiated flex-wrap
+              of every field, which drifted from that panel's structure. */}
+          <div style={groupHeader}>Fabrication</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 12px', marginBottom: 12 }}>
             {FAB_STAGES.map(stage => (
               <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
@@ -357,26 +362,60 @@ export function ProgressAssemblyTable({
               </FieldGroup>
             ))}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16, marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
             {FAB_DATE_FIELDS.map(field => (
               <FieldGroup key={field} label={FAB_DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
                   onChange={e => setBulkField(field, e.target.value || null)}
-                  style={{ ...dateInput, width: 140, color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                  style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
               </FieldGroup>
             ))}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16 }}>
+
+          <div style={groupHeader}>Material Payment</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+            <FieldGroup label="Status">
+              <select
+                value={bulkTouched.has('payment_status') ? bulkDraft.payment_status ?? '' : ''}
+                onChange={e => setBulkField('payment_status', e.target.value as PaymentStatus)}
+                style={{ ...dateInput, width: '100%', color: bulkTouched.has('payment_status') ? '#1A1A1A' : '#ABABAB' }}
+              >
+                <option value="" disabled>No change</option>
+                {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </FieldGroup>
+            <FieldGroup label="Claimed (kg)">
+              <input
+                type="number" min={0} placeholder="—"
+                value={bulkTouched.has('claimed_weight_kg') ? bulkDraft.claimed_weight_kg ?? '' : ''}
+                onChange={e => setBulkField('claimed_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
+                style={{ ...numInput, color: bulkTouched.has('claimed_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
+              />
+            </FieldGroup>
+            <FieldGroup label="Delivered (kg)">
+              <input
+                type="number" min={0} placeholder="—"
+                value={bulkTouched.has('delivered_weight_kg') ? bulkDraft.delivered_weight_kg ?? '' : ''}
+                onChange={e => setBulkField('delivered_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
+                style={{ ...numInput, color: bulkTouched.has('delivered_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
+              />
+            </FieldGroup>
+          </div>
+
+          {/* Transport — load dates + pieces loaded (as a "set full" flag;
+              see the comment on the field below for why). */}
+          <div style={groupHeader}>Transport</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
             {DATE_FIELDS.map(field => (
               <FieldGroup key={field} label={DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
                   onChange={e => setBulkField(field, e.target.value || null)}
-                  style={{ ...dateInput, width: 140, color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                  style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
               </FieldGroup>
             ))}
@@ -393,6 +432,22 @@ export function ProgressAssemblyTable({
                 <span>{bulkTouched.has('set_loaded_full') && bulkDraft.set_loaded_full ? 'Set: full qty' : 'No change'}</span>
               </label>
             </FieldGroup>
+          </div>
+
+          {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual
+              order), then pieces erected (full = done). */}
+          <div style={groupHeader}>Erection</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
+            {ERECTION_DATE_FIELDS.map(field => (
+              <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
+                <input
+                  type="date"
+                  value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
+                  onChange={e => setBulkField(field, e.target.value || null)}
+                  style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                />
+              </FieldGroup>
+            ))}
             <FieldGroup label="Erected">
               <label style={checkboxRow}>
                 <input
@@ -404,42 +459,9 @@ export function ProgressAssemblyTable({
                 <span>{bulkTouched.has('set_erected_full') && bulkDraft.set_erected_full ? 'Set: full qty' : 'No change'}</span>
               </label>
             </FieldGroup>
-            <FieldGroup label="Material Payment">
-              <select
-                value={bulkTouched.has('payment_status') ? bulkDraft.payment_status ?? '' : ''}
-                onChange={e => setBulkField('payment_status', e.target.value as PaymentStatus)}
-                style={{ ...dateInput, width: 140, color: bulkTouched.has('payment_status') ? '#1A1A1A' : '#ABABAB' }}
-              >
-                <option value="" disabled>No change</option>
-                {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </FieldGroup>
-            <FieldGroup label="Claimed (kg)">
-              <input
-                type="number" min={0} placeholder="—"
-                value={bulkTouched.has('claimed_weight_kg') ? bulkDraft.claimed_weight_kg ?? '' : ''}
-                onChange={e => setBulkField('claimed_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
-                style={{ ...numInput, width: 110, color: bulkTouched.has('claimed_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
-              />
-            </FieldGroup>
-            <FieldGroup label="Delivered (kg)">
-              <input
-                type="number" min={0} placeholder="—"
-                value={bulkTouched.has('delivered_weight_kg') ? bulkDraft.delivered_weight_kg ?? '' : ''}
-                onChange={e => setBulkField('delivered_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
-                style={{ ...numInput, width: 110, color: bulkTouched.has('delivered_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
-              />
-            </FieldGroup>
-            {ERECTION_DATE_FIELDS.map(field => (
-              <FieldGroup key={field} label={`Erection ${ERECTION_DATE_LABEL[field]}`}>
-                <input
-                  type="date"
-                  value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
-                  onChange={e => setBulkField(field, e.target.value || null)}
-                  style={{ ...dateInput, width: 140, color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
-                />
-              </FieldGroup>
-            ))}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
             {canUpdate && (
               <button
                 onClick={applyBulk}
@@ -447,7 +469,7 @@ export function ProgressAssemblyTable({
                 style={{
                   font: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'white',
                   background: bulkTouched.size ? '#C8202A' : '#E0A6AA', border: 'none', borderRadius: 8,
-                  padding: '8px 18px', cursor: bulkTouched.size ? 'pointer' : 'default', whiteSpace: 'nowrap',
+                  padding: '7px 18px', cursor: bulkTouched.size ? 'pointer' : 'default',
                 }}
               >
                 Apply to {bulkIds.size}
