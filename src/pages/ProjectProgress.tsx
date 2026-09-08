@@ -779,7 +779,7 @@ function OverviewPanel({
           content density — Weight/Assemblies/Done are the same "hero
           number" shape, so they group into one row together. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-        <StatCard label="Progress" value="" accent="#C8202A">
+        <StatCard label="" value="" accent="#C8202A">
           {/* Fab/Erection only — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
@@ -1070,7 +1070,9 @@ function StatCard({ label, value, accent, children }: {
 }) {
   return (
     <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      {label !== '' && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      )}
       {value !== '' && (
         <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 26, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 9 }}>{value}</div>
       )}
