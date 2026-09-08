@@ -508,9 +508,9 @@ export function ProgressAssemblyTable({
                     onClick={() => onViewIn3D(r.assembly_id)}
                     style={{
                       cursor: 'pointer',
-                      background: expanded ? '#FAFAFA' : checked ? '#FEF6F6' : selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
-                      boxShadow: selectedAssemblyId === r.assembly_id ? '0 2px 6px rgba(0,0,0,0.15)' : undefined,
-                      position: selectedAssemblyId === r.assembly_id ? 'relative' : undefined,
+                      background: expanded || checked || selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
+                      boxShadow: expanded || selectedAssemblyId === r.assembly_id ? '0 2px 6px rgba(0,0,0,0.15)' : undefined,
+                      position: expanded || selectedAssemblyId === r.assembly_id ? 'relative' : undefined,
                     }}
                   >
                     <td style={{ ...td, textAlign: 'center' }}>
