@@ -242,6 +242,11 @@ export function ProjectProgress() {
   const [activePhase, setActivePhase] = useState<PhaseKey | null>(null)
   const [focusRequest, setFocusRequest] = useState<BimFocusRequest | null>(null)
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
+  // A plain click-through signal to the table: "open this row's edit panel
+  // now" — a fresh object each time (not just the id) so re-clicking the
+  // SAME element in the 3D viewer still re-triggers the effect below, since
+  // an unchanged primitive id wouldn't count as a dependency change.
+  const [autoExpandRequest, setAutoExpandRequest] = useState<{ assemblyId: number } | null>(null)
 
   const matchByAssembly = useMemo(
     () => new Map((activeBimMatch?.matches ?? []).map(m => [m.assembly_id, m])),
@@ -390,7 +395,12 @@ export function ProjectProgress() {
       return
     }
     const assemblyId = assemblyByGlobalId.get(selection.globalId)
-    if (assemblyId != null) setSelectedAssemblyId(assemblyId)
+    if (assemblyId != null) {
+      setSelectedAssemblyId(assemblyId)
+      // Clicking an element in the 3D model both selects its row AND opens
+      // it for editing — unlike a plain row click, which only selects.
+      setAutoExpandRequest({ assemblyId })
+    }
   }
 
   const switchTab = (next: 'overview' | number) => {
@@ -586,6 +596,7 @@ export function ProjectProgress() {
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
               selectedAssemblyId={selectedAssemblyId}
+              autoExpandRequest={autoExpandRequest}
               onViewIn3D={handleViewIn3D}
               onUpdate={handleUpdate}
               onBulkUpdate={handleBulkUpdate}

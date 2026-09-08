@@ -13,6 +13,11 @@ interface Props {
   // zooms/isolates it in the viewport — a single click now does both, so
   // there's no separate "View" button to trigger the 3D-only half.
   onViewIn3D: (assemblyId: number) => void
+  // Set by the parent when an element is clicked directly in the 3D
+  // viewport — opens that row's edit panel here too, not just selects it.
+  // A fresh object each time (not a bare id) so re-clicking the SAME
+  // element still re-triggers the effect below.
+  autoExpandRequest: { assemblyId: number } | null
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
   onBulkUpdate: (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) => void
   // Only ever called for placeholder-zone rows — the delete button itself
@@ -215,7 +220,7 @@ const groupHeader: React.CSSProperties = {
 }
 
 export function ProgressAssemblyTable({
-  rows, selectedAssemblyId, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
+  rows, selectedAssemblyId, autoExpandRequest, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
   showDeleted, onToggleShowDeleted, deletedAssemblies, deletedLoading, onRestore, restoring,
   rightPanelView, onSetRightPanelView,
 }: Props) {
@@ -238,6 +243,23 @@ export function ProgressAssemblyTable({
     setEditDraft(rowToDraft(r))
   }
   const closeEdit = () => setExpandedId(null)
+
+  // Clicking an element directly in the 3D viewport opens its edit panel
+  // here too, not just selects it — the request object is fresh on every
+  // click (even for the same element), so this always fires. Same
+  // sync-setState-in-effect shape as the scroll-into-view effect below
+  // (pre-existing in this file) — reacting to a value that only ever
+  // changes on an external click, not a local render loop.
+  useEffect(() => {
+    if (!autoExpandRequest) return
+    const row = rows.find(r => r.assembly_id === autoExpandRequest.assemblyId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (row) openEdit(row)
+    // Deliberately depends only on the click signal, not `rows`/`openEdit`
+    // (recreated every render) — re-running on every unrelated re-render
+    // would fight the accordion's own open/close state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoExpandRequest])
 
   // Bulk-select — set the same fields across many rows in one request.
   // Pcs can't share one absolute count across rows with different qty, so
