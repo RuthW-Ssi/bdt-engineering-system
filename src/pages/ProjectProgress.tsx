@@ -882,7 +882,7 @@ function OverviewPanel({
             </div>
           </div>
           <div style={{ marginTop: 8 }}>
-            <PlanDateTable rows={planTab === 'fab' ? overview.fab_plan_breakdown : overview.erection_plan_breakdown} />
+            <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
           </div>
         </StatCard>
       </div>

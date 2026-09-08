@@ -420,11 +420,6 @@ export class ProjectProgressService {
       // will supersede (weight_kg/qty are null on placeholder rows anyway,
       // which would otherwise silently understate a mixed total).
       total: rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')),
-      // Plan-vs-actual, grouped by each distinct plan-finish date (2026-09)
-      // — see computePlanBreakdown's own comment for why this is counts
-      // grouped by date rather than a single averaged number.
-      fab_plan_breakdown: computePlanBreakdown(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER'), 'fab'),
-      erection_plan_breakdown: computePlanBreakdown(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER'), 'erection'),
     }
   }
 
@@ -796,5 +791,10 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
     load_pct: totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0,
     erect_pct: totalQty > 0 ? Math.round((erectedPcs / totalQty) * 100) : 0,
     buckets,
+    // Scoped to whatever `rows` this call received — a per-zone call gets a
+    // zone-scoped breakdown, the project-wide call (getOverview's `total`)
+    // gets a project-wide one, automatically, same as every field above.
+    fab_plan_breakdown: computePlanBreakdown(rows, 'fab'),
+    erection_plan_breakdown: computePlanBreakdown(rows, 'erection'),
   }
 }

@@ -74,26 +74,6 @@ export interface ProgressBuckets {
   done: number
 }
 
-export interface ProgressRollupTotals {
-  assembly_count: number
-  total_weight_kg: number
-  fab_pct: number
-  payment_pct: number
-  total_qty: number
-  loaded_pcs: number
-  erected_pcs: number
-  load_pct: number
-  erect_pct: number
-  buckets: ProgressBuckets
-}
-
-export interface ProgressZoneRollup extends ProgressRollupTotals {
-  zone_id: number
-  zone_code: string
-  zone_label: string
-  is_placeholder: boolean
-}
-
 // Plan-vs-actual grouped by each distinct plan-finish date — see the
 // backend's computePlanBreakdown comment for why this is per-date counts
 // rather than a single averaged number (dates don't average meaningfully
@@ -106,11 +86,33 @@ export interface PlanDateBucket {
   delay: number
 }
 
+export interface ProgressRollupTotals {
+  assembly_count: number
+  total_weight_kg: number
+  fab_pct: number
+  payment_pct: number
+  total_qty: number
+  loaded_pcs: number
+  erected_pcs: number
+  load_pct: number
+  erect_pct: number
+  buckets: ProgressBuckets
+  // Scoped to whatever this rollup covers — a zone entry's breakdown only
+  // counts that zone's assemblies, the project `total` covers all of them.
+  fab_plan_breakdown: PlanDateBucket[]
+  erection_plan_breakdown: PlanDateBucket[]
+}
+
+export interface ProgressZoneRollup extends ProgressRollupTotals {
+  zone_id: number
+  zone_code: string
+  zone_label: string
+  is_placeholder: boolean
+}
+
 export interface ProgressOverview {
   zones: ProgressZoneRollup[]
   total: ProgressRollupTotals
-  fab_plan_breakdown: PlanDateBucket[]
-  erection_plan_breakdown: PlanDateBucket[]
 }
 
 // Alternate Overview grouping (Zone | Position toggle) — by BIM structural

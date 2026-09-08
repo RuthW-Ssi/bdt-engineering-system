@@ -257,7 +257,7 @@ describe('getOverview rollup', () => {
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getOverview('0X220')
 
-    expect(result.fab_plan_breakdown).toEqual([
+    expect(result.total.fab_plan_breakdown).toEqual([
       { date: '2020-01-01', total: 3, not_started: 1, on_time: 1, delay: 1 },
       { date: '2021-06-15', total: 1, not_started: 0, on_time: 0, delay: 1 },
     ])
@@ -269,7 +269,7 @@ describe('getOverview rollup', () => {
       project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([{ weight_kg: 1, qty: 1, progress: EMPTY, dispatch: { zone_id: 10 } }]), findFirst: jest.fn() },
     })).getOverview('0X220')
-    expect(emptyResult.erection_plan_breakdown).toEqual([])
+    expect(emptyResult.total.erection_plan_breakdown).toEqual([])
 
     const rows = [
       // erected on time
@@ -282,7 +282,32 @@ describe('getOverview rollup', () => {
       bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
     })).getOverview('0X220')
 
-    expect(result.erection_plan_breakdown).toEqual([{ date: '2020-01-01', total: 2, not_started: 1, on_time: 1, delay: 0 }])
+    expect(result.total.erection_plan_breakdown).toEqual([{ date: '2020-01-01', total: 2, not_started: 1, on_time: 1, delay: 0 }])
+  })
+
+  it('fab_plan_breakdown is scoped per zone (not project-wide) — each zone entry and total both carry their own', async () => {
+    const date = new Date('2020-01-01')
+    const rows = [
+      // Zone 10: one assembly planned for this date, not started
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: date }, dispatch: { zone_id: 10 } },
+      // Zone 20: two assemblies planned for the SAME date, both not started
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: date }, dispatch: { zone_id: 20 } },
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: date }, dispatch: { zone_id: 20 } },
+    ]
+    const result = await new ProjectProgressService(makePrisma({
+      project_zone: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 10, code: 'ZA', label: 'Zone-A' },
+          { id: 20, code: 'ZB', label: 'Zone-B' },
+        ]),
+      },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+    })).getOverview('0X220')
+
+    expect(result.zones.find(z => z.zone_id === 10)!.fab_plan_breakdown).toEqual([{ date: '2020-01-01', total: 1, not_started: 1, on_time: 0, delay: 0 }])
+    expect(result.zones.find(z => z.zone_id === 20)!.fab_plan_breakdown).toEqual([{ date: '2020-01-01', total: 2, not_started: 2, on_time: 0, delay: 0 }])
+    // total combines both zones — not just an alias for either one
+    expect(result.total.fab_plan_breakdown).toEqual([{ date: '2020-01-01', total: 3, not_started: 3, on_time: 0, delay: 0 }])
   })
 
   describe('getOverview — placeholder zone exclusion', () => {
