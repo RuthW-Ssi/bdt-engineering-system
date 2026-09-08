@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { useUpdateAssemblyProgress } from '../../hooks/useProjectProgress'
+import { Trash2 } from 'lucide-react'
+import { useUpdateAssemblyProgress, useDeletePlaceholderAssembly } from '../../hooks/useProjectProgress'
 import { usePermission } from '../../hooks/usePermission'
+import { useConfirm } from '../ui/ConfirmDialog'
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import type { ProgressZoneRow, UpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
 import { MobileDateWheelPicker } from './MobileDateWheelPicker'
@@ -69,6 +72,20 @@ interface Props {
 export function MobileProgressFormFields({ code, row, onSaved, variant }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
   const updateMutation = useUpdateAssemblyProgress(code)
+  const navigate = useNavigate()
+  const confirm = useConfirm()
+  const deleteMutation = useDeletePlaceholderAssembly(code)
+
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: `Delete ${row.mark}?`,
+      message: 'Removes this assembly from Pending BOM. Any progress entered for it is discarded and cannot be recovered.',
+      variant: 'danger',
+      confirmLabel: 'Delete',
+    })
+    if (!ok) return
+    deleteMutation.mutate(row.assembly_id, { onSuccess: () => navigate(-1) })
+  }
 
   const [draft, setDraft] = useState<UpdateAssemblyProgressPayload>(() => rowToDraft(row))
   // Resync only when switching assemblies, not on every local edit.
@@ -230,6 +247,23 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
             </div>
           </div>
         </div>
+
+        {/* Delete only ever applies to placeholder (Pending BOM) assemblies,
+            and only from the full-page form — not the quick-edit sheet
+            (variant='sheet', opened from the 3D tap-to-select flow), where a
+            destructive action reachable mid-modal felt like the wrong place
+            for it. Positioned last, after every field, not up by the header
+            — matches where a "danger zone" action reads best on this form. */}
+        {variant === 'page' && row.is_placeholder && canUpdate && (
+          <button
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+            className="w-full mt-5 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg border border-red-200 text-red-600 text-[13px] font-medium active:bg-red-50 disabled:opacity-50"
+          >
+            <Trash2 size={14} />
+            {deleteMutation.isPending ? 'Deleting…' : 'Delete this assembly'}
+          </button>
+        )}
       </div>
 
       {canUpdate && (
