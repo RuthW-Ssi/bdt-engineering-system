@@ -218,6 +218,24 @@ export async function deletePlaceholderAssembly(projectCode: string, assemblyId:
   return (await apiClient.delete(`/projects/${projectCode}/progress/assemblies/${assemblyId}`)).data
 }
 
+export interface DeletedPlaceholderAssembly {
+  assembly_id: number
+  mark: string
+  deleted_at: string
+}
+
+// Placeholder assemblies a user deleted (restorable) — excludes ones
+// deactivated by BOM reconciliation, which are never restorable.
+export async function getDeletedPlaceholderAssemblies(projectCode: string): Promise<DeletedPlaceholderAssembly[]> {
+  return (await apiClient.get(`/projects/${projectCode}/progress/assemblies/deleted`)).data
+}
+
+// Restores a user-deleted placeholder assembly — 404s if it was not
+// user-deleted (e.g. it was reconciled into real BOM instead).
+export async function restorePlaceholderAssembly(projectCode: string, assemblyId: number): Promise<{ restored: boolean }> {
+  return (await apiClient.post(`/projects/${projectCode}/progress/assemblies/${assemblyId}/restore`)).data
+}
+
 // Applies the same field values to many assemblies at once (bulk row
 // selection) — one request, one backend transaction, not N sequential PATCHes.
 export async function bulkUpdateAssemblyProgress(

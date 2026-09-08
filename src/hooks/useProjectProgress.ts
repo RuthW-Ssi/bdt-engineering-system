@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   getProgressOverview, getProgressZoneRows, getProgressBimMatch, getProgressProjectRows, getProgressProjectBimMatch,
   getProgressPositions, updateAssemblyProgress, bulkUpdateAssemblyProgress, deletePlaceholderAssembly,
+  getDeletedPlaceholderAssemblies, restorePlaceholderAssembly,
   getProgressHistory, getProgressHistoryBatch, rollbackProgressBatch,
 } from '../api/projectProgress'
 import type { UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
@@ -99,10 +101,41 @@ export function useDeletePlaceholderAssembly(projectCode: string | undefined) {
       // Same invalidation set as any other progress-affecting write — the
       // deleted assembly disappears from zone rows, and the placeholder
       // zone's own assembly_count (which drives the hide-when-empty tab
-      // guard) lives in overview/project-rows too.
+      // guard) lives in overview/project-rows too. Also refresh the
+      // deleted-assemblies list — this write is exactly what populates it.
       qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
       qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
       qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'deleted-assemblies', projectCode] })
+      toast.success('Assembly deleted')
+    },
+    meta: { showGlobalErrorToast: true },
+  })
+}
+
+export function useDeletedPlaceholderAssemblies(projectCode: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['project-progress', 'deleted-assemblies', projectCode],
+    queryFn: () => getDeletedPlaceholderAssemblies(projectCode!),
+    // Lazy — only fetched once the user actually expands the "Deleted"
+    // section, same pattern as the BIM match / positions hooks above.
+    enabled: !!projectCode && enabled,
+  })
+}
+
+export function useRestorePlaceholderAssembly(projectCode: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (assemblyId: number) => restorePlaceholderAssembly(projectCode!, assemblyId),
+    onSuccess: () => {
+      // Mirror of useDeletePlaceholderAssembly's invalidation set — the
+      // restored assembly reappears in zone rows/overview, and disappears
+      // from the deleted-assemblies list.
+      qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'deleted-assemblies', projectCode] })
+      toast.success('Assembly restored')
     },
     meta: { showGlobalErrorToast: true },
   })

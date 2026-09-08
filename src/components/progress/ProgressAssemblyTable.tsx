@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Search, Pencil, ChevronUp, X, Trash2 } from 'lucide-react'
-import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
+import { Search, Pencil, ChevronUp, ChevronDown, X, Trash2, RotateCcw } from 'lucide-react'
+import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, DeletedPlaceholderAssembly, FabStage, PaymentStatus } from '../../api/projectProgress'
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import { STATUS_META, PHASE_META } from './statusMeta'
 import { usePermission } from '../../hooks/usePermission'
@@ -17,6 +17,16 @@ interface Props {
   // Only ever called for placeholder-zone rows — the delete button itself
   // is only rendered when isPlaceholderZone (see below).
   onDelete: (assemblyId: number) => void
+  // Deleted-assemblies collapsible section — only ever rendered for the
+  // placeholder zone. Data/toggle state lives in the parent (matches this
+  // component's existing "dumb, parent owns data-fetching" pattern) since
+  // the underlying query is lazy (only fetched once expanded).
+  showDeleted: boolean
+  onToggleShowDeleted: () => void
+  deletedAssemblies: DeletedPlaceholderAssembly[] | undefined
+  deletedLoading: boolean
+  onRestore: (assemblyId: number) => void
+  restoring: boolean
   saving: boolean
   // Controls the right-column panel (3D viewport vs Drawing quick-look) —
   // lives here, next to the search box, instead of its own row above the
@@ -211,6 +221,7 @@ const groupHeader: React.CSSProperties = {
 
 export function ProgressAssemblyTable({
   rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
+  showDeleted, onToggleShowDeleted, deletedAssemblies, deletedLoading, onRestore, restoring,
   rightPanelView, onSetRightPanelView,
 }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
@@ -749,6 +760,60 @@ export function ProgressAssemblyTable({
           )}
         </table>
       </div>
+      {/* Deleted-assemblies archive — placeholder zone only. A reconciled
+          (deleted_by_user=false) assembly never appears here — the backend
+          list endpoint already excludes it, since restoring it would
+          recreate a mark colliding with the real BOM data it superseded. */}
+      {isPlaceholderZone && (
+        <div style={{ borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
+          <button
+            onClick={onToggleShowDeleted}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '10px 14px',
+              background: 'none', border: 'none', cursor: 'pointer', font: 'inherit',
+              fontSize: 11.5, color: '#8E8E8E', fontWeight: 600,
+            }}
+          >
+            {showDeleted ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            Deleted{deletedAssemblies?.length ? ` (${deletedAssemblies.length})` : ''}
+          </button>
+          {showDeleted && (
+            <div style={{ padding: '0 14px 12px', maxHeight: 180, overflowY: 'auto' }}>
+              {deletedLoading && <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '6px 0' }}>Loading…</div>}
+              {!deletedLoading && !deletedAssemblies?.length && (
+                <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '6px 0' }}>No deleted assemblies</div>
+              )}
+              {deletedAssemblies?.map(d => (
+                <div
+                  key={d.assembly_id}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F3F3', fontSize: 12 }}
+                >
+                  <div>
+                    <span style={{ ...mono, fontWeight: 600, color: '#8E8E8E' }}>{d.mark}</span>
+                    <span style={{ color: '#C2C2C2', marginLeft: 8 }}>
+                      {new Date(d.deleted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+                    </span>
+                  </div>
+                  {canUpdate && (
+                    <button
+                      onClick={() => onRestore(d.assembly_id)}
+                      disabled={restoring}
+                      title="Restore this assembly"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+                        color: '#1A7A3D', background: 'none', border: '1px solid #CDEAD9', borderRadius: 6,
+                        padding: '4px 8px', cursor: restoring ? 'default' : 'pointer', opacity: restoring ? 0.6 : 1,
+                      }}
+                    >
+                      <RotateCcw size={11} /> Restore
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

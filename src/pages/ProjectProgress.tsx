@@ -13,6 +13,7 @@ import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
   useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress, useDeletePlaceholderAssembly,
+  useDeletedPlaceholderAssemblies, useRestorePlaceholderAssembly,
 } from '../hooks/useProjectProgress'
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
@@ -209,6 +210,10 @@ export function ProjectProgress() {
   const updateMutation = useUpdateAssemblyProgress(code)
   const bulkUpdateMutation = useBulkUpdateAssemblyProgress(code)
   const deleteMutation = useDeletePlaceholderAssembly(code)
+  const restoreMutation = useRestorePlaceholderAssembly(code)
+  // Lazy — only fetched once the Deleted section is actually expanded.
+  const [showDeleted, setShowDeleted] = useState(false)
+  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted)
 
   // Overview's Zone/Position toggle + which group (if any) is being
   // previewed — lives here (not inside OverviewPanel) because the 3D
@@ -344,6 +349,7 @@ export function ProjectProgress() {
     bulkUpdateMutation.mutate({ assemblyIds, payload })
 
   const handleDelete = (assemblyId: number) => deleteMutation.mutate(assemblyId)
+  const handleRestore = (assemblyId: number) => restoreMutation.mutate(assemblyId)
 
   // Toggling activePhase is all this needs now — highlightColorMap above
   // reacts to it and recolors the (still fully visible) model accordingly.
@@ -586,6 +592,12 @@ export function ProjectProgress() {
               onUpdate={handleUpdate}
               onBulkUpdate={handleBulkUpdate}
               onDelete={handleDelete}
+              showDeleted={showDeleted}
+              onToggleShowDeleted={() => setShowDeleted(v => !v)}
+              deletedAssemblies={deletedAssemblies}
+              deletedLoading={deletedLoading}
+              onRestore={handleRestore}
+              restoring={restoreMutation.isPending}
               saving={updateMutation.isPending || bulkUpdateMutation.isPending || deleteMutation.isPending}
               rightPanelView={rightPanelView}
               onSetRightPanelView={setRightPanelView}
