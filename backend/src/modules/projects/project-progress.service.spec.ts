@@ -441,6 +441,46 @@ describe('updateAssemblyProgress', () => {
   })
 })
 
+describe('deletePlaceholderAssembly', () => {
+  it('404s when the assembly does not exist', async () => {
+    const prisma = makePrisma({ bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() } })
+    const svc = new ProjectProgressService(prisma)
+    await expect(svc.deletePlaceholderAssembly('0X220', 999, 1)).rejects.toThrow(NotFoundException)
+    expect(prisma.bom_assembly.update).not.toHaveBeenCalled()
+  })
+
+  it('404s (does not delete) when the assembly is a real BOM assembly, not a placeholder one', async () => {
+    // The lookup itself is scoped to source: 'BIM_PLACEHOLDER' — a real
+    // assembly never matches that where clause, so findFirst resolving
+    // null covers this case identically to "doesn't exist" (no separate
+    // branch needed, and the caller can't distinguish the two from the
+    // 404 alone, which is the point — no probing which real ids exist).
+    const prisma = makePrisma({ bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() } })
+    const svc = new ProjectProgressService(prisma)
+    await expect(svc.deletePlaceholderAssembly('0X220', 1, 1)).rejects.toThrow(NotFoundException)
+    expect(prisma.bom_assembly.update).not.toHaveBeenCalled()
+  })
+
+  it('flips a valid placeholder assembly to INACTIVE, stamped with the caller', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 1, status: 'INACTIVE' })
+    const findFirst = jest.fn().mockResolvedValue({ id: 1 })
+    const prisma = makePrisma({ bom_assembly: { findFirst, update } })
+    const svc = new ProjectProgressService(prisma)
+
+    const result = await svc.deletePlaceholderAssembly('0X220', 1, 7)
+
+    expect(findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 1, status: 'ACTIVE',
+      dispatch: { project: { project_code: '0X220' }, source: 'BIM_PLACEHOLDER' },
+    })
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { status: 'INACTIVE', write_uid: 7, write_date: expect.any(Date) },
+    })
+    expect(result).toEqual({ deleted: true })
+  })
+})
+
 describe('bulkUpdateAssemblyProgress', () => {
   it('applies shared percents/dates to every owned row', async () => {
     const upsert = jest.fn().mockResolvedValue({})

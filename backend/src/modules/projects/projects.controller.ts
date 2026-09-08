@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, ParseIntPipe, Query, UseGuards, Res,
+  Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, UseGuards, Res,
 } from '@nestjs/common'
 import { Response } from 'express'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
@@ -150,6 +150,17 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.progressSvc.updateAssemblyProgress(code, assemblyId, dto, user.sub)
+  }
+
+  @Delete(':project_code/progress/assemblies/:assembly_id')
+  @RequiresPermission('project-tracking', 'update')
+  @ApiOperation({ summary: 'Soft-delete a placeholder (BIM-sourced, pre-BOM) assembly — 404s if the assembly is not a placeholder-dispatch assembly in this project' })
+  deletePlaceholderAssembly(
+    @Param('project_code') code: string,
+    @Param('assembly_id', ParseIntPipe) assemblyId: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.progressSvc.deletePlaceholderAssembly(code, assemblyId, user.sub)
   }
 
   @Get(':project_code')

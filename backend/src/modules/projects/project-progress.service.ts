@@ -199,6 +199,33 @@ export class ProjectProgressService {
     }
   }
 
+  // BIM-first progress entry (2026-09) — lets a user remove a placeholder
+  // assembly they don't need (e.g. a BIM mark that turned out irrelevant,
+  // or a duplicate). Soft-delete via the same status='INACTIVE' mechanism
+  // every other supersession in this app already uses — every read path
+  // already filters ACTIVE, so no new filtering logic is needed anywhere.
+  // Scoped to source: 'BIM_PLACEHOLDER' so a real BOM assembly (managed
+  // exclusively by BOM upload/re-upload) can never be deleted this way —
+  // "not found" covers both "doesn't exist" and "isn't a placeholder
+  // assembly" identically, so this endpoint can't be used to probe which
+  // real assembly ids exist in a project.
+  async deletePlaceholderAssembly(projectCode: string, assemblyId: number, userId: number) {
+    const assembly = await this.prisma.bom_assembly.findFirst({
+      where: {
+        id: assemblyId, status: 'ACTIVE',
+        dispatch: { project: { project_code: projectCode }, source: 'BIM_PLACEHOLDER' },
+      },
+      select: { id: true },
+    })
+    if (!assembly) throw new NotFoundException(`Placeholder assembly ${assemblyId} not found in project ${projectCode}`)
+
+    await this.prisma.bom_assembly.update({
+      where: { id: assemblyId },
+      data: { status: 'INACTIVE', write_uid: userId, write_date: new Date() },
+    })
+    return { deleted: true }
+  }
+
   // Applies the same field values to many assemblies at once (bulk-select in
   // the table) — one transaction, not N sequential PATCHes from the client.
   // Fields work exactly like the single-assembly upsert (omitted=unchanged,
