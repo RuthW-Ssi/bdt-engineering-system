@@ -898,6 +898,13 @@ model bom_assembly {
   height_mm       Decimal?     @db.Decimal(12, 2)
   attributes      Json         @default("{}")
   status          String       @default("ACTIVE") @db.VarChar(10) // ACTIVE | INACTIVE — superseded by a later upload
+  // BIM-first progress entry (2026-09) — distinguishes INACTIVE-by-user-delete
+  // (deletePlaceholderAssembly, restorable) from INACTIVE-by-reconciliation
+  // (carryForwardProgress matched this placeholder into a real BOM upload —
+  // NOT restorable, since its progress already lives under a different,
+  // real assembly_id; "restoring" it would create a mark that collides with
+  // the real BOM data). Always false for non-placeholder (real BOM) rows.
+  deleted_by_user Boolean      @default(false)
   slot            String?      @db.VarChar(4) // MAIN | ACC | null (combined-mode zones never set this)
   // Sprint 8: eBOM ↔ mBOM mapping
   product_id      Int?

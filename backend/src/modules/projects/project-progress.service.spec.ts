@@ -475,9 +475,64 @@ describe('deletePlaceholderAssembly', () => {
     })
     expect(update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { status: 'INACTIVE', write_uid: 7, write_date: expect.any(Date) },
+      data: { status: 'INACTIVE', deleted_by_user: true, write_uid: 7, write_date: expect.any(Date) },
     })
     expect(result).toEqual({ deleted: true })
+  })
+})
+
+describe('listDeletedPlaceholderAssemblies', () => {
+  it('only returns placeholder assemblies deleted by a user, not ones deactivated by reconciliation', async () => {
+    // The mock's findMany doesn't itself apply the where filter (that's the
+    // real DB's job) — this test asserts the WHERE CLAUSE SENT is correctly
+    // scoped, since that's the only thing separating "user-deleted, show in
+    // this list" from "reconciled, must never show here" (both share
+    // status='INACTIVE'; only deleted_by_user distinguishes them).
+    const findMany = jest.fn().mockResolvedValue([
+      { id: 5, assembly_mark: 'WH-CO-009', write_date: D },
+    ])
+    const prisma = makePrisma({ bom_assembly: { findMany } })
+    const svc = new ProjectProgressService(prisma)
+
+    const result = await svc.listDeletedPlaceholderAssemblies('0X220')
+
+    expect(findMany.mock.calls[0][0].where).toMatchObject({
+      status: 'INACTIVE', deleted_by_user: true,
+      dispatch: { project: { project_code: '0X220' }, source: 'BIM_PLACEHOLDER' },
+    })
+    expect(result).toEqual([{ assembly_id: 5, mark: 'WH-CO-009', deleted_at: D }])
+  })
+})
+
+describe('restorePlaceholderAssembly', () => {
+  it('404s when the assembly does not exist, is not a placeholder, or was not user-deleted (e.g. reconciled)', async () => {
+    // One where clause covers all three cases identically — a reconciled
+    // (deleted_by_user=false) assembly must 404 here exactly like a
+    // nonexistent one, since restoring it would create a mark that
+    // collides with the real BOM data it was already reconciled into.
+    const prisma = makePrisma({ bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() } })
+    const svc = new ProjectProgressService(prisma)
+    await expect(svc.restorePlaceholderAssembly('0X220', 5, 1)).rejects.toThrow(NotFoundException)
+    expect(prisma.bom_assembly.update).not.toHaveBeenCalled()
+  })
+
+  it('flips a user-deleted placeholder assembly back to ACTIVE, clearing the flag', async () => {
+    const update = jest.fn().mockResolvedValue({ id: 5, status: 'ACTIVE' })
+    const findFirst = jest.fn().mockResolvedValue({ id: 5 })
+    const prisma = makePrisma({ bom_assembly: { findFirst, update } })
+    const svc = new ProjectProgressService(prisma)
+
+    const result = await svc.restorePlaceholderAssembly('0X220', 5, 7)
+
+    expect(findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 5, status: 'INACTIVE', deleted_by_user: true,
+      dispatch: { project: { project_code: '0X220' }, source: 'BIM_PLACEHOLDER' },
+    })
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 5 },
+      data: { status: 'ACTIVE', deleted_by_user: false, write_uid: 7, write_date: expect.any(Date) },
+    })
+    expect(result).toEqual({ restored: true })
   })
 })
 

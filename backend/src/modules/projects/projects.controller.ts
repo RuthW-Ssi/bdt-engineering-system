@@ -126,6 +126,24 @@ export class ProjectsController {
     return this.historySvc.rollback(code, batchId, user.sub, force === 'true')
   }
 
+  @Get(':project_code/progress/assemblies/deleted')
+  @RequiresPermission('project-tracking', 'view')
+  @ApiOperation({ summary: 'List placeholder assemblies a user deleted (restorable) — excludes ones deactivated by BOM reconciliation, which are never restorable' })
+  listDeletedPlaceholderAssemblies(@Param('project_code') code: string) {
+    return this.progressSvc.listDeletedPlaceholderAssemblies(code)
+  }
+
+  @Post(':project_code/progress/assemblies/:assembly_id/restore')
+  @RequiresPermission('project-tracking', 'update')
+  @ApiOperation({ summary: 'Restore a user-deleted placeholder assembly — 404s if it was not user-deleted (e.g. reconciled into real BOM instead)' })
+  restorePlaceholderAssembly(
+    @Param('project_code') code: string,
+    @Param('assembly_id', ParseIntPipe) assemblyId: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.progressSvc.restorePlaceholderAssembly(code, assemblyId, user.sub)
+  }
+
   // Registered before ':assembly_id' below — same path prefix, and NestJS
   // matches route declarations in order, so 'bulk' must come first or it'd
   // never be reached (ParseIntPipe would 400 on the literal "bulk" first).

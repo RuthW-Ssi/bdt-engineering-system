@@ -221,9 +221,47 @@ export class ProjectProgressService {
 
     await this.prisma.bom_assembly.update({
       where: { id: assemblyId },
-      data: { status: 'INACTIVE', write_uid: userId, write_date: new Date() },
+      data: { status: 'INACTIVE', deleted_by_user: true, write_uid: userId, write_date: new Date() },
     })
     return { deleted: true }
+  }
+
+  // Placeholder assemblies a user deleted (deleted_by_user=true) — NOT ones
+  // deactivated by carryForwardProgress reconciliation, which also sets
+  // status='INACTIVE' but leaves deleted_by_user false. Only the former are
+  // meaningfully restorable; a reconciled assembly's progress already lives
+  // under a different, real assembly_id, so "restoring" it would just
+  // recreate a mark that collides with the real BOM data.
+  async listDeletedPlaceholderAssemblies(projectCode: string) {
+    const rows = await this.prisma.bom_assembly.findMany({
+      where: {
+        status: 'INACTIVE', deleted_by_user: true,
+        dispatch: { project: { project_code: projectCode }, source: 'BIM_PLACEHOLDER' },
+      },
+      orderBy: { write_date: 'desc' },
+      select: { id: true, assembly_mark: true, write_date: true },
+    })
+    return rows.map(r => ({ assembly_id: r.id, mark: r.assembly_mark, deleted_at: r.write_date }))
+  }
+
+  // Mirrors deletePlaceholderAssembly's scoping exactly, plus deleted_by_user:
+  // true — a reconciled (deleted_by_user=false) assembly 404s here just like
+  // a nonexistent one, for the reason above.
+  async restorePlaceholderAssembly(projectCode: string, assemblyId: number, userId: number) {
+    const assembly = await this.prisma.bom_assembly.findFirst({
+      where: {
+        id: assemblyId, status: 'INACTIVE', deleted_by_user: true,
+        dispatch: { project: { project_code: projectCode }, source: 'BIM_PLACEHOLDER' },
+      },
+      select: { id: true },
+    })
+    if (!assembly) throw new NotFoundException(`Deleted placeholder assembly ${assemblyId} not found in project ${projectCode}`)
+
+    await this.prisma.bom_assembly.update({
+      where: { id: assemblyId },
+      data: { status: 'ACTIVE', deleted_by_user: false, write_uid: userId, write_date: new Date() },
+    })
+    return { restored: true }
   }
 
   // Applies the same field values to many assemblies at once (bulk-select in
