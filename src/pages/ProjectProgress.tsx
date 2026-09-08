@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Info } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
@@ -348,10 +349,12 @@ export function ProjectProgress() {
     tab === 'overview' ? overview?.total : overview?.zones.find(z => z.zone_id === tab)
 
   const handleUpdate = (assemblyId: number, payload: UpdateAssemblyProgressPayload) =>
-    updateMutation.mutate({ assemblyId, payload })
+    updateMutation.mutate({ assemblyId, payload }, { onSuccess: () => toast.success('Progress saved') })
 
   const handleBulkUpdate = (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) =>
-    bulkUpdateMutation.mutate({ assemblyIds, payload })
+    bulkUpdateMutation.mutate({ assemblyIds, payload }, {
+      onSuccess: data => toast.success(`Progress saved for ${data.updated} ${data.updated === 1 ? 'assembly' : 'assemblies'}`),
+    })
 
   const handleDelete = (assemblyId: number) => deleteMutation.mutate(assemblyId)
   const handleRestore = (assemblyId: number) => restoreMutation.mutate(assemblyId)
