@@ -787,7 +787,7 @@ function OverviewPanel({
               have a plan-date field to compare against (see PlanDateTable).
               One tab at a time instead of stacking both tables — same
               segmented-pill style as the Zone/Position toggle below. */}
-          <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, marginTop: 4, width: 'fit-content' }}>
+          <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, marginTop: -6, width: 'fit-content' }}>
             {(['fab', 'erection'] as const).map(t => (
               <button
                 key={t}
