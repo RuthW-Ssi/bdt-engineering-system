@@ -18,7 +18,7 @@ import {
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
 import { exportProgress } from '../api/projectProgress'
-import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
+import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, PlanDateBucket } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
@@ -779,14 +779,19 @@ function OverviewPanel({
           number" shape, so they group into one row together. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
         <StatCard label="Progress" value="" accent="#C8202A">
-          {/* Four separate phase numbers, deliberately no combined total
-              (spec) — each phase has its own responsible team in the real
-              workflow, a synthetic blend would match nobody's number. */}
+          {/* Deliberately no combined total (spec) — each phase has its own
+              responsible team in the real workflow, a synthetic blend would
+              match nobody's number. Fab/Erect used to be percent bars here
+              too, but a single % can't show plan-vs-actual per assembly the
+              way a date-grouped breakdown can (see PlanDateTable) — Pay/Trans
+              have no plan-date field, so they keep the plain bar. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
-            <PhaseBar label="Fab" pct={total.fab_pct} color={PHASE_META.fabrication.dark} />
             <PhaseBar label="Pay" pct={total.payment_pct} color={PHASE_META.payment.dark} />
             <PhaseBar label="Trans" pct={total.load_pct} color={PHASE_META.load.dark} />
-            <PhaseBar label="Erect" pct={total.erect_pct} color={PHASE_META.erection.dark} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14 }}>
+            <PlanDateTable label="Fab Plan" color={PHASE_META.fabrication.dark} rows={overview.fab_plan_breakdown} />
+            <PlanDateTable label="Erection Plan" color={PHASE_META.erection.dark} rows={overview.erection_plan_breakdown} />
           </div>
         </StatCard>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -1070,6 +1075,58 @@ function PhaseBar({ label, pct, color }: { label: string; pct: number; color: st
       <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, width: 40, textAlign: 'right', flexShrink: 0 }}>
         {pct.toFixed(0)}%
       </b>
+    </div>
+  )
+}
+
+// Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
+// replaces what used to be a single percent bar for these two phases. A
+// percent can't show plan-vs-actual meaningfully once assemblies/zones each
+// plan their own date (see PlanDateBucket's comment on the backend); a
+// per-date breakdown table sidesteps that by never averaging across dates
+// at all — every distinct plan date gets its own row.
+function PlanDateTable({ label, color, rows }: { label: string; color: string; rows: PlanDateBucket[] }) {
+  const th: React.CSSProperties = {
+    textAlign: 'right', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.03em', color: '#ABABAB', padding: '4px 8px', whiteSpace: 'nowrap',
+  }
+  const td: React.CSSProperties = {
+    textAlign: 'right', padding: '4px 8px', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
+  }
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
+      ) : (
+        <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Date</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Total</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Not Started</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>On Time</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Delay</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.date}>
+                  <td style={{ ...td, textAlign: 'left', color: '#1A1A1A', fontWeight: 600 }}>{formatDate(r.date)}</td>
+                  <td style={td}>{r.total}</td>
+                  <td style={{ ...td, color: '#ABABAB' }}>{r.not_started}</td>
+                  <td style={{ ...td, color: '#1A7A3D' }}>{r.on_time}</td>
+                  <td style={{ ...td, color: r.delay > 0 ? '#C8202A' : '#ABABAB', fontWeight: r.delay > 0 ? 700 : 400 }}>{r.delay}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

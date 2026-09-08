@@ -428,6 +428,11 @@ export class ProjectProgressService {
       // will supersede (weight_kg/qty are null on placeholder rows anyway,
       // which would otherwise silently understate a mixed total).
       total: rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')),
+      // Plan-vs-actual, grouped by each distinct plan-finish date (2026-09)
+      // — see computePlanBreakdown's own comment for why this is counts
+      // grouped by date rather than a single averaged number.
+      fab_plan_breakdown: computePlanBreakdown(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER'), 'fab'),
+      erection_plan_breakdown: computePlanBreakdown(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER'), 'erection'),
     }
   }
 
@@ -713,6 +718,56 @@ function toUnmatchedBimMark(mark: string, count: number) {
     status: null as ProgressStatus | null,
     shade: null as ProgressShade | null,
   }
+}
+
+export interface PlanDateBucket {
+  date: string // YYYY-MM-DD — the shared fab_plan_finish_date/erection_plan_finish_date value for this row
+  total: number
+  not_started: number
+  on_time: number
+  delay: number
+}
+
+// Plan-vs-actual grouped by each distinct plan date, counts only (2026-09).
+// Dates don't average across many assemblies/zones the way a percent does —
+// a MAX or weighted-mean date across unrelated zones on different schedules
+// would misrepresent the project, and a single date pair can't capture that
+// each assembly plans its own. Counting into on_time/delay per plan-date
+// sidesteps both problems: sums cleanly regardless of how many zones/dates
+// are involved, and every distinct date gets its own honest bucket.
+//
+// Per assembly (only counted if its plan date is set at all):
+//   not_started — no progress on this phase yet (fab_pct 0, or erected_pcs 0)
+//   on_time     — started, and (done with actual date on/before plan) OR
+//                 (not done and today is still on/before plan)
+//   delay       — started, and (done but actual date after plan) OR
+//                 (not done and today is already past plan)
+// A started-but-undated completion (fab_pct 100 with no fab_actual_finish_date
+// entered) falls back to comparing today against plan, same as "not done" —
+// the best available signal when nobody recorded exactly when it finished.
+function computePlanBreakdown(
+  rows: { progress: ProgressFields | null }[],
+  kind: 'fab' | 'erection',
+): PlanDateBucket[] {
+  const today = new Date()
+  const byDate = new Map<string, { total: number; not_started: number; on_time: number; delay: number }>()
+  for (const r of rows) {
+    const planDate = kind === 'fab' ? r.progress?.fab_plan_finish_date : r.progress?.erection_plan_finish_date
+    if (!planDate) continue
+    const actualDate = kind === 'fab' ? r.progress?.fab_actual_finish_date : r.progress?.erection_actual_finish_date
+    const started = kind === 'fab' ? computeFabPct(r.progress) > 0 : (r.progress?.erected_pcs ?? 0) > 0
+
+    const key = planDate.toISOString().slice(0, 10)
+    const bucket = byDate.get(key) ?? { total: 0, not_started: 0, on_time: 0, delay: 0 }
+    bucket.total++
+    if (!started) bucket.not_started++
+    else if ((actualDate ?? today) <= planDate) bucket.on_time++
+    else bucket.delay++
+    byDate.set(key, bucket)
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, b]) => ({ date, ...b }))
 }
 
 // Three separate rollup numbers, deliberately no combined total (spec):

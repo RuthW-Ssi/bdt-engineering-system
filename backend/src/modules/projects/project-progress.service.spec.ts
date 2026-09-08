@@ -236,6 +236,56 @@ describe('getOverview rollup', () => {
     expect(result.total.load_pct).toBe(100)
   })
 
+  it('fab_plan_breakdown groups by plan date into not_started/on_time/delay, sorted ascending; no-plan-date rows are excluded', async () => {
+    const earlier = new Date('2020-01-01')
+    const later = new Date('2021-06-15')
+    const future = new Date('2099-01-01')
+    const all100 = Object.fromEntries(FAB_STAGES.map(s => [s, 100]))
+    const rows = [
+      // "earlier" date group: done-on-time, done-late, never-started
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, ...all100, fab_plan_finish_date: earlier, fab_actual_finish_date: earlier }, dispatch: { zone_id: 10 } },
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, ...all100, fab_plan_finish_date: earlier, fab_actual_finish_date: future }, dispatch: { zone_id: 10 } },
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: earlier }, dispatch: { zone_id: 10 } },
+      // "later" date group: in-progress but plan date already passed (undated completion signal falls back to "today") → delay
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, cut: 50, fab_plan_finish_date: later }, dispatch: { zone_id: 10 } },
+      // no plan date at all → excluded from every bucket, never appears
+      { weight_kg: 1, qty: 1, progress: { ...EMPTY, ...all100 }, dispatch: { zone_id: 10 } },
+    ]
+    const prisma = makePrisma({
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+    })
+    const svc = new ProjectProgressService(prisma)
+    const result = await svc.getOverview('0X220')
+
+    expect(result.fab_plan_breakdown).toEqual([
+      { date: '2020-01-01', total: 3, not_started: 1, on_time: 1, delay: 1 },
+      { date: '2021-06-15', total: 1, not_started: 0, on_time: 0, delay: 1 },
+    ])
+  })
+
+  it('erection_plan_breakdown mirrors the same on_time/delay logic via erected_pcs/erection dates; empty when nobody set the field', async () => {
+    const past = new Date('2020-01-01')
+    const emptyResult = await new ProjectProgressService(makePrisma({
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ weight_kg: 1, qty: 1, progress: EMPTY, dispatch: { zone_id: 10 } }]), findFirst: jest.fn() },
+    })).getOverview('0X220')
+    expect(emptyResult.erection_plan_breakdown).toEqual([])
+
+    const rows = [
+      // erected on time
+      { weight_kg: 1, qty: 2, progress: { ...EMPTY, erected_pcs: 2, erection_plan_finish_date: past, erection_actual_finish_date: past }, dispatch: { zone_id: 10 } },
+      // never erected at all → not_started, regardless of whether the plan date has passed
+      { weight_kg: 1, qty: 2, progress: { ...EMPTY, erection_plan_finish_date: past }, dispatch: { zone_id: 10 } },
+    ]
+    const result = await new ProjectProgressService(makePrisma({
+      project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]), findFirst: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+    })).getOverview('0X220')
+
+    expect(result.erection_plan_breakdown).toEqual([{ date: '2020-01-01', total: 2, not_started: 1, on_time: 1, delay: 0 }])
+  })
+
   describe('getOverview — placeholder zone exclusion', () => {
     it('includes the placeholder zone in zones[] (tagged is_placeholder) but excludes its assemblies from total', async () => {
       const prisma = makePrisma({

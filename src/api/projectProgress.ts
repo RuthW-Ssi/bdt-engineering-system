@@ -96,9 +96,23 @@ export interface ProgressZoneRollup extends ProgressRollupTotals {
   is_placeholder: boolean
 }
 
+// Plan-vs-actual grouped by each distinct plan-finish date — see the
+// backend's computePlanBreakdown comment for why this is per-date counts
+// rather than a single averaged number (dates don't average meaningfully
+// across many assemblies/zones the way a percent does).
+export interface PlanDateBucket {
+  date: string // YYYY-MM-DD
+  total: number
+  not_started: number
+  on_time: number
+  delay: number
+}
+
 export interface ProgressOverview {
   zones: ProgressZoneRollup[]
   total: ProgressRollupTotals
+  fab_plan_breakdown: PlanDateBucket[]
+  erection_plan_breakdown: PlanDateBucket[]
 }
 
 // Alternate Overview grouping (Zone | Position toggle) — by BIM structural
