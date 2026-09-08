@@ -585,9 +585,7 @@ export function ProjectProgress() {
           ) : (
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
-              matchedAssemblyIds={new Set(matchByAssembly.keys())}
               selectedAssemblyId={selectedAssemblyId}
-              onSelectRow={setSelectedAssemblyId}
               onViewIn3D={handleViewIn3D}
               onUpdate={handleUpdate}
               onBulkUpdate={handleBulkUpdate}

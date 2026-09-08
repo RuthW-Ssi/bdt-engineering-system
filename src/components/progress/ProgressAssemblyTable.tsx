@@ -8,9 +8,10 @@ import { useConfirm } from '../ui/ConfirmDialog'
 
 interface Props {
   rows: ProgressZoneRow[]
-  matchedAssemblyIds: Set<number>
   selectedAssemblyId: number | null
-  onSelectRow: (assemblyId: number) => void
+  // Clicking a row both selects it (for the Drawing panel) and, in 3D mode,
+  // zooms/isolates it in the viewport — a single click now does both, so
+  // there's no separate "View" button to trigger the 3D-only half.
   onViewIn3D: (assemblyId: number) => void
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
   onBulkUpdate: (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) => void
@@ -220,7 +221,7 @@ const groupHeader: React.CSSProperties = {
 }
 
 export function ProgressAssemblyTable({
-  rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
+  rows, selectedAssemblyId, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
   showDeleted, onToggleShowDeleted, deletedAssemblies, deletedLoading, onRestore, restoring,
   rightPanelView, onSetRightPanelView,
 }: Props) {
@@ -458,13 +459,11 @@ export function ProgressAssemblyTable({
               <th style={th}>Mark</th>
               {!isPlaceholderZone && <th style={{ ...th, textAlign: 'right' }}>Weight</th>}
               <th style={th}>Progress</th>
-              <th style={{ ...th, textAlign: 'center' }} />
               <th style={{ ...th, textAlign: 'center' }}>Edit</th>
             </tr>
           </thead>
           <tbody>
             {visible.map(r => {
-              const matched = matchedAssemblyIds.has(r.assembly_id)
               const expanded = expandedId === r.assembly_id
               const checked = bulkIds.has(r.assembly_id)
               const qty = effQty(r)
@@ -475,7 +474,7 @@ export function ProgressAssemblyTable({
                       if (el) rowRefs.current.set(r.assembly_id, el)
                       else rowRefs.current.delete(r.assembly_id)
                     }}
-                    onClick={() => onSelectRow(r.assembly_id)}
+                    onClick={() => onViewIn3D(r.assembly_id)}
                     style={{
                       cursor: 'pointer',
                       background: expanded ? '#FAFAFA' : checked ? '#FEF6F6' : selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
@@ -537,19 +536,6 @@ export function ProgressAssemblyTable({
                       </div>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
-                      {matched ? (
-                        <button
-                          onClick={e => { e.stopPropagation(); onViewIn3D(r.assembly_id) }}
-                          title="Zoom to this mark in the 3D view"
-                          style={{ border: '1px solid #4A85C4', background: 'white', color: '#4A85C4', font: 'inherit', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                        >
-                          View
-                        </button>
-                      ) : (
-                        <span title="No matching BIM element found for this mark" style={{ color: '#C2C2C2', fontSize: 11 }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ ...td, textAlign: 'center' }}>
                       <div style={{ display: 'inline-flex', gap: 6 }}>
                       {canUpdate && (
                       <button
@@ -603,7 +589,7 @@ export function ProgressAssemblyTable({
                     }
                     return (
                       <tr style={{ background: '#FAFAFA' }}>
-                        <td colSpan={isPlaceholderZone ? 5 : 6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
+                        <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
                           {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
                           <div style={groupHeader}>Fabrication</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
@@ -744,7 +730,7 @@ export function ProgressAssemblyTable({
             })}
             {!visible.length && (
               <tr>
-                <td colSpan={isPlaceholderZone ? 5 : 6} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
+                <td colSpan={isPlaceholderZone ? 4 : 5} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
                   {rows.length ? 'No marks match the search' : 'No BOM assemblies uploaded for this zone yet'}
                 </td>
               </tr>
@@ -753,7 +739,7 @@ export function ProgressAssemblyTable({
           {rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={isPlaceholderZone ? 5 : 6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
+                <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
                   {rows.length} assemblies · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total
                   {' · '}fab <b style={{ ...mono, color: '#1A1A1A' }}>{fabPct.toFixed(1)}%</b>
                   {' · '}load <b style={{ ...mono, color: '#1A1A1A' }} title={`${loadedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0}%</b>
