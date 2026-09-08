@@ -12,7 +12,7 @@ import type { DelayInfo } from '../components/progress/delayStatus'
 import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
-  useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress,
+  useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress, useDeletePlaceholderAssembly,
 } from '../hooks/useProjectProgress'
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
@@ -208,6 +208,7 @@ export function ProjectProgress() {
   const { data: projectBimMatch } = useProgressProjectBimMatch(code, tab === 'overview')
   const updateMutation = useUpdateAssemblyProgress(code)
   const bulkUpdateMutation = useBulkUpdateAssemblyProgress(code)
+  const deleteMutation = useDeletePlaceholderAssembly(code)
 
   // Overview's Zone/Position toggle + which group (if any) is being
   // previewed — lives here (not inside OverviewPanel) because the 3D
@@ -341,6 +342,8 @@ export function ProjectProgress() {
 
   const handleBulkUpdate = (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) =>
     bulkUpdateMutation.mutate({ assemblyIds, payload })
+
+  const handleDelete = (assemblyId: number) => deleteMutation.mutate(assemblyId)
 
   // Toggling activePhase is all this needs now — highlightColorMap above
   // reacts to it and recolors the (still fully visible) model accordingly.
@@ -582,7 +585,8 @@ export function ProjectProgress() {
               onViewIn3D={handleViewIn3D}
               onUpdate={handleUpdate}
               onBulkUpdate={handleBulkUpdate}
-              saving={updateMutation.isPending || bulkUpdateMutation.isPending}
+              onDelete={handleDelete}
+              saving={updateMutation.isPending || bulkUpdateMutation.isPending || deleteMutation.isPending}
               rightPanelView={rightPanelView}
               onSetRightPanelView={setRightPanelView}
             />

@@ -212,6 +212,12 @@ export async function updateAssemblyProgress(
   return (await apiClient.patch(`/projects/${projectCode}/progress/assemblies/${assemblyId}`, payload)).data
 }
 
+// Soft-deletes a Pending BOM (placeholder) assembly the user doesn't need —
+// 404s if the assembly isn't a placeholder-dispatch assembly in this project.
+export async function deletePlaceholderAssembly(projectCode: string, assemblyId: number): Promise<{ deleted: boolean }> {
+  return (await apiClient.delete(`/projects/${projectCode}/progress/assemblies/${assemblyId}`)).data
+}
+
 // Applies the same field values to many assemblies at once (bulk row
 // selection) — one request, one backend transaction, not N sequential PATCHes.
 export async function bulkUpdateAssemblyProgress(

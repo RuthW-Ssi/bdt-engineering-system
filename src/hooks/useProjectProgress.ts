@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getProgressOverview, getProgressZoneRows, getProgressBimMatch, getProgressProjectRows, getProgressProjectBimMatch,
-  getProgressPositions, updateAssemblyProgress, bulkUpdateAssemblyProgress,
+  getProgressPositions, updateAssemblyProgress, bulkUpdateAssemblyProgress, deletePlaceholderAssembly,
   getProgressHistory, getProgressHistoryBatch, rollbackProgressBatch,
 } from '../api/projectProgress'
 import type { UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
@@ -83,6 +83,23 @@ export function useBulkUpdateAssemblyProgress(projectCode: string | undefined) {
     mutationFn: ({ assemblyIds, payload }: { assemblyIds: number[]; payload: BulkUpdateAssemblyProgressPayload }) =>
       bulkUpdateAssemblyProgress(projectCode!, assemblyIds, payload),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
+      qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })
+    },
+    meta: { showGlobalErrorToast: true },
+  })
+}
+
+export function useDeletePlaceholderAssembly(projectCode: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (assemblyId: number) => deletePlaceholderAssembly(projectCode!, assemblyId),
+    onSuccess: () => {
+      // Same invalidation set as any other progress-affecting write — the
+      // deleted assembly disappears from zone rows, and the placeholder
+      // zone's own assembly_count (which drives the hide-when-empty tab
+      // guard) lives in overview/project-rows too.
       qc.invalidateQueries({ queryKey: ['project-progress', 'zone', projectCode] })
       qc.invalidateQueries({ queryKey: ['project-progress', 'overview', projectCode] })
       qc.invalidateQueries({ queryKey: ['project-progress', 'project-rows', projectCode] })

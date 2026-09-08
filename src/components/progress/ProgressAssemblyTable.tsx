@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Search, Pencil, ChevronUp, X } from 'lucide-react'
+import { Search, Pencil, ChevronUp, X, Trash2 } from 'lucide-react'
 import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import { STATUS_META, PHASE_META } from './statusMeta'
 import { usePermission } from '../../hooks/usePermission'
+import { useConfirm } from '../ui/ConfirmDialog'
 
 interface Props {
   rows: ProgressZoneRow[]
@@ -13,6 +14,9 @@ interface Props {
   onViewIn3D: (assemblyId: number) => void
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
   onBulkUpdate: (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) => void
+  // Only ever called for placeholder-zone rows — the delete button itself
+  // is only rendered when isPlaceholderZone (see below).
+  onDelete: (assemblyId: number) => void
   saving: boolean
   // Controls the right-column panel (3D viewport vs Drawing quick-look) —
   // lives here, next to the search box, instead of its own row above the
@@ -206,10 +210,11 @@ const groupHeader: React.CSSProperties = {
 }
 
 export function ProgressAssemblyTable({
-  rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, saving,
+  rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
   rightPanelView, onSetRightPanelView,
 }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
+  const confirm = useConfirm()
   const [search, setSearch] = useState('')
   // Accordion — one row's edit panel open at a time, keeps the list compact
   // (the whole point: more of the width goes to the 3D panel next to it).
@@ -530,6 +535,7 @@ export function ProgressAssemblyTable({
                       )}
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', gap: 6 }}>
                       {canUpdate && (
                       <button
                         onClick={e => { e.stopPropagation(); if (expanded) closeEdit(); else openEdit(r) }}
@@ -545,6 +551,32 @@ export function ProgressAssemblyTable({
                         {expanded ? <ChevronUp size={13} /> : <Pencil size={12} />}
                       </button>
                       )}
+                      {/* Delete only ever applies to placeholder (Pending BOM)
+                          assemblies — a real BOM assembly is managed by BOM
+                          upload/re-upload, never manually removable here. */}
+                      {canUpdate && isPlaceholderZone && (
+                      <button
+                        onClick={async e => {
+                          e.stopPropagation()
+                          const ok = await confirm({
+                            title: `Delete ${r.mark}?`,
+                            message: 'Removes this assembly from Pending BOM. Any progress entered for it is discarded and cannot be recovered.',
+                            variant: 'danger',
+                            confirmLabel: 'Delete',
+                          })
+                          if (ok) onDelete(r.assembly_id)
+                        }}
+                        title="Delete this placeholder assembly"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 26, height: 26, borderRadius: 7, cursor: 'pointer',
+                          border: '1px solid #E0E0E0', background: 'white', color: '#C8202A',
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                      )}
+                      </div>
                     </td>
                   </tr>
                   {expanded && (() => {
