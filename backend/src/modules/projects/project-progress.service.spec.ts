@@ -570,7 +570,7 @@ describe('bulkUpdateAssemblyProgress', () => {
     }
   })
 
-  it('set_loaded_full resolves each row to its OWN qty', async () => {
+  it('loaded_pcs clamps independently to each row\'s OWN qty', async () => {
     const upsert = jest.fn().mockResolvedValue({})
     const prisma = makePrisma({
       bom_assembly: {
@@ -580,12 +580,14 @@ describe('bulkUpdateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], set_loaded_full: true }, 1)
+    // One shared value (10) applied to rows with different qty: row 1 (qty 4)
+    // clamps down to its own max; row 2 (qty 16) is under its max, unchanged.
+    await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], loaded_pcs: 10 }, 1)
 
     const byId = new Map(upsert.mock.calls.map((c: any[]) => [c[0].where.assembly_id, c[0].update.loaded_pcs]))
     expect(byId.get(1)).toBe(4)
-    expect(byId.get(2)).toBe(16)
-    // erected untouched when its flag is absent
+    expect(byId.get(2)).toBe(10)
+    // erected untouched when omitted from the payload
     expect(upsert.mock.calls[0][0].update.erected_pcs).toBeUndefined()
   })
 

@@ -102,9 +102,6 @@ function PctInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     </div>
   )
 }
-const checkboxRow: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#1A1A1A', cursor: 'pointer',
-}
 const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
 
 // Backend @db.Date values arrive as ISO datetimes — <input type="date"> wants YYYY-MM-DD.
@@ -419,18 +416,16 @@ export function ProgressAssemblyTable({
                 />
               </FieldGroup>
             ))}
-            {/* One absolute pcs count can't apply across rows with different
-                qty — bulk offers "full" only, resolved per-row server-side. */}
-            <FieldGroup label="Loaded">
-              <label style={checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={bulkDraft.set_loaded_full ?? false}
-                  onChange={e => setBulkField('set_loaded_full', e.target.checked)}
-                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
-                />
-                <span>{bulkTouched.has('set_loaded_full') && bulkDraft.set_loaded_full ? 'Set: full qty' : 'No change'}</span>
-              </label>
+            {/* Same raw pcs count as the single-row form — selected rows can
+                have different qty, so the backend clamps each row
+                independently to its own qty rather than sharing one cap. */}
+            <FieldGroup label="Loaded (pcs)">
+              <input
+                type="number" min={0} placeholder="—"
+                value={bulkTouched.has('loaded_pcs') ? bulkDraft.loaded_pcs ?? '' : ''}
+                onChange={e => setBulkField('loaded_pcs', e.target.value === '' ? 0 : Math.max(0, Math.round(Number(e.target.value))))}
+                style={{ ...numInput, color: bulkTouched.has('loaded_pcs') ? '#1A1A1A' : '#ABABAB' }}
+              />
             </FieldGroup>
           </div>
 
@@ -448,16 +443,13 @@ export function ProgressAssemblyTable({
                 />
               </FieldGroup>
             ))}
-            <FieldGroup label="Erected">
-              <label style={checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={bulkDraft.set_erected_full ?? false}
-                  onChange={e => setBulkField('set_erected_full', e.target.checked)}
-                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
-                />
-                <span>{bulkTouched.has('set_erected_full') && bulkDraft.set_erected_full ? 'Set: full qty' : 'No change'}</span>
-              </label>
+            <FieldGroup label="Erected (pcs)">
+              <input
+                type="number" min={0} placeholder="—"
+                value={bulkTouched.has('erected_pcs') ? bulkDraft.erected_pcs ?? '' : ''}
+                onChange={e => setBulkField('erected_pcs', e.target.value === '' ? 0 : Math.max(0, Math.round(Number(e.target.value))))}
+                style={{ ...numInput, color: bulkTouched.has('erected_pcs') ? '#1A1A1A' : '#ABABAB' }}
+              />
             </FieldGroup>
           </div>
 

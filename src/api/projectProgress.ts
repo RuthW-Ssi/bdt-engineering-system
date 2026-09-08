@@ -170,13 +170,10 @@ export interface UpdateAssemblyProgressPayload extends Partial<FabStageFields> {
   delivered_weight_kg?: number
 }
 
-// Bulk applies ONE payload to rows whose qty differ — raw pcs counts are
-// replaced by set-full flags the backend resolves per-row.
-export interface BulkUpdateAssemblyProgressPayload
-  extends Omit<UpdateAssemblyProgressPayload, 'loaded_pcs' | 'erected_pcs'> {
-  set_loaded_full?: boolean
-  set_erected_full?: boolean
-}
+// Bulk applies ONE payload to rows whose qty differ — loaded_pcs/erected_pcs
+// still take a raw pcs count, same as a single row; the backend clamps each
+// row independently to its own qty rather than sharing one flat cap.
+export type BulkUpdateAssemblyProgressPayload = UpdateAssemblyProgressPayload
 
 export async function getProgressOverview(projectCode: string): Promise<ProgressOverview> {
   return (await apiClient.get(`/projects/${projectCode}/progress/overview`)).data

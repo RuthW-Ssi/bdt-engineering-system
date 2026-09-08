@@ -149,7 +149,7 @@ export class ProjectsController {
   // never be reached (ParseIntPipe would 400 on the literal "bulk" first).
   @Patch(':project_code/progress/assemblies/bulk')
   @RequiresPermission('project-tracking', 'update')
-  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection); pcs via set_loaded_full/set_erected_full flags resolved per-row' })
+  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection); loaded_pcs/erected_pcs clamp independently to each row\'s own qty' })
   bulkUpdateAssemblyProgress(
     @Param('project_code') code: string,
     @Body() dto: BulkUpdateAssemblyProgressDto,

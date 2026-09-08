@@ -56,13 +56,12 @@ export interface UpdateAssemblyProgressDto extends Partial<FabStageFields> {
   delivered_weight_kg?: number
 }
 
-// Bulk applies ONE payload to many rows whose qty differ — raw pcs counts
-// can't be shared, so they're replaced by set-full flags resolved per-row.
-export interface BulkUpdateAssemblyProgressDto
-  extends Omit<UpdateAssemblyProgressDto, 'loaded_pcs' | 'erected_pcs'> {
+// Bulk applies ONE payload to many rows whose qty differ — loaded_pcs/
+// erected_pcs take the same raw pcs count as a single row; each row clamps
+// independently to its own qty in the loop below, so one shared value is
+// naturally capped per-assembly instead of needing a flat max up front.
+export interface BulkUpdateAssemblyProgressDto extends UpdateAssemblyProgressDto {
   assembly_ids: number[]
-  set_loaded_full?: boolean
-  set_erected_full?: boolean
 }
 
 export function computeFabPct(p: ProgressFields | null): number {
@@ -302,10 +301,11 @@ export class ProjectProgressService {
     await this.prisma.$transaction(async tx => {
       const diffRows: { assemblyId: number; diff: DiffEntry[] }[] = []
       for (const { id, qty, progress } of owned) {
+        const q = effectiveQty(qty)
         const fields = {
           ...shared,
-          loaded_pcs: dto.set_loaded_full ? effectiveQty(qty) : undefined,
-          erected_pcs: dto.set_erected_full ? effectiveQty(qty) : undefined,
+          loaded_pcs: dto.loaded_pcs === undefined ? undefined : clampPcs(dto.loaded_pcs, q),
+          erected_pcs: dto.erected_pcs === undefined ? undefined : clampPcs(dto.erected_pcs, q),
         }
         diffRows.push({ assemblyId: id, diff: this.changeLog.computeDiff(progress, fields) })
         // Every targeted row is still upserted regardless of diff (unchanged
