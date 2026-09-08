@@ -1113,7 +1113,7 @@ function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
               <tr>
-                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Date</th>
+                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Plan Date</th>
                 <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Total</th>
                 <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Not Started</th>
                 <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>On Time</th>
