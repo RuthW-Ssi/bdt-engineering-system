@@ -787,27 +787,34 @@ function OverviewPanel({
               have a plan-date field to compare against (see PlanDateTable).
               One tab at a time instead of stacking both tables — same
               segmented-pill style as the Zone/Position toggle below. */}
-          <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, marginTop: -6, width: 'fit-content' }}>
-            {(['fab', 'erection'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setPlanTab(t)}
-                style={{
-                  font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                  padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                  background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
-                }}
-              >
-                {t}
-              </button>
-            ))}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark,
+              }} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
+              {(['fab', 'erection'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setPlanTab(t)}
+                  style={{
+                    font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
+                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ marginTop: 12 }}>
-            {planTab === 'fab' ? (
-              <PlanDateTable label="Fab Plan" color={PHASE_META.fabrication.dark} rows={overview.fab_plan_breakdown} />
-            ) : (
-              <PlanDateTable label="Erection Plan" color={PHASE_META.erection.dark} rows={overview.erection_plan_breakdown} />
-            )}
+          <div style={{ marginTop: 8 }}>
+            <PlanDateTable rows={planTab === 'fab' ? overview.fab_plan_breakdown : overview.erection_plan_breakdown} />
           </div>
         </StatCard>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -1087,7 +1094,7 @@ function StatCard({ label, value, accent, children }: {
 // plan their own date (see PlanDateBucket's comment on the backend); a
 // per-date breakdown table sidesteps that by never averaging across dates
 // at all — every distinct plan date gets its own row.
-function PlanDateTable({ label, color, rows }: { label: string; color: string; rows: PlanDateBucket[] }) {
+function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
   const th: React.CSSProperties = {
     textAlign: 'right', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase',
     letterSpacing: '0.03em', color: '#ABABAB', padding: '4px 8px', whiteSpace: 'nowrap',
@@ -1099,10 +1106,6 @@ function PlanDateTable({ label, color, rows }: { label: string; color: string; r
   }
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <span style={{ display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
-      </div>
       {rows.length === 0 ? (
         <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
       ) : (
