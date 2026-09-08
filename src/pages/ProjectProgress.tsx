@@ -779,44 +779,6 @@ function OverviewPanel({
           content density — Weight/Assemblies/Done are the same "hero
           number" shape, so they group into one row together. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-        <StatCard label="" value="" accent="#C8202A">
-          {/* Fab/Erection only — Payment/Transport progress is already
-              visible elsewhere on this page (the isolate-by-status pills
-              under the 3D panel, and the F/M/T/E columns in the zone table
-              below), so this card is scoped to the two phases that actually
-              have a plan-date field to compare against (see PlanDateTable).
-              One tab at a time instead of stacking both tables — same
-              segmented-pill style as the Zone/Position toggle below. */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{
-                display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark,
-              }} />
-              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
-              {(['fab', 'erection'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => setPlanTab(t)}
-                  style={{
-                    font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                    background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
-                  }}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <PlanDateTable rows={planTab === 'fab' ? overview.fab_plan_breakdown : overview.erection_plan_breakdown} />
-          </div>
-        </StatCard>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
         <StatCard label="Assemblies" value={total.assembly_count}>
@@ -871,6 +833,44 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
+        <StatCard label="" value="" accent="#C8202A">
+          {/* Fab/Erection only — Payment/Transport progress is already
+              visible elsewhere on this page (the isolate-by-status pills
+              under the 3D panel, and the F/M/T/E columns in the zone table
+              below), so this card is scoped to the two phases that actually
+              have a plan-date field to compare against (see PlanDateTable).
+              One tab at a time instead of stacking both tables — same
+              segmented-pill style as the Zone/Position toggle below. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark,
+              }} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
+              {(['fab', 'erection'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setPlanTab(t)}
+                  style={{
+                    font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
+                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <PlanDateTable rows={planTab === 'fab' ? overview.fab_plan_breakdown : overview.erection_plan_breakdown} />
+          </div>
+        </StatCard>
       </div>
 
       {/* flex:1 — the card's white background stretches to fill whatever
