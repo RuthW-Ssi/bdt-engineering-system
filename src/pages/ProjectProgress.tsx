@@ -1088,7 +1088,15 @@ function StatCard({ label, value, accent, children }: {
 // per-date breakdown table sidesteps that by never averaging across dates
 // at all — every distinct plan date gets its own row.
 function PlanDateTable({ label, color, rows }: { label: string; color: string; rows: PlanDateBucket[] }) {
-  const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
+  const th: React.CSSProperties = {
+    textAlign: 'right', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.03em', color: '#ABABAB', padding: '4px 8px', whiteSpace: 'nowrap',
+    borderBottom: '1px solid #E0E0E0',
+  }
+  const td: React.CSSProperties = {
+    textAlign: 'right', padding: '5px 8px', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
+    borderBottom: '1px solid #F3F3F3',
+  }
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -1098,28 +1106,29 @@ function PlanDateTable({ label, color, rows }: { label: string; color: string; r
       {rows.length === 0 ? (
         <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
       ) : (
-        // Same compact "F 66% · M 0% · T 67% · E 33%" idiom as the zone
-        // table's own Progress column, instead of 5 spread-out table
-        // columns — a row of single-digit numbers under wide headers left
-        // huge gaps between them and nothing to visually tie a row together.
         <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
-          {rows.map(r => (
-            <div
-              key={r.date}
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-                padding: '7px 10px', borderBottom: '1px solid #F3F3F3', fontSize: 11.5,
-              }}
-            >
-              <span style={{ ...mono, fontWeight: 600, color: '#1A1A1A', flexShrink: 0 }}>{formatDate(r.date)}</span>
-              <span style={{ ...mono, color: '#8E8E8E', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                <b style={{ color: '#1A1A1A' }}>{r.total}</b> total
-                {' · '}<span style={{ color: '#ABABAB' }}>{r.not_started} not started</span>
-                {' · '}<span style={{ color: '#1A7A3D' }}>{r.on_time} on time</span>
-                {' · '}<span style={{ color: r.delay > 0 ? '#C8202A' : '#ABABAB', fontWeight: r.delay > 0 ? 700 : 400 }}>{r.delay} delay</span>
-              </span>
-            </div>
-          ))}
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Date</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Total</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Not Started</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>On Time</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Delay</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.date}>
+                  <td style={{ ...td, textAlign: 'left', color: '#1A1A1A', fontWeight: 600 }}>{formatDate(r.date)}</td>
+                  <td style={td}>{r.total}</td>
+                  <td style={{ ...td, color: '#ABABAB' }}>{r.not_started}</td>
+                  <td style={{ ...td, color: '#1A7A3D' }}>{r.on_time}</td>
+                  <td style={{ ...td, color: r.delay > 0 ? '#C8202A' : '#ABABAB', fontWeight: r.delay > 0 ? 700 : 400 }}>{r.delay}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
