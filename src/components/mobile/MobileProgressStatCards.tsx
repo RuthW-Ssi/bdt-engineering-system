@@ -51,7 +51,7 @@ function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
 // it, since a single zone doesn't get its own schedule window) — the
 // Schedule tab only appears when it's present.
 export function MobileProgressStatCards({ total, schedule }: { total: ProgressRollupTotals; schedule?: ScheduleProgress }) {
-  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('fab')
+  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>(schedule ? 'schedule' : 'fab')
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -91,7 +91,7 @@ export function MobileProgressStatCards({ total, schedule }: { total: ProgressRo
             </span>
           </div>
           <div className="flex gap-0.5 bg-chrome-50 border border-chrome-100 rounded-lg p-0.5">
-            {(schedule ? (['fab', 'erection', 'schedule'] as const) : (['fab', 'erection'] as const)).map(t => (
+            {(schedule ? (['schedule', 'fab', 'erection'] as const) : (['fab', 'erection'] as const)).map(t => (
               <button
                 key={t}
                 onClick={() => setPlanTab(t)}

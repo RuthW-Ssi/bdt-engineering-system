@@ -831,7 +831,7 @@ function OverviewPanel({
   positions: ReturnType<typeof useProgressPositions>['data']
   positionBuckets: PositionBucket[]
 }) {
-  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('fab')
+  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('schedule')
   if (!overview) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
@@ -870,8 +870,7 @@ function OverviewPanel({
           shoulder to shoulder with single-number cards of very different
           content density — Weight/Assemblies/Done are the same "hero
           number" shape, so they group into one row together. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
         <StatCard label="Assemblies" value={total.assembly_count}>
           {scheduledCount > 0 && (
@@ -925,17 +924,26 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A">
-          {/* Fab/Erection/Schedule — Payment/Transport progress is already
+        <StatCard label="" value="" accent="#C8202A" style={{ flex: 1, marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
+          {/* Schedule/Fab/Erection — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
               below), so this card is scoped to the two phases that actually
               have a plan-date field to compare against (see PlanDateTable),
               plus the Schedule Plan-vs-Actual view sharing the same tab
               switcher rather than living in its own separate card below.
-              One tab at a time instead of stacking — same segmented-pill
-              style as the Zone/Position toggle below. */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
+              Schedule first — the plan-vs-actual health check is the more
+              actionable default view; Fab/Erection's per-date breakdown is
+              the drill-down. One tab at a time instead of stacking — same
+              segmented-pill style as the Zone/Position toggle below.
+              flex:1 (matching the Zone table below) so the two cards split
+              the remaining height evenly on tall viewports — but no
+              minHeight:0 override here (unlike the Zone table), so the
+              browser's default min-height:auto still protects this card
+              from shrinking below its own content's natural height on a
+              short viewport; the Schedule tab's 3 fixed blocks should
+              never need to scroll internally to be read. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
                 display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
@@ -946,7 +954,7 @@ function OverviewPanel({
               </span>
             </div>
             <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
-              {(['fab', 'erection', 'schedule'] as const).map(t => (
+              {(['schedule', 'fab', 'erection'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => setPlanTab(t)}
@@ -961,7 +969,7 @@ function OverviewPanel({
               ))}
             </div>
           </div>
-          <div style={{ marginTop: 8 }}>
+          <div style={{ marginTop: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
             {planTab === 'schedule' ? (
               <ScheduleTabBody schedule={overview.schedule_progress} />
             ) : (
@@ -969,11 +977,10 @@ function OverviewPanel({
             )}
           </div>
         </StatCard>
-      </div>
 
-      {/* flex:1 — the card's white background stretches to fill whatever
-          height is left (matching the 3D viewport's height on the right)
-          instead of stopping short after the last zone row. */}
+      {/* flex:1 — same as the card above, so the two cards split the
+          remaining height evenly instead of this one taking whatever's left
+          over from the other's intrinsic content height. */}
       <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #EDEFF2', flexShrink: 0 }}>
           {/* Group-by-axis — Position view only. Re-slices the same
@@ -1167,14 +1174,15 @@ function PositionRollupTable({
 // Replaces separate not-start/in-progress/done columns with one glanceable
 // stacked bar (same 3-bucket split, just encoded as proportion instead of
 // three more numbers) — the counts are still there on hover.
-function StatCard({ label, value, accent, children }: {
+function StatCard({ label, value, accent, children, style }: {
   label: string
   value: string | number
   accent?: string
   children?: React.ReactNode
+  style?: React.CSSProperties
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '12px 16px' }}>
+    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '12px 16px', ...style }}>
       {label !== '' && (
         <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       )}
@@ -1203,11 +1211,11 @@ function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
     borderBottom: '1px solid #F3F3F3',
   }
   return (
-    <div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {rows.length === 0 ? (
         <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
       ) : (
-        <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
               <tr>
