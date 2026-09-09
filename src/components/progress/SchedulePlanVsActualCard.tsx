@@ -22,34 +22,34 @@ function DeltaLabel({ actual, plan }: { actual: number; plan: number }) {
 
 // One phase's block — its own window/day-count (approximated from that
 // phase's own plan-finish date spread, so Fab and Erection show genuinely
-// different windows, not one shared number) plus Plan vs Actual + delta.
+// different windows, not one shared number) with Plan vs Actual sharing
+// that same line, right-aligned — no separate delta row underneath.
 function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
   return (
     <div>
       <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#ABABAB', marginBottom: 3 }}>
         {label}
       </div>
-      {phase.window_start && phase.window_end ? (
-        <div style={{ fontSize: 11.5, color: '#8E8E8E', marginBottom: 4 }}>
-          {fmtDate(phase.window_start)} → {fmtDate(phase.window_end)}
-          {phase.plan_pct !== null && (
-            <>
-              {' · '}
-              <b style={{ ...mono, color: '#1A1A1A' }}>{phase.elapsed_days}/{phase.total_days}d</b> elapsed
-            </>
-          )}
-        </div>
-      ) : (
-        <div style={{ fontSize: 11.5, color: '#ABABAB', marginBottom: 4 }}>No plan dates set yet</div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+        {phase.window_start && phase.window_end ? (
+          <span style={{ fontSize: 11.5, color: '#8E8E8E' }}>
+            {fmtDate(phase.window_start)} → {fmtDate(phase.window_end)}
+            {phase.plan_pct !== null && (
+              <>
+                {' · '}
+                <b style={{ ...mono, color: '#1A1A1A' }}>{phase.elapsed_days}/{phase.total_days}d</b> elapsed
+              </>
+            )}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11.5, color: '#ABABAB' }}>No plan dates set yet</span>
+        )}
+        <div style={{ display: 'flex', gap: 12, fontSize: 12.5, flexShrink: 0 }}>
           {phase.plan_pct !== null && (
             <span style={{ color: '#555555' }}>Plan <b style={{ ...mono, color: '#1A1A1A' }}>{phase.plan_pct.toFixed(0)}%</b></span>
           )}
           <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{phase.actual_pct.toFixed(0)}%</b></span>
         </div>
-        {phase.plan_pct !== null && <DeltaLabel actual={phase.actual_pct} plan={phase.plan_pct} />}
       </div>
     </div>
   )
