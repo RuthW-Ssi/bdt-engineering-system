@@ -2,20 +2,6 @@ import { useState } from 'react'
 import type { ProgressRollupTotals, PlanDateBucket } from '../../api/projectProgress'
 import { PHASE_META } from '../progress/statusMeta'
 
-function PhaseBarRow({ label, pct, color }: { label: string; pct: number; color: string }) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span className="text-[10.5px] font-bold uppercase tracking-wide text-chrome-400 w-11 flex-shrink-0">{label}</span>
-      <div className="flex-1 h-1.5 rounded-full bg-chrome-100 overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${Math.min(100, pct)}%`, background: color }} />
-      </div>
-      <b className="font-mono text-[11.5px] w-11 text-right flex-shrink-0 text-chrome-900">
-        {pct.toFixed(0)}%
-      </b>
-    </div>
-  )
-}
-
 // Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
 // same Date/Total/Not Started/On Time/Delay table as desktop's PlanDateTable
 // (ProjectProgress.tsx), just sized down for a phone; overflow-x-auto is
@@ -83,14 +69,11 @@ export function MobileProgressStatCards({ total }: { total: ProgressRollupTotals
       </div>
 
       <div className="bg-white border border-chrome-100 rounded-xl p-4">
-        {/* Fab/Erect used to be percent bars here too — dropped in favor of
-            the date-grouped breakdown below (Pay/Trans have no plan-date
-            field, so they keep the plain bar). Mirrors the desktop card's
-            same restructure. */}
-        <div className="flex flex-col gap-2.5 mb-3">
-          <PhaseBarRow label="Pay" pct={total.payment_pct} color={PHASE_META.payment.dark} />
-          <PhaseBarRow label="Trans" pct={total.load_pct} color={PHASE_META.load.dark} />
-        </div>
+        {/* Fab/Erect used to be percent bars here too, and Pay/Trans sat
+            alongside them — both dropped, matching desktop: Payment/
+            Transport progress is already visible elsewhere (isolate-by-
+            status pills on the 3D tab, F/M/T/E in the assembly rows), so
+            this card is scoped to the two phases with a plan-date to show. */}
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
             <span
