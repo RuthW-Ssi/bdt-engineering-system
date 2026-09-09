@@ -923,7 +923,7 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A" style={{ flex: '0 0 auto', marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
+        <StatCard label="" value="" accent="#C8202A" style={{ height: 211, marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
@@ -935,13 +935,15 @@ function OverviewPanel({
               actionable default view; Fab/Erection's per-date breakdown is
               the drill-down. One tab at a time instead of stacking — same
               segmented-pill style as the Zone/Position toggle below.
-              flex:'0 0 auto' — sized to its own (now-compact, delta-badge-
-              free) content rather than stretched to match the Zone table
-              below; that stretch used to be needed when this card's
-              content was taller, but left a growing gap of empty white
-              space underneath once the content shrank. The Zone table's
-              own flex:1 still absorbs whatever height this card doesn't
-              use. */}
+              height:211 (fixed, not flex-based) — same reading regardless
+              of which of the 3 tabs is active: the Schedule tab's own
+              natural height (3 short blocks, never scrolls) set the
+              target, and Fab/Erection's per-date table now fills that
+              same box via its own internal scroll instead of growing the
+              card to fit every row (which used to squeeze, or on a short
+              viewport fully hide, the Zone table below whenever a project
+              had many distinct plan dates). The Zone table's own flex:1
+              still absorbs whatever height this card doesn't use. */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
@@ -968,7 +970,11 @@ function OverviewPanel({
               ))}
             </div>
           </div>
-          <div style={{ marginTop: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
+          {/* No overflowY here — PlanDateTable owns its own internal
+              scroll (see its comment) now that this whole card has a
+              fixed height; a second overflow:auto on this wrapper just
+              nested two independent scrollbars for the same content. */}
+          <div style={{ marginTop: 8, flex: 1, minHeight: 0 }}>
             {planTab === 'schedule' ? (
               <ScheduleTabBody schedule={overview.schedule_progress} />
             ) : (
@@ -1219,17 +1225,18 @@ function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
     borderBottom: '1px solid #F3F3F3',
   }
   return (
-    <div>
+    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {rows.length === 0 ? (
         <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
       ) : (
-        // Fixed maxHeight (not flex:1/height:100%) — this card's outer
-        // min-height:auto (needed so the Schedule tab's bounded content
-        // never scrolls, see the StatCard usage above) means an unbounded
-        // table here would grow the WHOLE card — and page — to fit every
-        // row instead of scrolling internally, which is exactly what
-        // happened with a project that had many distinct plan dates.
-        <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
+        // flex:1/minHeight:0 (not a hardcoded maxHeight) — the card this
+        // sits in now has a real height:211 (see the StatCard usage above),
+        // matching the Schedule tab's own natural height, so this can just
+        // fill whatever's left below the header and let its own
+        // overflowY:auto handle any project with more plan dates than fit,
+        // instead of the table's unbounded content growing the whole card
+        // (and, on a short viewport, hiding the Zone table below it).
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
               <tr>
