@@ -942,7 +942,7 @@ function OverviewPanel({
               space underneath once the content shrank. The Zone table's
               own flex:1 still absorbs whatever height this card doesn't
               use. */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6, flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
                 display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
