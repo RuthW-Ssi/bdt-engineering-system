@@ -17,28 +17,39 @@ function PhaseBarRow({ label, pct, color }: { label: string; pct: number; color:
 }
 
 // Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
-// mirrors desktop's PlanDateTable (ProjectProgress.tsx), but a wide 5-column
-// table doesn't fit a phone screen, so each date is one wrapping text line
-// instead — same idiom MobileAssemblyList.tsx already uses for its own
-// deleted-assemblies row list.
-function PlanDateRow({ bucket }: { bucket: PlanDateBucket }) {
-  const dateLabel = new Date(bucket.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
+// same Date/Total/Not Started/On Time/Delay table as desktop's PlanDateTable
+// (ProjectProgress.tsx), just sized down for a phone; overflow-x-auto is
+// the safety net if a run of long numbers ever doesn't fit.
+function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
+  if (!rows.length) return <div className="text-[11.5px] text-chrome-300 py-1.5">No plan dates set yet</div>
   return (
-    <div className="flex items-center justify-between gap-2 py-1.5 border-t border-chrome-50 text-[11.5px]">
-      <span className="font-mono font-semibold text-chrome-900 flex-shrink-0">{dateLabel}</span>
-      <span className="font-mono text-chrome-400 text-right">
-        <b className="text-chrome-900">{bucket.total}</b> total
-        {' · '}<span className="text-chrome-300">{bucket.not_started} not started</span>
-        {' · '}<span style={{ color: '#1A7A3D' }}>{bucket.on_time} on time</span>
-        {' · '}<span style={bucket.delay > 0 ? { color: '#C8202A', fontWeight: 700 } : undefined}>{bucket.delay} delay</span>
-      </span>
+    <div className="max-h-40 overflow-y-auto overflow-x-auto border border-chrome-50 rounded-lg">
+      <table className="w-full text-[10.5px] font-mono border-collapse">
+        <thead>
+          <tr>
+            <th className="sticky top-0 bg-white text-left font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Plan Date</th>
+            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Total</th>
+            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Not Started</th>
+            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">On Time</th>
+            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Delay</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.date}>
+              <td className="text-left font-semibold text-chrome-900 px-2 py-1.5 border-b border-chrome-50 whitespace-nowrap">
+                {new Date(r.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+              </td>
+              <td className="text-right px-2 py-1.5 border-b border-chrome-50">{r.total}</td>
+              <td className="text-right px-2 py-1.5 border-b border-chrome-50 text-chrome-300">{r.not_started}</td>
+              <td className="text-right px-2 py-1.5 border-b border-chrome-50" style={{ color: '#1A7A3D' }}>{r.on_time}</td>
+              <td className="text-right px-2 py-1.5 border-b border-chrome-50" style={r.delay > 0 ? { color: '#C8202A', fontWeight: 700 } : { color: '#ABABAB' }}>{r.delay}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
-}
-
-function PlanDateList({ rows }: { rows: PlanDateBucket[] }) {
-  if (!rows.length) return <div className="text-[11.5px] text-chrome-300 py-1.5">No plan dates set yet</div>
-  return <div className="max-h-40 overflow-y-auto">{rows.map(r => <PlanDateRow key={r.date} bucket={r} />)}</div>
 }
 
 // Takes any ProgressRollupTotals — project-wide `overview.total`
@@ -103,7 +114,7 @@ export function MobileProgressStatCards({ total }: { total: ProgressRollupTotals
             ))}
           </div>
         </div>
-        <PlanDateList rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+        <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
       </div>
     </>
   )
