@@ -272,10 +272,6 @@ export class ProgressExportService {
           return v ? v.toISOString().slice(0, 10) : null
         }
         case 'pcs': return p?.[col.field as string] ?? null
-        case 'weight': {
-          const v = p?.[col.field as string]
-          return v != null ? Number(v) : null
-        }
         case 'status': return p?.payment_status ?? null
         case 'computed': return metrics[col.computed as ProgressComputedKind]
         default: return null

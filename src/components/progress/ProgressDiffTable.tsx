@@ -9,7 +9,7 @@ const FIELD_LABEL: Record<string, string> = {
   fab_plan_finish_date: 'Fabrication Plan Finish', fab_actual_finish_date: 'Fabrication Actual Finish',
   plan_load_date: 'PlanLoad', actual_load_date: 'Actual Load', loaded_pcs: 'จำนวนที่โหลด (Pcs.)',
   erected_pcs: 'Erection by Pcs.', erection_plan_finish_date: 'Erection Plan Finish', erection_actual_finish_date: 'Actual Erection',
-  payment_status: 'Payment Status', claimed_weight_kg: 'Claimed Weight (kg)', delivered_weight_kg: 'Delivered Weight (kg)',
+  payment_status: 'Payment Status',
 }
 
 const th: React.CSSProperties = {

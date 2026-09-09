@@ -34,9 +34,6 @@ export function effectiveQty(qty: unknown): number {
 
 export const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
 export const clampPcs = (v: number, q: number) => Math.min(q, Math.max(0, Math.round(v)))
-// Claimed/delivered weight — spec gives no upper bound, only floor at zero
-// (parity with clampPcs's floor; unlike pcs there's no qty-derived ceiling).
-export const nonNegDecimal = (v: number) => Math.max(0, v)
 
 // Fixed 3-value status matching the site team's own tracking sheet wording
 // — only "Paid" counts as the Payment phase "passed".
@@ -61,8 +58,6 @@ export function buildProgressCreateDefaults(fields: Record<string, any>, writeUi
     erection_plan_finish_date: fields.erection_plan_finish_date ?? null,
     erection_actual_finish_date: fields.erection_actual_finish_date ?? null,
     payment_status: fields.payment_status ?? 'Not Disbursed',
-    claimed_weight_kg: fields.claimed_weight_kg ?? null,
-    delivered_weight_kg: fields.delivered_weight_kg ?? null,
     write_uid: writeUid,
   }
 }

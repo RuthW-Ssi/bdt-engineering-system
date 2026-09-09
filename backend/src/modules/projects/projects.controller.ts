@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Body, Param, ParseIntPipe, Query, UseGuards, Res,
+  Controller, Get, Post, Patch, Delete, Body, Param, ParseIntPipe, Query, UseGuards, Res,
 } from '@nestjs/common'
 import { Response } from 'express'
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
@@ -126,12 +126,30 @@ export class ProjectsController {
     return this.historySvc.rollback(code, batchId, user.sub, force === 'true')
   }
 
+  @Get(':project_code/progress/assemblies/deleted')
+  @RequiresPermission('project-tracking', 'view')
+  @ApiOperation({ summary: 'List placeholder assemblies a user deleted (restorable) — excludes ones deactivated by BOM reconciliation, which are never restorable' })
+  listDeletedPlaceholderAssemblies(@Param('project_code') code: string) {
+    return this.progressSvc.listDeletedPlaceholderAssemblies(code)
+  }
+
+  @Post(':project_code/progress/assemblies/:assembly_id/restore')
+  @RequiresPermission('project-tracking', 'delete')
+  @ApiOperation({ summary: 'Restore a user-deleted placeholder assembly — 404s if it was not user-deleted (e.g. reconciled into real BOM instead). Gated on the delete permission, not update — restoring is the inverse of deleting, so it needs the same authorization tier.' })
+  restorePlaceholderAssembly(
+    @Param('project_code') code: string,
+    @Param('assembly_id', ParseIntPipe) assemblyId: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.progressSvc.restorePlaceholderAssembly(code, assemblyId, user.sub)
+  }
+
   // Registered before ':assembly_id' below — same path prefix, and NestJS
   // matches route declarations in order, so 'bulk' must come first or it'd
   // never be reached (ParseIntPipe would 400 on the literal "bulk" first).
   @Patch(':project_code/progress/assemblies/bulk')
   @RequiresPermission('project-tracking', 'update')
-  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection); pcs via set_loaded_full/set_erected_full flags resolved per-row' })
+  @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection); loaded_pcs/erected_pcs clamp independently to each row\'s own qty' })
   bulkUpdateAssemblyProgress(
     @Param('project_code') code: string,
     @Body() dto: BulkUpdateAssemblyProgressDto,
@@ -150,6 +168,17 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.progressSvc.updateAssemblyProgress(code, assemblyId, dto, user.sub)
+  }
+
+  @Delete(':project_code/progress/assemblies/:assembly_id')
+  @RequiresPermission('project-tracking', 'delete')
+  @ApiOperation({ summary: 'Soft-delete a placeholder (BIM-sourced, pre-BOM) assembly — 404s if the assembly is not a placeholder-dispatch assembly in this project. Requires the delete permission specifically, not update.' })
+  deletePlaceholderAssembly(
+    @Param('project_code') code: string,
+    @Param('assembly_id', ParseIntPipe) assemblyId: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.progressSvc.deletePlaceholderAssembly(code, assemblyId, user.sub)
   }
 
   @Get(':project_code')

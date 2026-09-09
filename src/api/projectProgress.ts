@@ -35,6 +35,15 @@ export interface ProgressZoneRow extends FabStageFields {
   zone_id?: number
   zone_code?: string
   zone_label?: string
+  // BIM-first progress entry (2026-09) — true when this row came from the
+  // placeholder ("Pending BOM") zone/dispatch rather than a real BOM upload.
+  // Drives hiding weight_kg/qty columns (unreliable pre-BOM) in the table.
+  is_placeholder: boolean
+  // Only meaningful when is_placeholder is true — this mark is no longer
+  // present in the project's latest BIM model version (removed or renamed).
+  // Row stays visible for manual review; see the design doc's "BIM
+  // re-upload" section.
+  stale: boolean
   weight_kg: number | null
   qty: number | null
   fab_plan_finish_date: string | null
@@ -46,8 +55,6 @@ export interface ProgressZoneRow extends FabStageFields {
   erection_plan_finish_date: string | null
   erection_actual_finish_date: string | null
   payment_status: PaymentStatus
-  claimed_weight_kg: number | null
-  delivered_weight_kg: number | null
   // Four separate numbers, deliberately no combined total (spec) —
   // fab/payment weighted by weight_kg, load/erect by pieces of qty.
   fab_pct: number
@@ -67,6 +74,18 @@ export interface ProgressBuckets {
   done: number
 }
 
+// Plan-vs-actual grouped by each distinct plan-finish date — see the
+// backend's computePlanBreakdown comment for why this is per-date counts
+// rather than a single averaged number (dates don't average meaningfully
+// across many assemblies/zones the way a percent does).
+export interface PlanDateBucket {
+  date: string // YYYY-MM-DD
+  total: number
+  not_started: number
+  on_time: number
+  delay: number
+}
+
 export interface ProgressRollupTotals {
   assembly_count: number
   total_weight_kg: number
@@ -78,12 +97,17 @@ export interface ProgressRollupTotals {
   load_pct: number
   erect_pct: number
   buckets: ProgressBuckets
+  // Scoped to whatever this rollup covers — a zone entry's breakdown only
+  // counts that zone's assemblies, the project `total` covers all of them.
+  fab_plan_breakdown: PlanDateBucket[]
+  erection_plan_breakdown: PlanDateBucket[]
 }
 
 export interface ProgressZoneRollup extends ProgressRollupTotals {
   zone_id: number
   zone_code: string
   zone_label: string
+  is_placeholder: boolean
 }
 
 export interface ProgressOverview {
@@ -156,17 +180,12 @@ export interface UpdateAssemblyProgressPayload extends Partial<FabStageFields> {
   erection_plan_finish_date?: string | null
   erection_actual_finish_date?: string | null
   payment_status?: PaymentStatus
-  claimed_weight_kg?: number
-  delivered_weight_kg?: number
 }
 
-// Bulk applies ONE payload to rows whose qty differ — raw pcs counts are
-// replaced by set-full flags the backend resolves per-row.
-export interface BulkUpdateAssemblyProgressPayload
-  extends Omit<UpdateAssemblyProgressPayload, 'loaded_pcs' | 'erected_pcs'> {
-  set_loaded_full?: boolean
-  set_erected_full?: boolean
-}
+// Bulk applies ONE payload to rows whose qty differ — loaded_pcs/erected_pcs
+// still take a raw pcs count, same as a single row; the backend clamps each
+// row independently to its own qty rather than sharing one flat cap.
+export type BulkUpdateAssemblyProgressPayload = UpdateAssemblyProgressPayload
 
 export async function getProgressOverview(projectCode: string): Promise<ProgressOverview> {
   return (await apiClient.get(`/projects/${projectCode}/progress/overview`)).data
@@ -200,6 +219,30 @@ export async function updateAssemblyProgress(
   payload: UpdateAssemblyProgressPayload,
 ): Promise<ProgressZoneRow> {
   return (await apiClient.patch(`/projects/${projectCode}/progress/assemblies/${assemblyId}`, payload)).data
+}
+
+// Soft-deletes a Pending BOM (placeholder) assembly the user doesn't need —
+// 404s if the assembly isn't a placeholder-dispatch assembly in this project.
+export async function deletePlaceholderAssembly(projectCode: string, assemblyId: number): Promise<{ deleted: boolean }> {
+  return (await apiClient.delete(`/projects/${projectCode}/progress/assemblies/${assemblyId}`)).data
+}
+
+export interface DeletedPlaceholderAssembly {
+  assembly_id: number
+  mark: string
+  deleted_at: string
+}
+
+// Placeholder assemblies a user deleted (restorable) — excludes ones
+// deactivated by BOM reconciliation, which are never restorable.
+export async function getDeletedPlaceholderAssemblies(projectCode: string): Promise<DeletedPlaceholderAssembly[]> {
+  return (await apiClient.get(`/projects/${projectCode}/progress/assemblies/deleted`)).data
+}
+
+// Restores a user-deleted placeholder assembly — 404s if it was not
+// user-deleted (e.g. it was reconciled into real BOM instead).
+export async function restorePlaceholderAssembly(projectCode: string, assemblyId: number): Promise<{ restored: boolean }> {
+  return (await apiClient.post(`/projects/${projectCode}/progress/assemblies/${assemblyId}/restore`)).data
 }
 
 // Applies the same field values to many assemblies at once (bulk row

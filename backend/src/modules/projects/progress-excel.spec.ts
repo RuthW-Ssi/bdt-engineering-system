@@ -1,8 +1,8 @@
 import { PROGRESS_EXPORT_COLUMNS, sanitizeSheetNames, META_SHEET_NAME, computeColumnGroups, HEADER_ROWS, DATA_START_ROW } from './progress-excel'
 
 describe('PROGRESS_EXPORT_COLUMNS', () => {
-  it('has exactly 34 columns in the documented order', () => {
-    expect(PROGRESS_EXPORT_COLUMNS).toHaveLength(34)
+  it('has exactly 32 columns in the documented order', () => {
+    expect(PROGRESS_EXPORT_COLUMNS).toHaveLength(32)
     expect(PROGRESS_EXPORT_COLUMNS[0].header).toBe('ลำดับ')
     const markIdx = PROGRESS_EXPORT_COLUMNS.findIndex(c => c.kind === 'mark')
     expect(PROGRESS_EXPORT_COLUMNS[markIdx].header).toBe('Number')
@@ -36,8 +36,8 @@ describe('computeColumnGroups', () => {
     expect(groups).toEqual([
       { group: 'fabrication', label: 'Fabrication', startCol: 11, endCol: 20 },
       { group: 'transport', label: 'Transport', startCol: 23, endCol: 26 },
-      { group: 'payment', label: 'การเบิกเงินค่าสินค้า', startCol: 27, endCol: 29 },
-      { group: 'erection', label: 'Erection', startCol: 30, endCol: 34 },
+      { group: 'payment', label: 'การเบิกเงินค่าสินค้า', startCol: 27, endCol: 27 },
+      { group: 'erection', label: 'Erection', startCol: 28, endCol: 32 },
     ])
   })
 })

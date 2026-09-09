@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Search, ChevronRight, Info as InfoIcon, LayoutDashboard, Cuboid as CuboidIcon, Boxes } from 'lucide-react'
-import { useProgressZoneRows, useProgressOverview, useProgressBimMatch } from '../../hooks/useProjectProgress'
+import { Search, ChevronRight, ChevronDown, ChevronUp, RotateCcw, Info as InfoIcon, LayoutDashboard, Cuboid as CuboidIcon, Boxes } from 'lucide-react'
+import {
+  useProgressZoneRows, useProgressOverview, useProgressBimMatch,
+  useDeletedPlaceholderAssemblies, useRestorePlaceholderAssembly,
+} from '../../hooks/useProjectProgress'
 import { useProject } from '../../hooks/useProjects'
 import { useProjectZones } from '../../hooks/useProjectZones'
+import { usePermission } from '../../hooks/usePermission'
 import { MobileHeader } from '../../components/mobile/MobileHeader'
 import { MobileDateRangeCard } from '../../components/mobile/MobileDateRangeCard'
 import { MobileProgressStatCards } from '../../components/mobile/MobileProgressStatCards'
@@ -49,6 +53,13 @@ export function MobileAssemblyList() {
     : null
 
   const rows = (data ?? []).filter(r => !q.trim() || r.mark.toLowerCase().includes(q.trim().toLowerCase()))
+  const isPlaceholderZone = (data?.length ?? 0) > 0 && data![0].is_placeholder
+  // Restore is gated on 'delete' (its own tier), not 'update' — see the
+  // design note on projects.controller.ts's deletePlaceholderAssembly.
+  const canDelete = usePermission('project-tracking', 'delete')
+  const [showDeleted, setShowDeleted] = useState(false)
+  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted)
+  const restoreMutation = useRestorePlaceholderAssembly(code)
 
   // h-dvh, not h-screen (100vh) — 100vh overshoots the real visible viewport
   // on mobile browsers (doesn't subtract the address bar), which pushed the
@@ -143,15 +154,64 @@ export function MobileAssemblyList() {
                   aria-hidden
                 />
                 <div className="min-w-0 flex-1">
-                  <div className="font-mono font-semibold text-chrome-900 text-[14.5px] truncate">{r.mark}</div>
+                  <div className="font-mono font-semibold text-chrome-900 text-[14.5px] truncate">
+                    {r.mark}
+                    {r.stale && <span className="ml-1.5 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">⚠ stale</span>}
+                  </div>
                   <div className="text-xs text-chrome-400">
-                    Fab {Math.round(r.fab_pct)}% · Load {r.loaded_pcs}/{r.qty ?? 1} · Erect {r.erected_pcs}/{r.qty ?? 1}
+                    {r.is_placeholder
+                      ? `Fab ${Math.round(r.fab_pct)}%`
+                      : `Fab ${Math.round(r.fab_pct)}% · Load ${r.loaded_pcs}/${r.qty ?? 1} · Erect ${r.erected_pcs}/${r.qty ?? 1}`}
                   </div>
                 </div>
                 <ChevronRight size={18} className="text-chrome-200 flex-shrink-0" />
               </button>
             ))}
           </div>
+
+          {/* Deleted-assemblies archive — placeholder zone only. A
+              reconciled (deleted_by_user=false) assembly never appears
+              here — the backend list endpoint already excludes it, since
+              restoring it would recreate a mark colliding with the real
+              BOM data it superseded. */}
+          {isPlaceholderZone && (
+            <div className="bg-white border border-chrome-100 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setShowDeleted(v => !v)}
+                className="w-full flex items-center gap-1.5 px-4 py-3 text-left text-chrome-400 text-[12.5px] font-semibold"
+              >
+                {showDeleted ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                Deleted{deletedAssemblies?.length ? ` (${deletedAssemblies.length})` : ''}
+              </button>
+              {showDeleted && (
+                <div className="px-4 pb-3 flex flex-col gap-2">
+                  {deletedLoading && <div className="text-xs text-chrome-300 py-1">Loading…</div>}
+                  {!deletedLoading && !deletedAssemblies?.length && (
+                    <div className="text-xs text-chrome-300 py-1">No deleted assemblies</div>
+                  )}
+                  {deletedAssemblies?.map(d => (
+                    <div key={d.assembly_id} className="flex items-center justify-between border-t border-chrome-50 pt-2">
+                      <div>
+                        <span className="font-mono font-semibold text-chrome-500 text-[13px]">{d.mark}</span>
+                        <span className="text-chrome-300 text-[11px] ml-2">
+                          {new Date(d.deleted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+                        </span>
+                      </div>
+                      {canDelete && (
+                        <button
+                          onClick={() => restoreMutation.mutate(d.assembly_id)}
+                          disabled={restoreMutation.isPending}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-green-700 border border-green-200 rounded-md px-2 py-1 disabled:opacity-50"
+                        >
+                          <RotateCcw size={11} /> Restore
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

@@ -1,18 +1,38 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
-import { Search, Pencil, ChevronUp, X } from 'lucide-react'
-import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
+import { Search, Pencil, ChevronUp, ChevronDown, X, Trash2, RotateCcw } from 'lucide-react'
+import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, DeletedPlaceholderAssembly, FabStage, PaymentStatus } from '../../api/projectProgress'
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import { STATUS_META, PHASE_META } from './statusMeta'
 import { usePermission } from '../../hooks/usePermission'
+import { useConfirm } from '../ui/ConfirmDialog'
 
 interface Props {
   rows: ProgressZoneRow[]
-  matchedAssemblyIds: Set<number>
   selectedAssemblyId: number | null
-  onSelectRow: (assemblyId: number) => void
+  // Clicking a row both selects it (for the Drawing panel) and, in 3D mode,
+  // zooms/isolates it in the viewport — a single click now does both, so
+  // there's no separate "View" button to trigger the 3D-only half.
   onViewIn3D: (assemblyId: number) => void
+  // Set by the parent when an element is clicked directly in the 3D
+  // viewport — opens that row's edit panel here too, not just selects it.
+  // A fresh object each time (not a bare id) so re-clicking the SAME
+  // element still re-triggers the effect below.
+  autoExpandRequest: { assemblyId: number } | null
   onUpdate: (assemblyId: number, payload: UpdateAssemblyProgressPayload) => void
   onBulkUpdate: (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) => void
+  // Only ever called for placeholder-zone rows — the delete button itself
+  // is only rendered when isPlaceholderZone (see below).
+  onDelete: (assemblyId: number) => void
+  // Deleted-assemblies collapsible section — only ever rendered for the
+  // placeholder zone. Data/toggle state lives in the parent (matches this
+  // component's existing "dumb, parent owns data-fetching" pattern) since
+  // the underlying query is lazy (only fetched once expanded).
+  showDeleted: boolean
+  onToggleShowDeleted: () => void
+  deletedAssemblies: DeletedPlaceholderAssembly[] | undefined
+  deletedLoading: boolean
+  onRestore: (assemblyId: number) => void
+  restoring: boolean
   saving: boolean
   // Controls the right-column panel (3D viewport vs Drawing quick-look) —
   // lives here, next to the search box, instead of its own row above the
@@ -87,9 +107,6 @@ function PctInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     </div>
   )
 }
-const checkboxRow: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: '#1A1A1A', cursor: 'pointer',
-}
 const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
 
 // Backend @db.Date values arrive as ISO datetimes — <input type="date"> wants YYYY-MM-DD.
@@ -141,7 +158,7 @@ const PCS_LABEL: Record<PcsField, string> = {
 
 const EDIT_FIELDS = [
   ...FAB_STAGES, ...FAB_DATE_FIELDS, ...DATE_FIELDS, ...PCS_FIELDS,
-  'payment_status', 'claimed_weight_kg', 'delivered_weight_kg', ...ERECTION_DATE_FIELDS,
+  'payment_status', ...ERECTION_DATE_FIELDS,
 ] as const
 
 // Mirrors the server's clamps so what you see staged is what gets stored —
@@ -149,7 +166,6 @@ const EDIT_FIELDS = [
 const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
 const clampPcs = (v: number, qty: number | null) =>
   Math.min(Math.max(1, Math.round(qty ?? 1)), Math.max(0, Math.round(v)))
-const nonNegDecimal = (v: number) => Math.max(0, v)
 
 function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
   return {
@@ -161,8 +177,6 @@ function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
     loaded_pcs: r.loaded_pcs,
     erected_pcs: r.erected_pcs,
     payment_status: r.payment_status,
-    claimed_weight_kg: r.claimed_weight_kg ?? undefined,
-    delivered_weight_kg: r.delivered_weight_kg ?? undefined,
     erection_plan_finish_date: r.erection_plan_finish_date,
     erection_actual_finish_date: r.erection_actual_finish_date,
   }
@@ -206,10 +220,16 @@ const groupHeader: React.CSSProperties = {
 }
 
 export function ProgressAssemblyTable({
-  rows, matchedAssemblyIds, selectedAssemblyId, onSelectRow, onViewIn3D, onUpdate, onBulkUpdate, saving,
+  rows, selectedAssemblyId, autoExpandRequest, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
+  showDeleted, onToggleShowDeleted, deletedAssemblies, deletedLoading, onRestore, restoring,
   rightPanelView, onSetRightPanelView,
 }: Props) {
   const canUpdate = usePermission('project-tracking', 'update')
+  // Delete/restore of a placeholder assembly is gated on its own permission
+  // tier, separate from ordinary progress-entry 'update' — see the design
+  // note on projects.controller.ts's deletePlaceholderAssembly endpoint.
+  const canDelete = usePermission('project-tracking', 'delete')
+  const confirm = useConfirm()
   const [search, setSearch] = useState('')
   // Accordion — one row's edit panel open at a time, keeps the list compact
   // (the whole point: more of the width goes to the 3D panel next to it).
@@ -223,6 +243,23 @@ export function ProgressAssemblyTable({
     setEditDraft(rowToDraft(r))
   }
   const closeEdit = () => setExpandedId(null)
+
+  // Clicking an element directly in the 3D viewport opens its edit panel
+  // here too, not just selects it — the request object is fresh on every
+  // click (even for the same element), so this always fires. Same
+  // sync-setState-in-effect shape as the scroll-into-view effect below
+  // (pre-existing in this file) — reacting to a value that only ever
+  // changes on an external click, not a local render loop.
+  useEffect(() => {
+    if (!autoExpandRequest) return
+    const row = rows.find(r => r.assembly_id === autoExpandRequest.assemblyId)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (row) openEdit(row)
+    // Deliberately depends only on the click signal, not `rows`/`openEdit`
+    // (recreated every render) — re-running on every unrelated re-render
+    // would fight the accordion's own open/close state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoExpandRequest])
 
   // Bulk-select — set the same fields across many rows in one request.
   // Pcs can't share one absolute count across rows with different qty, so
@@ -244,7 +281,11 @@ export function ProgressAssemblyTable({
       setSearch('')
       return
     }
-    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // 'start' (not 'center') — a 3D click auto-expands the row's edit panel
+    // (see the autoExpandRequest effect below), which is tall; anchoring the
+    // row itself to the top keeps the newly-revealed fields visible below it
+    // instead of the panel spilling past the bottom of a centered row.
+    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }, [selectedAssemblyId, rows, q])
 
   // Three separate footer numbers matching the backend rollup exactly:
@@ -257,6 +298,11 @@ export function ProgressAssemblyTable({
   const totalQty = rows.reduce((s, r) => s + effQty(r), 0)
   const loadedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.loaded_pcs), 0)
   const erectedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.erected_pcs), 0)
+
+  // BIM-first progress entry (2026-09) — one zone's table is either all
+  // placeholder rows or all real rows (rows come from a single getZoneRows
+  // call), so the first row is a safe representative check.
+  const isPlaceholderZone = rows.length > 0 && rows[0].is_placeholder
 
   const setBulkField = <K extends keyof BulkUpdateAssemblyProgressPayload>(field: K, value: BulkUpdateAssemblyProgressPayload[K]) => {
     setBulkDraft(d => ({ ...d, [field]: value }))
@@ -319,6 +365,11 @@ export function ProgressAssemblyTable({
               <X size={13} /> Clear
             </button>
           </div>
+          {/* Grouped to match the single-row edit panel below (Fabrication /
+              Material Payment / Transport / Erection, same group headers and
+              grid layout) — this used to be one undifferentiated flex-wrap
+              of every field, which drifted from that panel's structure. */}
+          <div style={groupHeader}>Fabrication</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 12px', marginBottom: 12 }}>
             {FAB_STAGES.map(stage => (
               <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
@@ -331,42 +382,22 @@ export function ProgressAssemblyTable({
               </FieldGroup>
             ))}
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', gap: 16 }}>
-            {DATE_FIELDS.map(field => (
-              <FieldGroup key={field} label={DATE_LABEL[field]}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+            {FAB_DATE_FIELDS.map(field => (
+              <FieldGroup key={field} label={FAB_DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
                   onChange={e => setBulkField(field, e.target.value || null)}
-                  style={{ ...dateInput, width: 140, color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                  style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
               </FieldGroup>
             ))}
-            {/* One absolute pcs count can't apply across rows with different
-                qty — bulk offers "full" only, resolved per-row server-side. */}
-            <FieldGroup label="Loaded">
-              <label style={checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={bulkDraft.set_loaded_full ?? false}
-                  onChange={e => setBulkField('set_loaded_full', e.target.checked)}
-                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
-                />
-                <span>{bulkTouched.has('set_loaded_full') && bulkDraft.set_loaded_full ? 'Set: full qty' : 'No change'}</span>
-              </label>
-            </FieldGroup>
-            <FieldGroup label="Erected">
-              <label style={checkboxRow}>
-                <input
-                  type="checkbox"
-                  checked={bulkDraft.set_erected_full ?? false}
-                  onChange={e => setBulkField('set_erected_full', e.target.checked)}
-                  style={{ width: 17, height: 17, accentColor: '#C8202A', cursor: 'pointer' }}
-                />
-                <span>{bulkTouched.has('set_erected_full') && bulkDraft.set_erected_full ? 'Set: full qty' : 'No change'}</span>
-              </label>
-            </FieldGroup>
-            <FieldGroup label="Material Payment">
+          </div>
+
+          <div style={groupHeader}>Material Payment</div>
+          <div style={{ display: 'flex', marginBottom: 16 }}>
+            <FieldGroup label="Status">
               <select
                 value={bulkTouched.has('payment_status') ? bulkDraft.payment_status ?? '' : ''}
                 onChange={e => setBulkField('payment_status', e.target.value as PaymentStatus)}
@@ -376,30 +407,60 @@ export function ProgressAssemblyTable({
                 {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </FieldGroup>
-            <FieldGroup label="Claimed (kg)">
+          </div>
+
+          {/* Transport — load dates + pieces loaded (as a "set full" flag;
+              see the comment on the field below for why). */}
+          <div style={groupHeader}>Transport</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+            {DATE_FIELDS.map(field => (
+              <FieldGroup key={field} label={DATE_LABEL[field]}>
+                <input
+                  type="date"
+                  value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
+                  onChange={e => setBulkField(field, e.target.value || null)}
+                  style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                />
+              </FieldGroup>
+            ))}
+            {/* Same raw pcs count as the single-row form — selected rows can
+                have different qty, so the backend clamps each row
+                independently to its own qty rather than sharing one cap. */}
+            <FieldGroup label="Loaded (pcs)">
               <input
                 type="number" min={0} placeholder="—"
-                value={bulkTouched.has('claimed_weight_kg') ? bulkDraft.claimed_weight_kg ?? '' : ''}
-                onChange={e => setBulkField('claimed_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
-                style={{ ...numInput, width: 110, color: bulkTouched.has('claimed_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
+                value={bulkTouched.has('loaded_pcs') ? bulkDraft.loaded_pcs ?? '' : ''}
+                onChange={e => setBulkField('loaded_pcs', e.target.value === '' ? 0 : Math.max(0, Math.round(Number(e.target.value))))}
+                style={{ ...numInput, color: bulkTouched.has('loaded_pcs') ? '#1A1A1A' : '#ABABAB' }}
               />
             </FieldGroup>
-            <FieldGroup label="Delivered (kg)">
+          </div>
+
+          {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual
+              order), then pieces erected (full = done). */}
+          <div style={groupHeader}>Erection</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
+            {ERECTION_DATE_FIELDS.map(field => (
+              <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
+                <input
+                  type="date"
+                  value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
+                  onChange={e => setBulkField(field, e.target.value || null)}
+                  style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
+                />
+              </FieldGroup>
+            ))}
+            <FieldGroup label="Erected (pcs)">
               <input
                 type="number" min={0} placeholder="—"
-                value={bulkTouched.has('delivered_weight_kg') ? bulkDraft.delivered_weight_kg ?? '' : ''}
-                onChange={e => setBulkField('delivered_weight_kg', e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)))}
-                style={{ ...numInput, width: 110, color: bulkTouched.has('delivered_weight_kg') ? '#1A1A1A' : '#ABABAB' }}
+                value={bulkTouched.has('erected_pcs') ? bulkDraft.erected_pcs ?? '' : ''}
+                onChange={e => setBulkField('erected_pcs', e.target.value === '' ? 0 : Math.max(0, Math.round(Number(e.target.value))))}
+                style={{ ...numInput, color: bulkTouched.has('erected_pcs') ? '#1A1A1A' : '#ABABAB' }}
               />
             </FieldGroup>
-            <FieldGroup label="Erection Finish">
-              <input
-                type="date"
-                value={bulkDraft.erection_actual_finish_date ? toInputDate(bulkDraft.erection_actual_finish_date as string) : ''}
-                onChange={e => setBulkField('erection_actual_finish_date', e.target.value || null)}
-                style={{ ...dateInput, width: 140, color: bulkTouched.has('erection_actual_finish_date') ? '#1A1A1A' : '#ABABAB' }}
-              />
-            </FieldGroup>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
             {canUpdate && (
               <button
                 onClick={applyBulk}
@@ -407,7 +468,7 @@ export function ProgressAssemblyTable({
                 style={{
                   font: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'white',
                   background: bulkTouched.size ? '#C8202A' : '#E0A6AA', border: 'none', borderRadius: 8,
-                  padding: '8px 18px', cursor: bulkTouched.size ? 'pointer' : 'default', whiteSpace: 'nowrap',
+                  padding: '7px 18px', cursor: bulkTouched.size ? 'pointer' : 'default',
                 }}
               >
                 Apply to {bulkIds.size}
@@ -431,15 +492,13 @@ export function ProgressAssemblyTable({
                 />
               </th>
               <th style={th}>Mark</th>
-              <th style={{ ...th, textAlign: 'right' }}>Weight</th>
+              {!isPlaceholderZone && <th style={{ ...th, textAlign: 'right' }}>Weight</th>}
               <th style={th}>Progress</th>
-              <th style={{ ...th, textAlign: 'center' }} />
               <th style={{ ...th, textAlign: 'center' }}>Edit</th>
             </tr>
           </thead>
           <tbody>
             {visible.map(r => {
-              const matched = matchedAssemblyIds.has(r.assembly_id)
               const expanded = expandedId === r.assembly_id
               const checked = bulkIds.has(r.assembly_id)
               const qty = effQty(r)
@@ -450,12 +509,12 @@ export function ProgressAssemblyTable({
                       if (el) rowRefs.current.set(r.assembly_id, el)
                       else rowRefs.current.delete(r.assembly_id)
                     }}
-                    onClick={() => onSelectRow(r.assembly_id)}
+                    onClick={() => onViewIn3D(r.assembly_id)}
                     style={{
                       cursor: 'pointer',
-                      background: expanded ? '#FAFAFA' : checked ? '#FEF6F6' : selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
-                      boxShadow: selectedAssemblyId === r.assembly_id ? '0 2px 6px rgba(0,0,0,0.15)' : undefined,
-                      position: selectedAssemblyId === r.assembly_id ? 'relative' : undefined,
+                      background: expanded || checked || selectedAssemblyId === r.assembly_id ? '#FEF6F6' : undefined,
+                      boxShadow: expanded || selectedAssemblyId === r.assembly_id ? '0 2px 6px rgba(0,0,0,0.15)' : undefined,
+                      position: expanded || selectedAssemblyId === r.assembly_id ? 'relative' : undefined,
                     }}
                   >
                     <td style={{ ...td, textAlign: 'center' }}>
@@ -472,10 +531,22 @@ export function ProgressAssemblyTable({
                         style={{ width: 15, height: 15, accentColor: '#C8202A', cursor: 'pointer' }}
                       />
                     </td>
-                    <td style={{ ...td, ...mono, fontWeight: 600 }}>{r.mark}</td>
-                    <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
-                      {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
+                    <td style={{ ...td, ...mono, fontWeight: 600 }}>
+                      {r.mark}
+                      {r.stale && (
+                        <span
+                          title="Not found in the latest 3D model version — needs manual review"
+                          style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: '#B8860B', background: '#FFF6E0', padding: '1px 6px', borderRadius: 4 }}
+                        >
+                          ⚠ stale
+                        </span>
+                      )}
                     </td>
+                    {!isPlaceholderZone && (
+                      <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
+                        {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
+                      </td>
+                    )}
                     <td style={td} title={STATUS_META[r.status].label}>
                       {/* Each chip's color is its own metric's completeness —
                           not the row's single derived status — so all four
@@ -500,19 +571,7 @@ export function ProgressAssemblyTable({
                       </div>
                     </td>
                     <td style={{ ...td, textAlign: 'center' }}>
-                      {matched ? (
-                        <button
-                          onClick={e => { e.stopPropagation(); onViewIn3D(r.assembly_id) }}
-                          title="Zoom to this mark in the 3D view"
-                          style={{ border: '1px solid #4A85C4', background: 'white', color: '#4A85C4', font: 'inherit', fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 7, cursor: 'pointer', whiteSpace: 'nowrap' }}
-                        >
-                          View
-                        </button>
-                      ) : (
-                        <span title="No matching BIM element found for this mark" style={{ color: '#C2C2C2', fontSize: 11 }}>—</span>
-                      )}
-                    </td>
-                    <td style={{ ...td, textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', gap: 6 }}>
                       {canUpdate && (
                       <button
                         onClick={e => { e.stopPropagation(); if (expanded) closeEdit(); else openEdit(r) }}
@@ -528,6 +587,32 @@ export function ProgressAssemblyTable({
                         {expanded ? <ChevronUp size={13} /> : <Pencil size={12} />}
                       </button>
                       )}
+                      {/* Delete only ever applies to placeholder (Pending BOM)
+                          assemblies — a real BOM assembly is managed by BOM
+                          upload/re-upload, never manually removable here. */}
+                      {canDelete && isPlaceholderZone && (
+                      <button
+                        onClick={async e => {
+                          e.stopPropagation()
+                          const ok = await confirm({
+                            title: `Delete ${r.mark}?`,
+                            message: 'Removes this assembly from Pending BOM. Any progress entered for it is discarded and cannot be recovered.',
+                            variant: 'danger',
+                            confirmLabel: 'Delete',
+                          })
+                          if (ok) onDelete(r.assembly_id)
+                        }}
+                        title="Delete this placeholder assembly"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          width: 26, height: 26, borderRadius: 7, cursor: 'pointer',
+                          border: '1px solid #E0E0E0', background: 'white', color: '#C8202A',
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                      )}
+                      </div>
                     </td>
                   </tr>
                   {expanded && (() => {
@@ -539,7 +624,7 @@ export function ProgressAssemblyTable({
                     }
                     return (
                       <tr style={{ background: '#FAFAFA' }}>
-                        <td colSpan={6} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
+                        <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
                           {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
                           <div style={groupHeader}>Fabrication</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
@@ -569,34 +654,16 @@ export function ProgressAssemblyTable({
 
                           {/* Material Payment — parallel to Fab/Transport/Erection, 3-state status */}
                           <div style={groupHeader}>Material Payment</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
+                          <div style={{ display: 'flex', marginBottom: 16 }}>
                             <FieldGroup label="Status">
                               <select
                                 value={editDraft.payment_status ?? 'Not Disbursed'}
                                 disabled={saving}
                                 onChange={e => setEditDraft(d => ({ ...d, payment_status: e.target.value as PaymentStatus }))}
-                                style={{ ...dateInput, width: '100%' }}
+                                style={{ ...dateInput, width: 200 }}
                               >
                                 {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
                               </select>
-                            </FieldGroup>
-                            <FieldGroup label="Claimed (kg)">
-                              <input
-                                type="number" min={0}
-                                value={editDraft.claimed_weight_kg ?? ''}
-                                disabled={saving}
-                                onChange={e => setEditDraft(d => ({ ...d, claimed_weight_kg: e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)) }))}
-                                style={numInput}
-                              />
-                            </FieldGroup>
-                            <FieldGroup label="Delivered (kg)">
-                              <input
-                                type="number" min={0}
-                                value={editDraft.delivered_weight_kg ?? ''}
-                                disabled={saving}
-                                onChange={e => setEditDraft(d => ({ ...d, delivered_weight_kg: e.target.value === '' ? undefined : nonNegDecimal(Number(e.target.value)) }))}
-                                style={numInput}
-                              />
                             </FieldGroup>
                           </div>
 
@@ -680,7 +747,7 @@ export function ProgressAssemblyTable({
             })}
             {!visible.length && (
               <tr>
-                <td colSpan={6} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
+                <td colSpan={isPlaceholderZone ? 4 : 5} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
                   {rows.length ? 'No marks match the search' : 'No BOM assemblies uploaded for this zone yet'}
                 </td>
               </tr>
@@ -689,7 +756,7 @@ export function ProgressAssemblyTable({
           {rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={6} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
+                <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
                   {rows.length} assemblies · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total
                   {' · '}fab <b style={{ ...mono, color: '#1A1A1A' }}>{fabPct.toFixed(1)}%</b>
                   {' · '}load <b style={{ ...mono, color: '#1A1A1A' }} title={`${loadedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0}%</b>
@@ -700,6 +767,60 @@ export function ProgressAssemblyTable({
           )}
         </table>
       </div>
+      {/* Deleted-assemblies archive — placeholder zone only. A reconciled
+          (deleted_by_user=false) assembly never appears here — the backend
+          list endpoint already excludes it, since restoring it would
+          recreate a mark colliding with the real BOM data it superseded. */}
+      {isPlaceholderZone && (
+        <div style={{ borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
+          <button
+            onClick={onToggleShowDeleted}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '10px 14px',
+              background: 'none', border: 'none', cursor: 'pointer', font: 'inherit',
+              fontSize: 11.5, color: '#8E8E8E', fontWeight: 600,
+            }}
+          >
+            {showDeleted ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            Deleted{deletedAssemblies?.length ? ` (${deletedAssemblies.length})` : ''}
+          </button>
+          {showDeleted && (
+            <div style={{ padding: '0 14px 12px', maxHeight: 180, overflowY: 'auto' }}>
+              {deletedLoading && <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '6px 0' }}>Loading…</div>}
+              {!deletedLoading && !deletedAssemblies?.length && (
+                <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '6px 0' }}>No deleted assemblies</div>
+              )}
+              {deletedAssemblies?.map(d => (
+                <div
+                  key={d.assembly_id}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #F3F3F3', fontSize: 12 }}
+                >
+                  <div>
+                    <span style={{ ...mono, fontWeight: 600, color: '#8E8E8E' }}>{d.mark}</span>
+                    <span style={{ color: '#C2C2C2', marginLeft: 8 }}>
+                      {new Date(d.deleted_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+                    </span>
+                  </div>
+                  {canDelete && (
+                    <button
+                      onClick={() => onRestore(d.assembly_id)}
+                      disabled={restoring}
+                      title="Restore this assembly"
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600,
+                        color: '#1A7A3D', background: 'none', border: '1px solid #CDEAD9', borderRadius: 6,
+                        padding: '4px 8px', cursor: restoring ? 'default' : 'pointer', opacity: restoring ? 0.6 : 1,
+                      }}
+                    >
+                      <RotateCcw size={11} /> Restore
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
