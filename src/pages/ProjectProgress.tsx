@@ -840,10 +840,10 @@ function OverviewPanel({
     )
   }
   const thStyle: React.CSSProperties = {
-    textAlign: 'left', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.04em', color: '#ABABAB', padding: '9px 12px', borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap',
+    textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.04em', color: '#ABABAB', padding: '11px 14px', borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap',
   }
-  const tdStyle: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #EDEFF2' }
+  const tdStyle: React.CSSProperties = { padding: '15px 14px', borderBottom: '1px solid #EDEFF2' }
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
   const byId = new Map(zones.map(z => [z.id, z]))
 
@@ -1017,7 +1017,7 @@ function OverviewPanel({
             pinned via `sticky` so it doesn't scroll away with the rows. */}
         <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {view === 'zone' ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
               <thead>
                 <tr>
                   <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Zone</th>
@@ -1045,10 +1045,10 @@ function OverviewPanel({
                         {z.zone_label}
                       </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
-                      <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...tdStyle, ...mono, fontSize: 12, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
                         F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
                       </td>
-                      <td style={{ ...tdStyle, ...mono, fontSize: 11, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...tdStyle, ...mono, fontSize: 12, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {delayInfo && <DelayDot info={delayInfo} />}
                           <span style={{ fontWeight: delayInfo?.status === 'overdue' ? 700 : 400 }}>
@@ -1174,12 +1174,12 @@ function StatCard({ label, value, accent, children }: {
   children?: React.ReactNode
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '16px 18px' }}>
+    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '12px 16px' }}>
       {label !== '' && (
         <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       )}
       {value !== '' && (
-        <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 26, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 9 }}>{value}</div>
+        <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 22, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 6 }}>{value}</div>
       )}
       {children}
     </div>
