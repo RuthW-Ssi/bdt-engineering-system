@@ -921,7 +921,7 @@ function OverviewPanel({
           Erection + the Zone table, which were fighting the old 3-card
           row for height. See the 3D viewport container in the parent
           ProjectProgress component for the overlay itself. */}
-        <StatCard label="" value="" accent="#C8202A" style={{ flex: 1, marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
+        <StatCard label="" value="" accent="#C8202A" style={{ flex: '0 0 auto', marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
@@ -933,13 +933,13 @@ function OverviewPanel({
               actionable default view; Fab/Erection's per-date breakdown is
               the drill-down. One tab at a time instead of stacking — same
               segmented-pill style as the Zone/Position toggle below.
-              flex:1 (matching the Zone table below) so the two cards split
-              the remaining height evenly on tall viewports — but no
-              minHeight:0 override here (unlike the Zone table), so the
-              browser's default min-height:auto still protects this card
-              from shrinking below its own content's natural height on a
-              short viewport; the Schedule tab's 3 fixed blocks should
-              never need to scroll internally to be read. */}
+              flex:'0 0 auto' — sized to its own (now-compact, delta-badge-
+              free) content rather than stretched to match the Zone table
+              below; that stretch used to be needed when this card's
+              content was taller, but left a growing gap of empty white
+              space underneath once the content shrank. The Zone table's
+              own flex:1 still absorbs whatever height this card doesn't
+              use. */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
