@@ -1214,11 +1214,17 @@ function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
     borderBottom: '1px solid #F3F3F3',
   }
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div>
       {rows.length === 0 ? (
         <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
       ) : (
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
+        // Fixed maxHeight (not flex:1/height:100%) — this card's outer
+        // min-height:auto (needed so the Schedule tab's bounded content
+        // never scrolls, see the StatCard usage above) means an unbounded
+        // table here would grow the WHOLE card — and page — to fit every
+        // row instead of scrolling internally, which is exactly what
+        // happened with a project that had many distinct plan dates.
+        <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
             <thead>
               <tr>
