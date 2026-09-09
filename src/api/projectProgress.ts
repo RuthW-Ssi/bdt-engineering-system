@@ -118,6 +118,8 @@ export interface ProgressZoneRollup extends ProgressRollupTotals {
 export interface ScheduleProgress {
   window_start: string | null // YYYY-MM-DD
   window_end: string | null
+  total_days: number | null
+  elapsed_days: number | null
   plan_pct: number | null
   fab_actual_pct: number
   erection_actual_pct: number

@@ -46,7 +46,9 @@ export function SchedulePlanVsActualCard({ schedule }: { schedule: ScheduleProgr
           {fmtDate(schedule.window_start)} → {fmtDate(schedule.window_end)}
           {schedule.plan_pct !== null && (
             <>
-              {' · today should be at '}
+              {' · '}
+              <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#1A1A1A' }}>{schedule.elapsed_days}/{schedule.total_days}d</b>
+              {' elapsed · today should be at '}
               <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#1A1A1A' }}>{schedule.plan_pct.toFixed(0)}%</b>
             </>
           )}

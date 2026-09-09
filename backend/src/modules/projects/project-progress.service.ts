@@ -801,9 +801,17 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
   }
 }
 
+const SCHEDULE_MS_PER_DAY = 86400000
+
 export interface ScheduleProgress {
   window_start: string | null // YYYY-MM-DD — earliest zone target_start
   window_end: string | null // YYYY-MM-DD — latest zone target_end
+  // Raw day counts behind plan_pct, mirroring the client's own Excel layout
+  // ("จำนวนวันในการทำงานทั้งหมด" / "จำนวนวันที่ทำงานมาแล้ว") — both null
+  // together with plan_pct when there's no valid window. elapsed_days is
+  // clamped to [0, total_days], same clamp as plan_pct itself.
+  total_days: number | null
+  elapsed_days: number | null
   // % of [window_start, window_end] elapsed as of today, clamped 0-100 —
   // null when there's no valid window (no zone has both dates set, or
   // end <= start). One number shared by all three phases below: fab and
@@ -836,16 +844,22 @@ function computeScheduleProgress(
   const windowEnd = ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : null
 
   let planPct: number | null = null
+  let totalDays: number | null = null
+  let elapsedDays: number | null = null
   if (windowStart && windowEnd && windowEnd.getTime() > windowStart.getTime()) {
     const today = new Date()
     const totalMs = windowEnd.getTime() - windowStart.getTime()
-    const elapsedMs = today.getTime() - windowStart.getTime()
-    planPct = Math.round(Math.min(100, Math.max(0, (elapsedMs / totalMs) * 100)) * 100) / 100
+    const elapsedMs = Math.min(totalMs, Math.max(0, today.getTime() - windowStart.getTime()))
+    totalDays = Math.round(totalMs / SCHEDULE_MS_PER_DAY)
+    elapsedDays = Math.round(elapsedMs / SCHEDULE_MS_PER_DAY)
+    planPct = Math.round((elapsedMs / totalMs) * 100 * 100) / 100
   }
 
   return {
     window_start: windowStart ? windowStart.toISOString().slice(0, 10) : null,
     window_end: windowEnd ? windowEnd.toISOString().slice(0, 10) : null,
+    total_days: totalDays,
+    elapsed_days: elapsedDays,
     plan_pct: planPct,
     fab_actual_pct: fabActualPct,
     erection_actual_pct: erectionActualPct,

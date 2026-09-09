@@ -333,12 +333,16 @@ describe('getOverview rollup', () => {
         bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
       })).getOverview('0X220')
       expect(pastWindow.schedule_progress.plan_pct).toBe(100)
+      expect(pastWindow.schedule_progress.total_days).toBe(152) // Jan(31)+Feb(29 leap)+Mar(31)+Apr(30)+May(31)
+      expect(pastWindow.schedule_progress.elapsed_days).toBe(152) // clamped to total_days, same as plan_pct
 
       const futureWindow = await new ProjectProgressService(makePrisma({
         project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A', target_start: new Date('2099-01-01'), target_end: new Date('2099-06-01') }]) },
         bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
       })).getOverview('0X220')
       expect(futureWindow.schedule_progress.plan_pct).toBe(0)
+      expect(futureWindow.schedule_progress.total_days).toBe(151) // Jan(31)+Feb(28)+Mar(31)+Apr(30)+May(31), 2099 not a leap year
+      expect(futureWindow.schedule_progress.elapsed_days).toBe(0)
     })
 
     it('window rolls up earliest target_start / latest target_end across zones, excluding the placeholder zone', async () => {
@@ -356,6 +360,7 @@ describe('getOverview rollup', () => {
 
       expect(result.schedule_progress.window_start).toBe('2020-01-01') // min across zones 10+20
       expect(result.schedule_progress.window_end).toBe('2020-06-01') // max across zones 10+20
+      expect(result.schedule_progress.total_days).toBe(152) // spans the rolled-up window, not either individual zone's own span
     })
 
     it('combined_actual_pct is a flat 50/50 split of fab_pct and erect_pct', async () => {
