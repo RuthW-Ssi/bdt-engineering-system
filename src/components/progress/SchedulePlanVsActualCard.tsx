@@ -6,20 +6,6 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
-// Ahead/behind vs a plan_pct — same green/red convention as delayStatus.ts's
-// DELAY_STATUS_COLOR (on_track/overdue), not re-imported since this needs
-// only the two colors, not the full delay-status machinery.
-function DeltaLabel({ actual, plan }: { actual: number; plan: number }) {
-  const diff = Math.round(actual - plan)
-  if (diff === 0) return <span style={{ fontSize: 11, color: '#8E8E8E' }}>on pace</span>
-  const ahead = diff > 0
-  return (
-    <span style={{ fontSize: 11, fontWeight: 700, color: ahead ? '#2E9E5F' : '#C8202A' }}>
-      {ahead ? '▲' : '▼'} {Math.abs(diff)}pt {ahead ? 'ahead' : 'behind'}
-    </span>
-  )
-}
-
 // One phase's block — its own window/day-count (approximated from that
 // phase's own plan-finish date spread, so Fab and Erection show genuinely
 // different windows, not one shared number) with Plan vs Actual sharing
@@ -77,14 +63,11 @@ export function ScheduleTabBody({ schedule }: { schedule: ScheduleProgress }) {
         <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#ABABAB', marginBottom: 3 }}>
           Combined
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
-            {schedule.combined_plan_pct !== null && (
-              <span style={{ color: '#555555' }}>Plan <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_plan_pct.toFixed(0)}%</b></span>
-            )}
-            <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_actual_pct.toFixed(0)}%</b></span>
-          </div>
-          {schedule.combined_plan_pct !== null && <DeltaLabel actual={schedule.combined_actual_pct} plan={schedule.combined_plan_pct} />}
+        <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
+          {schedule.combined_plan_pct !== null && (
+            <span style={{ color: '#555555' }}>Plan <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_plan_pct.toFixed(0)}%</b></span>
+          )}
+          <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_actual_pct.toFixed(0)}%</b></span>
         </div>
       </div>
     </div>
