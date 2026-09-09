@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
-import { FAB_STAGES, clampPct, nonNegDecimal } from './progress-shared'
+import { FAB_STAGES, clampPct } from './progress-shared'
 
 // Every bom_assembly_progress field this app lets a user change — the
 // single list driving what gets diffed/logged on every write path (manual
@@ -11,7 +11,7 @@ export const AUDITABLE_FIELDS = [
   ...FAB_STAGES,
   'fab_plan_finish_date', 'fab_actual_finish_date',
   'plan_load_date', 'actual_load_date', 'loaded_pcs', 'erected_pcs',
-  'erection_plan_finish_date', 'erection_actual_finish_date', 'payment_status', 'claimed_weight_kg', 'delivered_weight_kg',
+  'erection_plan_finish_date', 'erection_actual_finish_date', 'payment_status',
 ] as const
 export type AuditableField = (typeof AUDITABLE_FIELDS)[number]
 
@@ -22,14 +22,13 @@ const DATE_FIELDS = new Set([
   'plan_load_date', 'actual_load_date',
   'erection_plan_finish_date', 'erection_actual_finish_date',
 ])
-const DECIMAL_FIELDS = new Set(['claimed_weight_kg', 'delivered_weight_kg'])
 
 // "No row" defaults — mirrors bom_assembly_progress's own column defaults,
 // so diffing against a not-yet-created row compares against the same
 // baseline computeStatus()/mapAssemblyRow already treat as "not started".
 function defaultFor(field: AuditableField): unknown {
   if (field === 'payment_status') return 'Not Disbursed'
-  if (DATE_FIELDS.has(field) || DECIMAL_FIELDS.has(field)) return null
+  if (DATE_FIELDS.has(field)) return null
   return 0 // fab stages, loaded_pcs, erected_pcs
 }
 
@@ -127,13 +126,12 @@ export class ProgressChangeLogService {
 
   // Parses a stored old_value/new_value string back to the typed value for
   // a rollback write — type coercion only, no domain clamping (callers
-  // apply the same clampPct/clampPcs/nonNegDecimal any other write path
-  // uses, since pcs clamping needs the assembly's current qty which this
-  // function has no access to).
+  // apply the same clampPct/clampPcs any other write path uses, since pcs
+  // clamping needs the assembly's current qty which this function has no
+  // access to).
   coerceForWrite(field: AuditableField, stringValue: string | null): unknown {
     if (stringValue == null) return null
     if (DATE_FIELDS.has(field)) return new Date(stringValue)
-    if (DECIMAL_FIELDS.has(field)) return nonNegDecimal(Number(stringValue))
     if (field === 'payment_status') return stringValue
     if (field === 'loaded_pcs' || field === 'erected_pcs') return Math.max(0, Math.round(Number(stringValue)))
     return clampPct(Number(stringValue))

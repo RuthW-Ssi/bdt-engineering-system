@@ -22,7 +22,6 @@ export type ProgressColumnKind =
   | 'fab_stage' // 0-100 editable percent
   | 'date' // editable date
   | 'pcs' // editable 0..qty count
-  | 'weight' // editable non-negative decimal
   | 'status' // editable, fixed 3-value dropdown (PAYMENT_STATUSES)
   | 'computed' // display-only, recalculated fresh on every export, never read on import
 
@@ -111,8 +110,6 @@ export const PROGRESS_EXPORT_COLUMNS: readonly ProgressColumnSpec[] = [
   { header: 'Actual Load', kind: 'date', field: 'actual_load_date', group: 'transport', dataFillArgb: FAB_TRACKED_FILL },
   { header: 'จำนวนที่โหลด (Pcs.)', kind: 'pcs', field: 'loaded_pcs', group: 'transport', dataFillArgb: FAB_TRACKED_FILL },
   { header: 'Progress %', kind: 'computed', computed: 'load_pct', group: 'transport' },
-  { header: 'น้ำหนักที่เบิกแล้ว', kind: 'weight', field: 'claimed_weight_kg', group: 'payment' },
-  { header: 'น้ำหนักที่ส่งแล้ว', kind: 'weight', field: 'delivered_weight_kg', group: 'payment' },
   { header: 'สถานะการเบิกเงิน', kind: 'status', field: 'payment_status', group: 'payment' },
   { header: 'Erection by Pcs.', kind: 'pcs', field: 'erected_pcs', group: 'erection', dataFillArgb: FAB_TRACKED_FILL },
   { header: 'Actual Erection', kind: 'date', field: 'erection_actual_finish_date', group: 'erection', dataFillArgb: FAB_TRACKED_FILL },

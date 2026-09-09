@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { stripContractPrefix } from '../bom-upload/xlsx-parser.service'
 import { ProgressChangeLogService, type DiffEntry } from './progress-change-log.service'
-import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, nonNegDecimal, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
+import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
 import type { FabStage, PaymentStatus } from './progress-shared'
 
 // Re-exported for backward compatibility — every other call site in this
@@ -10,7 +10,7 @@ import type { FabStage, PaymentStatus } from './progress-shared'
 // here. Canonical definitions live in progress-shared.ts (progress-change-log.service.ts
 // needs them too, and importing them from THIS file would be circular
 // since this file also imports ProgressChangeLogService above).
-export { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, nonNegDecimal, PAYMENT_STATUSES }
+export { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, PAYMENT_STATUSES }
 export type { FabStage, PaymentStatus }
 
 export type ProgressStatus = 'notstart' | 'fabrication' | 'load' | 'erection' | 'done'
@@ -30,11 +30,6 @@ interface ProgressFields extends FabStageFields {
   erection_plan_finish_date: Date | null
   erection_actual_finish_date: Date | null
   payment_status: string
-  // Prisma Decimal, not number — same loose-typing as bom_assembly's own
-  // weight_kg/qty elsewhere in this file; converted with Number() at every
-  // read site (mapAssemblyRow, response construction), never computed on.
-  claimed_weight_kg: unknown
-  delivered_weight_kg: unknown
 }
 
 // Plain-interface DTO (paint-config precedent) — stage percents clamp
@@ -52,17 +47,14 @@ export interface UpdateAssemblyProgressDto extends Partial<FabStageFields> {
   erection_plan_finish_date?: string | null
   erection_actual_finish_date?: string | null
   payment_status?: string
-  claimed_weight_kg?: number
-  delivered_weight_kg?: number
 }
 
-// Bulk applies ONE payload to many rows whose qty differ — raw pcs counts
-// can't be shared, so they're replaced by set-full flags resolved per-row.
-export interface BulkUpdateAssemblyProgressDto
-  extends Omit<UpdateAssemblyProgressDto, 'loaded_pcs' | 'erected_pcs'> {
+// Bulk applies ONE payload to many rows whose qty differ — loaded_pcs/
+// erected_pcs take the same raw pcs count as a single row; each row clamps
+// independently to its own qty in the loop below, so one shared value is
+// naturally capped per-assembly instead of needing a flat max up front.
+export interface BulkUpdateAssemblyProgressDto extends UpdateAssemblyProgressDto {
   assembly_ids: number[]
-  set_loaded_full?: boolean
-  set_erected_full?: boolean
 }
 
 export function computeFabPct(p: ProgressFields | null): number {
@@ -161,8 +153,6 @@ export class ProjectProgressService {
       erection_plan_finish_date: toDate(dto.erection_plan_finish_date),
       erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
       payment_status: dto.payment_status,
-      claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
-      delivered_weight_kg: dto.delivered_weight_kg === undefined ? undefined : nonNegDecimal(dto.delivered_weight_kg),
     }
 
     // Transaction so the pre-write read, the upsert, and the change-log
@@ -185,10 +175,13 @@ export class ProjectProgressService {
       return upserted
     })
     const { status, shade } = computeStatus(row, assembly.qty)
+    // claimed_weight_kg/delivered_weight_kg dropped from the API surface —
+    // the DB columns still exist (unused now) but the app no longer reads
+    // or writes them, so they're excluded here rather than left as raw
+    // Prisma Decimal values on the response.
+    const { claimed_weight_kg: _claimed, delivered_weight_kg: _delivered, ...rowWithoutRemovedFields } = row
     return {
-      ...row,
-      claimed_weight_kg: row.claimed_weight_kg != null ? Number(row.claimed_weight_kg) : null,
-      delivered_weight_kg: row.delivered_weight_kg != null ? Number(row.delivered_weight_kg) : null,
+      ...rowWithoutRemovedFields,
       fab_pct: computeFabPct(row),
       load_pct: Math.round((row.loaded_pcs / q) * 100),
       erect_pct: Math.round((row.erected_pcs / q) * 100),
@@ -197,6 +190,71 @@ export class ProjectProgressService {
       shade,
       phases: computePhases(row, assembly.qty),
     }
+  }
+
+  // BIM-first progress entry (2026-09) — lets a user remove a placeholder
+  // assembly they don't need (e.g. a BIM mark that turned out irrelevant,
+  // or a duplicate). Soft-delete via the same status='INACTIVE' mechanism
+  // every other supersession in this app already uses — every read path
+  // already filters ACTIVE, so no new filtering logic is needed anywhere.
+  // Scoped to source: 'BIM_PLACEHOLDER' so a real BOM assembly (managed
+  // exclusively by BOM upload/re-upload) can never be deleted this way —
+  // "not found" covers both "doesn't exist" and "isn't a placeholder
+  // assembly" identically, so this endpoint can't be used to probe which
+  // real assembly ids exist in a project.
+  async deletePlaceholderAssembly(projectCode: string, assemblyId: number, userId: number) {
+    const assembly = await this.prisma.bom_assembly.findFirst({
+      where: {
+        id: assemblyId, status: 'ACTIVE',
+        dispatch: { project: { project_code: projectCode }, source: 'BIM_PLACEHOLDER' },
+      },
+      select: { id: true },
+    })
+    if (!assembly) throw new NotFoundException(`Placeholder assembly ${assemblyId} not found in project ${projectCode}`)
+
+    await this.prisma.bom_assembly.update({
+      where: { id: assemblyId },
+      data: { status: 'INACTIVE', deleted_by_user: true, write_uid: userId, write_date: new Date() },
+    })
+    return { deleted: true }
+  }
+
+  // Placeholder assemblies a user deleted (deleted_by_user=true) — NOT ones
+  // deactivated by carryForwardProgress reconciliation, which also sets
+  // status='INACTIVE' but leaves deleted_by_user false. Only the former are
+  // meaningfully restorable; a reconciled assembly's progress already lives
+  // under a different, real assembly_id, so "restoring" it would just
+  // recreate a mark that collides with the real BOM data.
+  async listDeletedPlaceholderAssemblies(projectCode: string) {
+    const rows = await this.prisma.bom_assembly.findMany({
+      where: {
+        status: 'INACTIVE', deleted_by_user: true,
+        dispatch: { project: { project_code: projectCode }, source: 'BIM_PLACEHOLDER' },
+      },
+      orderBy: { write_date: 'desc' },
+      select: { id: true, assembly_mark: true, write_date: true },
+    })
+    return rows.map(r => ({ assembly_id: r.id, mark: r.assembly_mark, deleted_at: r.write_date }))
+  }
+
+  // Mirrors deletePlaceholderAssembly's scoping exactly, plus deleted_by_user:
+  // true — a reconciled (deleted_by_user=false) assembly 404s here just like
+  // a nonexistent one, for the reason above.
+  async restorePlaceholderAssembly(projectCode: string, assemblyId: number, userId: number) {
+    const assembly = await this.prisma.bom_assembly.findFirst({
+      where: {
+        id: assemblyId, status: 'INACTIVE', deleted_by_user: true,
+        dispatch: { project: { project_code: projectCode }, source: 'BIM_PLACEHOLDER' },
+      },
+      select: { id: true },
+    })
+    if (!assembly) throw new NotFoundException(`Deleted placeholder assembly ${assemblyId} not found in project ${projectCode}`)
+
+    await this.prisma.bom_assembly.update({
+      where: { id: assemblyId },
+      data: { status: 'ACTIVE', deleted_by_user: false, write_uid: userId, write_date: new Date() },
+    })
+    return { restored: true }
   }
 
   // Applies the same field values to many assemblies at once (bulk-select in
@@ -227,8 +285,6 @@ export class ProjectProgressService {
       erection_plan_finish_date: toDate(dto.erection_plan_finish_date),
       erection_actual_finish_date: toDate(dto.erection_actual_finish_date),
       payment_status: dto.payment_status,
-      claimed_weight_kg: dto.claimed_weight_kg === undefined ? undefined : nonNegDecimal(dto.claimed_weight_kg),
-      delivered_weight_kg: dto.delivered_weight_kg === undefined ? undefined : nonNegDecimal(dto.delivered_weight_kg),
     }
 
     // Callback-transaction form (not the array-of-promises form this used
@@ -237,10 +293,11 @@ export class ProjectProgressService {
     await this.prisma.$transaction(async tx => {
       const diffRows: { assemblyId: number; diff: DiffEntry[] }[] = []
       for (const { id, qty, progress } of owned) {
+        const q = effectiveQty(qty)
         const fields = {
           ...shared,
-          loaded_pcs: dto.set_loaded_full ? effectiveQty(qty) : undefined,
-          erected_pcs: dto.set_erected_full ? effectiveQty(qty) : undefined,
+          loaded_pcs: dto.loaded_pcs === undefined ? undefined : clampPcs(dto.loaded_pcs, q),
+          erected_pcs: dto.erected_pcs === undefined ? undefined : clampPcs(dto.erected_pcs, q),
         }
         diffRows.push({ assemblyId: id, diff: this.changeLog.computeDiff(progress, fields) })
         // Every targeted row is still upserted regardless of diff (unchanged
@@ -276,13 +333,35 @@ export class ProjectProgressService {
       },
     })
 
+    // BIM-first progress entry (2026-09) — only the one placeholder zone per
+    // project needs this: which of its marks are still present in the
+    // project's latest complete BIM model, vs. stale (removed or renamed in
+    // a newer version — see the design doc's "BIM re-upload" section). A
+    // normal zone's marks come from real BOM and are never "stale" this way.
+    let staleMarks: Set<string> | null = null
+    if (zone.is_placeholder) {
+      const latestModel = await this.findLatestCompleteModel(project.id)
+      const currentMarks = latestModel
+        ? new Set((await this.prisma.bim_element.findMany({
+            where: { model_id: latestModel.id, ifc_type: 'IfcElementAssembly', mark: { not: null } },
+            select: { mark: true },
+          })).map(e => e.mark as string))
+        : new Set<string>()
+      staleMarks = new Set(assemblies.filter(a => !currentMarks.has(a.assembly_mark)).map(a => a.assembly_mark))
+    }
+
     // zone_id wasn't on this row shape at all until the mobile Drawing
     // sheet needed it (MobileDrawingSheet/MobileBimCard's "show drawing"
     // button) — it silently no-op'd at zone level since the frontend type
     // declares zone_id optional, while getProjectRows (which always
     // attached it) worked fine. We already fetched `zone` above; just carry
     // its id through instead of adding a query for something already known.
-    return assemblies.map(a => ({ ...mapAssemblyRow(a), zone_id: zone.id }))
+    return assemblies.map(a => ({
+      ...mapAssemblyRow(a),
+      zone_id: zone.id,
+      is_placeholder: zone.is_placeholder,
+      stale: staleMarks ? staleMarks.has(a.assembly_mark) : false,
+    }))
   }
 
   // Same shape as getZoneRows, but every zone of the project at once — feeds
@@ -307,6 +386,8 @@ export class ProjectProgressService {
       zone_id: a.dispatch.zone.id,
       zone_code: a.dispatch.zone.code,
       zone_label: a.dispatch.zone.label,
+      is_placeholder: false,
+      stale: false,
     }))
   }
 
@@ -315,14 +396,14 @@ export class ProjectProgressService {
     const zones = await this.prisma.project_zone.findMany({
       where: { project_id: project.id, active: true },
       orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }],
-      select: { id: true, code: true, label: true },
+      select: { id: true, code: true, label: true, is_placeholder: true },
     })
 
     // One query for the whole project, grouped in JS — assembly counts per
     // project are in the hundreds, not worth per-zone round-trips.
     const assemblies = await this.prisma.bom_assembly.findMany({
       where: { status: 'ACTIVE', dispatch: { project_id: project.id } },
-      select: { weight_kg: true, qty: true, progress: true, dispatch: { select: { zone_id: true } } },
+      select: { weight_kg: true, qty: true, progress: true, dispatch: { select: { zone_id: true, source: true } } },
     })
 
     const perZone = zones.map(z => {
@@ -331,9 +412,14 @@ export class ProjectProgressService {
     })
     return {
       zones: perZone.map(({ zone, ...agg }) => ({
-        zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, ...agg,
+        zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, is_placeholder: zone.is_placeholder, ...agg,
       })),
-      total: rollup(assemblies),
+      // BIM-first progress entry (2026-09) — the placeholder zone's own row
+      // above still reports its real (if unweighted) assembly count, but the
+      // PROJECT total must never include BIM-only data the eventual real BOM
+      // will supersede (weight_kg/qty are null on placeholder rows anyway,
+      // which would otherwise silently understate a mixed total).
+      total: rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')),
     }
   }
 
@@ -574,8 +660,6 @@ function mapAssemblyRow(a: { id: number; assembly_mark: string; weight_kg: unkno
     erection_plan_finish_date: p?.erection_plan_finish_date ?? null,
     erection_actual_finish_date: p?.erection_actual_finish_date ?? null,
     payment_status: p?.payment_status ?? 'Not Disbursed',
-    claimed_weight_kg: p?.claimed_weight_kg != null ? Number(p.claimed_weight_kg) : null,
-    delivered_weight_kg: p?.delivered_weight_kg != null ? Number(p.delivered_weight_kg) : null,
     fab_pct: computeFabPct(p),
     load_pct: Math.round(((p?.loaded_pcs ?? 0) / q) * 100),
     erect_pct: Math.round(((p?.erected_pcs ?? 0) / q) * 100),
@@ -621,6 +705,56 @@ function toUnmatchedBimMark(mark: string, count: number) {
   }
 }
 
+export interface PlanDateBucket {
+  date: string // YYYY-MM-DD — the shared fab_plan_finish_date/erection_plan_finish_date value for this row
+  total: number
+  not_started: number
+  on_time: number
+  delay: number
+}
+
+// Plan-vs-actual grouped by each distinct plan date, counts only (2026-09).
+// Dates don't average across many assemblies/zones the way a percent does —
+// a MAX or weighted-mean date across unrelated zones on different schedules
+// would misrepresent the project, and a single date pair can't capture that
+// each assembly plans its own. Counting into on_time/delay per plan-date
+// sidesteps both problems: sums cleanly regardless of how many zones/dates
+// are involved, and every distinct date gets its own honest bucket.
+//
+// Per assembly (only counted if its plan date is set at all):
+//   not_started — no progress on this phase yet (fab_pct 0, or erected_pcs 0)
+//   on_time     — started, and (done with actual date on/before plan) OR
+//                 (not done and today is still on/before plan)
+//   delay       — started, and (done but actual date after plan) OR
+//                 (not done and today is already past plan)
+// A started-but-undated completion (fab_pct 100 with no fab_actual_finish_date
+// entered) falls back to comparing today against plan, same as "not done" —
+// the best available signal when nobody recorded exactly when it finished.
+function computePlanBreakdown(
+  rows: { progress: ProgressFields | null }[],
+  kind: 'fab' | 'erection',
+): PlanDateBucket[] {
+  const today = new Date()
+  const byDate = new Map<string, { total: number; not_started: number; on_time: number; delay: number }>()
+  for (const r of rows) {
+    const planDate = kind === 'fab' ? r.progress?.fab_plan_finish_date : r.progress?.erection_plan_finish_date
+    if (!planDate) continue
+    const actualDate = kind === 'fab' ? r.progress?.fab_actual_finish_date : r.progress?.erection_actual_finish_date
+    const started = kind === 'fab' ? computeFabPct(r.progress) > 0 : (r.progress?.erected_pcs ?? 0) > 0
+
+    const key = planDate.toISOString().slice(0, 10)
+    const bucket = byDate.get(key) ?? { total: 0, not_started: 0, on_time: 0, delay: 0 }
+    bucket.total++
+    if (!started) bucket.not_started++
+    else if ((actualDate ?? today) <= planDate) bucket.on_time++
+    else bucket.delay++
+    byDate.set(key, bucket)
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, b]) => ({ date, ...b }))
+}
+
 // Three separate rollup numbers, deliberately no combined total (spec):
 // fab weighted by weight_kg (matches the Excel's own overall column),
 // load/erection by pieces (Σ/Σ, not averaged per-row).
@@ -657,5 +791,10 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
     load_pct: totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0,
     erect_pct: totalQty > 0 ? Math.round((erectedPcs / totalQty) * 100) : 0,
     buckets,
+    // Scoped to whatever `rows` this call received — a per-zone call gets a
+    // zone-scoped breakdown, the project-wide call (getOverview's `total`)
+    // gets a project-wide one, automatically, same as every field above.
+    fab_plan_breakdown: computePlanBreakdown(rows, 'fab'),
+    erection_plan_breakdown: computePlanBreakdown(rows, 'erection'),
   }
 }

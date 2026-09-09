@@ -32,7 +32,14 @@ export function MobileProgressForm() {
       className="min-h-screen bg-chrome-50 flex flex-col overflow-x-hidden"
       style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
     >
-      <MobileHeader title={row.mark} subtitle={`Qty ${row.qty ?? 1}`} onBack={() => navigate(-1)} />
+      <MobileHeader
+        title={row.mark}
+        subtitle={row.is_placeholder ? 'Pending BOM' : `Qty ${row.qty ?? 1}`}
+        onBack={() => navigate(-1)}
+      />
+      {/* Delete-this-assembly action (placeholder zone only) now lives
+          inside MobileProgressFormFields itself, positioned after the
+          Erection section — see that component for the full rationale. */}
       <MobileProgressFormFields code={code!} row={row} variant="page" onSaved={() => navigate(-1)} />
     </div>
   )

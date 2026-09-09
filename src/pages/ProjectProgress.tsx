@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Info } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
@@ -12,12 +13,13 @@ import type { DelayInfo } from '../components/progress/delayStatus'
 import { useProject } from '../hooks/useProjects'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
-  useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress,
+  useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress, useDeletePlaceholderAssembly,
+  useDeletedPlaceholderAssemblies, useRestorePlaceholderAssembly,
 } from '../hooks/useProjectProgress'
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
 import { exportProgress } from '../api/projectProgress'
-import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
+import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, PlanDateBucket } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
@@ -184,6 +186,21 @@ export function ProjectProgress() {
   }, [zoneParam, zones, setSearchParams])
 
   const { data: overview } = useProgressOverview(code)
+
+  // If the active tab is the placeholder zone and it just got fully
+  // reconciled (assembly_count drops to 0 — e.g. a real BOM upload landed
+  // elsewhere while this tab was open), its TabButton vanishes from the
+  // bar per the hide-when-empty guard below — bounce to Overview instead
+  // of leaving this zone-scoped pane rendering under no visibly-active tab.
+  useEffect(() => {
+    if (!activeZoneId || !overview) return
+    const meta = zones.find(z => z.id === activeZoneId)
+    const rollup = overview.zones.find(o => o.zone_id === activeZoneId)
+    if (meta?.is_placeholder && rollup && rollup.assembly_count === 0) {
+      setSearchParams(p => { p.delete('zone'); return p }, { replace: true })
+    }
+  }, [activeZoneId, overview, zones, setSearchParams])
+
   const { data: zoneRows } = useProgressZoneRows(code, activeZoneId)
   const { data: bimMatch } = useProgressBimMatch(code, activeZoneId)
   // Project-wide variants only fetch while the Overview tab is open — the
@@ -193,6 +210,11 @@ export function ProjectProgress() {
   const { data: projectBimMatch } = useProgressProjectBimMatch(code, tab === 'overview')
   const updateMutation = useUpdateAssemblyProgress(code)
   const bulkUpdateMutation = useBulkUpdateAssemblyProgress(code)
+  const deleteMutation = useDeletePlaceholderAssembly(code)
+  const restoreMutation = useRestorePlaceholderAssembly(code)
+  // Lazy — only fetched once the Deleted section is actually expanded.
+  const [showDeleted, setShowDeleted] = useState(false)
+  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted)
 
   // Overview's Zone/Position toggle + which group (if any) is being
   // previewed — lives here (not inside OverviewPanel) because the 3D
@@ -221,6 +243,11 @@ export function ProjectProgress() {
   const [activePhase, setActivePhase] = useState<PhaseKey | null>(null)
   const [focusRequest, setFocusRequest] = useState<BimFocusRequest | null>(null)
   const [selectedAssemblyId, setSelectedAssemblyId] = useState<number | null>(null)
+  // A plain click-through signal to the table: "open this row's edit panel
+  // now" — a fresh object each time (not just the id) so re-clicking the
+  // SAME element in the 3D viewer still re-triggers the effect below, since
+  // an unchanged primitive id wouldn't count as a dependency change.
+  const [autoExpandRequest, setAutoExpandRequest] = useState<{ assemblyId: number } | null>(null)
 
   const matchByAssembly = useMemo(
     () => new Map((activeBimMatch?.matches ?? []).map(m => [m.assembly_id, m])),
@@ -322,10 +349,15 @@ export function ProjectProgress() {
     tab === 'overview' ? overview?.total : overview?.zones.find(z => z.zone_id === tab)
 
   const handleUpdate = (assemblyId: number, payload: UpdateAssemblyProgressPayload) =>
-    updateMutation.mutate({ assemblyId, payload })
+    updateMutation.mutate({ assemblyId, payload }, { onSuccess: () => toast.success('Progress saved') })
 
   const handleBulkUpdate = (assemblyIds: number[], payload: BulkUpdateAssemblyProgressPayload) =>
-    bulkUpdateMutation.mutate({ assemblyIds, payload })
+    bulkUpdateMutation.mutate({ assemblyIds, payload }, {
+      onSuccess: data => toast.success(`Progress saved for ${data.updated} ${data.updated === 1 ? 'assembly' : 'assemblies'}`),
+    })
+
+  const handleDelete = (assemblyId: number) => deleteMutation.mutate(assemblyId)
+  const handleRestore = (assemblyId: number) => restoreMutation.mutate(assemblyId)
 
   // Toggling activePhase is all this needs now — highlightColorMap above
   // reacts to it and recolors the (still fully visible) model accordingly.
@@ -366,7 +398,12 @@ export function ProjectProgress() {
       return
     }
     const assemblyId = assemblyByGlobalId.get(selection.globalId)
-    if (assemblyId != null) setSelectedAssemblyId(assemblyId)
+    if (assemblyId != null) {
+      setSelectedAssemblyId(assemblyId)
+      // Clicking an element in the 3D model both selects its row AND opens
+      // it for editing — unlike a plain row click, which only selects.
+      setAutoExpandRequest({ assemblyId })
+    }
   }
 
   const switchTab = (next: 'overview' | number) => {
@@ -516,6 +553,11 @@ export function ProjectProgress() {
         <TabButton label="Overview" active={tab === 'overview'} onClick={() => switchTab('overview')} />
         {zones.map(z => {
           const rollup = overview?.zones.find(o => o.zone_id === z.id)
+          // A fully-reconciled placeholder zone (every assembly deactivated)
+          // has nothing left to review — drop its tab instead of leaving an
+          // empty "Pending BOM" tab forever. Only hide once we KNOW it's
+          // empty (rollup loaded), not while overview is still fetching.
+          if (z.is_placeholder && rollup && rollup.assembly_count === 0) return null
           return (
             <TabButton
               key={z.id}
@@ -556,13 +598,19 @@ export function ProjectProgress() {
           ) : (
             <ProgressAssemblyTable
               rows={zoneRows ?? []}
-              matchedAssemblyIds={new Set(matchByAssembly.keys())}
               selectedAssemblyId={selectedAssemblyId}
-              onSelectRow={setSelectedAssemblyId}
+              autoExpandRequest={autoExpandRequest}
               onViewIn3D={handleViewIn3D}
               onUpdate={handleUpdate}
               onBulkUpdate={handleBulkUpdate}
-              saving={updateMutation.isPending || bulkUpdateMutation.isPending}
+              onDelete={handleDelete}
+              showDeleted={showDeleted}
+              onToggleShowDeleted={() => setShowDeleted(v => !v)}
+              deletedAssemblies={deletedAssemblies}
+              deletedLoading={deletedLoading}
+              onRestore={handleRestore}
+              restoring={restoreMutation.isPending}
+              saving={updateMutation.isPending || bulkUpdateMutation.isPending || deleteMutation.isPending}
               rightPanelView={rightPanelView}
               onSetRightPanelView={setRightPanelView}
             />
@@ -705,6 +753,7 @@ function OverviewPanel({
   positions: ReturnType<typeof useProgressPositions>['data']
   positionBuckets: PositionBucket[]
 }) {
+  const [planTab, setPlanTab] = useState<'fab' | 'erection'>('fab')
   if (!overview) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
@@ -744,17 +793,6 @@ function OverviewPanel({
           content density — Weight/Assemblies/Done are the same "hero
           number" shape, so they group into one row together. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-        <StatCard label="Progress" value="" accent="#C8202A">
-          {/* Four separate phase numbers, deliberately no combined total
-              (spec) — each phase has its own responsible team in the real
-              workflow, a synthetic blend would match nobody's number. */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 4 }}>
-            <PhaseBar label="Fab" pct={total.fab_pct} color={PHASE_META.fabrication.dark} />
-            <PhaseBar label="Pay" pct={total.payment_pct} color={PHASE_META.payment.dark} />
-            <PhaseBar label="Trans" pct={total.load_pct} color={PHASE_META.load.dark} />
-            <PhaseBar label="Erect" pct={total.erect_pct} color={PHASE_META.erection.dark} />
-          </div>
-        </StatCard>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
         <StatCard label="Assemblies" value={total.assembly_count}>
@@ -809,6 +847,44 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
+        <StatCard label="" value="" accent="#C8202A">
+          {/* Fab/Erection only — Payment/Transport progress is already
+              visible elsewhere on this page (the isolate-by-status pills
+              under the 3D panel, and the F/M/T/E columns in the zone table
+              below), so this card is scoped to the two phases that actually
+              have a plan-date field to compare against (see PlanDateTable).
+              One tab at a time instead of stacking both tables — same
+              segmented-pill style as the Zone/Position toggle below. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{
+                display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark,
+              }} />
+              <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
+              {(['fab', 'erection'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setPlanTab(t)}
+                  style={{
+                    font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
+                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+          </div>
+        </StatCard>
       </div>
 
       {/* flex:1 — the card's white background stretches to fill whatever
@@ -867,7 +943,7 @@ function OverviewPanel({
                 </tr>
               </thead>
               <tbody>
-                {overview.zones.map(z => {
+                {overview.zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
                   // No BOM uploaded for this zone yet — mute the row so the eye
                   // goes to zones that actually have work in them, instead of
                   // filtering it out entirely (still a real zone, just empty).
@@ -881,7 +957,9 @@ function OverviewPanel({
                       onClick={() => !empty && onToggleGroup({ type: 'zone', id: z.zone_id })}
                       style={{ cursor: empty ? 'default' : 'pointer', background: active ? '#FCEBEB' : undefined }}
                     >
-                      <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>{z.zone_label}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: empty ? '#C2C2C2' : '#1A1A1A' }}>
+                        {z.zone_label}
+                      </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
                       <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
                         F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
@@ -1013,7 +1091,9 @@ function StatCard({ label, value, accent, children }: {
 }) {
   return (
     <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '16px 18px' }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      {label !== '' && (
+        <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+      )}
       {value !== '' && (
         <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 26, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 9 }}>{value}</div>
       )}
@@ -1022,18 +1102,52 @@ function StatCard({ label, value, accent, children }: {
   )
 }
 
-// Labeled mini progress bar — one per phase in the Overview "Progress" card.
-function PhaseBar({ label, pct, color }: { label: string; pct: number; color: string }) {
+// Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
+// replaces what used to be a single percent bar for these two phases. A
+// percent can't show plan-vs-actual meaningfully once assemblies/zones each
+// plan their own date (see PlanDateBucket's comment on the backend); a
+// per-date breakdown table sidesteps that by never averaging across dates
+// at all — every distinct plan date gets its own row.
+function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
+  const th: React.CSSProperties = {
+    textAlign: 'right', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.03em', color: '#ABABAB', padding: '4px 8px', whiteSpace: 'nowrap',
+    borderBottom: '1px solid #E0E0E0',
+  }
+  const td: React.CSSProperties = {
+    textAlign: 'right', padding: '5px 8px', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
+    borderBottom: '1px solid #F3F3F3',
+  }
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
-      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', width: 40, flexShrink: 0, textTransform: 'uppercase', letterSpacing: '0.03em' }}>{label}</span>
-      <div style={{ flex: 1, height: 8, borderRadius: 99, background: '#EDEFF2', overflow: 'hidden' }}>
-        <div style={{ width: `${Math.min(100, pct)}%`, height: '100%', background: color, borderRadius: 99 }} />
-      </div>
-      <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, width: 40, textAlign: 'right', flexShrink: 0 }}>
-        {pct.toFixed(0)}%
-      </b>
+    <div>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
+      ) : (
+        <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Plan Date</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Total</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Not Started</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>On Time</th>
+                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Delay</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.date}>
+                  <td style={{ ...td, textAlign: 'left', color: '#1A1A1A', fontWeight: 600 }}>{formatDate(r.date)}</td>
+                  <td style={td}>{r.total}</td>
+                  <td style={{ ...td, color: '#ABABAB' }}>{r.not_started}</td>
+                  <td style={{ ...td, color: '#1A7A3D' }}>{r.on_time}</td>
+                  <td style={{ ...td, color: r.delay > 0 ? '#C8202A' : '#ABABAB', fontWeight: r.delay > 0 ? 700 : 400 }}>{r.delay}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

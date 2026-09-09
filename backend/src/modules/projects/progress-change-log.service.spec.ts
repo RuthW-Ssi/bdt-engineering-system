@@ -42,12 +42,6 @@ describe('ProgressChangeLogService.computeDiff', () => {
     expect(svc.computeDiff(current, { plan_load_date: new Date('2026-07-01') })).toEqual([])
   })
 
-  it('Prisma Decimal-like values normalize via Number() for weight fields', () => {
-    const decimalLike = { toString: () => '12.500', valueOf: () => 12.5 }
-    expect(svc.computeDiff({ claimed_weight_kg: decimalLike }, { claimed_weight_kg: 12.5 })).toEqual([])
-    expect(svc.computeDiff({ claimed_weight_kg: decimalLike }, { claimed_weight_kg: 20 })).toEqual([{ field: 'claimed_weight_kg', old: 12.5, new: 20 }])
-  })
-
   it('multiple changed fields all appear, unchanged fields do not', () => {
     const diff = svc.computeDiff({ cut: 50, buildup: 10, payment_status: 'Not Disbursed' }, { cut: 80, buildup: 10, payment_status: 'Paid' })
     expect(diff).toEqual([
@@ -108,17 +102,11 @@ describe('ProgressChangeLogService.coerceForWrite', () => {
   it('parses each field kind back to its typed value', () => {
     expect(svc.coerceForWrite('cut', '80')).toBe(80)
     expect(svc.coerceForWrite('loaded_pcs', '4')).toBe(4)
-    expect(svc.coerceForWrite('claimed_weight_kg', '12.5')).toBe(12.5)
     expect(svc.coerceForWrite('payment_status', 'Paid')).toBe('Paid')
     expect(svc.coerceForWrite('plan_load_date', '2026-07-01')).toEqual(new Date('2026-07-01'))
   })
 
   it('null stored value stays null (clears the field on rollback)', () => {
-    expect(svc.coerceForWrite('claimed_weight_kg', null)).toBeNull()
     expect(svc.coerceForWrite('plan_load_date', null)).toBeNull()
-  })
-
-  it('claimed_weight_kg floors at zero via nonNegDecimal, same as any other write path', () => {
-    expect(svc.coerceForWrite('claimed_weight_kg', '-5')).toBe(0)
   })
 })

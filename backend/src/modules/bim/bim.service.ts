@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { ApsClientService } from '../aps/aps-client.service'
 import { BimBackupService } from './bim-backup.service'
 import { extractElement, type ExtractedElement } from './property-extractor'
+import { ProgressPlaceholderService } from '../projects/project-progress-placeholder.service'
 
 export interface BimStatusResult {
   id: number
@@ -18,6 +19,7 @@ export class BimService {
     private readonly prisma: PrismaService,
     private readonly aps: ApsClientService,
     private readonly backup: BimBackupService,
+    private readonly placeholder: ProgressPlaceholderService,
   ) {}
 
   list(filter?: { projectId?: number }) {
@@ -162,6 +164,18 @@ export class BimService {
           data: { translation_status: 'failed', translation_error: err instanceof Error ? err.message : 'Element extraction failed' },
         })
         throw err
+      }
+      // BIM-first progress entry (2026-09) — best-effort: a placeholder-sync
+      // failure must not fail an otherwise-successful BIM upload. Mirrors
+      // the WO BOM-Version Hold best-effort pattern in BomUploadService.upload().
+      try {
+        await this.placeholder.syncFromBim(model.project_id, model.id, model.create_uid)
+      } catch (err) {
+        // No dedicated logger field exists on this class yet at this line —
+        // reuse the console the rest of this module falls back to for
+        // non-fatal paths (see BimBackupService for the established pattern
+        // of swallow-and-log for a fire-and-forget side effect).
+        console.error(`Placeholder sync failed for BIM model ${model.id}:`, err)
       }
       await this.prisma.bim_model.update({
         where: { id: model.id },

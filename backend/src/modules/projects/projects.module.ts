@@ -4,6 +4,7 @@ import { ProjectProgressService } from './project-progress.service'
 import { ProgressChangeLogService } from './progress-change-log.service'
 import { ProgressExportService } from './progress-export.service'
 import { ProgressHistoryService } from './progress-history.service'
+import { ProgressPlaceholderService } from './project-progress-placeholder.service'
 import { ProjectsController } from './projects.controller'
 import { MailModule } from '../mail/mail.module'
 
@@ -12,8 +13,8 @@ import { MailModule } from '../mail/mail.module'
   controllers: [ProjectsController],
   providers: [
     ProjectsService, ProjectProgressService, ProgressChangeLogService,
-    ProgressExportService, ProgressHistoryService,
+    ProgressExportService, ProgressHistoryService, ProgressPlaceholderService,
   ],
-  exports: [ProjectsService],
+  exports: [ProjectsService, ProgressPlaceholderService],
 })
 export class ProjectsModule {}
