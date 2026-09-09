@@ -54,7 +54,7 @@ function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
 // styles (not Tailwind) so it renders identically in both contexts.
 export function ScheduleTabBody({ schedule }: { schedule: ScheduleProgress }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
       <PhaseBlock label="Fabrication" phase={schedule.fab} />
       <div style={{ borderTop: '1px solid #F0F0F0' }} />
       <PhaseBlock label="Erection" phase={schedule.erection} />
