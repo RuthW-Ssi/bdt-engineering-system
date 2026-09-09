@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Pencil, FileText } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Info, Pencil, FileText } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
@@ -190,26 +190,6 @@ export function ProjectProgress() {
   }, [zoneParam, zones, setSearchParams])
 
   const { data: overview } = useProgressOverview(code)
-
-  // Aggregate delay status across every zone for the compact 3D-viewport
-  // stat overlay (Overview tab only) — worst-first (any overdue zone
-  // dominates the headline dot). Lives here (not inside OverviewPanel,
-  // which used to own both the stats AND this computation) since the
-  // overlay renders in this component's own 3D viewport container.
-  const zoneDelayCounts = useMemo(() => {
-    if (!overview) return { overdueCount: 0, atRiskCount: 0, scheduledCount: 0 }
-    const byId = new Map(zones.map(z => [z.id, z]))
-    let overdueCount = 0, atRiskCount = 0, scheduledCount = 0
-    for (const z of overview.zones) {
-      const meta = byId.get(z.zone_id)
-      const info = computeDelayInfo(meta?.target_start, meta?.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5)
-      if (info === null) continue
-      scheduledCount++
-      if (info.status === 'overdue') overdueCount++
-      else if (info.status === 'at_risk') atRiskCount++
-    }
-    return { overdueCount, atRiskCount, scheduledCount }
-  }, [overview, zones])
 
   // If the active tab is the placeholder zone and it just got fully
   // reconciled (assembly_count drops to 0 — e.g. a real BOM upload landed
@@ -660,51 +640,6 @@ export function ProjectProgress() {
             across the grid via the rightPanelView prop drilled down to it. */}
         <div className="flex flex-col" style={{ gap: 16, minHeight: 0, minWidth: 0 }}>
           <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0, position: 'relative' }}>
-            {/* Total Weight/Assemblies/Done, moved here from the left
-                column (2026-09) — freed real estate the Schedule/Fab/
-                Erection card and Zone table were fighting over, and this
-                is 3D-viewport empty space anyway. Top-right (not top-left,
-                where the selected-mark badge below lives) so the two never
-                collide — this one is always visible on Overview, that one
-                only when something's selected. */}
-            {tab === 'overview' && overview && (
-              <div style={{
-                position: 'absolute', top: 10, right: 10, zIndex: 10,
-                display: 'flex', alignItems: 'center', gap: 14,
-                background: 'rgba(0,0,0,0.7)', color: 'white', borderRadius: 8,
-                padding: '8px 14px',
-              }}>
-                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'rgba(255,255,255,0.6)' }}>Weight</span>
-                  <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontWeight: 700, fontSize: 13 }}>
-                    {(overview.total.total_weight_kg / 1000).toFixed(1)} t
-                  </span>
-                </div>
-                <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.2)', flexShrink: 0 }} />
-                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'rgba(255,255,255,0.6)' }}>Assemblies</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontWeight: 700, fontSize: 13 }}>{overview.total.assembly_count}</span>
-                    {zoneDelayCounts.scheduledCount > 0 && (zoneDelayCounts.overdueCount > 0 || zoneDelayCounts.atRiskCount > 0) && (
-                      <span
-                        title={zoneDelayCounts.overdueCount > 0 ? `${zoneDelayCounts.overdueCount} zone(s) overdue` : `${zoneDelayCounts.atRiskCount} zone(s) at risk`}
-                        style={{
-                          width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                          background: zoneDelayCounts.overdueCount > 0 ? DELAY_STATUS_COLOR.overdue : DELAY_STATUS_COLOR.at_risk,
-                        }}
-                      />
-                    )}
-                  </span>
-                </div>
-                <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.2)', flexShrink: 0 }} />
-                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'rgba(255,255,255,0.6)' }}>Done</span>
-                  <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontWeight: 700, fontSize: 13, color: '#4ADE80' }}>
-                    {overview.total.buckets.done}
-                  </span>
-                </div>
-              </div>
-            )}
             {/* Overview has no per-zone assembly table to select a row in —
                 clicking an element in the 3D view here instead surfaces this
                 floating badge (mark + zone + edit/drawing buttons), mirroring
@@ -914,13 +849,83 @@ function OverviewPanel({
 
   const { total } = overview
 
+  // Aggregate delay status across every zone for the Assemblies card's
+  // summary line — worst-first (any overdue zone dominates the headline).
+  let overdueCount = 0, atRiskCount = 0, scheduledCount = 0
+  for (const z of overview.zones) {
+    const meta = byId.get(z.zone_id)
+    const info = computeDelayInfo(meta?.target_start, meta?.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5)
+    if (info === null) continue
+    scheduledCount++
+    if (info.status === 'overdue') overdueCount++
+    else if (info.status === 'at_risk') atRiskCount++
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Total Weight/Assemblies/Done moved to a compact overlay on the 3D
-          viewport (2026-09) — freed this column up for Schedule/Fab/
-          Erection + the Zone table, which were fighting the old 3-card
-          row for height. See the 3D viewport container in the parent
-          ProjectProgress component for the overlay itself. */}
+      {/* Summary stat cards — quick at-a-glance read before the per-zone
+          breakdown table below; mirrors CuttingPlanDetail's StatCard pattern.
+          Progress gets its own full-width row (4 bars needs more room to
+          breathe than a half-width card gives it) instead of sitting
+          shoulder to shoulder with single-number cards of very different
+          content density — Weight/Assemblies/Done are the same "hero
+          number" shape, so they group into one row together. Moved back
+          here (2026-09) after a brief stint as a 3D-viewport overlay — the
+          overlay collided visually with the model itself. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
+        <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
+        <StatCard label="Assemblies" value={total.assembly_count}>
+          {scheduledCount > 0 && (
+            <div style={{ fontSize: 11.5, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              {overdueCount > 0 && (
+                <span style={{ color: DELAY_STATUS_COLOR.overdue, fontWeight: 600 }}>{overdueCount} {overdueCount === 1 ? 'zone' : 'zones'} overdue</span>
+              )}
+              {overdueCount > 0 && atRiskCount > 0 && <span style={{ color: '#D0D0D0' }}>·</span>}
+              {atRiskCount > 0 && (
+                <span style={{ color: DELAY_STATUS_COLOR.at_risk, fontWeight: 600 }}>{atRiskCount} {atRiskCount === 1 ? 'zone' : 'zones'} at risk</span>
+              )}
+              {overdueCount === 0 && atRiskCount === 0 && (
+                <span style={{ color: DELAY_STATUS_COLOR.on_track, fontWeight: 600 }}>✓ All zones on track</span>
+              )}
+              {/* Native `title` tooltips turned out unreliable here, so this
+                  is a real CSS hover tooltip instead — same group/group-hover
+                  pattern as Sidebar.tsx's collapsed-nav tooltip. */}
+              <span className="group" style={{ position: 'relative', display: 'inline-flex', cursor: 'help', flexShrink: 0 }}>
+                <Info size={12} style={{ color: '#C2C2C2' }} />
+                {/* Left-anchored (not centered) — the scrollable ancestor's
+                    overflowY:auto forces overflowX:auto too (CSS quirk: an
+                    axis set to non-visible flips the other from visible to
+                    auto), which clipped a centered tooltip's left edge. */}
+                <div
+                  className="absolute opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity"
+                  style={{
+                    bottom: '100%', left: 0, marginBottom: 8,
+                    width: 260, background: 'white', color: '#4A4A4A', fontSize: 11, lineHeight: 1.5,
+                    padding: '10px 12px', borderRadius: 8, zIndex: 60, textAlign: 'left', fontWeight: 400,
+                    border: '1px solid #E0E0E0', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                  }}
+                >
+                  <div style={{ marginBottom: 10 }}>
+                    <b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target end date has passed and the zone isn't 100% complete.
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — zone window is still open, but combined progress (Fab + Erection) is more than 15 points behind the % of the window's time already elapsed.
+                  </div>
+                  <div>
+                    <b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — combined progress is keeping pace (or ahead), 100% complete, or the window hasn't started yet.
+                  </div>
+                </div>
+              </span>
+            </div>
+          )}
+        </StatCard>
+        <StatCard label="Done" value={total.buckets.done} accent="#2E9E5F">
+          <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 8, whiteSpace: 'nowrap' }}>
+            <span style={{ ...mono, color: '#4A85C4' }}>{total.buckets.in_progress}</span> in progress ·{' '}
+            <span style={{ ...mono, color: '#ABABAB' }}>{total.buckets.notstart}</span> not started
+          </div>
+        </StatCard>
+      </div>
         <StatCard label="" value="" accent="#C8202A" style={{ flex: '0 0 auto', marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
