@@ -396,7 +396,7 @@ export class ProjectProgressService {
     const zones = await this.prisma.project_zone.findMany({
       where: { project_id: project.id, active: true },
       orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }],
-      select: { id: true, code: true, label: true, is_placeholder: true, target_start: true, target_end: true },
+      select: { id: true, code: true, label: true, is_placeholder: true },
     })
 
     // One query for the whole project, grouped in JS — assembly counts per
@@ -415,13 +415,14 @@ export class ProjectProgressService {
     // PROJECT total must never include BIM-only data the eventual real BOM
     // will supersede (weight_kg/qty are null on placeholder rows anyway,
     // which would otherwise silently understate a mixed total).
-    const total = rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER'))
+    const realAssemblies = assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')
+    const total = rollup(realAssemblies)
     return {
       zones: perZone.map(({ zone, ...agg }) => ({
         zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, is_placeholder: zone.is_placeholder, ...agg,
       })),
       total,
-      schedule_progress: computeScheduleProgress(zones, total.fab_pct, total.erect_pct),
+      schedule_progress: computeScheduleProgress(realAssemblies, total.fab_pct, total.erect_pct),
     }
   }
 
@@ -803,9 +804,9 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
 
 const SCHEDULE_MS_PER_DAY = 86400000
 
-export interface ScheduleProgress {
-  window_start: string | null // YYYY-MM-DD — earliest zone target_start
-  window_end: string | null // YYYY-MM-DD — latest zone target_end
+export interface PhaseSchedule {
+  window_start: string | null // YYYY-MM-DD
+  window_end: string | null
   // Raw day counts behind plan_pct, mirroring the client's own Excel layout
   // ("จำนวนวันในการทำงานทั้งหมด" / "จำนวนวันที่ทำงานมาแล้ว") — both null
   // together with plan_pct when there's no valid window. elapsed_days is
@@ -813,35 +814,35 @@ export interface ScheduleProgress {
   total_days: number | null
   elapsed_days: number | null
   // % of [window_start, window_end] elapsed as of today, clamped 0-100 —
-  // null when there's no valid window (no zone has both dates set, or
-  // end <= start). One number shared by all three phases below: fab and
-  // erection both work inside the same whole-zone window (2026-09 — see
-  // project_zone.target_start/end's schema comment), so a phase-specific
-  // plan% would just repeat this same value three times.
+  // null when there's no valid window (no assembly has this phase's plan
+  // date set, or every set date is identical).
   plan_pct: number | null
-  fab_actual_pct: number
-  erection_actual_pct: number
-  // Flat 50/50 split, not weight_kg-proportional — mirrors the client's own
-  // "Progress Overall" sheet formula: %Fab+Erection = (Fab% × 0.5) + (Erection% × 0.5).
+  actual_pct: number
+}
+
+export interface ScheduleProgress {
+  fab: PhaseSchedule
+  erection: PhaseSchedule
+  // Flat 50/50 split of the two phases' own plan_pct/actual_pct, not
+  // weight_kg-proportional — mirrors the client's own "Progress Overall"
+  // sheet formula: %Fab+Erection = (Fab% × 0.5) + (Erection% × 0.5). Plan
+  // is null unless BOTH phases have a valid window.
+  combined_plan_pct: number | null
   combined_actual_pct: number
 }
 
-// Project-wide schedule position vs actual, feeding the Overview tab's
-// Plan-vs-Actual card. Window comes from project_zone.target_start/end,
-// rolled up across every non-placeholder zone (earliest start, latest end)
-// — the same fields the per-zone delay-detection badge (computeDelayInfo,
-// frontend delayStatus.ts) reads, just aggregated project-wide here instead
-// of per-zone.
-function computeScheduleProgress(
-  zones: { is_placeholder: boolean; target_start: Date | null; target_end: Date | null }[],
-  fabActualPct: number,
-  erectionActualPct: number,
-): ScheduleProgress {
-  const active = zones.filter(z => !z.is_placeholder)
-  const starts = active.map(z => z.target_start).filter((d): d is Date => d != null)
-  const ends = active.map(z => z.target_end).filter((d): d is Date => d != null)
-  const windowStart = starts.length ? new Date(Math.min(...starts.map(d => d.getTime()))) : null
-  const windowEnd = ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : null
+// One phase's schedule window, approximated from the SPREAD of its own
+// per-assembly plan-finish dates (min → max) rather than a true start date
+// — neither fab_plan_finish_date nor erection_plan_finish_date has a
+// matching "start" field on bom_assembly_progress, and backfilling one
+// retroactively for every existing assembly isn't realistic. This mirrors
+// the already-accepted approximation for computePlanBreakdown's own dates:
+// good enough for a schedule-health glance, not a substitute for a real
+// start-date field if the team decides they need one later.
+function computePhaseSchedule(planDates: (Date | null)[], actualPct: number): PhaseSchedule {
+  const valid = planDates.filter((d): d is Date => d != null)
+  const windowStart = valid.length ? new Date(Math.min(...valid.map(d => d.getTime()))) : null
+  const windowEnd = valid.length ? new Date(Math.max(...valid.map(d => d.getTime()))) : null
 
   let planPct: number | null = null
   let totalDays: number | null = null
@@ -861,8 +862,31 @@ function computeScheduleProgress(
     total_days: totalDays,
     elapsed_days: elapsedDays,
     plan_pct: planPct,
-    fab_actual_pct: fabActualPct,
-    erection_actual_pct: erectionActualPct,
+    actual_pct: actualPct,
+  }
+}
+
+// Project-wide schedule position vs actual, feeding the Overview tab's
+// Plan-vs-Actual card. Fab and erection each get their OWN window (see
+// computePhaseSchedule) — they are not the same span in reality (erection
+// starts once enough of fabrication is done), so sharing one window would
+// misrepresent both. project_zone.target_start/end is a DIFFERENT, already
+// whole-zone concept used only by the per-zone delay-detection badge
+// (computeDelayInfo) — deliberately not reused here.
+function computeScheduleProgress(
+  rows: { progress: ProgressFields | null }[],
+  fabActualPct: number,
+  erectionActualPct: number,
+): ScheduleProgress {
+  const fab = computePhaseSchedule(rows.map(r => r.progress?.fab_plan_finish_date ?? null), fabActualPct)
+  const erection = computePhaseSchedule(rows.map(r => r.progress?.erection_plan_finish_date ?? null), erectionActualPct)
+  const combinedPlanPct = fab.plan_pct !== null && erection.plan_pct !== null
+    ? Math.round((fab.plan_pct * 0.5 + erection.plan_pct * 0.5) * 100) / 100
+    : null
+
+  return {
+    fab, erection,
+    combined_plan_pct: combinedPlanPct,
     combined_actual_pct: Math.round((fabActualPct * 0.5 + erectionActualPct * 0.5) * 100) / 100,
   }
 }
