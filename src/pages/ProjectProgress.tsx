@@ -2,15 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Info } from 'lucide-react'
+import { ArrowLeft, ChevronRight, Cuboid as CuboidIcon, Layers, Loader2, Download, History, Calendar, Info, Pencil, FileText } from 'lucide-react'
 import { BimViewport } from '../components/bim/BimViewport'
 import type { BimFocusRequest, BimSelection } from '../components/bim/BimViewport'
 import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTable'
 import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPanel'
+import { ProgressEditModal } from '../components/progress/ProgressEditModal'
+import { ProgressDrawingModal } from '../components/progress/ProgressDrawingModal'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../components/progress/delayStatus'
 import type { DelayInfo } from '../components/progress/delayStatus'
 import { useProject } from '../hooks/useProjects'
+import { usePermission } from '../hooks/usePermission'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
   useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress, useDeletePlaceholderAssembly,
@@ -248,6 +251,13 @@ export function ProjectProgress() {
   // SAME element in the 3D viewer still re-triggers the effect below, since
   // an unchanged primitive id wouldn't count as a dependency change.
   const [autoExpandRequest, setAutoExpandRequest] = useState<{ assemblyId: number } | null>(null)
+  // Overview tab's 3D-click popup — see the floating badge + its two modals
+  // further down. Zone tabs don't need this: their own table row + Drawing
+  // toggle already cover the same actions.
+  const [overviewEditOpen, setOverviewEditOpen] = useState(false)
+  const [overviewDrawingOpen, setOverviewDrawingOpen] = useState(false)
+  const canUpdateProgress = usePermission('project-tracking', 'update')
+  const selectedOverviewRow = tab === 'overview' ? (activeRows ?? []).find(r => r.assembly_id === selectedAssemblyId) : undefined
 
   const matchByAssembly = useMemo(
     () => new Map((activeBimMatch?.matches ?? []).map(m => [m.assembly_id, m])),
@@ -461,6 +471,7 @@ export function ProjectProgress() {
   }
 
   return (
+    <>
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
       {/* ── Header — matches BimViewer's page-chrome convention exactly ── */}
       <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
@@ -627,7 +638,56 @@ export function ProjectProgress() {
             own header (next to the search box) — it controls this panel from
             across the grid via the rightPanelView prop drilled down to it. */}
         <div className="flex flex-col" style={{ gap: 16, minHeight: 0, minWidth: 0 }}>
-          <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0 }}>
+          <div style={{ borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, minWidth: 0, position: 'relative' }}>
+            {/* Overview has no per-zone assembly table to select a row in —
+                clicking an element in the 3D view here instead surfaces this
+                floating badge (mark + zone + edit/drawing buttons), mirroring
+                mobile's MobileBimCard overlay. A zone tab already gets the
+                same actions for free via its own table row + Drawing toggle,
+                so this only shows on Overview. */}
+            {tab === 'overview' && selectedOverviewRow && (
+              <div style={{
+                position: 'absolute', top: 10, left: 10, zIndex: 10,
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: 'rgba(0,0,0,0.7)', color: 'white', borderRadius: 8,
+                padding: '6px 6px 6px 12px',
+              }}>
+                <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3 }}>
+                  <span style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontWeight: 700, fontSize: 12.5 }}>
+                    {selectedOverviewRow.mark}
+                  </span>
+                  {selectedOverviewRow.zone_label && (
+                    <span style={{ fontSize: 10.5, color: 'rgba(255,255,255,0.7)' }}>{selectedOverviewRow.zone_label}</span>
+                  )}
+                </div>
+                {canUpdateProgress && (
+                  <button
+                    onClick={() => setOverviewEditOpen(true)}
+                    title="Update progress"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 26, height: 26, borderRadius: 6, border: 'none', cursor: 'pointer',
+                      background: 'rgba(255,255,255,0.15)', color: 'white',
+                    }}
+                  >
+                    <Pencil size={13} />
+                  </button>
+                )}
+                {selectedOverviewRow.zone_id != null && (
+                  <button
+                    onClick={() => setOverviewDrawingOpen(true)}
+                    title="Show drawing"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      width: 26, height: 26, borderRadius: 6, border: 'none', cursor: 'pointer',
+                      background: 'rgba(255,255,255,0.15)', color: 'white',
+                    }}
+                  >
+                    <FileText size={13} />
+                  </button>
+                )}
+              </div>
+            )}
             {showDrawingPanel ? (
               <ProgressDrawingPanel
                 key={selectedAssemblyId ?? 'none'}
@@ -708,6 +768,23 @@ export function ProjectProgress() {
           </div>
         </div>
       </div>
+
+      {overviewEditOpen && selectedOverviewRow && (
+        <ProgressEditModal
+          row={selectedOverviewRow}
+          saving={updateMutation.isPending}
+          onUpdate={handleUpdate}
+          onClose={() => setOverviewEditOpen(false)}
+        />
+      )}
+      {overviewDrawingOpen && selectedOverviewRow && selectedOverviewRow.zone_id != null && (
+        <ProgressDrawingModal
+          zoneId={selectedOverviewRow.zone_id}
+          mark={selectedOverviewRow.mark}
+          onClose={() => setOverviewDrawingOpen(false)}
+        />
+      )}
+    </>
   )
 }
 
