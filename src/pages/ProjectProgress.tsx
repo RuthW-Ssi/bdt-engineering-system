@@ -845,6 +845,8 @@ function OverviewPanel({
   }
   const tdStyle: React.CSSProperties = { padding: '15px 14px', borderBottom: '1px solid #EDEFF2' }
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
+  const statLabel: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }
+  const statValue: React.CSSProperties = { ...mono, fontSize: 18, fontWeight: 700, color: '#1A1A1A', lineHeight: 1, marginTop: 4 }
   const byId = new Map(zones.map(z => [z.id, z]))
 
   const { total } = overview
@@ -863,20 +865,24 @@ function OverviewPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Summary stat cards — quick at-a-glance read before the per-zone
-          breakdown table below; mirrors CuttingPlanDetail's StatCard pattern.
-          Progress gets its own full-width row (4 bars needs more room to
-          breathe than a half-width card gives it) instead of sitting
-          shoulder to shoulder with single-number cards of very different
-          content density — Weight/Assemblies/Done are the same "hero
-          number" shape, so they group into one row together. Moved back
-          here (2026-09) after a brief stint as a 3D-viewport overlay — the
-          overlay collided visually with the model itself. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
-        <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
-        <StatCard label="Assemblies" value={total.assembly_count}>
+      {/* Summary stats — one shared card with 3 divided sections instead of
+          3 separate bordered cards (2026-09): 3 cards meant 3× the border +
+          padding overhead for the same 3 numbers, which read as wasted
+          space once this row's job is just a quick glance, not a set of
+          independently-emphasized metrics. Moved back here after a brief
+          stint as a 3D-viewport overlay — the overlay collided visually
+          with the model itself. */}
+      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '10px 16px', display: 'flex', alignItems: 'stretch', gap: 16, marginBottom: 12, flexShrink: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={statLabel}>Total Weight</div>
+          <div style={statValue}>{(total.total_weight_kg / 1000).toFixed(1)} t</div>
+        </div>
+        <div style={{ width: 1, background: '#EDEFF2', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={statLabel}>Assemblies</div>
+          <div style={statValue}>{total.assembly_count}</div>
           {scheduledCount > 0 && (
-            <div style={{ fontSize: 11.5, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
               {overdueCount > 0 && (
                 <span style={{ color: DELAY_STATUS_COLOR.overdue, fontWeight: 600 }}>{overdueCount} {overdueCount === 1 ? 'zone' : 'zones'} overdue</span>
               )}
@@ -918,13 +924,16 @@ function OverviewPanel({
               </span>
             </div>
           )}
-        </StatCard>
-        <StatCard label="Done" value={total.buckets.done} accent="#2E9E5F">
-          <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 8, whiteSpace: 'nowrap' }}>
+        </div>
+        <div style={{ width: 1, background: '#EDEFF2', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={statLabel}>Done</div>
+          <div style={{ ...statValue, color: '#2E9E5F' }}>{total.buckets.done}</div>
+          <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 4, whiteSpace: 'nowrap' }}>
             <span style={{ ...mono, color: '#4A85C4' }}>{total.buckets.in_progress}</span> in progress ·{' '}
             <span style={{ ...mono, color: '#ABABAB' }}>{total.buckets.notstart}</span> not started
           </div>
-        </StatCard>
+        </div>
       </div>
         <StatCard label="" value="" accent="#C8202A" style={{ flex: '0 0 auto', marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
@@ -1190,12 +1199,12 @@ function StatCard({ label, value, accent, children, style }: {
   style?: React.CSSProperties
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '12px 16px', ...style }}>
+    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '9px 14px', ...style }}>
       {label !== '' && (
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       )}
       {value !== '' && (
-        <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 22, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 6 }}>{value}</div>
+        <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 18, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 4 }}>{value}</div>
       )}
       {children}
     </div>
