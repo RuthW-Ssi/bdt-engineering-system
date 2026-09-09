@@ -845,8 +845,6 @@ function OverviewPanel({
   }
   const tdStyle: React.CSSProperties = { padding: '15px 14px', borderBottom: '1px solid #EDEFF2' }
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
-  const statLabel: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }
-  const statValue: React.CSSProperties = { ...mono, fontSize: 18, fontWeight: 700, color: '#1A1A1A', lineHeight: 1, marginTop: 4 }
   const byId = new Map(zones.map(z => [z.id, z]))
 
   const { total } = overview
@@ -865,22 +863,15 @@ function OverviewPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Summary stats — one shared card with 3 divided sections instead of
-          3 separate bordered cards (2026-09): 3 cards meant 3× the border +
-          padding overhead for the same 3 numbers, which read as wasted
-          space once this row's job is just a quick glance, not a set of
-          independently-emphasized metrics. Moved back here after a brief
-          stint as a 3D-viewport overlay — the overlay collided visually
-          with the model itself. */}
-      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '10px 16px', display: 'flex', alignItems: 'stretch', gap: 16, marginBottom: 12, flexShrink: 0 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={statLabel}>Total Weight</div>
-          <div style={statValue}>{(total.total_weight_kg / 1000).toFixed(1)} t</div>
-        </div>
-        <div style={{ width: 1, background: '#EDEFF2', flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={statLabel}>Assemblies</div>
-          <div style={statValue}>{total.assembly_count}</div>
+      {/* Summary stat cards — 3 separate bordered cards, back to this
+          (2026-09) after a brief stint as one shared-border card — kept
+          the compact padding/font from that round, just split the border
+          back into 3. Moved back here after also briefly living as a
+          3D-viewport overlay — the overlay collided visually with the
+          model itself. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
+        <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
+        <StatCard label="Assemblies" value={total.assembly_count}>
           {scheduledCount > 0 && (
             <div style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
               {overdueCount > 0 && (
@@ -924,16 +915,13 @@ function OverviewPanel({
               </span>
             </div>
           )}
-        </div>
-        <div style={{ width: 1, background: '#EDEFF2', flexShrink: 0 }} />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={statLabel}>Done</div>
-          <div style={{ ...statValue, color: '#2E9E5F' }}>{total.buckets.done}</div>
+        </StatCard>
+        <StatCard label="Done" value={total.buckets.done} accent="#2E9E5F">
           <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 4, whiteSpace: 'nowrap' }}>
             <span style={{ ...mono, color: '#4A85C4' }}>{total.buckets.in_progress}</span> in progress ·{' '}
             <span style={{ ...mono, color: '#ABABAB' }}>{total.buckets.notstart}</span> not started
           </div>
-        </div>
+        </StatCard>
       </div>
         <StatCard label="" value="" accent="#C8202A" style={{ flex: '0 0 auto', marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
@@ -971,7 +959,7 @@ function OverviewPanel({
                   onClick={() => setPlanTab(t)}
                   style={{
                     font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                     background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
                   }}
                 >
@@ -991,14 +979,17 @@ function OverviewPanel({
 
       {/* flex:1 — same as the card above, so the two cards split the
           remaining height evenly instead of this one taking whatever's left
-          over from the other's intrinsic content height. minHeight:190
-          (not 0) — enough for the header row + ~2 zone rows to stay
+          over from the other's intrinsic content height. minHeight:150
+          (not 0) — enough for the header row + a full zone row to stay
           visible: on a short viewport the Schedule card's own min-height:
           auto floor was squeezing this one down to almost nothing, making
-          the zone table look empty even with real zones in it. The inner
-          scroll wrapper below still has its own minHeight:0 so a project
-          with many zones scrolls THERE, not by growing this card. */}
-      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 190, display: 'flex', flexDirection: 'column' }}>
+          the zone table look empty even with real zones in it. Kept
+          smaller than the original 190 so both cards' floors together
+          still fit inside common laptop viewport heights without forcing
+          the whole panel to scroll. The inner scroll wrapper below still
+          has its own minHeight:0 so a project with many zones scrolls
+          THERE, not by growing this card. */}
+      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 150, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #EDEFF2', flexShrink: 0 }}>
           {/* Group-by-axis — Position view only. Re-slices the same
               (position, mark) data by X grid / Y grid / Elevation instead
@@ -1011,7 +1002,7 @@ function OverviewPanel({
                   onClick={() => onSetPositionAxis(a)}
                   style={{
                     font: 'inherit', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em',
-                    padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                     background: positionAxis === a ? '#1A1A1A' : 'transparent', color: positionAxis === a ? 'white' : '#8E8E8E',
                   }}
                 >
@@ -1027,7 +1018,7 @@ function OverviewPanel({
                 onClick={() => onSetView(v)}
                 style={{
                   font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                  padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                   background: view === v ? '#C8202A' : 'transparent', color: view === v ? 'white' : '#8E8E8E',
                 }}
               >
