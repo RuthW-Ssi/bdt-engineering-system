@@ -20,7 +20,7 @@ export function MobileDelaySummary({ zones, zoneMeta }: Props) {
   let overdue = 0, atRisk = 0, scheduled = 0
   for (const z of zones) {
     const meta = metaById.get(z.zone_id)
-    const info = meta ? computeDelayInfo(meta.target_erection_start, meta.target_erection_end, z.erect_pct) : null
+    const info = meta ? computeDelayInfo(meta.target_start, meta.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5) : null
     if (!info) continue
     scheduled++
     if (info.status === 'overdue') overdue++
@@ -39,9 +39,9 @@ export function MobileDelaySummary({ zones, zoneMeta }: Props) {
       </div>
       <MobileDelayInfoSheet open={legendOpen} onClose={() => setLegendOpen(false)} title="Schedule status">
         <div className="flex flex-col gap-3 text-[13.5px] leading-relaxed text-chrome-600">
-          <div><b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target erection end date has passed and the zone isn't 100% erected.</div>
-          <div><b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — erection window is still open, but erect % is more than 15 points behind the % of the window's time already elapsed.</div>
-          <div><b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — erect % is keeping pace (or ahead), 100% complete, or the window hasn't started yet.</div>
+          <div><b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target end date has passed and the zone isn't 100% complete.</div>
+          <div><b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — zone window is still open, but combined progress (Fab + Erection) is more than 15 points behind the % of the window's time already elapsed.</div>
+          <div><b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — combined progress is keeping pace (or ahead), 100% complete, or the window hasn't started yet.</div>
         </div>
       </MobileDelayInfoSheet>
       {overdue === 0 && atRisk === 0 ? (

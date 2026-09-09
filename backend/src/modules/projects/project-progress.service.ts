@@ -396,7 +396,7 @@ export class ProjectProgressService {
     const zones = await this.prisma.project_zone.findMany({
       where: { project_id: project.id, active: true },
       orderBy: [{ erection_sequence: 'asc' }, { id: 'asc' }],
-      select: { id: true, code: true, label: true, is_placeholder: true },
+      select: { id: true, code: true, label: true, is_placeholder: true, target_start: true, target_end: true },
     })
 
     // One query for the whole project, grouped in JS — assembly counts per
@@ -410,16 +410,18 @@ export class ProjectProgressService {
       const rows = assemblies.filter(a => a.dispatch.zone_id === z.id)
       return { zone: z, ...rollup(rows) }
     })
+    // BIM-first progress entry (2026-09) — the placeholder zone's own row
+    // above still reports its real (if unweighted) assembly count, but the
+    // PROJECT total must never include BIM-only data the eventual real BOM
+    // will supersede (weight_kg/qty are null on placeholder rows anyway,
+    // which would otherwise silently understate a mixed total).
+    const total = rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER'))
     return {
       zones: perZone.map(({ zone, ...agg }) => ({
         zone_id: zone.id, zone_code: zone.code, zone_label: zone.label, is_placeholder: zone.is_placeholder, ...agg,
       })),
-      // BIM-first progress entry (2026-09) — the placeholder zone's own row
-      // above still reports its real (if unweighted) assembly count, but the
-      // PROJECT total must never include BIM-only data the eventual real BOM
-      // will supersede (weight_kg/qty are null on placeholder rows anyway,
-      // which would otherwise silently understate a mixed total).
-      total: rollup(assemblies.filter(a => a.dispatch.source !== 'BIM_PLACEHOLDER')),
+      total,
+      schedule_progress: computeScheduleProgress(zones, total.fab_pct, total.erect_pct),
     }
   }
 
@@ -796,5 +798,57 @@ function rollup(rows: { weight_kg: unknown; qty: unknown; progress: ProgressFiel
     // gets a project-wide one, automatically, same as every field above.
     fab_plan_breakdown: computePlanBreakdown(rows, 'fab'),
     erection_plan_breakdown: computePlanBreakdown(rows, 'erection'),
+  }
+}
+
+export interface ScheduleProgress {
+  window_start: string | null // YYYY-MM-DD — earliest zone target_start
+  window_end: string | null // YYYY-MM-DD — latest zone target_end
+  // % of [window_start, window_end] elapsed as of today, clamped 0-100 —
+  // null when there's no valid window (no zone has both dates set, or
+  // end <= start). One number shared by all three phases below: fab and
+  // erection both work inside the same whole-zone window (2026-09 — see
+  // project_zone.target_start/end's schema comment), so a phase-specific
+  // plan% would just repeat this same value three times.
+  plan_pct: number | null
+  fab_actual_pct: number
+  erection_actual_pct: number
+  // Flat 50/50 split, not weight_kg-proportional — mirrors the client's own
+  // "Progress Overall" sheet formula: %Fab+Erection = (Fab% × 0.5) + (Erection% × 0.5).
+  combined_actual_pct: number
+}
+
+// Project-wide schedule position vs actual, feeding the Overview tab's
+// Plan-vs-Actual card. Window comes from project_zone.target_start/end,
+// rolled up across every non-placeholder zone (earliest start, latest end)
+// — the same fields the per-zone delay-detection badge (computeDelayInfo,
+// frontend delayStatus.ts) reads, just aggregated project-wide here instead
+// of per-zone.
+function computeScheduleProgress(
+  zones: { is_placeholder: boolean; target_start: Date | null; target_end: Date | null }[],
+  fabActualPct: number,
+  erectionActualPct: number,
+): ScheduleProgress {
+  const active = zones.filter(z => !z.is_placeholder)
+  const starts = active.map(z => z.target_start).filter((d): d is Date => d != null)
+  const ends = active.map(z => z.target_end).filter((d): d is Date => d != null)
+  const windowStart = starts.length ? new Date(Math.min(...starts.map(d => d.getTime()))) : null
+  const windowEnd = ends.length ? new Date(Math.max(...ends.map(d => d.getTime()))) : null
+
+  let planPct: number | null = null
+  if (windowStart && windowEnd && windowEnd.getTime() > windowStart.getTime()) {
+    const today = new Date()
+    const totalMs = windowEnd.getTime() - windowStart.getTime()
+    const elapsedMs = today.getTime() - windowStart.getTime()
+    planPct = Math.round(Math.min(100, Math.max(0, (elapsedMs / totalMs) * 100)) * 100) / 100
+  }
+
+  return {
+    window_start: windowStart ? windowStart.toISOString().slice(0, 10) : null,
+    window_end: windowEnd ? windowEnd.toISOString().slice(0, 10) : null,
+    plan_pct: planPct,
+    fab_actual_pct: fabActualPct,
+    erection_actual_pct: erectionActualPct,
+    combined_actual_pct: Math.round((fabActualPct * 0.5 + erectionActualPct * 0.5) * 100) / 100,
   }
 }

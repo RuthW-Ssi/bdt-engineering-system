@@ -9,6 +9,7 @@ import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTa
 import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPanel'
 import { ProgressEditModal } from '../components/progress/ProgressEditModal'
 import { ProgressDrawingModal } from '../components/progress/ProgressDrawingModal'
+import { SchedulePlanVsActualCard } from '../components/progress/SchedulePlanVsActualCard'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../components/progress/delayStatus'
 import type { DelayInfo } from '../components/progress/delayStatus'
@@ -853,7 +854,7 @@ function OverviewPanel({
   let overdueCount = 0, atRiskCount = 0, scheduledCount = 0
   for (const z of overview.zones) {
     const meta = byId.get(z.zone_id)
-    const info = computeDelayInfo(meta?.target_erection_start, meta?.target_erection_end, z.erect_pct)
+    const info = computeDelayInfo(meta?.target_start, meta?.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5)
     if (info === null) continue
     scheduledCount++
     if (info.status === 'overdue') overdueCount++
@@ -904,13 +905,13 @@ function OverviewPanel({
                   }}
                 >
                   <div style={{ marginBottom: 10 }}>
-                    <b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target erection end date has passed and the zone isn't 100% erected.
+                    <b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target end date has passed and the zone isn't 100% complete.
                   </div>
                   <div style={{ marginBottom: 10 }}>
-                    <b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — erection window is still open, but erect % is more than 15 points behind the % of the window's time already elapsed.
+                    <b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — zone window is still open, but combined progress (Fab + Erection) is more than 15 points behind the % of the window's time already elapsed.
                   </div>
                   <div>
-                    <b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — erect % is keeping pace (or ahead), 100% complete, or the window hasn't started yet.
+                    <b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — combined progress is keeping pace (or ahead), 100% complete, or the window hasn't started yet.
                   </div>
                 </div>
               </span>
@@ -962,6 +963,7 @@ function OverviewPanel({
             <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
           </div>
         </StatCard>
+        <SchedulePlanVsActualCard schedule={overview.schedule_progress} />
       </div>
 
       {/* flex:1 — the card's white background stretches to fill whatever
@@ -1027,7 +1029,7 @@ function OverviewPanel({
                   const empty = z.assembly_count === 0
                   const active = activeGroup?.type === 'zone' && activeGroup.id === z.zone_id
                   const zoneMeta = byId.get(z.zone_id)
-                  const delayInfo = computeDelayInfo(zoneMeta?.target_erection_start, zoneMeta?.target_erection_end, z.erect_pct)
+                  const delayInfo = computeDelayInfo(zoneMeta?.target_start, zoneMeta?.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5)
                   return (
                     <tr
                       key={z.zone_id}
@@ -1045,7 +1047,7 @@ function OverviewPanel({
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {delayInfo && <DelayDot info={delayInfo} />}
                           <span style={{ fontWeight: delayInfo?.status === 'overdue' ? 700 : 400 }}>
-                            {formatDate(zoneMeta?.target_erection_start ?? null)} → {formatDate(zoneMeta?.target_erection_end ?? null)}
+                            {formatDate(zoneMeta?.target_start ?? null)} → {formatDate(zoneMeta?.target_end ?? null)}
                           </span>
                         </div>
                       </td>

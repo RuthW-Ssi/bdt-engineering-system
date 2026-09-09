@@ -310,6 +310,70 @@ describe('getOverview rollup', () => {
     expect(result.total.fab_plan_breakdown).toEqual([{ date: '2020-01-01', total: 3, not_started: 3, on_time: 0, delay: 0 }])
   })
 
+  describe('schedule_progress — project-wide Plan-vs-Actual window', () => {
+    it('no zone has target_start/target_end set → plan_pct/window null, actual pcts still computed', async () => {
+      const rows = [
+        { weight_kg: 1, qty: 1, progress: { ...EMPTY, cut: 100, buildup: 100, weld1: 100, fitup_drill: 100, weld2: 100, qc_inspection: 100, primer: 100, fireproof: 100, top_coat: 100, qc_final: 100, erected_pcs: 1 }, dispatch: { zone_id: 10 } },
+      ]
+      const result = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A', target_start: null, target_end: null }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+      })).getOverview('0X220')
+
+      expect(result.schedule_progress.window_start).toBeNull()
+      expect(result.schedule_progress.window_end).toBeNull()
+      expect(result.schedule_progress.plan_pct).toBeNull()
+      expect(result.schedule_progress.fab_actual_pct).toBe(result.total.fab_pct)
+      expect(result.schedule_progress.erection_actual_pct).toBe(result.total.erect_pct)
+    })
+
+    it('window entirely in the past clamps plan_pct to 100; entirely in the future clamps to 0', async () => {
+      const pastWindow = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A', target_start: new Date('2020-01-01'), target_end: new Date('2020-06-01') }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+      })).getOverview('0X220')
+      expect(pastWindow.schedule_progress.plan_pct).toBe(100)
+
+      const futureWindow = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A', target_start: new Date('2099-01-01'), target_end: new Date('2099-06-01') }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+      })).getOverview('0X220')
+      expect(futureWindow.schedule_progress.plan_pct).toBe(0)
+    })
+
+    it('window rolls up earliest target_start / latest target_end across zones, excluding the placeholder zone', async () => {
+      const result = await new ProjectProgressService(makePrisma({
+        project_zone: {
+          findMany: jest.fn().mockResolvedValue([
+            { id: 10, code: 'ZA', label: 'Zone-A', is_placeholder: false, target_start: new Date('2020-03-01'), target_end: new Date('2020-06-01') },
+            { id: 20, code: 'ZB', label: 'Zone-B', is_placeholder: false, target_start: new Date('2020-01-01'), target_end: new Date('2020-04-01') },
+            // Placeholder zone's dates (if it somehow had any) must never widen the real window
+            { id: 30, code: 'PENDING', label: 'Pending BOM', is_placeholder: true, target_start: new Date('2019-01-01'), target_end: new Date('2099-01-01') },
+          ]),
+        },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+      })).getOverview('0X220')
+
+      expect(result.schedule_progress.window_start).toBe('2020-01-01') // min across zones 10+20
+      expect(result.schedule_progress.window_end).toBe('2020-06-01') // max across zones 10+20
+    })
+
+    it('combined_actual_pct is a flat 50/50 split of fab_pct and erect_pct', async () => {
+      const rows = [
+        // fab 40% (cut+buildup+weld1 = 10+10+15=35, plus fitup 50%*10=5 → 40), qty 4 erected 2 → erect_pct 50
+        { weight_kg: 1, qty: 4, progress: { ...EMPTY, cut: 100, buildup: 100, weld1: 100, fitup_drill: 50, erected_pcs: 2 }, dispatch: { zone_id: 10 } },
+      ]
+      const result = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+      })).getOverview('0X220')
+
+      expect(result.total.fab_pct).toBe(40)
+      expect(result.total.erect_pct).toBe(50)
+      expect(result.schedule_progress.combined_actual_pct).toBe(45) // (40*0.5)+(50*0.5)
+    })
+  })
+
   describe('getOverview — placeholder zone exclusion', () => {
     it('includes the placeholder zone in zones[] (tagged is_placeholder) but excludes its assemblies from total', async () => {
       const prisma = makePrisma({

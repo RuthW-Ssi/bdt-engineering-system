@@ -14,7 +14,7 @@ export interface AssemblyPickerItem {
   zone: string | null
   sub_zone: string | null
   project_due_date: string | null    // project.target_handover as YYYY-MM-DD
-  zone_end_date: string | null       // project_zone.target_erection_end as YYYY-MM-DD
+  zone_end_date: string | null       // project_zone.target_end as YYYY-MM-DD
   sub_zone_due_date: string | null  // sub_zone.due_date as YYYY-MM-DD
   bom_version: string // "revision.minor" label from BomDiffService.computeVersionLabels()
   total: number
@@ -79,7 +79,7 @@ export class BomAssembliesService {
         zone: a.dispatch.zone?.label ?? null,
         sub_zone: a.dispatch.sub_zone?.name ?? null,
         project_due_date: a.dispatch.project?.target_handover?.toISOString().slice(0, 10) ?? null,
-        zone_end_date: a.dispatch.zone?.target_erection_end?.toISOString().slice(0, 10) ?? null,
+        zone_end_date: a.dispatch.zone?.target_end?.toISOString().slice(0, 10) ?? null,
         sub_zone_due_date: a.dispatch.sub_zone?.due_date?.toISOString().slice(0, 10) ?? null,
         bom_version: versionLabelById.get(a.dispatch_id) ?? '1.0',
         total,

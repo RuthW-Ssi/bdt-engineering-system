@@ -49,7 +49,7 @@ export function MobileAssemblyList() {
   const zoneRollup = overview?.zones.find(z => z.zone_id === zoneIdNum)
   const zoneDetail = projectZones?.find(z => z.id === zoneIdNum)
   const zoneDelayInfo = zoneDetail && zoneRollup
-    ? computeDelayInfo(zoneDetail.target_erection_start, zoneDetail.target_erection_end, zoneRollup.erect_pct)
+    ? computeDelayInfo(zoneDetail.target_start, zoneDetail.target_end, zoneRollup.fab_pct * 0.5 + zoneRollup.erect_pct * 0.5)
     : null
 
   const rows = (data ?? []).filter(r => !q.trim() || r.mark.toLowerCase().includes(q.trim().toLowerCase()))
@@ -82,8 +82,8 @@ export function MobileAssemblyList() {
           {zoneDetail && (
             <MobileDateRangeCard
               title={`${zoneDetail.code} - ${zoneDetail.label}`}
-              start={zoneDetail.target_erection_start}
-              end={zoneDetail.target_erection_end}
+              start={zoneDetail.target_start}
+              end={zoneDetail.target_end}
             />
           )}
           {zoneDelayInfo && (

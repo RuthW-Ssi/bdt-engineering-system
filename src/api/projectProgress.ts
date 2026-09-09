@@ -110,9 +110,24 @@ export interface ProgressZoneRollup extends ProgressRollupTotals {
   is_placeholder: boolean
 }
 
+// Project-wide schedule position vs actual — the Overview tab's Plan-vs-
+// Actual card. plan_pct is ONE number shared by all three phases below
+// (fab and erection both work inside the same whole-zone window — see
+// project_zone.target_start/end), not a phase-specific value; null when no
+// zone has a usable [target_start, target_end] window.
+export interface ScheduleProgress {
+  window_start: string | null // YYYY-MM-DD
+  window_end: string | null
+  plan_pct: number | null
+  fab_actual_pct: number
+  erection_actual_pct: number
+  combined_actual_pct: number
+}
+
 export interface ProgressOverview {
   zones: ProgressZoneRollup[]
   total: ProgressRollupTotals
+  schedule_progress: ScheduleProgress
 }
 
 // Alternate Overview grouping (Zone | Position toggle) — by BIM structural

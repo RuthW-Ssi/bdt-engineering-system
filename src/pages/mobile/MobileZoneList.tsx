@@ -7,6 +7,7 @@ import { useProjectZones } from '../../hooks/useProjectZones'
 import { MobileHeader } from '../../components/mobile/MobileHeader'
 import { MobileDateRangeCard } from '../../components/mobile/MobileDateRangeCard'
 import { MobileProgressStatCards } from '../../components/mobile/MobileProgressStatCards'
+import { SchedulePlanVsActualCard } from '../../components/progress/SchedulePlanVsActualCard'
 import { MobileDelaySummary } from '../../components/mobile/MobileDelaySummary'
 import { MobileDelayFormulaSheet } from '../../components/mobile/MobileDelayFormulaSheet'
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
@@ -64,6 +65,7 @@ export function MobileZoneList() {
             />
           )}
           {total && <MobileProgressStatCards total={total} />}
+          {data?.schedule_progress && <SchedulePlanVsActualCard schedule={data.schedule_progress} />}
           {projectZones && <MobileDelaySummary zones={zones} zoneMeta={projectZones} />}
         </div>
 
@@ -95,7 +97,7 @@ export function MobileZoneList() {
           )}
           {zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
             const meta = zoneMetaById.get(z.zone_id)
-            const delayInfo = meta ? computeDelayInfo(meta.target_erection_start, meta.target_erection_end, z.erect_pct) : null
+            const delayInfo = meta ? computeDelayInfo(meta.target_start, meta.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5) : null
             return (
               <button
                 key={z.zone_id}
@@ -110,7 +112,7 @@ export function MobileZoneList() {
                     {z.zone_label}
                   </div>
                   <div className="text-xs text-chrome-400 font-mono">{z.zone_code} · {z.assembly_count} pcs · Fab {Math.round(z.fab_pct)}%</div>
-                  {meta?.target_erection_start && meta?.target_erection_end && (
+                  {meta?.target_start && meta?.target_end && (
                     <span
                       onClick={e => {
                         if (!delayInfo) return
@@ -129,7 +131,7 @@ export function MobileZoneList() {
                         />
                       )}
                       <span className={delayInfo ? undefined : 'text-chrome-400'}>
-                        {fmtDate(meta.target_erection_start)} → {fmtDate(meta.target_erection_end)}
+                        {fmtDate(meta.target_start)} → {fmtDate(meta.target_end)}
                       </span>
                       {delayInfo && <InfoIcon size={11} className="flex-shrink-0" style={{ opacity: 0.6 }} />}
                     </span>
