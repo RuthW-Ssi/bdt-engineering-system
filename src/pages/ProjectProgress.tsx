@@ -1002,7 +1002,7 @@ function OverviewPanel({
                   onClick={() => onSetPositionAxis(a)}
                   style={{
                     font: 'inherit', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em',
-                    padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
+                    padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                     background: positionAxis === a ? '#1A1A1A' : 'transparent', color: positionAxis === a ? 'white' : '#8E8E8E',
                   }}
                 >
@@ -1018,7 +1018,7 @@ function OverviewPanel({
                 onClick={() => onSetView(v)}
                 style={{
                   font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                  padding: '7px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
+                  padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                   background: view === v ? '#C8202A' : 'transparent', color: view === v ? 'white' : '#8E8E8E',
                 }}
               >
