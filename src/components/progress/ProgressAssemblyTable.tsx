@@ -281,7 +281,11 @@ export function ProgressAssemblyTable({
       setSearch('')
       return
     }
-    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    // 'start' (not 'center') — a 3D click auto-expands the row's edit panel
+    // (see the autoExpandRequest effect below), which is tall; anchoring the
+    // row itself to the top keeps the newly-revealed fields visible below it
+    // instead of the panel spilling past the bottom of a centered row.
+    rowRefs.current.get(selectedAssemblyId)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }, [selectedAssemblyId, rows, q])
 
   // Three separate footer numbers matching the backend rollup exactly:
