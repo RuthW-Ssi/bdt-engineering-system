@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import type { ProgressRollupTotals, PlanDateBucket } from '../../api/projectProgress'
+import type { ProgressRollupTotals, PlanDateBucket, ScheduleProgress } from '../../api/projectProgress'
 import { PHASE_META } from '../progress/statusMeta'
+import { ScheduleTabBody } from '../progress/SchedulePlanVsActualCard'
 
 // Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
 // same Date/Total/Not Started/On Time/Delay table as desktop's PlanDateTable
@@ -44,8 +45,13 @@ function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
 // erection_plan_breakdown on it are already scoped correctly either way
 // (project-wide vs that one zone) since the backend computes them as part
 // of the same rollup, not as a separate project-wide-only field.
-export function MobileProgressStatCards({ total }: { total: ProgressRollupTotals }) {
-  const [planTab, setPlanTab] = useState<'fab' | 'erection'>('fab')
+//
+// `schedule` is optional and project-wide only (MobileZoneList passes
+// `overview.schedule_progress`; MobileAssemblyList's per-zone call omits
+// it, since a single zone doesn't get its own schedule window) — the
+// Schedule tab only appears when it's present.
+export function MobileProgressStatCards({ total, schedule }: { total: ProgressRollupTotals; schedule?: ScheduleProgress }) {
+  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('fab')
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
@@ -78,14 +84,14 @@ export function MobileProgressStatCards({ total }: { total: ProgressRollupTotals
           <div className="flex items-center gap-2">
             <span
               className="inline-flex w-1.5 h-1.5 rounded-full flex-shrink-0"
-              style={{ background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark }}
+              style={{ background: planTab === 'fab' ? PHASE_META.fabrication.dark : planTab === 'erection' ? PHASE_META.erection.dark : '#8E8E8E' }}
             />
             <span className="text-[10.5px] font-bold uppercase tracking-wide text-chrome-400">
-              {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
+              {planTab === 'fab' ? 'Fab Plan' : planTab === 'erection' ? 'Erection Plan' : 'Schedule'}
             </span>
           </div>
           <div className="flex gap-0.5 bg-chrome-50 border border-chrome-100 rounded-lg p-0.5">
-            {(['fab', 'erection'] as const).map(t => (
+            {(schedule ? (['fab', 'erection', 'schedule'] as const) : (['fab', 'erection'] as const)).map(t => (
               <button
                 key={t}
                 onClick={() => setPlanTab(t)}
@@ -97,7 +103,11 @@ export function MobileProgressStatCards({ total }: { total: ProgressRollupTotals
             ))}
           </div>
         </div>
-        <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+        {planTab === 'schedule' && schedule ? (
+          <ScheduleTabBody schedule={schedule} />
+        ) : (
+          <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+        )}
       </div>
     </>
   )

@@ -9,7 +9,7 @@ import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTa
 import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPanel'
 import { ProgressEditModal } from '../components/progress/ProgressEditModal'
 import { ProgressDrawingModal } from '../components/progress/ProgressDrawingModal'
-import { SchedulePlanVsActualCard } from '../components/progress/SchedulePlanVsActualCard'
+import { ScheduleTabBody } from '../components/progress/SchedulePlanVsActualCard'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../components/progress/delayStatus'
 import type { DelayInfo } from '../components/progress/delayStatus'
@@ -831,7 +831,7 @@ function OverviewPanel({
   positions: ReturnType<typeof useProgressPositions>['data']
   positionBuckets: PositionBucket[]
 }) {
-  const [planTab, setPlanTab] = useState<'fab' | 'erection'>('fab')
+  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('fab')
   if (!overview) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
@@ -926,25 +926,27 @@ function OverviewPanel({
         </StatCard>
       </div>
         <StatCard label="" value="" accent="#C8202A">
-          {/* Fab/Erection only — Payment/Transport progress is already
+          {/* Fab/Erection/Schedule — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
               below), so this card is scoped to the two phases that actually
-              have a plan-date field to compare against (see PlanDateTable).
-              One tab at a time instead of stacking both tables — same
-              segmented-pill style as the Zone/Position toggle below. */}
+              have a plan-date field to compare against (see PlanDateTable),
+              plus the Schedule Plan-vs-Actual view sharing the same tab
+              switcher rather than living in its own separate card below.
+              One tab at a time instead of stacking — same segmented-pill
+              style as the Zone/Position toggle below. */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
                 display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark,
+                background: planTab === 'fab' ? PHASE_META.fabrication.dark : planTab === 'erection' ? PHASE_META.erection.dark : '#8E8E8E',
               }} />
               <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
+                {planTab === 'fab' ? 'Fab Plan' : planTab === 'erection' ? 'Erection Plan' : 'Schedule'}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
-              {(['fab', 'erection'] as const).map(t => (
+              {(['fab', 'erection', 'schedule'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => setPlanTab(t)}
@@ -960,10 +962,13 @@ function OverviewPanel({
             </div>
           </div>
           <div style={{ marginTop: 8 }}>
-            <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+            {planTab === 'schedule' ? (
+              <ScheduleTabBody schedule={overview.schedule_progress} />
+            ) : (
+              <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+            )}
           </div>
         </StatCard>
-        <SchedulePlanVsActualCard schedule={overview.schedule_progress} />
       </div>
 
       {/* flex:1 — the card's white background stretches to fill whatever

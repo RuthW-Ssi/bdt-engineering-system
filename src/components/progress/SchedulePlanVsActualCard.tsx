@@ -58,33 +58,33 @@ function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
 // Plan-vs-actual for Fab and Erection, each against its OWN schedule window
 // (a real project's erection window starts later than fab, not the same
 // span — see computeScheduleProgress's backend comment), plus a Combined
-// row blending both 50/50 (matching the client's own Excel formula). Plain
-// inline styles (not Tailwind) so this renders identically from both
-// desktop (ProjectProgress.tsx) and mobile (MobileProgressStatCards.tsx).
-export function SchedulePlanVsActualCard({ schedule }: { schedule: ScheduleProgress }) {
+// row blending both 50/50 (matching the client's own Excel formula).
+//
+// Bare content only — no card chrome, no own header. Lives as the 3rd tab
+// ("schedule") inside the same Fab/Erection Plan card both desktop
+// (ProjectProgress.tsx) and mobile (MobileProgressStatCards.tsx) already
+// have, rather than its own separate card, so the card's existing dot +
+// label + tab-switcher header is reused instead of duplicated. Plain inline
+// styles (not Tailwind) so it renders identically in both contexts.
+export function ScheduleTabBody({ schedule }: { schedule: ScheduleProgress }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: 16 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#8E8E8E', marginBottom: 10 }}>
-        Schedule — Plan vs Actual
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <PhaseBlock label="Fabrication" phase={schedule.fab} />
-        <div style={{ borderTop: '1px solid #F0F0F0' }} />
-        <PhaseBlock label="Erection" phase={schedule.erection} />
-        <div style={{ borderTop: '1px solid #F0F0F0' }} />
-        <div>
-          <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#ABABAB', marginBottom: 3 }}>
-            Combined
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <PhaseBlock label="Fabrication" phase={schedule.fab} />
+      <div style={{ borderTop: '1px solid #F0F0F0' }} />
+      <PhaseBlock label="Erection" phase={schedule.erection} />
+      <div style={{ borderTop: '1px solid #F0F0F0' }} />
+      <div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#ABABAB', marginBottom: 3 }}>
+          Combined
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
+            {schedule.combined_plan_pct !== null && (
+              <span style={{ color: '#555555' }}>Plan <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_plan_pct.toFixed(0)}%</b></span>
+            )}
+            <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_actual_pct.toFixed(0)}%</b></span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: 12, fontSize: 12.5 }}>
-              {schedule.combined_plan_pct !== null && (
-                <span style={{ color: '#555555' }}>Plan <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_plan_pct.toFixed(0)}%</b></span>
-              )}
-              <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_actual_pct.toFixed(0)}%</b></span>
-            </div>
-            {schedule.combined_plan_pct !== null && <DeltaLabel actual={schedule.combined_actual_pct} plan={schedule.combined_plan_pct} />}
-          </div>
+          {schedule.combined_plan_pct !== null && <DeltaLabel actual={schedule.combined_actual_pct} plan={schedule.combined_plan_pct} />}
         </div>
       </div>
     </div>

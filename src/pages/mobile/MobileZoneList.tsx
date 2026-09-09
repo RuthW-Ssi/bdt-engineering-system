@@ -7,7 +7,6 @@ import { useProjectZones } from '../../hooks/useProjectZones'
 import { MobileHeader } from '../../components/mobile/MobileHeader'
 import { MobileDateRangeCard } from '../../components/mobile/MobileDateRangeCard'
 import { MobileProgressStatCards } from '../../components/mobile/MobileProgressStatCards'
-import { SchedulePlanVsActualCard } from '../../components/progress/SchedulePlanVsActualCard'
 import { MobileDelaySummary } from '../../components/mobile/MobileDelaySummary'
 import { MobileDelayFormulaSheet } from '../../components/mobile/MobileDelayFormulaSheet'
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
@@ -64,8 +63,7 @@ export function MobileZoneList() {
               end={project.target_handover}
             />
           )}
-          {total && <MobileProgressStatCards total={total} />}
-          {data?.schedule_progress && <SchedulePlanVsActualCard schedule={data.schedule_progress} />}
+          {total && <MobileProgressStatCards total={total} schedule={data?.schedule_progress} />}
           {projectZones && <MobileDelaySummary zones={zones} zoneMeta={projectZones} />}
         </div>
 
