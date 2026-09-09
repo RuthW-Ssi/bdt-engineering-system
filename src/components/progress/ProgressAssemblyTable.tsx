@@ -1,10 +1,16 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Search, Pencil, ChevronUp, ChevronDown, X, Trash2, RotateCcw } from 'lucide-react'
-import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, DeletedPlaceholderAssembly, FabStage, PaymentStatus } from '../../api/projectProgress'
+import type { ProgressZoneRow, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, DeletedPlaceholderAssembly, PaymentStatus } from '../../api/projectProgress'
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import { STATUS_META, PHASE_META } from './statusMeta'
 import { usePermission } from '../../hooks/usePermission'
 import { useConfirm } from '../ui/ConfirmDialog'
+import { PctInput, FieldGroup, ProgressEditFields } from './ProgressEditForm'
+import {
+  dateInput, numInput, toInputDate, STAGE_LABEL,
+  DATE_FIELDS, DATE_LABEL, FAB_DATE_FIELDS, FAB_DATE_LABEL, ERECTION_DATE_FIELDS, ERECTION_DATE_LABEL,
+  clampPct, rowToDraft, diffDraft, groupHeader,
+} from './progressEditShared'
 
 interface Props {
   rows: ProgressZoneRow[]
@@ -85,110 +91,7 @@ const th: React.CSSProperties = {
   borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'white',
 }
 const td: React.CSSProperties = { padding: '11px 12px', borderBottom: '1px solid #EDEFF2', verticalAlign: 'middle', whiteSpace: 'nowrap' }
-const dateInput: React.CSSProperties = {
-  font: 'inherit', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
-  color: '#1A1A1A', background: 'white', border: '1px solid #E0E0E0', borderRadius: 6,
-  padding: '5px 7px', boxSizing: 'border-box',
-}
-const numInput: React.CSSProperties = {
-  ...dateInput, width: '100%', textAlign: 'right',
-}
-
-// Fabrication stage inputs are the only plain numbers on this page that
-// aren't self-evidently a unit (dates/pcs read as counts) — a fixed "%"
-// suffix makes clear what's being typed without relying on the field label.
-function PctInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <div style={{ position: 'relative' }}>
-      <input type="number" min={0} max={100} {...props} style={{ ...numInput, paddingRight: 22, ...props.style }} />
-      <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#ABABAB', pointerEvents: 'none' }}>
-        %
-      </span>
-    </div>
-  )
-}
 const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
-
-// Backend @db.Date values arrive as ISO datetimes — <input type="date"> wants YYYY-MM-DD.
-const toInputDate = (v: string | null) => (v ? v.slice(0, 10) : '')
-
-const STAGE_LABEL: Record<FabStage, string> = {
-  cut: 'Cut',
-  buildup: 'Build-Up',
-  weld1: 'Weld',
-  fitup_drill: 'Fitup/Drill',
-  weld2: 'Weld (2)',
-  qc_inspection: 'QC Insp',
-  primer: 'Primer',
-  fireproof: 'Fireproof',
-  top_coat: 'TOP',
-  qc_final: 'QC Final',
-}
-
-const DATE_FIELDS = ['plan_load_date', 'actual_load_date'] as const
-type DateField = (typeof DATE_FIELDS)[number]
-const DATE_LABEL: Record<DateField, string> = {
-  plan_load_date: 'Plan Load',
-  actual_load_date: 'Actual Load',
-}
-
-// Phase-level Plan/Actual Finish — Fabrication has no per-stage date (the
-// 10 stages above are percent-only); Erection pairs this with its existing
-// Actual Finish. Both mirror Transport's Plan→Actual ordering convention.
-const FAB_DATE_FIELDS = ['fab_plan_finish_date', 'fab_actual_finish_date'] as const
-type FabDateField = (typeof FAB_DATE_FIELDS)[number]
-const FAB_DATE_LABEL: Record<FabDateField, string> = {
-  fab_plan_finish_date: 'Plan Finish',
-  fab_actual_finish_date: 'Actual Finish',
-}
-
-const ERECTION_DATE_FIELDS = ['erection_plan_finish_date', 'erection_actual_finish_date'] as const
-type ErectionDateField = (typeof ERECTION_DATE_FIELDS)[number]
-const ERECTION_DATE_LABEL: Record<ErectionDateField, string> = {
-  erection_plan_finish_date: 'Plan Finish',
-  erection_actual_finish_date: 'Actual Finish',
-}
-
-const PCS_FIELDS = ['loaded_pcs', 'erected_pcs'] as const
-type PcsField = (typeof PCS_FIELDS)[number]
-const PCS_LABEL: Record<PcsField, string> = {
-  loaded_pcs: 'Loaded',
-  erected_pcs: 'Erected',
-}
-
-const EDIT_FIELDS = [
-  ...FAB_STAGES, ...FAB_DATE_FIELDS, ...DATE_FIELDS, ...PCS_FIELDS,
-  'payment_status', ...ERECTION_DATE_FIELDS,
-] as const
-
-// Mirrors the server's clamps so what you see staged is what gets stored —
-// the real sheet has "50"-for-0.5 typo entries, clamping is the design.
-const clampPct = (v: number) => Math.min(100, Math.max(0, Math.round(v)))
-const clampPcs = (v: number, qty: number | null) =>
-  Math.min(Math.max(1, Math.round(qty ?? 1)), Math.max(0, Math.round(v)))
-
-function rowToDraft(r: ProgressZoneRow): UpdateAssemblyProgressPayload {
-  return {
-    ...Object.fromEntries(FAB_STAGES.map(s => [s, r[s]])),
-    fab_plan_finish_date: r.fab_plan_finish_date,
-    fab_actual_finish_date: r.fab_actual_finish_date,
-    plan_load_date: r.plan_load_date,
-    actual_load_date: r.actual_load_date,
-    loaded_pcs: r.loaded_pcs,
-    erected_pcs: r.erected_pcs,
-    payment_status: r.payment_status,
-    erection_plan_finish_date: r.erection_plan_finish_date,
-    erection_actual_finish_date: r.erection_actual_finish_date,
-  }
-}
-
-// Only send fields that actually changed vs. the row as loaded — keeps the
-// partial-update semantics (omitted = unchanged) instead of re-writing all 14.
-function diffDraft(draft: UpdateAssemblyProgressPayload, original: ProgressZoneRow): UpdateAssemblyProgressPayload {
-  const payload: UpdateAssemblyProgressPayload = {}
-  for (const f of EDIT_FIELDS) if (draft[f] !== original[f]) (payload as Record<string, unknown>)[f] = draft[f]
-  return payload
-}
 
 const NEUTRAL_METRIC = '#C2C2C2'
 
@@ -212,11 +115,6 @@ function ProgressChip({ label, value, color, title }: { label: string; value: st
       <span style={{ color: '#4A4A4A' }}>{value}</span>
     </span>
   )
-}
-
-const groupHeader: React.CSSProperties = {
-  fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
-  color: '#C8202A', borderBottom: '1px solid #F3C9CB', paddingBottom: 4, marginBottom: 10,
 }
 
 export function ProgressAssemblyTable({
@@ -615,133 +513,24 @@ export function ProgressAssemblyTable({
                       </div>
                     </td>
                   </tr>
-                  {expanded && (() => {
-                    const dirty = EDIT_FIELDS.some(f => editDraft[f] !== r[f])
-                    const save = () => {
-                      const payload = diffDraft(editDraft, r)
-                      if (Object.keys(payload).length) onUpdate(r.assembly_id, payload)
-                      closeEdit()
-                    }
-                    return (
-                      <tr style={{ background: '#FAFAFA' }}>
-                        <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
-                          {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
-                          <div style={groupHeader}>Fabrication</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
-                            {FAB_STAGES.map(stage => (
-                              <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
-                                <PctInput
-                                  value={editDraft[stage] ?? 0}
-                                  disabled={saving}
-                                  onChange={e => setEditDraft(d => ({ ...d, [stage]: e.target.value === '' ? 0 : clampPct(Number(e.target.value)) }))}
-                                />
-                              </FieldGroup>
-                            ))}
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
-                            {FAB_DATE_FIELDS.map(field => (
-                              <FieldGroup key={field} label={FAB_DATE_LABEL[field]}>
-                                <input
-                                  type="date"
-                                  value={toInputDate((editDraft[field] as string | null) ?? null)}
-                                  disabled={saving}
-                                  onChange={e => setEditDraft(d => ({ ...d, [field]: e.target.value || null }))}
-                                  style={{ ...dateInput, width: '100%', color: editDraft[field] ? '#1A1A1A' : '#ABABAB' }}
-                                />
-                              </FieldGroup>
-                            ))}
-                          </div>
-
-                          {/* Material Payment — parallel to Fab/Transport/Erection, 3-state status */}
-                          <div style={groupHeader}>Material Payment</div>
-                          <div style={{ display: 'flex', marginBottom: 16 }}>
-                            <FieldGroup label="Status">
-                              <select
-                                value={editDraft.payment_status ?? 'Not Disbursed'}
-                                disabled={saving}
-                                onChange={e => setEditDraft(d => ({ ...d, payment_status: e.target.value as PaymentStatus }))}
-                                style={{ ...dateInput, width: 200 }}
-                              >
-                                {PAYMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                              </select>
-                            </FieldGroup>
-                          </div>
-
-                          {/* Transport — load dates + pieces loaded */}
-                          <div style={groupHeader}>Transport</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
-                            {DATE_FIELDS.map(field => (
-                              <FieldGroup key={field} label={DATE_LABEL[field]}>
-                                <input
-                                  type="date"
-                                  value={toInputDate((editDraft[field] as string | null) ?? null)}
-                                  disabled={saving}
-                                  onChange={e => setEditDraft(d => ({ ...d, [field]: e.target.value || null }))}
-                                  style={{ ...dateInput, width: '100%', color: editDraft[field] ? '#1A1A1A' : '#ABABAB' }}
-                                />
-                              </FieldGroup>
-                            ))}
-                            <FieldGroup label={`${PCS_LABEL.loaded_pcs} / ${qty} pcs`}>
-                              <input
-                                type="number" min={0} max={qty}
-                                value={editDraft.loaded_pcs ?? 0}
-                                disabled={saving}
-                                onChange={e => setEditDraft(d => ({ ...d, loaded_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), r.qty) }))}
-                                style={numInput}
-                              />
-                            </FieldGroup>
-                          </div>
-
-                          {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual→count order), then pieces erected (full = done) */}
-                          <div style={groupHeader}>Erection</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
-                            {ERECTION_DATE_FIELDS.map(field => (
-                              <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
-                                <input
-                                  type="date"
-                                  value={toInputDate((editDraft[field] as string | null) ?? null)}
-                                  disabled={saving}
-                                  onChange={e => setEditDraft(d => ({ ...d, [field]: e.target.value || null }))}
-                                  style={{ ...dateInput, width: '100%', color: editDraft[field] ? '#1A1A1A' : '#ABABAB' }}
-                                />
-                              </FieldGroup>
-                            ))}
-                            <FieldGroup label={`${PCS_LABEL.erected_pcs} / ${qty} pcs`}>
-                              <input
-                                type="number" min={0} max={qty}
-                                value={editDraft.erected_pcs ?? 0}
-                                disabled={saving}
-                                onChange={e => setEditDraft(d => ({ ...d, erected_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), r.qty) }))}
-                                style={numInput}
-                              />
-                            </FieldGroup>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
-                            <button
-                              onClick={save}
-                              disabled={saving || !dirty}
-                              style={{
-                                font: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'white',
-                                background: dirty ? '#C8202A' : '#E0A6AA', border: 'none', borderRadius: 8,
-                                padding: '7px 18px', cursor: dirty ? 'pointer' : 'default',
-                              }}
-                            >
-                              Save
-                            </button>
-                            <button
-                              onClick={closeEdit}
-                              disabled={saving}
-                              style={{ font: 'inherit', fontSize: 12.5, fontWeight: 600, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer' }}
-                            >
-                              Cancel
-                            </button>
-                            {dirty && <span style={{ fontSize: 11, color: '#ABABAB' }}>Unsaved changes</span>}
-                          </div>
-                        </td>
-                      </tr>
-                    )
-                  })()}
+                  {expanded && (
+                    <tr style={{ background: '#FAFAFA' }}>
+                      <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
+                        <ProgressEditFields
+                          row={r}
+                          draft={editDraft}
+                          onChange={setEditDraft}
+                          saving={saving}
+                          onSave={() => {
+                            const payload = diffDraft(editDraft, r)
+                            if (Object.keys(payload).length) onUpdate(r.assembly_id, payload)
+                            closeEdit()
+                          }}
+                          onCancel={closeEdit}
+                        />
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               )
             })}
@@ -821,15 +610,6 @@ export function ProgressAssemblyTable({
           )}
         </div>
       )}
-    </div>
-  )
-}
-
-function FieldGroup({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-      <span style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#8E8E8E' }}>{label}</span>
-      {children}
     </div>
   )
 }
