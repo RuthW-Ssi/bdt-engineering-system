@@ -980,8 +980,14 @@ function OverviewPanel({
 
       {/* flex:1 — same as the card above, so the two cards split the
           remaining height evenly instead of this one taking whatever's left
-          over from the other's intrinsic content height. */}
-      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          over from the other's intrinsic content height. minHeight:190
+          (not 0) — enough for the header row + ~2 zone rows to stay
+          visible: on a short viewport the Schedule card's own min-height:
+          auto floor was squeezing this one down to almost nothing, making
+          the zone table look empty even with real zones in it. The inner
+          scroll wrapper below still has its own minHeight:0 so a project
+          with many zones scrolls THERE, not by growing this card. */}
+      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 190, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #EDEFF2', flexShrink: 0 }}>
           {/* Group-by-axis — Position view only. Re-slices the same
               (position, mark) data by X grid / Y grid / Elevation instead
