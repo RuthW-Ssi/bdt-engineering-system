@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dispatchesApi } from '../api/dispatches'
-import type { MatchStatus, PreviewJunctionsResult } from '../api/dispatches'
+import type { PreviewJunctionsResult } from '../api/dispatches'
 
 export function useDispatches(params?: Parameters<typeof dispatchesApi.list>[0]) {
   return useQuery({
@@ -16,14 +16,6 @@ export function useDispatchDetail(id: number | undefined, opts?: { skipGlobalErr
     queryFn: () => dispatchesApi.get(id!),
     enabled: !!id,
     meta: { skipGlobalErrorToast: opts?.skipGlobalErrorToast },
-  })
-}
-
-export function useDispatchHistory(id: number | undefined) {
-  return useQuery({
-    queryKey: ['dispatch-history', id],
-    queryFn: () => dispatchesApi.getHistory(id!),
-    enabled: !!id,
   })
 }
 
@@ -50,24 +42,6 @@ export function useDispatchDiffBimModels(
   })
 }
 
-export function useDispatchMapping(id: number | undefined) {
-  return useQuery({
-    queryKey: ['dispatch-mapping', id],
-    queryFn: () => dispatchesApi.getMapping(id!),
-    enabled: !!id,
-    staleTime: 60_000,
-  })
-}
-
-export function useSaveAssemblyMatch(dispatchId: number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (assignments: { assembly_id: number; match_status: MatchStatus | null; product_id?: number | null }[]) =>
-      dispatchesApi.saveAssemblyMatch(dispatchId, assignments),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] }),
-  })
-}
-
 export function useZoneUploadMode(projectId: number | null, zoneId: number | null) {
   return useQuery({
     queryKey: ['zone-upload-mode', projectId, zoneId],
@@ -85,7 +59,7 @@ export function useLatestRevision(projectId: number | undefined, zoneId: number 
   })
 }
 
-export function useUploadBom() {
+function useUploadBom() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({
@@ -99,7 +73,7 @@ export function useUploadBom() {
   })
 }
 
-export function usePreviewBomJunctions() {
+function usePreviewBomJunctions() {
   return useMutation({
     mutationFn: (formData: FormData) => dispatchesApi.previewUpload(formData),
   })

@@ -2,7 +2,7 @@ import { apiClient } from './client'
 
 export type EquipmentStatus = 'OPERATIONAL' | 'MAINTENANCE' | 'REPAIR' | 'UNAVAILABLE' | 'RETIRED'
 export type ResourceType = 'machine' | 'handling' | 'labor' | 'tool' | 'consumable'
-export type RepairStatus = 'OPEN' | 'IN_PROGRESS' | 'CLOSED'
+type RepairStatus = 'OPEN' | 'IN_PROGRESS' | 'CLOSED'
 export type RepairSeverity = 'LOW' | 'MEDIUM' | 'HIGH'
 
 export interface Machine {
@@ -39,7 +39,7 @@ export interface MachineDetail extends Machine {
   _count: { repair_tickets: number; maintenance_logs: number }
 }
 
-export interface MockJob {
+interface MockJob {
   code: string
   operation: string
   status: string

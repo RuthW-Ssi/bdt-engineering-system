@@ -1,10 +1,4 @@
-import type { ProgressStatus, ProgressShade, PhaseKey, ProgressZoneRow } from '../../api/projectProgress'
-
-// Order matters — rendered left→right as the isolate button strip,
-// following the real workflow: Fabrication → Transport → Erection.
-// Still used for the baseline/default (no-pill-active) 3D coloring only —
-// notstart/done have no dedicated filter pill anymore (see PHASE_ORDER).
-export const STATUS_ORDER: ProgressStatus[] = ['notstart', 'fabrication', 'load', 'erection', 'done']
+import type { ProgressStatus, PhaseKey, ProgressZoneRow } from '../../api/projectProgress'
 
 // Two shades per phase: light = in progress, dark = phase complete and
 // waiting for the next one. Single-shade statuses repeat the same hex in
@@ -26,8 +20,6 @@ export const STATUS_META: Record<ProgressStatus, { label: string; light: string;
   erection: { label: 'Erection', light: '#9C8CE0', dark: '#6A4FC7' },
   done: { label: 'Done', light: '#2E9E5F', dark: '#2E9E5F' },
 }
-
-export const statusHex = (status: ProgressStatus, shade: ProgressShade) => STATUS_META[status][shade]
 
 // The 4 independent, clickable phase pills, in confirmed order. Reuses
 // STATUS_META's hexes for fabrication/load/erection (single color source of

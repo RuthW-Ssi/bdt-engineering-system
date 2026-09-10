@@ -10,8 +10,6 @@ export interface ConsumeFormula {
   description: string | null
 }
 
-export type FormulaCategory = 'paint' | 'welding' | 'cutting' | 'abrasive' | 'fastener'
-
 export const FORMULA_CATEGORY_LABELS: Record<string, string> = {
   paint:    'Paint & Coating',
   welding:  'Welding',

@@ -15,14 +15,6 @@ import { RequiresPermission } from '../../common/decorators/permission.decorator
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
 
-interface MulterFile {
-  fieldname: string
-  originalname: string
-  mimetype: string
-  size: number
-  buffer: Buffer
-}
-
 const UPLOAD_BODY_SCHEMA = {
   type: 'object' as const,
   required: ['files', 'tag', 'version', 'revision'],
@@ -50,7 +42,7 @@ export class CuttingPlanController {
   @ApiBody({ schema: UPLOAD_BODY_SCHEMA })
   @UseInterceptors(FilesInterceptor('files', 50, { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
   async preview(
-    @UploadedFiles() files: MulterFile[],
+    @UploadedFiles() files: Express.Multer.File[],
     @Body() body: Record<string, string>,
   ) {
     return this.svc.preview(this.buildFileInputs(files), this.buildFields(body))
@@ -63,7 +55,7 @@ export class CuttingPlanController {
   @ApiBody({ schema: UPLOAD_BODY_SCHEMA })
   @UseInterceptors(FilesInterceptor('files', 50, { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
   async upload(
-    @UploadedFiles() files: MulterFile[],
+    @UploadedFiles() files: Express.Multer.File[],
     @Body() body: Record<string, string>,
     @CurrentUser() user: JwtPayload,
   ) {
@@ -98,7 +90,7 @@ export class CuttingPlanController {
     return this.svc.remove(id)
   }
 
-  private buildFileInputs(files: MulterFile[] | undefined): CuttingPlanFileInput[] {
+  private buildFileInputs(files: Express.Multer.File[] | undefined): CuttingPlanFileInput[] {
     if (!files?.length) throw new BadRequestException('No files uploaded')
     return files.map(f => ({ buffer: f.buffer, originalname: f.originalname }))
   }

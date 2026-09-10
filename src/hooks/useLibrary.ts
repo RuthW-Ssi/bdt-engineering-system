@@ -10,14 +10,6 @@ export function useLibraryEntries(params?: Parameters<typeof libraryApi.list>[0]
   })
 }
 
-export function useLibraryEntry(id: number) {
-  return useQuery({
-    queryKey: ['library-entry', id],
-    queryFn: () => libraryApi.get(id),
-    enabled: !!id,
-  })
-}
-
 export function useCreateLibraryEntry() {
   const qc = useQueryClient()
   return useMutation({

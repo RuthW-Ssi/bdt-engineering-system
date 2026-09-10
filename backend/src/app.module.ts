@@ -3,7 +3,6 @@ import { ConfigModule } from '@nestjs/config'
 import { validate } from './config/configuration'
 import { PrismaModule } from './prisma/prisma.module'
 import { HealthModule } from './health/health.module'
-import { IdentityModule } from './modules/identity/identity.module'
 import { MasterDataModule } from './modules/master-data/master-data.module'
 import { MailModule } from './modules/mail/mail.module'
 import { MaterialsModule } from './modules/materials/materials.module'
@@ -47,7 +46,6 @@ import { UsersModule } from './modules/users/users.module'
     HealthModule,
     // Sprint 6: AuthModule first — registers JwtModule globally
     AuthModule,
-    IdentityModule,
     MasterDataModule,
     MailModule,
     MaterialsModule,

@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { apiClient } from '../api/client'
 
-export interface ModulePermission {
+interface ModulePermission {
   view: boolean
   create: boolean
   update: boolean

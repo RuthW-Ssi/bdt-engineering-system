@@ -4,13 +4,6 @@ import { ProductCodeGenerator } from '../products/product-code.generator'
 
 type Tx = Omit<PrismaService, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>
 
-export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM'
-
-export interface MatchResult {
-  product_id: number
-  match_status: MatchStatus
-}
-
 const DEFAULT_CATEG_ID = 24 // MS000 — Main Structures
 
 @Injectable()

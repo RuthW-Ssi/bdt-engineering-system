@@ -20,11 +20,6 @@ export async function createSubZone(zoneId: number, payload: { name: string; cod
   return res.data
 }
 
-export async function updateSubZone(id: number, payload: { name?: string; code?: string }): Promise<SubZone> {
-  const res = await apiClient.patch(`/sub-zones/${id}`, payload)
-  return res.data
-}
-
 export async function deleteSubZone(id: number): Promise<void> {
   await apiClient.delete(`/sub-zones/${id}`)
 }

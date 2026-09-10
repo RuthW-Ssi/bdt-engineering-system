@@ -1,7 +1,6 @@
 import { apiClient } from './client'
 import type { DocType } from '../lib/bom/filenameClassifier'
 
-export type { DocType }
 export type DispatchStatus = 'pending' | 'partial' | 'complete'
 
 export interface DispatchSummaryDto {
@@ -35,7 +34,7 @@ export interface AssemblyPartDto {
   version_label: string | null
 }
 
-export interface AssemblyProductDto {
+interface AssemblyProductDto {
   id: number
   product_code: string
   product_type: string
@@ -66,7 +65,7 @@ export interface DispatchDetailDto extends DispatchSummaryDto {
   hold_summary?: { held_wo_count: number; held_wo_ids: number[] }
 }
 
-export interface RevisionHistoryDto {
+interface RevisionHistoryDto {
   id: number
   dispatch_id: number
   doc_type: DocType
@@ -151,41 +150,13 @@ export interface DispatchDiffDto {
   junction_diff: DiffRowDto<JunctionDiffItem>[]
 }
 
-// ── Sprint 8: mapping types ────────────────────────────────────
-export type MatchStatus = 'MATCHED_STANDARD' | 'MATCHED_CUSTOM'
-
-export interface MappedRowDto {
-  id: number
-  assembly_mark?: string
-  part_mark?: string
-  product_id: number | null
-  match_status: MatchStatus | null
-  product_code: string | null
-  product_name: string | null
-}
-
-export interface MappingSummaryDto {
-  total_assemblies: number
-  total_parts: number
-  MATCHED_STANDARD: number
-  MATCHED_CUSTOM: number
-  UNMATCHED: number
-}
-
-export interface DispatchMappingDto {
-  dispatch_id: number
-  assemblies: MappedRowDto[]
-  parts: MappedRowDto[]
-  summary: MappingSummaryDto
-}
-
 export interface PreviewJunctionsResult {
   unmatchedAssemblyMarks: string[]
   unmatchedPartMarks: string[]
 }
 
 // ── BOM Diff 3D model comparison ────────────────────────────────
-export interface DiffBimModelMatch {
+interface DiffBimModelMatch {
   model_id: number
   version: string
   matches: Record<string, string[]> // assembly_mark -> global_ids[]
@@ -212,10 +183,6 @@ export const dispatchesApi = {
     return apiClient.get(`/dispatches/${id}`).then(r => r.data)
   },
 
-  getHistory(id: number): Promise<RevisionHistoryDto[]> {
-    return apiClient.get(`/dispatches/${id}/revisions`).then(r => r.data)
-  },
-
   getDiff(id: number): Promise<DispatchDiffDto | null> {
     return apiClient
       .get(`/dispatches/${id}/diff`, { validateStatus: s => s === 200 || s === 204 })
@@ -229,10 +196,6 @@ export const dispatchesApi = {
         validateStatus: s => s === 200 || s === 204,
       })
       .then(r => (r.status === 204 ? null : r.data))
-  },
-
-  getMapping(id: number): Promise<DispatchMappingDto> {
-    return apiClient.get(`/dispatches/${id}/mapping`).then(r => r.data)
   },
 
   upload(
@@ -253,13 +216,6 @@ export const dispatchesApi = {
     return apiClient
       .post('/bom/upload/preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then(r => r.data)
-  },
-
-  saveAssemblyMatch(
-    dispatchId: number,
-    assignments: { assembly_id: number; match_status: MatchStatus | null; product_id?: number | null }[],
-  ): Promise<void> {
-    return apiClient.post(`/dispatches/${dispatchId}/assembly-match`, { assignments }).then(() => void 0)
   },
 
   getZoneUploadMode(projectId: number, zoneId: number): Promise<'combined' | 'separate' | null> {
