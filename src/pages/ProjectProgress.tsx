@@ -869,7 +869,7 @@ function OverviewPanel({
           back into 3. Moved back here after also briefly living as a
           3D-viewport overlay — the overlay collided visually with the
           model itself. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 16, flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
         <StatCard label="Assemblies" value={total.assembly_count}>
           {scheduledCount > 0 && (
@@ -923,7 +923,7 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A" style={{ height: 240, marginBottom: 16, padding: '10px 16px 3px', display: 'flex', flexDirection: 'column' }}>
+        <StatCard label="" value="" accent="#C8202A" style={{ height: 240, marginBottom: 12, padding: '10px 16px 3px', display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/T/E columns in the zone table
@@ -1199,7 +1199,7 @@ function StatCard({ label, value, accent, children, style }: {
   style?: React.CSSProperties
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '13px 16px', ...style }}>
+    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '10px 16px', ...style }}>
       {label !== '' && (
         <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       )}
