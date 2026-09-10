@@ -30,10 +30,7 @@ async function main() {
   // Demo: rich realistic data for presentation
   await seedMachineDemo(prisma)
 
-  console.log('Seed completed ✓')
-  console.log('  - admin user with bcrypt password (Sprint 6)')
-  console.log('  - repair_ticket_seq seeded (T-MACH.01)')
-  console.log('  - machine tracker + machine demo data (T-MACH.08)')
+  console.log('Seed completed ✓ (admin user, repair_ticket_seq, machine tracker + demo data)')
 }
 
 main()
