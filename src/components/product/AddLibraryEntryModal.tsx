@@ -15,12 +15,10 @@ const CATEGORY_LABELS: Record<PrefixCategory, string> = {
 
 interface Props {
   onClose: () => void
-  onCreated?: (entry: { id: number; code: string; name: string }) => void
-  initialName?: string
 }
 
-export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: Props) {
-  const [name, setName] = useState(initialName.toUpperCase())
+export function AddLibraryEntryModal({ onClose }: Props) {
+  const [name, setName] = useState('')
   const [prefixCode, setPrefixCode] = useState('')
   const [prefixLabel, setPrefixLabel] = useState('')
   const [prefixCategory, setPrefixCategory] = useState<PrefixCategory | ''>('')
@@ -99,7 +97,6 @@ export function AddLibraryEntryModal({ onClose, onCreated, initialName = '' }: P
         mark_prefix_category: prefixCategory,
       })
       toast.success(`Library entry created — ${entry.code}`)
-      onCreated?.({ id: entry.id, code: entry.code, name: entry.name })
       onClose()
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? 'Failed to create library entry — please try again')

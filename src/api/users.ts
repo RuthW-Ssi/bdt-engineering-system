@@ -75,7 +75,7 @@ import { apiClient } from './client'
 //
 // Deliberately deferred (not specially handled, gated normally): a real
 // products↔routings dependency exists in `ProductDetail.tsx`'s own
-// Routing tab (reads routing/std-cost, has a Recompute button) — the user
+// Routing tab (reads routing, has a Recompute button) — the user
 // chose not to design around this one this round.
 //
 // 2026-08-05 — `activities.controller.ts` folded INTO `routings`, not its

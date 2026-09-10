@@ -40,11 +40,6 @@ export async function getCustomers(params?: {
   return res.data
 }
 
-export async function getCustomer(id: number): Promise<Customer> {
-  const res = await apiClient.get(`/customers/${id}`)
-  return res.data
-}
-
 export async function createCustomer(payload: CreateCustomerPayload): Promise<Customer> {
   const res = await apiClient.post('/customers', payload)
   return res.data

@@ -11,16 +11,6 @@ import * as fs from 'fs'
 import { FileStorageService } from './file-storage.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 
-interface MulterFile {
-  fieldname: string
-  originalname: string
-  encoding: string
-  mimetype: string
-  size: number
-  path: string
-  buffer?: Buffer
-}
-
 @ApiTags('file-storage')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -98,7 +88,7 @@ export class FileStorageController {
   )
   upload(
     @Query('key') key: string,
-    @UploadedFile() file: MulterFile,
+    @UploadedFile() file: Express.Multer.File,
   ) {
     // This endpoint's multer interceptor writes straight to local disk
     // (diskStorage above) — on the gcs driver, uploads go through

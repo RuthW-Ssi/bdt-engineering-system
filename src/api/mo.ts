@@ -21,7 +21,7 @@ export interface MoListItem {
   create_date: string
 }
 
-export interface RoutingOpActivity {
+interface RoutingOpActivity {
   name: string
   measure: string | null
   labors: { skill: string; qty: number; level?: string | null }[]
@@ -30,7 +30,7 @@ export interface RoutingOpActivity {
 }
 
 // Routing op snapshot (read live from routing_template · replaces mo_operation)
-export interface RoutingOp {
+interface RoutingOp {
   id: number
   sequence: number
   op_code: string
@@ -67,7 +67,7 @@ export interface MoHistoryEntry {
   changed_at: string
 }
 
-export interface MoAssemblyLine {
+interface MoAssemblyLine {
   id: number
   bom_assembly_id: number
   qty: string | number
@@ -261,10 +261,6 @@ export async function changeMoStatus(
   body: { to_status: MoStatus; reason: string },
 ): Promise<MoDetail> {
   return (await apiClient.patch(`/mo/${id}/status`, body)).data
-}
-
-export async function cancelMo(id: number): Promise<MoDetail> {
-  return (await apiClient.delete(`/mo/${id}`)).data
 }
 
 // ── Form-support endpoints ────────────────────────────────────────────────────

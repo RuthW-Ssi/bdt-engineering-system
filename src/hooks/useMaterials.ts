@@ -25,28 +25,6 @@ export function useCreateMaterial() {
   })
 }
 
-export function useUpdateMaterial(default_code: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (payload: Partial<CreateMaterialPayload>) => materialsApi.update(default_code, payload),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['materials'] })
-      qc.invalidateQueries({ queryKey: ['material', default_code] })
-    },
-  })
-}
-
-export function useActionSubmit(default_code: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => materialsApi.actionSubmit(default_code),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['materials'] })
-      qc.invalidateQueries({ queryKey: ['material', default_code] })
-    },
-  })
-}
-
 export function useMaterialAction(default_code: string) {
   const qc = useQueryClient()
   return useMutation({

@@ -16,8 +16,8 @@ PostgreSQL 16 (backend) · Docker Compose · deployed via Vercel (frontend) + GC
 Cloud Run (backend) · Supabase Postgres (db).
 
 **Run locally:**
-- Frontend (repo root): `npm run dev` → http://localhost:5173
-- Backend (`backend/`): `npm run start:dev` → http://localhost:3000
+- Frontend (repo root): `pnpm dev` → http://localhost:5173
+- Backend (`backend/`): `pnpm start:dev` → http://localhost:3000
 - Auth (dev): JWT, `admin / BdtDev2026!`, `POST /api/v1/auth/login`
 
 ---
@@ -30,7 +30,7 @@ Cloud Run (backend) · Supabase Postgres (db).
 | Path | What it is | Manage how |
 |---|---|---|
 | `src/` (root) | **Frontend** — React 19/Vite (`api/`, `components/`, `context/`, `hooks/`, `lib/`, `data/`) | edit here for UI/client work |
-| `backend/` | **Backend** — NestJS modules, `backend/prisma/` schema + seeds | `npm run start:dev`, `npm run prisma:*` |
+| `backend/` | **Backend** — NestJS modules, `backend/prisma/` schema + seeds | `pnpm start:dev`, `pnpm prisma:*` |
 | `public/` | Static assets served by Vite (favicon, icons) | static only |
 | `document/` | **Raw source data** (xlsx/pdf from the plant) — READ-ONLY input | never edit; clean → wiki |
 | `storage/drawings/` | Uploaded shop drawings (runtime files) | app-managed, not source |
@@ -205,3 +205,22 @@ reference, (6) re-run notes. Reports → `docs/test-scripts/<feature>/`
 (`<feature>-test-report-YYYY-MM-DD.md`, template `*-template.md`). Create one
 whenever a feature returns computed/diffed data, parses files, or takes >5 min to
 test manually.
+
+---
+
+## 7. Code minimalism (ponytail)
+
+Agents in this repo run `ponytail` (per-developer, `.claude/settings.local.json`, mode `full`).
+Default to the smallest thing that works: no unrequested abstractions, no new dependency for
+what a few lines can do, delete before you add. Mark deliberate shortcuts
+`// ponytail: <ceiling>, <upgrade path>` — `/ponytail-debt` collects them.
+
+**This repo overrides ponytail. On conflict, ponytail loses:**
+- **Tests** — Jest (`backend/`) and Vitest (root) are the only test frameworks. Ignore ponytail's
+  "one assert-based self-check, no frameworks" rule; the superpowers TDD flow is authoritative.
+- **NestJS** — module / service / controller / DTO + `class-validator` split stays, even with one
+  implementation. Auth guards, input validation and error handling are never "YAGNI".
+- **Prisma** — `backend/prisma/migrations/**` is immutable; no cleanup ever touches it.
+
+**Before every PR into `dev`:** run `/ponytail-review` over `git diff dev...HEAD`; list each
+finding as applied or declined-with-reason in the PR body.

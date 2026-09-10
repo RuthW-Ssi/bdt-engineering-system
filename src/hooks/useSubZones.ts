@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getSubZones, createSubZone, updateSubZone, deleteSubZone } from '../api/sub-zones'
+import { getSubZones, createSubZone, deleteSubZone } from '../api/sub-zones'
 
 export function useSubZones(zoneId: number | null) {
   return useQuery({
@@ -18,15 +18,6 @@ export function useCreateSubZone(zoneId: number, projectId?: number) {
       if (projectId) qc.invalidateQueries({ queryKey: ['project-zones', projectId] })
     },
     meta: { showGlobalErrorToast: true },
-  })
-}
-
-export function useUpdateSubZone(zoneId: number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, payload }: { id: number; payload: { name?: string; code?: string } }) =>
-      updateSubZone(id, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['sub-zones', zoneId] }),
   })
 }
 

@@ -26,9 +26,5 @@ export function assertProjectTransition(from: string, to: ProjectState) {
 export const PROJECT_ACTIONS: Record<string, ProjectState> = {
   action_win:           'won',
   action_start_design:  'in_design',
-  action_start_fab:     'in_fab',
-  action_start_erect:   'in_erection',
-  action_handover:      'handover',
   action_close:         'closed',
-  action_revert:        'won',
 }

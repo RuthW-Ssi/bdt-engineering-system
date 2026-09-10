@@ -3,7 +3,6 @@ import { WorkOrdersController } from './work-orders.controller'
 import { ScheduleController } from './schedule.controller'
 import { WorkOrdersService } from './work-orders.service'
 import { ScheduleService } from './schedule.service'
-import { WoCodeGenerator } from './wo-code.generator'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 import { WoBimMatchService } from './wo-bim-match.service'
 
@@ -17,7 +16,7 @@ import { WoBimMatchService } from './wo-bim-match.service'
  */
 @Module({
   controllers: [WorkOrdersController, ScheduleController],
-  providers: [WorkOrdersService, ScheduleService, WoCodeGenerator, WorkOrderAutoCreateService, WoBimMatchService],
+  providers: [WorkOrdersService, ScheduleService, WorkOrderAutoCreateService, WoBimMatchService],
   exports: [WorkOrdersService, WorkOrderAutoCreateService],
 })
 export class WorkOrdersModule {}
