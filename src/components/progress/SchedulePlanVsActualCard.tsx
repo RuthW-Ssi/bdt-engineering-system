@@ -18,7 +18,7 @@ function BulletBar({ plan, actual }: { plan: number | null; actual: number }) {
   const barColor = ahead ? '#2E9E5F' : '#C8202A'
   const actualWidth = Math.max(0, Math.min(100, actual))
   return (
-    <div style={{ position: 'relative', height: 7, background: '#EDEFF2', borderRadius: 4, marginTop: 6 }}>
+    <div style={{ position: 'relative', height: 6, background: '#EDEFF2', borderRadius: 4, marginTop: 4 }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${actualWidth}%`, background: barColor, borderRadius: 4 }} />
       {plan !== null && (
         <div
@@ -40,7 +40,7 @@ function BulletBar({ plan, actual }: { plan: number | null; actual: number }) {
 function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
   return (
     <div>
-      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#ABABAB', marginBottom: 3 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', color: '#ABABAB', marginBottom: 2 }}>
         {label}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -82,7 +82,7 @@ function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
 // styles (not Tailwind) so it renders identically in both contexts.
 export function ScheduleTabBody({ schedule }: { schedule: ScheduleProgress }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <PhaseBlock label="Fabrication" phase={schedule.fab} />
       <div style={{ borderTop: '1px solid #F0F0F0' }} />
       <PhaseBlock label="Erection" phase={schedule.erection} />

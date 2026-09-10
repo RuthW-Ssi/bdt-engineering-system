@@ -923,10 +923,10 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A" style={{ height: 280, marginBottom: 16, display: 'flex', flexDirection: 'column' }}>
-          {/* Schedule/Fab/Erection — Payment/Transport progress is already
+        <StatCard label="" value="" accent="#C8202A" style={{ height: 240, marginBottom: 16, padding: '10px 16px', display: 'flex', flexDirection: 'column' }}>
+          {/* Schedule/Fab/Erection — Payment progress is already
               visible elsewhere on this page (the isolate-by-status pills
-              under the 3D panel, and the F/M/T/E columns in the zone table
+              under the 3D panel, and the F/T/E columns in the zone table
               below), so this card is scoped to the two phases that actually
               have a plan-date field to compare against (see PlanDateBarChart),
               plus the Schedule Plan-vs-Actual view sharing the same tab
@@ -935,7 +935,8 @@ function OverviewPanel({
               actionable default view; Fab/Erection's per-date breakdown is
               the drill-down. One tab at a time instead of stacking — same
               segmented-pill style as the Zone/Position toggle below.
-              height:258 (fixed, not flex-based) — same reading regardless
+              height (fixed, not flex-based, tuned down 2026-09 to give the
+              Zone/Position table below more room) — same reading regardless
               of which of the 3 tabs is active: the Schedule tab's own
               natural height (3 short blocks + their BulletBar rows, never
               scrolls) plus a bit of breathing room below the last block
@@ -976,7 +977,7 @@ function OverviewPanel({
               scroll (see its comment) now that this whole card has a
               fixed height; a second overflow:auto on this wrapper just
               nested two independent scrollbars for the same content. */}
-          <div style={{ marginTop: 8, flex: 1, minHeight: 0 }}>
+          <div style={{ marginTop: 6, flex: 1, minHeight: 0 }}>
             {planTab === 'schedule' ? (
               <ScheduleTabBody schedule={overview.schedule_progress} />
             ) : (
@@ -1230,7 +1231,7 @@ function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
     return <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
   }
   const maxTotal = Math.max(...rows.map(r => r.total), 1)
-  const barsHeight = 122
+  const barsHeight = 88
   // flex:1/minHeight:0 (not a hardcoded height) — the card this sits in
   // has a real height:258 (see the StatCard usage above), matching the
   // Schedule tab's own natural height, so this fills whatever's left
@@ -1262,7 +1263,7 @@ function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
           <div
             key={r.date}
             style={{
-              width: 20, flexShrink: 0, height: 34, fontSize: 9, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E',
+              width: 20, flexShrink: 0, height: 26, fontSize: 9, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E',
               writingMode: 'vertical-rl', transform: 'rotate(180deg)', overflow: 'hidden', whiteSpace: 'nowrap',
             }}
           >
@@ -1270,7 +1271,7 @@ function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 10, color: '#8E8E8E', whiteSpace: 'nowrap' }}>
+      <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 10, color: '#8E8E8E', whiteSpace: 'nowrap' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ width: 7, height: 7, borderRadius: 2, background: PLAN_BAR_COLOR.not_started, flexShrink: 0 }} /> Not Started
         </span>
