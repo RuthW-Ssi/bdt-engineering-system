@@ -1,29 +1,23 @@
 import { apiClient } from './client'
 
-export interface ActivityMachineDto {
+interface ActivityMachineDto {
   id: number
   code: string
   name: string
 }
 
-export interface ActivityMaterialDto {
-  id: number
-  default_code: string
-  name: string
-}
-
-export interface ActivityConsumeDto {
+interface ActivityConsumeDto {
   material: { id: number; default_code: string; name: string }
   formula:  { id: number; name: string; expr: string; result_unit: string | null; variables: string[] } | null
 }
 
-export interface ActivityLaborDto {
+interface ActivityLaborDto {
   skill: string
   qty: number
   level?: string | null
 }
 
-export interface ActivityToolDto {
+interface ActivityToolDto {
   resource: { id: number; code: string; name: string }
   qty: number
 }

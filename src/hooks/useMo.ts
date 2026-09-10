@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  cancelMo,
   changeMoStatus,
   createMo,
   getBomAssembliesByPrefix,
@@ -62,14 +61,6 @@ export function useChangeMoStatus(id: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (body: { to_status: MoStatus; reason: string }) => changeMoStatus(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
-  })
-}
-
-export function useCancelMo(id: number) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: () => cancelMo(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
   })
 }

@@ -4,8 +4,6 @@ export interface NcFileParsed {
   qty: number
   profileBase: string | null
   lengthMm: number | null
-  widthMm: number | null
-  thicknessMm: number | null
   weightKg: number | null
 }
 
@@ -21,8 +19,6 @@ export interface NcFileParsed {
  *   8: <profile base>
  *   B: marker line
  *   B+1: length_mm
- *   B+2: width_mm
- *   B+3: thickness_mm
  *   B+7: weight_kg
  */
 export function parseNcFile(filename: string, content: string): NcFileParsed {
@@ -41,16 +37,12 @@ export function parseNcFile(filename: string, content: string): NcFileParsed {
   }
 
   let lengthMm: number | null = null
-  let widthMm: number | null = null
-  let thicknessMm: number | null = null
   let weightKg: number | null = null
 
   if (bIdx >= 0) {
     lengthMm = pf(lines[bIdx + 1])
-    widthMm = pf(lines[bIdx + 2])
-    thicknessMm = pf(lines[bIdx + 3])
     weightKg = pf(lines[bIdx + 7])
   }
 
-  return { partMark, grade, qty, profileBase, lengthMm, widthMm, thicknessMm, weightKg }
+  return { partMark, grade, qty, profileBase, lengthMm, weightKg }
 }

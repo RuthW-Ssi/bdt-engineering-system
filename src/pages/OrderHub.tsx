@@ -67,7 +67,7 @@ export function OrderHub() {
 
       {/* Body */}
       <div style={{ flex: 1, overflow: 'hidden' }}>
-        {tab === 'mo' ? <MoList embedded /> : <WoList />}
+        {tab === 'mo' ? <MoList /> : <WoList />}
       </div>
     </div>
   )

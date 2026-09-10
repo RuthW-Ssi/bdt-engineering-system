@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsInt, IsString, IsOptional, IsObject, IsIn, MaxLength, MinLength } from 'class-validator'
+import { IsInt, IsString, IsOptional, IsObject, IsIn, MaxLength } from 'class-validator'
 
 export class CreateMaterialDto {
   @ApiProperty({ description: 'FK → product_category.id', example: 9 })

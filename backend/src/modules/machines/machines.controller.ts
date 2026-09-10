@@ -21,8 +21,6 @@ import { UpdateOperatorDto } from './dto/update-operator.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
-import { CurrentUser } from '../../common/decorators/current-user.decorator'
-import { JwtPayload } from '../auth/auth.service'
 
 const ALLOWED_MIME = ['image/jpeg', 'image/png']
 const ALLOWED_EXT = ['.jpg', '.jpeg', '.png']
@@ -167,7 +165,6 @@ export class MachinesController {
   createMaintenanceLog(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateMaintenanceLogDto,
-    @CurrentUser() _user: JwtPayload,
   ) {
     return this.svc.createMaintenanceLog(id, dto)
   }
@@ -178,7 +175,6 @@ export class MachinesController {
   openRepairTicket(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: OpenRepairTicketDto,
-    @CurrentUser() _user: JwtPayload,
   ) {
     return this.svc.openRepairTicket(id, dto)
   }
@@ -190,7 +186,6 @@ export class MachinesController {
     @Param('id', ParseIntPipe) id: number,
     @Param('tid', ParseIntPipe) tid: number,
     @Body() dto: CloseRepairTicketDto,
-    @CurrentUser() _user: JwtPayload,
   ) {
     return this.svc.closeRepairTicket(id, tid, dto)
   }
@@ -201,7 +196,6 @@ export class MachinesController {
   changeStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ChangeStatusDto,
-    @CurrentUser() _user: JwtPayload,
   ) {
     return this.svc.changeStatus(id, dto)
   }

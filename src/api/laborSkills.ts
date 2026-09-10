@@ -5,7 +5,7 @@ export interface SkillOption {
   name: string
 }
 
-export interface OperatorSkill {
+interface OperatorSkill {
   skill: { id: number; name: string }
   level: string | null
 }
@@ -30,7 +30,7 @@ export async function getSkills(): Promise<SkillOption[]> {
   return res.data
 }
 
-export interface SkillEntryPayload {
+interface SkillEntryPayload {
   skill_id: number
   level?: string
 }

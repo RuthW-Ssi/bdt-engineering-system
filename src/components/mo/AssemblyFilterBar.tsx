@@ -1,7 +1,6 @@
 
-export type SortBy = 'project' | 'zone' | 'subzone' | 'mark'
-export type GroupByOption = 'project,zone,subzone' | 'zone,subzone' | 'none'
-export type DateLevel = 'project' | 'zone' | 'subzone'
+type SortBy = 'project' | 'zone' | 'subzone' | 'mark'
+type GroupByOption = 'project,zone,subzone' | 'zone,subzone' | 'none'
 
 export interface AssemblyFilter {
   sortBy: SortBy
@@ -15,14 +14,6 @@ export const DEFAULT_FILTER: AssemblyFilter = {
   groupBy: 'project,zone,subzone',
   urgentDays: null,
   showOverdue: false,
-}
-
-// Derives the primary date level from the current sort mode.
-// 'mark' has no dedicated level — callers handle it by showing multiple dates.
-export function sortByToDateLevel(sortBy: SortBy): DateLevel {
-  if (sortBy === 'zone') return 'zone'
-  if (sortBy === 'subzone') return 'subzone'
-  return 'project'
 }
 
 const SORT_OPTIONS: { value: SortBy; label: string }[] = [

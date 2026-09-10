@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   getRouting, createRouting, activateRouting, obsoleteRouting,
-  recomputeCycleTime, getStdCost, recomputeStdCost,
+  recomputeCycleTime,
   getWorkcenters, getWorkcenter, updateWorkcenter, createWorkcenter,
-  getActivityTemplates, previewTemplate, getFormulaParams,
-  createActivityTemplate, updateActivityTemplate,
   deleteRoutingOp, reorderRoutingOps,
 } from '../api/routings'
 
@@ -73,28 +71,6 @@ export function useRouting(productCode: string | undefined) {
   }
 }
 
-// ── Std Cost hooks ─────────────────────────────────────────────
-
-export function useStdCost(productCode: string | undefined) {
-  const qc = useQueryClient()
-  const key = ['std-cost', productCode]
-
-  const query = useQuery({
-    queryKey: key,
-    queryFn: () => getStdCost(productCode!),
-    enabled: !!productCode,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  })
-
-  const recompute = useMutation({
-    mutationFn: () => recomputeStdCost(productCode!),
-    onSuccess: (data) => qc.setQueryData(key, data),
-  })
-
-  return { stdCost: query.data ?? null, loading: query.isLoading, recompute }
-}
-
 // ── Workcenter hooks ───────────────────────────────────────────
 
 export function useWorkcenters(active?: boolean) {
@@ -132,49 +108,4 @@ export function useWorkcenter(id: number | undefined) {
   })
 
   return { workcenter: query.data ?? null, loading: query.isLoading, update }
-}
-
-// ── Activity Template hooks ────────────────────────────────────
-
-export function useActivityTemplates(params?: {
-  op_code?: string
-  workcenter_id?: number
-  page?: number
-  limit?: number
-}) {
-  const qc = useQueryClient()
-  const query = useQuery({
-    queryKey: ['activity-templates', params],
-    queryFn: () => getActivityTemplates(params),
-    staleTime: 10 * 60 * 1000,
-  })
-  const create = useMutation({
-    mutationFn: createActivityTemplate,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-templates'] }),
-  })
-  const update = useMutation({
-    mutationFn: ({ id, body }: { id: number; body: Parameters<typeof updateActivityTemplate>[1] }) =>
-      updateActivityTemplate(id, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-templates'] }),
-  })
-  return { ...query, create, update }
-}
-
-export function useTemplatePreview(id: number | null, attrs: Record<string, number>) {
-  return useQuery({
-    queryKey: ['template-preview', id, attrs],
-    queryFn: () => previewTemplate(id!, attrs),
-    enabled: !!id && Object.keys(attrs).length > 0,
-    staleTime: 0,
-  })
-}
-
-// ── Formula Params hook ────────────────────────────────────────
-
-export function useFormulaParams() {
-  return useQuery({
-    queryKey: ['formula-params'],
-    queryFn: getFormulaParams,
-    staleTime: 30 * 60 * 1000,
-  })
 }

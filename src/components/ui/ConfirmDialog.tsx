@@ -1,15 +1,14 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useState } from 'react'
 import { AlertTriangle, Trash2, Info } from 'lucide-react'
 
 // ── Types ──────────────────────────────────────────────────────
 
-export type ConfirmVariant = 'danger' | 'warning' | 'normal'
+type ConfirmVariant = 'danger' | 'warning' | 'normal'
 
 interface ConfirmOptions {
   title: string
   message?: string
   confirmLabel?: string
-  cancelLabel?: string
   variant?: ConfirmVariant
 }
 
@@ -29,11 +28,9 @@ const ConfirmContext = createContext<ConfirmContextValue | null>(null)
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<ConfirmState | null>(null)
-  const resolveRef = useRef<((v: boolean) => void) | null>(null)
 
   const confirm = useCallback((opts: ConfirmOptions): Promise<boolean> => {
     return new Promise(resolve => {
-      resolveRef.current = resolve
       setState({ ...opts, resolve })
     })
   }, [])
@@ -150,7 +147,7 @@ function ConfirmDialogModal({ state, onClose }: { state: ConfirmState; onClose: 
             onMouseEnter={e => e.currentTarget.style.background = '#F9FAFB'}
             onMouseLeave={e => e.currentTarget.style.background = '#fff'}
           >
-            {state.cancelLabel ?? 'Cancel'}
+            Cancel
           </button>
           <button
             onClick={() => onClose(true)}

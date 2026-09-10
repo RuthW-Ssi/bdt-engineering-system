@@ -310,25 +310,6 @@ export class RoutingService {
     return { ...template, operations }
   }
 
-  async findOperationsLibrary(search?: string) {
-    const where = search
-      ? { OR: [
-          { name:    { contains: search, mode: 'insensitive' as const } },
-          { op_code: { contains: search, mode: 'insensitive' as const } },
-        ] }
-      : undefined
-    return this.prisma.mrp_routing_workcenter.findMany({
-      where,
-      include: {
-        workcenter: { select: { id: true, code: true, name: true } },
-        op_type:    { select: { id: true, key: true, label: true, color: true } },
-        template:   { select: { id: true, code: true, name: true } },
-      },
-      orderBy: [{ op_type_id: 'asc' }, { name: 'asc' }],
-      take: 300,
-    })
-  }
-
   // deleteTemplateOperation: remove op from template by id
   async deleteTemplateOperation(templateId: number, opId: number) {
     const op = await this.prisma.mrp_routing_workcenter.findFirst({

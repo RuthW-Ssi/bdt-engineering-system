@@ -2,14 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   acceptNewVersion,
   getBomVersionStatus,
-  getScheduleVersions,
   getWo,
   getWoBimMatch,
   getWoCancelSiblings,
   getWoEvents,
   getWos,
   getWoSchedule,
-  updateWo,
   woTransition,
   type WoAction,
 } from '../api/wo'
@@ -68,10 +66,6 @@ export function useWoSchedule(id: number) {
   })
 }
 
-export function useScheduleVersions() {
-  return useQuery({ queryKey: ['schedule', 'versions'], queryFn: getScheduleVersions })
-}
-
 // Visual tab (Sprint 28) — polls while the project's BIM model is still
 // translating, same idiom as useBimStatus, so the tab self-heals once
 // translation finishes without a manual reload.
@@ -104,14 +98,6 @@ export function useWoTransition(id: number) {
   return useMutation({
     mutationFn: (vars: { action: WoAction; body?: Parameters<typeof woTransition>[2] }) =>
       woTransition(id, vars.action, vars.body),
-    onSuccess: invalidate,
-  })
-}
-
-export function useUpdateWo(id: number) {
-  const invalidate = useWoInvalidate(id)
-  return useMutation({
-    mutationFn: (payload: Parameters<typeof updateWo>[1]) => updateWo(id, payload),
     onSuccess: invalidate,
   })
 }

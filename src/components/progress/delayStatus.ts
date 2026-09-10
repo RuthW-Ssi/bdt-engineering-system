@@ -16,7 +16,7 @@ export type DelayStatus = 'overdue' | 'at_risk' | 'on_track'
 // How far behind the time-elapsed pace (in percentage points) before a
 // still-in-window zone counts as "at risk" rather than "on track" — a small
 // gap is normal slack, not a real signal.
-export const DELAY_MARGIN_PCT = 15
+const DELAY_MARGIN_PCT = 15
 export const DELAY_STATUS_COLOR: Record<DelayStatus, string> = {
   overdue: '#C8202A',
   at_risk: '#E67700',

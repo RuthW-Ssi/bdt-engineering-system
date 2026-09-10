@@ -21,22 +21,6 @@ export const materialsApi = {
     return apiClient.post('/materials', payload).then(r => r.data)
   },
 
-  update(default_code: string, payload: Partial<CreateMaterialPayload>): Promise<MaterialDTO> {
-    return apiClient.patch(`/materials/${default_code}`, payload).then(r => r.data)
-  },
-
-  actionSubmit(default_code: string): Promise<MaterialDTO> {
-    return apiClient.post(`/materials/${default_code}/action_submit`).then(r => r.data)
-  },
-
-  actionCancel(default_code: string): Promise<MaterialDTO> {
-    return apiClient.post(`/materials/${default_code}/action_cancel`).then(r => r.data)
-  },
-
-  actionAssignRunno(default_code: string): Promise<MaterialDTO> {
-    return apiClient.post(`/materials/${default_code}/action_assign_runno`).then(r => r.data)
-  },
-
   doAction(default_code: string, action: string): Promise<MaterialDTO> {
     return apiClient.post(`/materials/${default_code}/${action}`).then(r => r.data)
   },

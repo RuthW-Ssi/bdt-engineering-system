@@ -92,9 +92,9 @@ export const STATE_TO_PRODUCT_STATUS: Record<string, string> = {
 // Sprint 2: Product Layer types
 // ═══════════════════════════════════════════════════════════════
 
-export type PaintLayerType = 'primer' | 'intermediate' | 'fireproof' | 'topcoat'
+type PaintLayerType = 'primer' | 'intermediate' | 'fireproof' | 'topcoat'
 
-export interface PaintLayerPreset {
+interface PaintLayerPreset {
   paint_type: PaintLayerType
   layers: number
   material_code: string

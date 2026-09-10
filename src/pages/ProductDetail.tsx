@@ -5,7 +5,7 @@ import { ArrowLeft, Send, Loader2, Clock, XCircle, ArrowDownLeft, RefreshCw, Lay
 import { useProduct, useProductAction, useProductMessages, useUpdateProductSpec } from '../hooks/useProducts'
 import type { PaintSpecPreset, WeldingSpecPreset } from '../api/types'
 import { useMaterialsByPrefix } from '../hooks/useMasters'
-import { useRouting, useStdCost } from '../hooks/useRoutings'
+import { useRouting } from '../hooks/useRoutings'
 import { usePermission } from '../hooks/usePermission'
 import { ProductTypeBadge } from '../components/product/ProductTypeBadge'
 import { ProductStatePill } from '../components/product/ProductStatePill'
@@ -61,7 +61,6 @@ export function ProductDetail() {
   const { data: messages = [] } = useProductMessages(code ?? '')
   const { mutateAsync: saveSpec, isPending: savingSpec } = useUpdateProductSpec(code ?? '')
   const { routing, state: routingState, totalTimeMin, loading: routingLoading, recompute } = useRouting(code)
-  const { stdCost, recompute: recomputeCost } = useStdCost(code)
 
   const canUpdate = usePermission('products', 'update')
 
@@ -73,7 +72,6 @@ export function ProductDetail() {
   const handleRoutingRecompute = async () => {
     try {
       await recompute.mutateAsync()
-      await recomputeCost.mutateAsync()
     } catch (e: any) {
       alert(e.response?.data?.message ?? 'Recompute failed')
     }
@@ -451,11 +449,11 @@ export function ProductDetail() {
                     <div className="flex items-center gap-2">
                       <button
                         onClick={handleRoutingRecompute}
-                        disabled={recompute.isPending || recomputeCost.isPending}
+                        disabled={recompute.isPending}
                         className="flex items-center gap-1.5 rounded-md border border-chrome-200 hover:bg-chrome-50"
                         style={{ height: 30, padding: '0 10px', fontSize: 12, color: '#555' }}
                       >
-                        {(recompute.isPending || recomputeCost.isPending)
+                        {recompute.isPending
                           ? <Loader2 size={12} className="animate-spin" />
                           : <RefreshCw size={12} />}
                         Recompute
@@ -479,17 +477,6 @@ export function ProductDetail() {
                       </div>
                       {totalTimeMin > 0 && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{Math.round(totalTimeMin)} min</div>}
                     </div>
-                    {stdCost && (
-                      <div>
-                        <div style={{ fontSize: 11, color: '#8E8E8E', marginBottom: 2 }}>Production Cost</div>
-                        <div className="font-mono" style={{ fontSize: 24, fontWeight: 700, color: '#1F1F1F' }}>
-                          ฿{stdCost.total_production_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </div>
-                        <div style={{ fontSize: 11, color: '#8E8E8E' }}>
-                          Computed on {new Date(stdCost.computed_at).toLocaleDateString('en-GB')}
-                        </div>
-                      </div>
-                    )}
                   </div>
 
                   {/* Operations table */}

@@ -10,14 +10,6 @@ export function usePaintConfig(dispatchId: number | undefined) {
   })
 }
 
-export function useMbom(dispatchId: number | undefined, enabled = true) {
-  return useQuery({
-    queryKey: ['mbom', dispatchId],
-    queryFn: () => paintApi.getMbom(dispatchId!),
-    enabled: !!dispatchId && enabled,
-  })
-}
-
 export function usePaintMaterials(paintType?: PaintType) {
   return useQuery({
     queryKey: ['paint-materials', paintType ?? 'all'],

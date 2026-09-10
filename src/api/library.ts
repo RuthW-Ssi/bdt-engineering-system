@@ -12,10 +12,6 @@ export const libraryApi = {
     return apiClient.get('/product-library', { params }).then(r => r.data)
   },
 
-  get(id: number): Promise<LibraryEntryDTO> {
-    return apiClient.get(`/product-library/${id}`).then(r => r.data)
-  },
-
   create(payload: CreateLibraryEntryPayload): Promise<LibraryEntryDTO> {
     return apiClient.post('/product-library', payload).then(r => r.data)
   },

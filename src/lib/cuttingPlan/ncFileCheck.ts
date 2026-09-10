@@ -17,7 +17,3 @@ export function countDistinctPlates(text: string): number {
   }
   return tokens.size
 }
-
-export function isLikelyMultiPlate(text: string): boolean {
-  return countDistinctPlates(text) > 1
-}

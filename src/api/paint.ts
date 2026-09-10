@@ -1,7 +1,6 @@
 import { apiClient } from './client'
 
 export type PaintType = 'primer' | 'intermediate' | 'fireproof' | 'topcoat'
-export const PAINT_TYPES: PaintType[] = ['primer', 'intermediate', 'fireproof', 'topcoat']
 
 export interface PaintMaterialDto {
   id: number
@@ -15,7 +14,7 @@ export interface PaintMaterialDto {
   }
 }
 
-export interface PaintConfigRowPayload {
+interface PaintConfigRowPayload {
   assembly_id: number
   paint_type: PaintType
   material_id: number | null
@@ -26,14 +25,14 @@ export interface SavePaintConfigPayload {
   configs: PaintConfigRowPayload[]
 }
 
-export interface PaintConfigEntryDto {
+interface PaintConfigEntryDto {
   paint_type: PaintType
   material_id: number | null
   layers: number
   material_name: string | null
 }
 
-export interface PaintConfigAssemblyDto {
+interface PaintConfigAssemblyDto {
   assembly_id: number
   assembly_mark: string
   name: string | null
@@ -42,7 +41,7 @@ export interface PaintConfigAssemblyDto {
   configs: PaintConfigEntryDto[]
 }
 
-export interface ResolvedPaintLayer {
+interface ResolvedPaintLayer {
   paint_type: PaintType
   layers: number
   material_code: string
@@ -50,11 +49,11 @@ export interface ResolvedPaintLayer {
   material_id: number | null
 }
 
-export interface ResolvedPaintSpec {
+interface ResolvedPaintSpec {
   layers: ResolvedPaintLayer[]
 }
 
-export interface ResolvedWeldingSpec {
+interface ResolvedWeldingSpec {
   material_code: string
   fillet_mm: number
   sides: number
@@ -62,7 +61,7 @@ export interface ResolvedWeldingSpec {
   material_id: number | null
 }
 
-export interface ProductSpecPreset {
+interface ProductSpecPreset {
   product_id: number
   product_code: string
   product_name: string
@@ -76,7 +75,7 @@ export interface PaintConfigResponseDto {
   available_presets: ProductSpecPreset[]
 }
 
-export interface PaintAssemblyBreakdownDto {
+interface PaintAssemblyBreakdownDto {
   assembly_id: number
   assembly_mark: string
   area_m2: number
@@ -85,7 +84,7 @@ export interface PaintAssemblyBreakdownDto {
   gallons: number
 }
 
-export interface MbomMaterialItemDto {
+interface MbomMaterialItemDto {
   material_id: number
   material_name: string
   paint_type: PaintType
@@ -96,7 +95,7 @@ export interface MbomMaterialItemDto {
   assembly_breakdown: PaintAssemblyBreakdownDto[]
 }
 
-export interface MbomByTypeDto {
+interface MbomByTypeDto {
   paint_type: PaintType
   items: MbomMaterialItemDto[]
   subtotal_gallon: number
@@ -116,10 +115,6 @@ export const paintApi = {
 
   saveConfig(dispatchId: number, payload: SavePaintConfigPayload): Promise<MbomSummaryDto> {
     return apiClient.post(`/dispatches/${dispatchId}/paint-config`, payload).then(r => r.data)
-  },
-
-  getMbom(dispatchId: number): Promise<MbomSummaryDto> {
-    return apiClient.get(`/dispatches/${dispatchId}/mbom`).then(r => r.data)
   },
 
   getPaintMaterials(paintType?: PaintType): Promise<PaintMaterialDto[]> {

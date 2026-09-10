@@ -1,7 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import * as bcryptjs from 'bcryptjs'
 import { PrismaService } from '../../prisma/prisma.service'
-import { ROLE_TEMPLATE } from '../../common/permissions/permission-modules'
 import { CreateUserDto } from './dto/create-user.dto'
 import { UpdateUserDto } from './dto/update-user.dto'
 import { SetPermissionsDto } from './dto/set-permissions.dto'
@@ -69,15 +68,9 @@ export class UsersService {
     const hash = await bcryptjs.hash(dto.password, 12)
     const permissions =
       dto.permissions ??
-      (dto.role === 'admin'
-        ? []
-        : (ROLE_TEMPLATE[dto.role] ?? []).map((module) => ({
-            module,
-            can_view: true,
-            can_create: true,
-            can_update: true,
-            can_delete: true,
-          })))
+      // No pre-assigned module ownership per department yet — every new user
+      // starts with an empty permission set; admin fills them in per user.
+      []
 
     return this.prisma.$transaction(async (tx) => {
       const user = await tx.res_users.create({
