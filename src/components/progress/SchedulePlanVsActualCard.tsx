@@ -6,10 +6,37 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
+// Bullet graph — one filled bar (Actual, 0-100%) plus a marker line
+// (Plan) crossing it, instead of two full separate bars. Purpose-built
+// for exactly this "one actual value vs one target" comparison in a
+// small space (the pattern this style is named after), which fits this
+// card's per-row height far better than a gauge/dial or a second stacked
+// bar would. `plan` null (no window to compare against) just omits the
+// marker — the actual bar still renders on its own.
+function BulletBar({ plan, actual }: { plan: number | null; actual: number }) {
+  const ahead = plan === null || actual >= plan
+  const barColor = ahead ? '#2E9E5F' : '#C8202A'
+  const actualWidth = Math.max(0, Math.min(100, actual))
+  return (
+    <div style={{ position: 'relative', height: 7, background: '#EDEFF2', borderRadius: 4, marginTop: 6 }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${actualWidth}%`, background: barColor, borderRadius: 4 }} />
+      {plan !== null && (
+        <div
+          title={`Plan ${plan.toFixed(0)}%`}
+          style={{
+            position: 'absolute', left: `${Math.max(0, Math.min(100, plan))}%`, top: -2, bottom: -2,
+            width: 2, background: '#1A1A1A', transform: 'translateX(-1px)', borderRadius: 1,
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 // One phase's block — its own window/day-count (approximated from that
 // phase's own plan-finish date spread, so Fab and Erection show genuinely
-// different windows, not one shared number) with Plan vs Actual sharing
-// that same line, right-aligned — no separate delta row underneath.
+// different windows, not one shared number), Plan/Actual numbers, and a
+// BulletBar visualizing the same two values.
 function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
   return (
     <div>
@@ -37,6 +64,7 @@ function PhaseBlock({ label, phase }: { label: string; phase: PhaseSchedule }) {
           <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{phase.actual_pct.toFixed(0)}%</b></span>
         </div>
       </div>
+      <BulletBar plan={phase.plan_pct} actual={phase.actual_pct} />
     </div>
   )
 }
@@ -69,6 +97,7 @@ export function ScheduleTabBody({ schedule }: { schedule: ScheduleProgress }) {
           )}
           <span style={{ color: '#555555' }}>Actual <b style={{ ...mono, color: '#1A1A1A' }}>{schedule.combined_actual_pct.toFixed(0)}%</b></span>
         </div>
+        <BulletBar plan={schedule.combined_plan_pct} actual={schedule.combined_actual_pct} />
       </div>
     </div>
   )

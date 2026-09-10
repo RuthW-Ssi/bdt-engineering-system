@@ -923,7 +923,7 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A" style={{ height: 211, marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
+        <StatCard label="" value="" accent="#C8202A" style={{ height: 258, marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
@@ -935,11 +935,13 @@ function OverviewPanel({
               actionable default view; Fab/Erection's per-date breakdown is
               the drill-down. One tab at a time instead of stacking — same
               segmented-pill style as the Zone/Position toggle below.
-              height:211 (fixed, not flex-based) — same reading regardless
+              height:258 (fixed, not flex-based) — same reading regardless
               of which of the 3 tabs is active: the Schedule tab's own
-              natural height (3 short blocks, never scrolls) set the
-              target, and Fab/Erection's per-date table now fills that
-              same box via its own internal scroll instead of growing the
+              natural height (3 short blocks + their BulletBar rows, never
+              scrolls) plus a bit of breathing room below the last block
+              set the target, and
+              Fab/Erection's per-date table now fills that same box via
+              its own internal scroll instead of growing the
               card to fit every row (which used to squeeze, or on a short
               viewport fully hide, the Zone table below whenever a project
               had many distinct plan dates). The Zone table's own flex:1
