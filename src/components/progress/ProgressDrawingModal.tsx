@@ -18,7 +18,12 @@ export function ProgressDrawingModal({ zoneId, mark, onClose }: { zoneId: number
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
       <div style={{
-        background: 'white', borderRadius: 12, width: 760, height: '82vh', display: 'flex', flexDirection: 'column',
+        // Near-fullscreen, not a fixed card size — a DWG can carry several
+        // Paper Space sheets that the Autodesk 2D viewer stacks vertically
+        // in one continuous canvas (not one-sheet-at-a-time), so this needs
+        // real room to be legible instead of cramming multiple sheets into
+        // a small box.
+        background: 'white', borderRadius: 12, width: '94vw', maxWidth: 1400, height: '94vh', display: 'flex', flexDirection: 'column',
         boxShadow: '0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08)', border: '1px solid #E5E7EB', overflow: 'hidden',
       }}>
         <div style={{

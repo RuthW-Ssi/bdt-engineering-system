@@ -20,12 +20,12 @@ export class CreateZoneDto {
   @ApiPropertyOptional({ example: '2026-08-01' })
   @IsOptional()
   @IsDateString()
-  target_erection_start?: string
+  target_start?: string
 
   @ApiPropertyOptional({ example: '2026-09-30' })
   @IsOptional()
   @IsDateString()
-  target_erection_end?: string
+  target_end?: string
 
   @ApiPropertyOptional()
   @IsOptional()

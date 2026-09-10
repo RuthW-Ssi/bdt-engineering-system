@@ -1,7 +1,13 @@
-// Pace-based delay detection for a zone's erection schedule — compares
-// elapsed time within [target_erection_start, target_erection_end] against
-// actual erect_pct, rather than just flagging "overdue" once the deadline
-// has already passed (that alone can't warn you *before* it's too late).
+// Pace-based delay detection for a zone's whole work schedule — compares
+// elapsed time within [target_start, target_end] against actual combined
+// progress (fab_pct×0.5 + erect_pct×0.5, same 50/50 split the Overview
+// tab's schedule Plan-vs-Actual card uses), rather than just flagging
+// "overdue" once the deadline has already passed (that alone can't warn
+// you *before* it's too late). target_start/target_end cover the WHOLE
+// zone (fab through erection), not erection alone — renamed 2026-09 from
+// target_erection_start/end once a second consumer needed the same window
+// for fab pace, not just erection; this function's benchmark moved from
+// erect_pct alone to the combined pct in the same change.
 // Pure, framework-agnostic — shared by desktop (ProjectProgress.tsx) and
 // mobile (MobileZoneList.tsx/MobileAssemblyList.tsx) so both compute
 // identical results from one implementation. Mirrors the shared-module
@@ -23,7 +29,7 @@ export interface DelayInfo {
   actualPct: number
   // null when there's no meaningful in-window comparison to show (already
   // complete, or the window hasn't opened yet) — vs. a real 0-100 expected
-  // value once the zone is inside its erection window.
+  // value once the zone is inside its target window.
   expectedPct: number | null
   // Raw day counts behind expectedPct, kept alongside it so the tooltip can
   // show the actual `elapsed ÷ total × 100` formula, not just its result —
@@ -32,22 +38,22 @@ export interface DelayInfo {
   totalDays: number | null
 }
 
-export function computeDelayInfo(startIso: string | null | undefined, endIso: string | null | undefined, erectPct: number): DelayInfo | null {
+export function computeDelayInfo(startIso: string | null | undefined, endIso: string | null | undefined, combinedPct: number): DelayInfo | null {
   if (!startIso || !endIso) return null // no schedule set — nothing to evaluate against
-  if (erectPct >= 100) return { status: 'on_track', actualPct: erectPct, expectedPct: null, elapsedDays: null, totalDays: null }
+  if (combinedPct >= 100) return { status: 'on_track', actualPct: combinedPct, expectedPct: null, elapsedDays: null, totalDays: null }
   const today = new Date()
   const start = new Date(startIso)
   const end = new Date(endIso)
   const totalDays = Math.round((end.getTime() - start.getTime()) / MS_PER_DAY)
   if (today > end) {
     const daysPastDue = Math.round((today.getTime() - end.getTime()) / MS_PER_DAY)
-    return { status: 'overdue', actualPct: erectPct, expectedPct: 100, elapsedDays: daysPastDue, totalDays }
+    return { status: 'overdue', actualPct: combinedPct, expectedPct: 100, elapsedDays: daysPastDue, totalDays }
   }
-  if (today < start) return { status: 'on_track', actualPct: erectPct, expectedPct: null, elapsedDays: null, totalDays } // window hasn't opened yet — not due
+  if (today < start) return { status: 'on_track', actualPct: combinedPct, expectedPct: null, elapsedDays: null, totalDays } // window hasn't opened yet — not due
   const elapsedDays = Math.round((today.getTime() - start.getTime()) / MS_PER_DAY)
   const expectedPct = totalDays > 0 ? (elapsedDays / totalDays) * 100 : 100
-  const status: DelayStatus = erectPct < expectedPct - DELAY_MARGIN_PCT ? 'at_risk' : 'on_track'
-  return { status, actualPct: erectPct, expectedPct, elapsedDays, totalDays }
+  const status: DelayStatus = combinedPct < expectedPct - DELAY_MARGIN_PCT ? 'at_risk' : 'on_track'
+  return { status, actualPct: combinedPct, expectedPct, elapsedDays, totalDays }
 }
 
 // Spells out the actual numbers behind the color so the status is
@@ -58,12 +64,12 @@ export function delayTooltipParts(info: DelayInfo): { label: string; rest: strin
   const actual = `${info.actualPct.toFixed(0)}%`
   if (info.status === 'overdue') {
     const daysPast = info.elapsedDays !== null ? ` (${info.elapsedDays}d past due)` : ''
-    return { label: 'Overdue', rest: `— target end date has passed${daysPast}. Actual erection: ${actual}.` }
+    return { label: 'Overdue', rest: `— target end date has passed${daysPast}. Actual progress: ${actual}.` }
   }
   if (info.expectedPct === null) {
     return info.actualPct >= 100
-      ? { label: 'Complete', rest: '— 100% erected.' }
-      : { label: 'Not due yet', rest: `— erection window hasn't started. Actual erection: ${actual}.` }
+      ? { label: 'Complete', rest: '— 100% complete.' }
+      : { label: 'Not due yet', rest: `— zone window hasn't started. Actual progress: ${actual}.` }
   }
   const expected = `${info.expectedPct.toFixed(0)}%`
   const gap = (info.expectedPct - info.actualPct).toFixed(0)
@@ -71,6 +77,6 @@ export function delayTooltipParts(info: DelayInfo): { label: string; rest: strin
     ? ` [${info.elapsedDays}d ÷ ${info.totalDays}d × 100 ≈ ${expected}]`
     : ''
   return info.status === 'at_risk'
-    ? { label: 'At risk', rest: `— expected ~${expected} erected by now${formula}, actual is ${actual} (${gap}pts behind, over the ${DELAY_MARGIN_PCT}pt margin).` }
-    : { label: 'On track', rest: `— expected ~${expected} erected by now${formula}, actual is ${actual}.` }
+    ? { label: 'At risk', rest: `— expected ~${expected} complete by now${formula}, actual is ${actual} (${gap}pts behind, over the ${DELAY_MARGIN_PCT}pt margin).` }
+    : { label: 'On track', rest: `— expected ~${expected} complete by now${formula}, actual is ${actual}.` }
 }

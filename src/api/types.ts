@@ -204,8 +204,8 @@ export interface ProjectZoneDTO {
   code: string
   label: string
   erection_sequence: number | null
-  target_erection_start: string | null
-  target_erection_end: string | null
+  target_start: string | null
+  target_end: string | null
   active: boolean
   // BIM-first progress entry (2026-09) — true only for the one synthetic
   // "Pending BOM" zone per project. See ProjectProgress.tsx's tab bar and

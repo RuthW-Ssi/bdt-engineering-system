@@ -323,8 +323,12 @@ model project_zone {
   code                  String    @db.VarChar(20)
   label                 String    @db.VarChar(80)
   erection_sequence     Int?
-  target_erection_start DateTime? @db.Date
-  target_erection_end   DateTime? @db.Date
+  // Whole-zone work window (fab start through erection finish) — despite the
+  // "erection" name this field pair had 2026-06 through 2026-09, it was
+  // never erection-only: renamed 2026-09 once a second consumer (schedule
+  // Plan-vs-Actual) needed the same window for fab pace, not just erection.
+  target_start          DateTime? @db.Date
+  target_end            DateTime? @db.Date
   crane_assignment      String?   @db.VarChar(60)
   notes                 String?   @db.Text
   active                Boolean   @default(true)
