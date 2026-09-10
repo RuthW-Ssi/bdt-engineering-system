@@ -586,7 +586,7 @@ export function ProjectProgress() {
           the left column's content differs (project rollup vs. assembly
           table). 3D + isolate on the right always reflects the active tab's
           scope (whole project on Overview, one zone otherwise). ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '600px 1fr', gap: 16, flex: 1, minHeight: 0, minWidth: 0, padding: '20px 28px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '600px 1fr', gap: 16, flex: 1, minHeight: 0, minWidth: 0, padding: '12px 16px' }}>
         {/* Left column — wide fixed column (600px) so Mark/Weight/Progress
             (3 chips)/3D/Edit all sit without horizontal scroll, and the
             expanded edit panel + bulk-action bar have room; 3D still gets
