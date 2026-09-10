@@ -73,7 +73,7 @@ export function MobileProgressStatCards({ total, schedule }: { total: ProgressRo
         ) : (
           <PlanDateBarChart
             rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown}
-            barsHeight={64} groupGap={10} groupMinWidth={26} barMaxWidth={10} labelHeight={22} dateFontSize={8} legendFontSize={9}
+            barsHeight={64} groupGap={10} groupMinWidth={26} barMaxWidth={10} labelHeight={40} dateFontSize={8} legendFontSize={9}
           />
         )}
       </div>

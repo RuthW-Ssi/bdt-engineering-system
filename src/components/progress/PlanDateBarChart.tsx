@@ -4,6 +4,12 @@ import type { PlanDateBucket } from '../../api/projectProgress'
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 
+// Axis labels drop the year ("01 Jun", not "01 Jun 26") — shorter string
+// needs less vertical room in the rotated writingMode:vertical-rl label
+// below, and the year is already shown in the page's own date-range header.
+const formatAxisDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+
 // Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
 // replaces what used to be a single percent bar for these two phases. A
 // percent can't show plan-vs-actual meaningfully once assemblies/zones each
@@ -63,7 +69,7 @@ function PlanStatusToggle({
 }
 
 export function PlanDateBarChart({
-  rows, barsHeight = 88, groupGap = 16, groupMinWidth = 34, barMaxWidth = 14, labelHeight = 26, dateFontSize = 9, legendFontSize = 10,
+  rows, barsHeight = 66, groupGap = 16, groupMinWidth = 34, barMaxWidth = 14, labelHeight = 50, dateFontSize = 9, legendFontSize = 10,
 }: {
   rows: PlanDateBucket[]
   barsHeight?: number
@@ -106,7 +112,7 @@ export function PlanDateBarChart({
                 writingMode: 'vertical-rl', transform: 'rotate(180deg)', overflow: 'hidden', whiteSpace: 'nowrap',
               }}
             >
-              {formatDate(r.date)}
+              {formatAxisDate(r.date)}
             </span>
           </div>
         ))}
