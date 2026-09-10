@@ -1069,7 +1069,7 @@ function OverviewPanel({
                       </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
                       <td style={{ ...tdStyle, ...mono, fontSize: 12, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
-                        F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
+                        F <b>{z.fab_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
                       </td>
                       <td style={{ ...tdStyle, ...mono, fontSize: 12, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1135,7 +1135,7 @@ function PositionRollupTable({
   const progressCell = (roll: { count: number; trackedCount: number; fab_pct: number | null; load_pct: number | null; erect_pct: number | null; payment_pct: number | null }) =>
     roll.trackedCount > 0 ? (
       <span style={{ ...mono, fontSize: 11 }}>
-        F <b>{roll.fab_pct}%</b> · M <b>{roll.payment_pct}%</b> · T <b>{roll.load_pct}%</b> · E <b>{roll.erect_pct}%</b>
+        F <b>{roll.fab_pct}%</b> · T <b>{roll.load_pct}%</b> · E <b>{roll.erect_pct}%</b>
         {roll.count > roll.trackedCount && (
           <span style={{ color: '#C2C2C2' }}> · {roll.count - roll.trackedCount} untracked</span>
         )}
