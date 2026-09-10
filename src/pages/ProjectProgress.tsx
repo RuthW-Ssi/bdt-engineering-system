@@ -1218,56 +1218,51 @@ function StatCard({ label, value, accent, children, style }: {
 // per-date breakdown sidesteps that by never averaging across dates at all
 // — every distinct plan date gets its own bar.
 //
-// Stacked bar chart (2026-09, replaced a per-date table) — this data is a
-// real time series (many distinct plan dates) where each date's Total
-// splits into 3 parts that sum to it, which is exactly what a stacked bar
-// shows at a glance; a grouped 3-bars-per-date layout would need 3x the
-// width for the same date count, and a line chart implies a continuous
-// trend between points that isn't true here (each date is its own cohort
-// of assemblies, not a running total).
+// Grouped bar chart (2026-09) — 3 side-by-side bars per date (Not Started/
+// On Time/Delay), each scaled against the max single-category count across
+// the whole dataset, instead of one stacked bar per date. Stacking hid each
+// status's own trend behind a shared total; grouping shows all 3 at a
+// glance and lets a date with e.g. high Delay stand out directly, not just
+// as a bigger red segment on top of the others. Each date's 3-bar group is
+// `flex:1` (not a fixed width) so the whole chart stretches to fill the
+// card instead of leaving empty space when there are few plan dates;
+// overflowX still handles the case where there are enough dates that a
+// legible minWidth per group would overflow the card.
 const PLAN_BAR_COLOR = { not_started: '#E0E0E0', on_time: '#1A7A3D', delay: '#C8202A' } as const
 function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
   if (rows.length === 0) {
     return <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
   }
-  const maxTotal = Math.max(...rows.map(r => r.total), 1)
+  const maxCount = Math.max(...rows.flatMap(r => [r.not_started, r.on_time, r.delay]), 1)
   const barsHeight = 88
-  // flex:1/minHeight:0 (not a hardcoded height) — the card this sits in
-  // has a real height:258 (see the StatCard usage above), matching the
-  // Schedule tab's own natural height, so this fills whatever's left
-  // below the header; overflowX handles any project with more plan dates
-  // than fit at a legible bar width, instead of growing the whole card
-  // (and, on a short viewport, hiding the Zone table below it).
+  const scale = barsHeight / maxCount
+  const barHeight = (n: number) => (n > 0 ? Math.max(n * scale, 2) : 0)
   return (
     <div style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7, height: barsHeight }}>
-        {rows.map(r => {
-          const scale = barsHeight / maxTotal
-          return (
-            <div
-              key={r.date}
-              title={`${formatDate(r.date)} — Total ${r.total}, Not Started ${r.not_started}, On Time ${r.on_time}, Delay ${r.delay}`}
-              style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', width: 20, flexShrink: 0, height: '100%' }}
-            >
-              {r.delay > 0 && <div style={{ height: r.delay * scale, background: PLAN_BAR_COLOR.delay, borderRadius: '2px 2px 0 0' }} />}
-              {r.on_time > 0 && <div style={{ height: r.on_time * scale, background: PLAN_BAR_COLOR.on_time, borderRadius: r.delay > 0 ? undefined : '2px 2px 0 0' }} />}
-              {r.not_started > 0 && (
-                <div style={{ height: r.not_started * scale, background: PLAN_BAR_COLOR.not_started, borderRadius: r.delay === 0 && r.on_time === 0 ? '2px 2px 0 0' : undefined }} />
-              )}
-            </div>
-          )
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: barsHeight }}>
         {rows.map(r => (
           <div
             key={r.date}
-            style={{
-              width: 20, flexShrink: 0, height: 26, fontSize: 9, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E',
-              writingMode: 'vertical-rl', transform: 'rotate(180deg)', overflow: 'hidden', whiteSpace: 'nowrap',
-            }}
+            title={`${formatDate(r.date)} — Total ${r.total}, Not Started ${r.not_started}, On Time ${r.on_time}, Delay ${r.delay}`}
+            style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 2, flex: '1 1 0', minWidth: 34, height: '100%' }}
           >
-            {formatDate(r.date)}
+            <div style={{ flex: 1, maxWidth: 14, height: barHeight(r.not_started), background: PLAN_BAR_COLOR.not_started, borderRadius: '2px 2px 0 0' }} />
+            <div style={{ flex: 1, maxWidth: 14, height: barHeight(r.on_time), background: PLAN_BAR_COLOR.on_time, borderRadius: '2px 2px 0 0' }} />
+            <div style={{ flex: 1, maxWidth: 14, height: barHeight(r.delay), background: PLAN_BAR_COLOR.delay, borderRadius: '2px 2px 0 0' }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        {rows.map(r => (
+          <div key={r.date} style={{ flex: '1 1 0', minWidth: 34, height: 26, display: 'flex', justifyContent: 'center' }}>
+            <span
+              style={{
+                fontSize: 9, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E',
+                writingMode: 'vertical-rl', transform: 'rotate(180deg)', overflow: 'hidden', whiteSpace: 'nowrap',
+              }}
+            >
+              {formatDate(r.date)}
+            </span>
           </div>
         ))}
       </div>
