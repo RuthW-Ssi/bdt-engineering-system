@@ -1,43 +1,8 @@
 import { useState } from 'react'
-import type { ProgressRollupTotals, PlanDateBucket, ScheduleProgress } from '../../api/projectProgress'
+import type { ProgressRollupTotals, ScheduleProgress } from '../../api/projectProgress'
 import { PHASE_META } from '../progress/statusMeta'
 import { ScheduleTabBody } from '../progress/SchedulePlanVsActualCard'
-
-// Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
-// same Date/Total/Not Started/On Time/Delay table as desktop's PlanDateTable
-// (ProjectProgress.tsx), just sized down for a phone; overflow-x-auto is
-// the safety net if a run of long numbers ever doesn't fit.
-function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
-  if (!rows.length) return <div className="text-[11.5px] text-chrome-300 py-1.5">No plan dates set yet</div>
-  return (
-    <div className="max-h-40 overflow-y-auto overflow-x-auto border border-chrome-50 rounded-lg">
-      <table className="w-full text-[10.5px] font-mono border-collapse">
-        <thead>
-          <tr>
-            <th className="sticky top-0 bg-white text-left font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Plan Date</th>
-            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Total</th>
-            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Not Started</th>
-            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">On Time</th>
-            <th className="sticky top-0 bg-white text-right font-bold uppercase tracking-wide text-chrome-400 px-2 py-1.5 border-b border-chrome-100 whitespace-nowrap">Delay</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr key={r.date}>
-              <td className="text-left font-semibold text-chrome-900 px-2 py-1.5 border-b border-chrome-50 whitespace-nowrap">
-                {new Date(r.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
-              </td>
-              <td className="text-right px-2 py-1.5 border-b border-chrome-50">{r.total}</td>
-              <td className="text-right px-2 py-1.5 border-b border-chrome-50 text-chrome-300">{r.not_started}</td>
-              <td className="text-right px-2 py-1.5 border-b border-chrome-50" style={{ color: '#1A7A3D' }}>{r.on_time}</td>
-              <td className="text-right px-2 py-1.5 border-b border-chrome-50" style={r.delay > 0 ? { color: '#C8202A', fontWeight: 700 } : { color: '#ABABAB' }}>{r.delay}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+import { PlanDateBarChart } from '../progress/PlanDateBarChart'
 
 // Takes any ProgressRollupTotals — project-wide `overview.total`
 // (MobileZoneList) or a single zone's rollup out of `overview.zones`
@@ -78,7 +43,7 @@ export function MobileProgressStatCards({ total, schedule }: { total: ProgressRo
         {/* Fab/Erect used to be percent bars here too, and Pay/Trans sat
             alongside them — both dropped, matching desktop: Payment/
             Transport progress is already visible elsewhere (isolate-by-
-            status pills on the 3D tab, F/M/T/E in the assembly rows), so
+            status pills on the 3D tab, F/T/E in the assembly rows), so
             this card is scoped to the two phases with a plan-date to show. */}
         <div className="flex items-center justify-between gap-2 mb-2">
           <div className="flex items-center gap-2">
@@ -106,7 +71,10 @@ export function MobileProgressStatCards({ total, schedule }: { total: ProgressRo
         {planTab === 'schedule' && schedule ? (
           <ScheduleTabBody schedule={schedule} />
         ) : (
-          <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+          <PlanDateBarChart
+            rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown}
+            barsHeight={64} groupGap={10} groupMinWidth={26} barMaxWidth={10} labelHeight={22} dateFontSize={8} legendFontSize={9}
+          />
         )}
       </div>
     </>

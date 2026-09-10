@@ -10,6 +10,7 @@ import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPane
 import { ProgressEditModal } from '../components/progress/ProgressEditModal'
 import { ProgressDrawingModal } from '../components/progress/ProgressDrawingModal'
 import { ScheduleTabBody } from '../components/progress/SchedulePlanVsActualCard'
+import { PlanDateBarChart } from '../components/progress/PlanDateBarChart'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../components/progress/delayStatus'
 import type { DelayInfo } from '../components/progress/delayStatus'
@@ -23,7 +24,7 @@ import {
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
 import { exportProgress } from '../api/projectProgress'
-import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, PlanDateBucket } from '../api/projectProgress'
+import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
@@ -1211,101 +1212,3 @@ function StatCard({ label, value, accent, children, style }: {
   )
 }
 
-// Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
-// replaces what used to be a single percent bar for these two phases. A
-// percent can't show plan-vs-actual meaningfully once assemblies/zones each
-// plan their own date (see PlanDateBucket's comment on the backend); a
-// per-date breakdown sidesteps that by never averaging across dates at all
-// — every distinct plan date gets its own bar.
-//
-// Grouped bar chart (2026-09) — 3 side-by-side bars per date (Not Started/
-// On Time/Delay), each scaled against the max single-category count across
-// the whole dataset, instead of one stacked bar per date. Stacking hid each
-// status's own trend behind a shared total; grouping shows all 3 at a
-// glance and lets a date with e.g. high Delay stand out directly, not just
-// as a bigger red segment on top of the others. Each date's 3-bar group is
-// `flex:1` (not a fixed width) so the whole chart stretches to fill the
-// card instead of leaving empty space when there are few plan dates;
-// overflowX still handles the case where there are enough dates that a
-// legible minWidth per group would overflow the card.
-// Not Started is deliberately the lightest of the 3 — it's usually the
-// tallest/most frequent bar (most dates haven't reached their plan date
-// yet), so a muted fill lets it recede into the background instead of
-// visually competing with the On Time/Delay bars that actually matter.
-const PLAN_BAR_COLOR = { not_started: '#EEEEEE', on_time: '#1A7A3D', delay: '#C8202A' } as const
-const PLAN_STATUS_LABEL = { not_started: 'Not Started', on_time: 'On Time', delay: 'Delay' } as const
-type PlanStatus = keyof typeof PLAN_BAR_COLOR
-
-// Legend doubles as a checkbox filter — clicking a status toggles it out of
-// both the rendered bars and the height scale, so hiding e.g. Not Started
-// (usually the tallest/most frequent bar) lets On Time/Delay rescale to use
-// the freed vertical range instead of staying visually tiny next to it.
-function PlanStatusToggle({ status, checked, onToggle }: { status: PlanStatus; checked: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', padding: 0,
-        cursor: 'pointer', font: 'inherit', fontSize: 10, color: checked ? '#8E8E8E' : '#C2C2C2', outline: 'none',
-      }}
-    >
-      <span
-        style={{
-          width: 7, height: 7, borderRadius: 2, flexShrink: 0,
-          background: checked ? PLAN_BAR_COLOR[status] : 'transparent',
-          border: checked ? 'none' : `1px solid ${PLAN_BAR_COLOR[status] === '#EEEEEE' ? '#C2C2C2' : PLAN_BAR_COLOR[status]}`,
-        }}
-      />
-      {PLAN_STATUS_LABEL[status]}
-    </button>
-  )
-}
-
-function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
-  const [visible, setVisible] = useState<Record<PlanStatus, boolean>>({ not_started: true, on_time: true, delay: true })
-  if (rows.length === 0) {
-    return <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
-  }
-  const statuses = (['not_started', 'on_time', 'delay'] as const).filter(s => visible[s])
-  const maxCount = Math.max(...rows.flatMap(r => statuses.map(s => r[s])), 1)
-  const barsHeight = 88
-  const scale = barsHeight / maxCount
-  const barHeight = (n: number) => (n > 0 ? Math.max(n * scale, 2) : 0)
-  return (
-    <div style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'hidden', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, height: barsHeight, flexShrink: 0 }}>
-        {rows.map(r => (
-          <div
-            key={r.date}
-            title={`${formatDate(r.date)} — Total ${r.total}, Not Started ${r.not_started}, On Time ${r.on_time}, Delay ${r.delay}`}
-            style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 2, flex: '1 1 0', minWidth: 34, height: '100%' }}
-          >
-            {statuses.map(s => (
-              <div key={s} style={{ flex: 1, maxWidth: 14, height: barHeight(r[s]), background: PLAN_BAR_COLOR[s], borderRadius: '2px 2px 0 0' }} />
-            ))}
-          </div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 16, marginTop: 4, flexShrink: 0 }}>
-        {rows.map(r => (
-          <div key={r.date} style={{ flex: '1 1 0', minWidth: 34, height: 26, display: 'flex', justifyContent: 'center' }}>
-            <span
-              style={{
-                fontSize: 9, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E',
-                writingMode: 'vertical-rl', transform: 'rotate(180deg)', overflow: 'hidden', whiteSpace: 'nowrap',
-              }}
-            >
-              {formatDate(r.date)}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 12, marginTop: 4, flexShrink: 0 }}>
-        {(['not_started', 'on_time', 'delay'] as const).map(s => (
-          <PlanStatusToggle key={s} status={s} checked={visible[s]} onToggle={() => setVisible(v => ({ ...v, [s]: !v[s] }))} />
-        ))}
-      </div>
-    </div>
-  )
-}
