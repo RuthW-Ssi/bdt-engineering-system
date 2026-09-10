@@ -99,11 +99,11 @@ function SortableZoneRow({
               {zone.sub_zones.length} sub-zones
             </span>
           )}
-          {!reorderMode && (zone.target_erection_start || zone.target_erection_end) && (
+          {!reorderMode && (zone.target_start || zone.target_end) && (
             <span style={{ fontSize: 11, background: '#F3F4F6', borderRadius: 4, padding: '2px 7px', color: '#8E8E8E', display: 'flex', alignItems: 'center', gap: 3 }}>
-              {zone.target_erection_start && new Date(zone.target_erection_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
-              {zone.target_erection_start && zone.target_erection_end && ' → '}
-              {zone.target_erection_end && new Date(zone.target_erection_end).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+              {zone.target_start && new Date(zone.target_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
+              {zone.target_start && zone.target_end && ' → '}
+              {zone.target_end && new Date(zone.target_end).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
             </span>
           )}
         </div>
@@ -265,8 +265,8 @@ export function ZoneList() {
     setZoneForm({
       code: zone.code,
       label: zone.label,
-      target_erection_start: zone.target_erection_start?.slice(0, 10) ?? undefined,
-      target_erection_end: zone.target_erection_end?.slice(0, 10) ?? undefined,
+      target_start: zone.target_start?.slice(0, 10) ?? undefined,
+      target_end: zone.target_end?.slice(0, 10) ?? undefined,
     })
     setZoneTouched(false)
     setZoneModal(true)
@@ -465,8 +465,8 @@ export function ZoneList() {
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Target Start</label>
                   <input
                     type="date"
-                    value={zoneForm.target_erection_start ?? ''}
-                    onChange={e => setZoneForm(f => ({ ...f, target_erection_start: e.target.value || undefined }))}
+                    value={zoneForm.target_start ?? ''}
+                    onChange={e => setZoneForm(f => ({ ...f, target_start: e.target.value || undefined }))}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
                   />
                 </div>
@@ -474,8 +474,8 @@ export function ZoneList() {
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Target End</label>
                   <input
                     type="date"
-                    value={zoneForm.target_erection_end ?? ''}
-                    onChange={e => setZoneForm(f => ({ ...f, target_erection_end: e.target.value || undefined }))}
+                    value={zoneForm.target_end ?? ''}
+                    onChange={e => setZoneForm(f => ({ ...f, target_end: e.target.value || undefined }))}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
                   />
                 </div>

@@ -110,9 +110,32 @@ export interface ProgressZoneRollup extends ProgressRollupTotals {
   is_placeholder: boolean
 }
 
+// Project-wide schedule position vs actual — the Overview tab's Plan-vs-
+// Actual card. Fab and erection each carry their OWN window (approximated
+// from the spread of that phase's own per-assembly plan-finish dates —
+// there's no true start-date field to derive it from) since they're not
+// the same real span; window_start/end null means no assembly has that
+// phase's plan date set at all.
+export interface PhaseSchedule {
+  window_start: string | null // YYYY-MM-DD
+  window_end: string | null
+  total_days: number | null
+  elapsed_days: number | null
+  plan_pct: number | null
+  actual_pct: number
+}
+
+export interface ScheduleProgress {
+  fab: PhaseSchedule
+  erection: PhaseSchedule
+  combined_plan_pct: number | null
+  combined_actual_pct: number
+}
+
 export interface ProgressOverview {
   zones: ProgressZoneRollup[]
   total: ProgressRollupTotals
+  schedule_progress: ScheduleProgress
 }
 
 // Alternate Overview grouping (Zone | Position toggle) — by BIM structural

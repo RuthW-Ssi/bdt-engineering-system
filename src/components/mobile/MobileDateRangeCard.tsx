@@ -15,7 +15,7 @@ interface Props {
 
 // Identity card used at the top of both MobileZoneList (project "code -
 // name" + start_date/target_handover) and MobileAssemblyList (zone "code -
-// name" + target_erection_start/end) — same shape, different source fields.
+// name" + target_start/end) — same shape, different source fields.
 export function MobileDateRangeCard({ title, start, end }: Props) {
   return (
     <div className="bg-white border border-chrome-100 rounded-xl p-4">

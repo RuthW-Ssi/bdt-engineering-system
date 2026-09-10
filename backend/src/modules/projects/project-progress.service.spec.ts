@@ -310,6 +310,120 @@ describe('getOverview rollup', () => {
     expect(result.total.fab_plan_breakdown).toEqual([{ date: '2020-01-01', total: 3, not_started: 3, on_time: 0, delay: 0 }])
   })
 
+  describe('schedule_progress — Fab/Erection Plan-vs-Actual, each with its own window', () => {
+    it('no assembly has fab_plan_finish_date/erection_plan_finish_date set → plan_pct/window null per phase, actual pcts still computed', async () => {
+      const rows = [
+        { weight_kg: 1, qty: 1, progress: { ...EMPTY, cut: 100, buildup: 100, weld1: 100, fitup_drill: 100, weld2: 100, qc_inspection: 100, primer: 100, fireproof: 100, top_coat: 100, qc_final: 100, erected_pcs: 1 }, dispatch: { zone_id: 10 } },
+      ]
+      const result = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+      })).getOverview('0X220')
+
+      expect(result.schedule_progress.fab.window_start).toBeNull()
+      expect(result.schedule_progress.fab.plan_pct).toBeNull()
+      expect(result.schedule_progress.fab.actual_pct).toBe(result.total.fab_pct)
+      expect(result.schedule_progress.erection.window_start).toBeNull()
+      expect(result.schedule_progress.erection.plan_pct).toBeNull()
+      expect(result.schedule_progress.erection.actual_pct).toBe(result.total.erect_pct)
+      expect(result.schedule_progress.combined_plan_pct).toBeNull()
+    })
+
+    it('fab window entirely in the past clamps fab.plan_pct to 100; entirely in the future clamps to 0', async () => {
+      const pastFab = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: {
+          findMany: jest.fn().mockResolvedValue([
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-01-01') }, dispatch: { zone_id: 10 } },
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-06-01') }, dispatch: { zone_id: 10 } },
+          ]),
+          findFirst: jest.fn(),
+        },
+      })).getOverview('0X220')
+      expect(pastFab.schedule_progress.fab.plan_pct).toBe(100)
+      expect(pastFab.schedule_progress.fab.total_days).toBe(152) // Jan(31)+Feb(29 leap)+Mar(31)+Apr(30)+May(31)
+      expect(pastFab.schedule_progress.fab.elapsed_days).toBe(152) // clamped to total_days, same as plan_pct
+
+      const futureFab = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: {
+          findMany: jest.fn().mockResolvedValue([
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2099-01-01') }, dispatch: { zone_id: 10 } },
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2099-06-01') }, dispatch: { zone_id: 10 } },
+          ]),
+          findFirst: jest.fn(),
+        },
+      })).getOverview('0X220')
+      expect(futureFab.schedule_progress.fab.plan_pct).toBe(0)
+      expect(futureFab.schedule_progress.fab.total_days).toBe(151) // Jan(31)+Feb(28)+Mar(31)+Apr(30)+May(31), 2099 not a leap year
+      expect(futureFab.schedule_progress.fab.elapsed_days).toBe(0)
+    })
+
+    it('fab and erection each get their own window from their own plan-finish dates, not a shared one', async () => {
+      const rows = [
+        { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-01-01') }, dispatch: { zone_id: 10 } },
+        { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-03-01') }, dispatch: { zone_id: 10 } },
+        { weight_kg: 1, qty: 1, progress: { ...EMPTY, erection_plan_finish_date: new Date('2020-05-01') }, dispatch: { zone_id: 10 } },
+        { weight_kg: 1, qty: 1, progress: { ...EMPTY, erection_plan_finish_date: new Date('2020-08-01') }, dispatch: { zone_id: 10 } },
+      ]
+      const result = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+      })).getOverview('0X220')
+
+      expect(result.schedule_progress.fab.window_start).toBe('2020-01-01')
+      expect(result.schedule_progress.fab.window_end).toBe('2020-03-01')
+      expect(result.schedule_progress.erection.window_start).toBe('2020-05-01')
+      expect(result.schedule_progress.erection.window_end).toBe('2020-08-01')
+    })
+
+    it('combined_plan_pct blends fab.plan_pct and erection.plan_pct 50/50; null unless BOTH phases have a window', async () => {
+      const fabOnly = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: {
+          findMany: jest.fn().mockResolvedValue([
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-01-01') }, dispatch: { zone_id: 10 } },
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-06-01') }, dispatch: { zone_id: 10 } },
+          ]),
+          findFirst: jest.fn(),
+        },
+      })).getOverview('0X220')
+      expect(fabOnly.schedule_progress.fab.plan_pct).toBe(100)
+      expect(fabOnly.schedule_progress.erection.plan_pct).toBeNull()
+      expect(fabOnly.schedule_progress.combined_plan_pct).toBeNull()
+
+      const both = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: {
+          findMany: jest.fn().mockResolvedValue([
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-01-01') }, dispatch: { zone_id: 10 } },
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, fab_plan_finish_date: new Date('2020-06-01'), erection_plan_finish_date: new Date('2020-08-01') }, dispatch: { zone_id: 10 } },
+            { weight_kg: 1, qty: 1, progress: { ...EMPTY, erection_plan_finish_date: new Date('2020-05-01') }, dispatch: { zone_id: 10 } },
+          ]),
+          findFirst: jest.fn(),
+        },
+      })).getOverview('0X220')
+      expect(both.schedule_progress.fab.plan_pct).toBe(100)
+      expect(both.schedule_progress.erection.plan_pct).toBe(100)
+      expect(both.schedule_progress.combined_plan_pct).toBe(100)
+    })
+
+    it('combined_actual_pct is a flat 50/50 split of fab_pct and erect_pct', async () => {
+      const rows = [
+        // fab 40% (cut+buildup+weld1 = 10+10+15=35, plus fitup 50%*10=5 → 40), qty 4 erected 2 → erect_pct 50
+        { weight_kg: 1, qty: 4, progress: { ...EMPTY, cut: 100, buildup: 100, weld1: 100, fitup_drill: 50, erected_pcs: 2 }, dispatch: { zone_id: 10 } },
+      ]
+      const result = await new ProjectProgressService(makePrisma({
+        project_zone: { findMany: jest.fn().mockResolvedValue([{ id: 10, code: 'ZA', label: 'Zone-A' }]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue(rows), findFirst: jest.fn() },
+      })).getOverview('0X220')
+
+      expect(result.total.fab_pct).toBe(40)
+      expect(result.total.erect_pct).toBe(50)
+      expect(result.schedule_progress.combined_actual_pct).toBe(45) // (40*0.5)+(50*0.5)
+    })
+  })
+
   describe('getOverview — placeholder zone exclusion', () => {
     it('includes the placeholder zone in zones[] (tagged is_placeholder) but excludes its assemblies from total', async () => {
       const prisma = makePrisma({

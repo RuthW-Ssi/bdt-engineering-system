@@ -25,7 +25,7 @@ type FakeAssembly = {
   product?: { mark_prefix: string | null } | null
   dispatch: {
     project: { name: string; target_handover: Date | null } | null
-    zone: { label: string; target_erection_end: Date | null } | null
+    zone: { label: string; target_end: Date | null } | null
     sub_zone: { name: string; due_date: Date | null } | null
   }
 }
@@ -67,7 +67,7 @@ function makeBomDiff(labels: Map<number, string> = new Map()) {
 function dispatchStub() {
   return {
     project: { name: 'Project A', target_handover: null },
-    zone: { label: 'Zone 1', target_erection_end: null },
+    zone: { label: 'Zone 1', target_end: null },
     sub_zone: { name: 'Sub 1', due_date: null },
   }
 }

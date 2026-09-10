@@ -9,6 +9,8 @@ import { ProgressAssemblyTable } from '../components/progress/ProgressAssemblyTa
 import { ProgressDrawingPanel } from '../components/progress/ProgressDrawingPanel'
 import { ProgressEditModal } from '../components/progress/ProgressEditModal'
 import { ProgressDrawingModal } from '../components/progress/ProgressDrawingModal'
+import { ScheduleTabBody } from '../components/progress/SchedulePlanVsActualCard'
+import { PlanDateBarChart } from '../components/progress/PlanDateBarChart'
 import { PHASE_META, PHASE_ORDER, PHASE_PCT_KEY, defaultPhaseColor } from '../components/progress/statusMeta'
 import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../components/progress/delayStatus'
 import type { DelayInfo } from '../components/progress/delayStatus'
@@ -22,7 +24,7 @@ import {
 import { useBimViewerToken } from '../hooks/useBim'
 import type { ProjectZoneDTO } from '../api/types'
 import { exportProgress } from '../api/projectProgress'
-import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload, PlanDateBucket } from '../api/projectProgress'
+import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey, UpdateAssemblyProgressPayload, BulkUpdateAssemblyProgressPayload } from '../api/projectProgress'
 import type { ProjectDTO } from '../api/types'
 
 type ProjectDetail = ProjectDTO & { zones?: ProjectZoneDTO[] }
@@ -585,7 +587,7 @@ export function ProjectProgress() {
           the left column's content differs (project rollup vs. assembly
           table). 3D + isolate on the right always reflects the active tab's
           scope (whole project on Overview, one zone otherwise). ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '600px 1fr', gap: 16, flex: 1, minHeight: 0, minWidth: 0, padding: '20px 28px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '600px 1fr', gap: 12, flex: 1, minHeight: 0, minWidth: 0, padding: '8px 12px' }}>
         {/* Left column — wide fixed column (600px) so Mark/Weight/Progress
             (3 chips)/3D/Edit all sit without horizontal scroll, and the
             expanded edit panel + bulk-action bar have room; 3D still gets
@@ -830,7 +832,7 @@ function OverviewPanel({
   positions: ReturnType<typeof useProgressPositions>['data']
   positionBuckets: PositionBucket[]
 }) {
-  const [planTab, setPlanTab] = useState<'fab' | 'erection'>('fab')
+  const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('schedule')
   if (!overview) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200 }}>
@@ -839,10 +841,10 @@ function OverviewPanel({
     )
   }
   const thStyle: React.CSSProperties = {
-    textAlign: 'left', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.04em', color: '#ABABAB', padding: '9px 12px', borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap',
+    textAlign: 'left', fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+    letterSpacing: '0.04em', color: '#ABABAB', padding: '11px 14px', borderBottom: '1px solid #E0E0E0', whiteSpace: 'nowrap',
   }
-  const tdStyle: React.CSSProperties = { padding: '9px 12px', borderBottom: '1px solid #EDEFF2' }
+  const tdStyle: React.CSSProperties = { padding: '15px 14px', borderBottom: '1px solid #EDEFF2' }
   const mono: React.CSSProperties = { fontFamily: 'IBM Plex Mono, ui-monospace, monospace' }
   const byId = new Map(zones.map(z => [z.id, z]))
 
@@ -853,7 +855,7 @@ function OverviewPanel({
   let overdueCount = 0, atRiskCount = 0, scheduledCount = 0
   for (const z of overview.zones) {
     const meta = byId.get(z.zone_id)
-    const info = computeDelayInfo(meta?.target_erection_start, meta?.target_erection_end, z.erect_pct)
+    const info = computeDelayInfo(meta?.target_start, meta?.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5)
     if (info === null) continue
     scheduledCount++
     if (info.status === 'overdue') overdueCount++
@@ -862,19 +864,17 @@ function OverviewPanel({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Summary stat cards — quick at-a-glance read before the per-zone
-          breakdown table below; mirrors CuttingPlanDetail's StatCard pattern.
-          Progress gets its own full-width row (4 bars needs more room to
-          breathe than a half-width card gives it) instead of sitting
-          shoulder to shoulder with single-number cards of very different
-          content density — Weight/Assemblies/Done are the same "hero
-          number" shape, so they group into one row together. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+      {/* Summary stat cards — 3 separate bordered cards, back to this
+          (2026-09) after a brief stint as one shared-border card — kept
+          the compact padding/font from that round, just split the border
+          back into 3. Moved back here after also briefly living as a
+          3D-viewport overlay — the overlay collided visually with the
+          model itself. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
         <StatCard label="Assemblies" value={total.assembly_count}>
           {scheduledCount > 0 && (
-            <div style={{ fontSize: 11.5, marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
               {overdueCount > 0 && (
                 <span style={{ color: DELAY_STATUS_COLOR.overdue, fontWeight: 600 }}>{overdueCount} {overdueCount === 1 ? 'zone' : 'zones'} overdue</span>
               )}
@@ -904,13 +904,13 @@ function OverviewPanel({
                   }}
                 >
                   <div style={{ marginBottom: 10 }}>
-                    <b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target erection end date has passed and the zone isn't 100% erected.
+                    <b style={{ color: DELAY_STATUS_COLOR.overdue }}>Overdue</b> — target end date has passed and the zone isn't 100% complete.
                   </div>
                   <div style={{ marginBottom: 10 }}>
-                    <b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — erection window is still open, but erect % is more than 15 points behind the % of the window's time already elapsed.
+                    <b style={{ color: DELAY_STATUS_COLOR.at_risk }}>At risk</b> — zone window is still open, but combined progress (Fab + Erection) is more than 15 points behind the % of the window's time already elapsed.
                   </div>
                   <div>
-                    <b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — erect % is keeping pace (or ahead), 100% complete, or the window hasn't started yet.
+                    <b style={{ color: DELAY_STATUS_COLOR.on_track }}>On track</b> — combined progress is keeping pace (or ahead), 100% complete, or the window hasn't started yet.
                   </div>
                 </div>
               </span>
@@ -918,38 +918,54 @@ function OverviewPanel({
           )}
         </StatCard>
         <StatCard label="Done" value={total.buckets.done} accent="#2E9E5F">
-          <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 8, whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 10.5, color: '#8E8E8E', marginTop: 4, whiteSpace: 'nowrap' }}>
             <span style={{ ...mono, color: '#4A85C4' }}>{total.buckets.in_progress}</span> in progress ·{' '}
             <span style={{ ...mono, color: '#ABABAB' }}>{total.buckets.notstart}</span> not started
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A">
-          {/* Fab/Erection only — Payment/Transport progress is already
+        <StatCard label="" value="" accent="#C8202A" style={{ height: 240, marginBottom: 12, padding: '10px 16px 3px', display: 'flex', flexDirection: 'column' }}>
+          {/* Schedule/Fab/Erection — Payment progress is already
               visible elsewhere on this page (the isolate-by-status pills
-              under the 3D panel, and the F/M/T/E columns in the zone table
+              under the 3D panel, and the F/T/E columns in the zone table
               below), so this card is scoped to the two phases that actually
-              have a plan-date field to compare against (see PlanDateTable).
-              One tab at a time instead of stacking both tables — same
-              segmented-pill style as the Zone/Position toggle below. */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: -6 }}>
+              have a plan-date field to compare against (see PlanDateBarChart),
+              plus the Schedule Plan-vs-Actual view sharing the same tab
+              switcher rather than living in its own separate card below.
+              Schedule first — the plan-vs-actual health check is the more
+              actionable default view; Fab/Erection's per-date breakdown is
+              the drill-down. One tab at a time instead of stacking — same
+              segmented-pill style as the Zone/Position toggle below.
+              height (fixed, not flex-based, tuned down 2026-09 to give the
+              Zone/Position table below more room) — same reading regardless
+              of which of the 3 tabs is active: the Schedule tab's own
+              natural height (3 short blocks + their BulletBar rows, never
+              scrolls) plus a bit of breathing room below the last block
+              set the target, and
+              Fab/Erection's per-date table now fills that same box via
+              its own internal scroll instead of growing the
+              card to fit every row (which used to squeeze, or on a short
+              viewport fully hide, the Zone table below whenever a project
+              had many distinct plan dates). The Zone table's own flex:1
+              still absorbs whatever height this card doesn't use. */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{
                 display: 'inline-flex', width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                background: planTab === 'fab' ? PHASE_META.fabrication.dark : PHASE_META.erection.dark,
+                background: planTab === 'fab' ? PHASE_META.fabrication.dark : planTab === 'erection' ? PHASE_META.erection.dark : '#8E8E8E',
               }} />
               <span style={{ fontSize: 10.5, fontWeight: 700, color: '#8E8E8E', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                {planTab === 'fab' ? 'Fab Plan' : 'Erection Plan'}
+                {planTab === 'fab' ? 'Fab Plan' : planTab === 'erection' ? 'Erection Plan' : 'Schedule'}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 3, background: '#F7F7F7', border: '1px solid #ECECEC', borderRadius: 8, padding: 3, flexShrink: 0 }}>
-              {(['fab', 'erection'] as const).map(t => (
+              {(['schedule', 'fab', 'erection'] as const).map(t => (
                 <button
                   key={t}
                   onClick={() => setPlanTab(t)}
                   style={{
                     font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    padding: '5px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                     background: planTab === t ? '#C8202A' : 'transparent', color: planTab === t ? 'white' : '#8E8E8E',
                   }}
                 >
@@ -958,16 +974,32 @@ function OverviewPanel({
               ))}
             </div>
           </div>
-          <div style={{ marginTop: 8 }}>
-            <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+          {/* No overflow here — PlanDateBarChart owns its own internal
+              scroll (see its comment) now that this whole card has a
+              fixed height; a second overflow:auto on this wrapper just
+              nested two independent scrollbars for the same content. */}
+          <div style={{ marginTop: 6, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            {planTab === 'schedule' ? (
+              <ScheduleTabBody schedule={overview.schedule_progress} />
+            ) : (
+              <PlanDateBarChart rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+            )}
           </div>
         </StatCard>
-      </div>
 
-      {/* flex:1 — the card's white background stretches to fill whatever
-          height is left (matching the 3D viewport's height on the right)
-          instead of stopping short after the last zone row. */}
-      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+      {/* flex:1 — same as the card above, so the two cards split the
+          remaining height evenly instead of this one taking whatever's left
+          over from the other's intrinsic content height. minHeight:150
+          (not 0) — enough for the header row + a full zone row to stay
+          visible: on a short viewport the Schedule card's own min-height:
+          auto floor was squeezing this one down to almost nothing, making
+          the zone table look empty even with real zones in it. Kept
+          smaller than the original 190 so both cards' floors together
+          still fit inside common laptop viewport heights without forcing
+          the whole panel to scroll. The inner scroll wrapper below still
+          has its own minHeight:0 so a project with many zones scrolls
+          THERE, not by growing this card. */}
+      <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, overflow: 'hidden', flex: 1, minHeight: 150, display: 'flex', flexDirection: 'column' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #EDEFF2', flexShrink: 0 }}>
           {/* Group-by-axis — Position view only. Re-slices the same
               (position, mark) data by X grid / Y grid / Elevation instead
@@ -980,7 +1012,7 @@ function OverviewPanel({
                   onClick={() => onSetPositionAxis(a)}
                   style={{
                     font: 'inherit', fontSize: 11.5, fontWeight: 700, letterSpacing: '0.02em',
-                    padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                    padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                     background: positionAxis === a ? '#1A1A1A' : 'transparent', color: positionAxis === a ? 'white' : '#8E8E8E',
                   }}
                 >
@@ -996,7 +1028,7 @@ function OverviewPanel({
                 onClick={() => onSetView(v)}
                 style={{
                   font: 'inherit', fontSize: 11.5, fontWeight: 700, textTransform: 'capitalize', letterSpacing: '0.02em',
-                  padding: '5px 12px', borderRadius: 6, border: 'none', cursor: 'pointer',
+                  padding: '5px 16px', borderRadius: 6, border: 'none', cursor: 'pointer', outline: 'none',
                   background: view === v ? '#C8202A' : 'transparent', color: view === v ? 'white' : '#8E8E8E',
                 }}
               >
@@ -1010,7 +1042,7 @@ function OverviewPanel({
             pinned via `sticky` so it doesn't scroll away with the rows. */}
         <div style={{ overflowX: 'auto', overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {view === 'zone' ? (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
               <thead>
                 <tr>
                   <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Zone</th>
@@ -1027,7 +1059,7 @@ function OverviewPanel({
                   const empty = z.assembly_count === 0
                   const active = activeGroup?.type === 'zone' && activeGroup.id === z.zone_id
                   const zoneMeta = byId.get(z.zone_id)
-                  const delayInfo = computeDelayInfo(zoneMeta?.target_erection_start, zoneMeta?.target_erection_end, z.erect_pct)
+                  const delayInfo = computeDelayInfo(zoneMeta?.target_start, zoneMeta?.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5)
                   return (
                     <tr
                       key={z.zone_id}
@@ -1038,14 +1070,14 @@ function OverviewPanel({
                         {z.zone_label}
                       </td>
                       <td style={{ ...tdStyle, ...mono, textAlign: 'right', color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>{z.assembly_count}</td>
-                      <td style={{ ...tdStyle, ...mono, fontSize: 11, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
-                        F <b>{z.fab_pct.toFixed(0)}%</b> · M <b>{z.payment_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
+                      <td style={{ ...tdStyle, ...mono, fontSize: 12, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
+                        F <b>{z.fab_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
                       </td>
-                      <td style={{ ...tdStyle, ...mono, fontSize: 11, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...tdStyle, ...mono, fontSize: 12, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {delayInfo && <DelayDot info={delayInfo} />}
                           <span style={{ fontWeight: delayInfo?.status === 'overdue' ? 700 : 400 }}>
-                            {formatDate(zoneMeta?.target_erection_start ?? null)} → {formatDate(zoneMeta?.target_erection_end ?? null)}
+                            {formatDate(zoneMeta?.target_start ?? null)} → {formatDate(zoneMeta?.target_end ?? null)}
                           </span>
                         </div>
                       </td>
@@ -1105,7 +1137,7 @@ function PositionRollupTable({
   const progressCell = (roll: { count: number; trackedCount: number; fab_pct: number | null; load_pct: number | null; erect_pct: number | null; payment_pct: number | null }) =>
     roll.trackedCount > 0 ? (
       <span style={{ ...mono, fontSize: 11 }}>
-        F <b>{roll.fab_pct}%</b> · M <b>{roll.payment_pct}%</b> · T <b>{roll.load_pct}%</b> · E <b>{roll.erect_pct}%</b>
+        F <b>{roll.fab_pct}%</b> · T <b>{roll.load_pct}%</b> · E <b>{roll.erect_pct}%</b>
         {roll.count > roll.trackedCount && (
           <span style={{ color: '#C2C2C2' }}> · {roll.count - roll.trackedCount} untracked</span>
         )}
@@ -1160,71 +1192,23 @@ function PositionRollupTable({
 // Replaces separate not-start/in-progress/done columns with one glanceable
 // stacked bar (same 3-bucket split, just encoded as proportion instead of
 // three more numbers) — the counts are still there on hover.
-function StatCard({ label, value, accent, children }: {
+function StatCard({ label, value, accent, children, style }: {
   label: string
   value: string | number
   accent?: string
   children?: React.ReactNode
+  style?: React.CSSProperties
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '16px 18px' }}>
+    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '10px 16px', ...style }}>
       {label !== '' && (
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       )}
       {value !== '' && (
-        <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 26, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 9 }}>{value}</div>
+        <div style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 18, fontWeight: 700, color: accent ?? '#1A1A1A', lineHeight: 1, marginTop: 4 }}>{value}</div>
       )}
       {children}
     </div>
   )
 }
 
-// Plan-vs-actual for Fab/Erect, grouped by each distinct plan-finish date —
-// replaces what used to be a single percent bar for these two phases. A
-// percent can't show plan-vs-actual meaningfully once assemblies/zones each
-// plan their own date (see PlanDateBucket's comment on the backend); a
-// per-date breakdown table sidesteps that by never averaging across dates
-// at all — every distinct plan date gets its own row.
-function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
-  const th: React.CSSProperties = {
-    textAlign: 'right', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.03em', color: '#ABABAB', padding: '4px 8px', whiteSpace: 'nowrap',
-    borderBottom: '1px solid #E0E0E0',
-  }
-  const td: React.CSSProperties = {
-    textAlign: 'right', padding: '5px 8px', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
-    borderBottom: '1px solid #F3F3F3',
-  }
-  return (
-    <div>
-      {rows.length === 0 ? (
-        <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
-      ) : (
-        <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr>
-                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Plan Date</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Total</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Not Started</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>On Time</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Delay</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.date}>
-                  <td style={{ ...td, textAlign: 'left', color: '#1A1A1A', fontWeight: 600 }}>{formatDate(r.date)}</td>
-                  <td style={td}>{r.total}</td>
-                  <td style={{ ...td, color: '#ABABAB' }}>{r.not_started}</td>
-                  <td style={{ ...td, color: '#1A7A3D' }}>{r.on_time}</td>
-                  <td style={{ ...td, color: r.delay > 0 ? '#C8202A' : '#ABABAB', fontWeight: r.delay > 0 ? 700 : 400 }}>{r.delay}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
