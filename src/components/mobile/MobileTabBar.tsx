@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-export interface MobileTab<T extends string> {
+interface MobileTab<T extends string> {
   key: T
   label: string
   icon: ReactNode

@@ -11,7 +11,7 @@ export type WoStatus =
   | 'DONE'
   | 'CANCELLED'
 
-export type WoEventType = 'START' | 'PAUSE' | 'RESUME' | 'DONE' | 'CANCEL' | 'ACCEPT_VERSION'
+type WoEventType = 'START' | 'PAUSE' | 'RESUME' | 'DONE' | 'CANCEL' | 'ACCEPT_VERSION'
 
 export type WoAction = 'release' | 'start' | 'pause' | 'resume' | 'done' | 'cancel'
 
@@ -34,7 +34,7 @@ export interface WoListItem {
   is_outdated: boolean
 }
 
-export interface EnrichedActivity {
+interface EnrichedActivity {
   name: string
   measure: string | null
   per_minute: number | null
@@ -44,7 +44,7 @@ export interface EnrichedActivity {
   labors: { skill: string; qty: number; level?: string | null }[] | null
 }
 
-export interface DurationBreakdownRow {
+interface DurationBreakdownRow {
   name: string
   kind: string
   formula_code: string | null
@@ -118,7 +118,7 @@ export interface WoEvent {
 // with no output (auto-cascade-cancelled alongside the primary WO) and
 // siblings with real output (left untouched — "Move to Stock" is a UI
 // placeholder only, no stock/inventory concept exists in this codebase).
-export interface WoCancelSibling {
+interface WoCancelSibling {
   id: number
   wo_code: string
   sequence: number
@@ -141,16 +141,6 @@ export interface BomVersionStatus {
   assembly_mark: string
 }
 
-export interface ScheduleVersion {
-  id: number
-  version_code: string
-  description: string | null
-  is_active: boolean
-  scheduler_source: string | null
-  created_at: string
-  created_by: string
-}
-
 export interface WoScheduleGroup {
   version: { id: number; version_code: string; is_active: boolean; scheduler_source: string | null; description: string | null }
   rows: {
@@ -162,7 +152,7 @@ export interface WoScheduleGroup {
 }
 
 // ── Visual tab (Sprint 28) ───────────────────────────────────────────────────
-export type WoBimMatchStatus = 'ok' | 'mark_not_found' | 'model_not_ready' | 'no_model'
+type WoBimMatchStatus = 'ok' | 'mark_not_found' | 'model_not_ready' | 'no_model'
 
 export interface WoBimMatch {
   status: WoBimMatchStatus
@@ -198,13 +188,6 @@ export async function getWoEvents(id: number): Promise<WoEvent[]> {
   return (await apiClient.get(`/wo/${id}/events`)).data
 }
 
-export async function updateWo(
-  id: number,
-  payload: { assigned_to?: string; notes?: string; earliest_start_at?: string },
-): Promise<WoDetail> {
-  return (await apiClient.patch(`/wo/${id}`, payload)).data
-}
-
 // ── Status transitions ──────────────────────────────────────────────────────
 export async function woTransition(
   id: number,
@@ -232,10 +215,6 @@ export async function acceptNewVersion(
 }
 
 // ── Schedule (read-only) ────────────────────────────────────────────────────
-export async function getScheduleVersions(): Promise<ScheduleVersion[]> {
-  return (await apiClient.get('/schedule/versions')).data
-}
-
 export async function getWoSchedule(id: number): Promise<WoScheduleGroup[]> {
   return (await apiClient.get(`/wo/${id}/schedule`)).data
 }

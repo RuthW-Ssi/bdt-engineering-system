@@ -3,13 +3,13 @@ import { apiClient } from './client'
 // Phase-based statuses (Sprint 26) — furthest phase started. Shade encodes
 // in-progress (light) vs phase-complete-and-waiting (dark) for the 3D view.
 export type ProgressStatus = 'notstart' | 'fabrication' | 'load' | 'erection' | 'done'
-export type ProgressShade = 'light' | 'dark'
+type ProgressShade = 'light' | 'dark'
 
 // The 4 independent, clickable filter pills — NOT a ladder like
 // ProgressStatus above. `load`'s internal key is unchanged; only its
 // display label became "Transportation" (see statusMeta.ts).
 export type PhaseKey = 'fabrication' | 'payment' | 'load' | 'erection'
-export interface PhaseState { passed: boolean; shade: ProgressShade }
+interface PhaseState { passed: boolean; shade: ProgressShade }
 
 // Fixed 3-value status matching the site team's own tracking sheet wording
 // — only "Paid" counts as the Payment phase "passed" (see PHASE_META.payment).
@@ -24,7 +24,7 @@ export const FAB_STAGES = [
 ] as const
 export type FabStage = (typeof FAB_STAGES)[number]
 
-export type FabStageFields = Record<FabStage, number>
+type FabStageFields = Record<FabStage, number>
 
 export interface ProgressZoneRow extends FabStageFields {
   assembly_id: number
@@ -68,7 +68,7 @@ export interface ProgressZoneRow extends FabStageFields {
   phases: Record<PhaseKey, PhaseState>
 }
 
-export interface ProgressBuckets {
+interface ProgressBuckets {
   notstart: number
   in_progress: number // fabrication | load | erection
   done: number
@@ -152,7 +152,7 @@ export interface ProgressOverview {
 // the model with no matching BOM upload yet; render its progress as "-"
 // rather than omitting it. `unmatched` is the other direction: BOM rows
 // with real progress but no BIM position anywhere.
-export interface ProgressPositionMark {
+interface ProgressPositionMark {
   assembly_id: number | null
   mark: string
   count: number // BIM instance count at this position (or full qty, for `unmatched`)
@@ -164,7 +164,7 @@ export interface ProgressPositionMark {
   shade: ProgressShade | null
 }
 
-export interface ProgressPositionGroup {
+interface ProgressPositionGroup {
   position: string
   marks: ProgressPositionMark[]
 }

@@ -1,6 +1,6 @@
 import { apiClient } from './client'
 
-export interface CuttingPlanRefs {
+interface CuttingPlanRefs {
   create_user: { id: number; name: string; login: string } | null
 }
 
@@ -91,7 +91,7 @@ export interface CuttingPlanDetail extends CuttingPlanListItem {
   remnants: CuttingPlanRemnantRow[]
 }
 
-export interface CuttingPlanPreviewWarning {
+interface CuttingPlanPreviewWarning {
   filename: string
   plateCountDetected: number
 }

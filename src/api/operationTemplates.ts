@@ -1,14 +1,14 @@
 import { apiClient } from './client'
 
-export interface ResourceDto {
+interface ResourceDto {
   id: number; code: string; name: string; type: string
 }
 
-export interface OpActLaborDto {
+interface OpActLaborDto {
   skill: string; qty: number; level?: string | null
 }
 
-export interface OpActMaterialDto {
+interface OpActMaterialDto {
   resource: { id: number; code: string; name: string }
   formula:  { id: number; name: string; expr: string; result_unit: string | null } | null
 }

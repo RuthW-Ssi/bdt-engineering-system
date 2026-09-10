@@ -1,6 +1,4 @@
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import * as pdfjsLib from 'pdfjs-dist'
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).href
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ReactFlow, Background, Controls, ControlButton, MiniMap,
@@ -11,7 +9,7 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, Workflow, X } from 'lucide-react'
+import { AlertCircle, ArrowLeft, BookOpen, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Clock, Eye, EyeOff, GripVertical, Map as MapIcon, Pause, Pencil, Play, Plus, RotateCcw, Save, Search, Settings, Target, Trash2, Workflow, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePermission } from '../hooks/usePermission'
 import { apiClient } from '../api/client'
@@ -294,7 +292,6 @@ interface EquipmentResource { id: number; code: string; name: string; type: stri
 
 const WorkcenterCtx = createContext<WorkcenterItem[]>([])
 const EquipmentCtx = createContext<EquipmentResource[]>([])
-const SequenceCtx = createContext<Map<string, number>>(new Map())
 const ParallelCtx = createContext<Set<string>>(new Set())
 interface PreviewCtxType { previewMode: boolean; inputs: Record<string, number>; setInputs: React.Dispatch<React.SetStateAction<Record<string, number>>> }
 const PreviewCtx = createContext<PreviewCtxType>({ previewMode: false, inputs: {}, setInputs: () => {} })
@@ -308,12 +305,10 @@ interface ExpandCtxType {
   toggleExpand: (id: string) => void
   expandAll: (ids: string[]) => void
   collapseAll: () => void
-  leftPanelOpen: boolean
-  toggleLeftPanel: () => void
   showMiniMap: boolean
   toggleMiniMap: () => void
 }
-const ExpandCtx = createContext<ExpandCtxType>({ expandedIds: new Set(), toggleExpand: () => {}, expandAll: () => {}, collapseAll: () => {}, leftPanelOpen: true, toggleLeftPanel: () => {}, showMiniMap: true, toggleMiniMap: () => {} })
+const ExpandCtx = createContext<ExpandCtxType>({ expandedIds: new Set(), toggleExpand: () => {}, expandAll: () => {}, collapseAll: () => {}, showMiniMap: true, toggleMiniMap: () => {} })
 
 interface OpTypeItem {
   id: number; key: string; label: string; color: string
@@ -783,7 +778,7 @@ interface InspModalForm {
   activities: Array<{ localId: string; name: string; measure: string; unit: string; per_minute: string; std_measure: string; source_activity_template_id: number | null; machine_id: number | null; tool_ids: { id: number; qty: number }[]; consumables: ConsumedMaterial[]; labors: { skill: string; qty: number; level?: string }[]; ratio?: number | null; ratioUnit?: string | null; perTime?: number | null }>
 }
 
-interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null; opLibrary?: LibraryOpItem[]; canWrite: boolean }
+interface InspectorDrawerProps { nodeId: string; initialData?: OperationData; onClose: () => void; onDelete: () => void; onEditActivity?: (id: number) => void; pendingActivityRefresh?: { id: number; ts: number } | null; canWrite: boolean }
 
 const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onClose, onDelete, onEditActivity, pendingActivityRefresh, canWrite }: InspectorDrawerProps) {
   const { getNode, setNodes } = useReactFlow()
@@ -1653,7 +1648,6 @@ function RoutingBuilderInner() {
   const [previewMode, setPreviewMode] = useState(false)
   const [previewInputs, setPreviewInputs] = useState<Record<string, number>>({})
 
-  const [leftPanelOpen, setLeftPanelOpen] = useState(true)
   const [editingActivityId, setEditingActivityId] = useState<number | null>(null)
   const [pendingActivityRefresh, setPendingActivityRefresh] = useState<{ id: number; ts: number } | null>(null)
   // Floor plan background — locked to factory layout
@@ -1669,7 +1663,6 @@ function RoutingBuilderInner() {
   }, [])
   const expandAll = useCallback((ids: string[]) => setExpandedIds(new Set(ids)), [])
   const collapseAll = useCallback(() => setExpandedIds(new Set()), [])
-  const toggleLeftPanel = useCallback(() => setLeftPanelOpen(v => !v), [])
   const [showMiniMap, setShowMiniMap] = useState(true)
   const toggleMiniMap = useCallback(() => setShowMiniMap(v => !v), [])
 
@@ -1705,7 +1698,7 @@ function RoutingBuilderInner() {
     }))
   }, [getNodes, setNodes])
 
-const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, collapseAll, leftPanelOpen, toggleLeftPanel, showMiniMap, toggleMiniMap }), [expandedIds, toggleExpand, expandAll, collapseAll, leftPanelOpen, toggleLeftPanel, showMiniMap, toggleMiniMap])
+const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, collapseAll, showMiniMap, toggleMiniMap }), [expandedIds, toggleExpand, expandAll, collapseAll, showMiniMap, toggleMiniMap])
 
   const [nodes, , onNodesChange] = useNodesState(INITIAL_NODES)
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
@@ -1720,12 +1713,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
     for (const [lbl, cnt] of counts) if (cnt > 1) result.add(lbl)
     return result
   }, [edges])
-
-  const seqMap = useMemo(() => {
-    const m = new Map<string, number>()
-    nodes.filter(n => n.type === 'operation').sort((a, b) => a.position.x - b.position.x).forEach((n, i) => m.set(n.id, i + 1))
-    return m
-  }, [nodes])
 
   const opNodes = nodes.filter(n => n.type === 'operation')
 
@@ -2234,7 +2221,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
     <WorkcenterCtx.Provider value={workcenters}>
     <EquipmentCtx.Provider value={equipmentResources}>
     <ExpandCtx.Provider value={expandCtxValue}>
-      <SequenceCtx.Provider value={seqMap}>
       <ParallelCtx.Provider value={parallelLabels}>
         <SimCtx.Provider value={simCtxValue}>
         <PreviewCtx.Provider value={previewCtxValue}>
@@ -2344,28 +2330,14 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
 
               {/* Left palette — Operation List */}
               <div style={{
-                width: leftPanelOpen ? 220 : 28,
-                transition: 'width 0.22s ease',
+                width: 220,
                 background: '#FAFAFA', borderRight: '1px solid #E0E0E0',
                 display: 'flex', flexDirection: 'column', flexShrink: 0, overflow: 'hidden',
                 position: 'relative',
               }}>
-                {/* Full panel — invisible when collapsed */}
-                <div style={{ width: 220, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden',
-                  opacity: leftPanelOpen ? 1 : 0, transition: 'opacity 0.15s ease', pointerEvents: leftPanelOpen ? 'auto' : 'none' }}>
+                <div style={{ width: 220, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
                   <LeftPanel />
                 </div>
-                {/* Collapsed tab */}
-                {!leftPanelOpen && (
-                  <button onClick={() => setLeftPanelOpen(true)} title="Show operation list"
-                    style={{ position: 'absolute', inset: 0, background: 'none', border: 'none', cursor: 'pointer', padding: 0,
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                    <ChevronRight size={12} style={{ color: '#9E9E9E' }} />
-                    <span style={{ writingMode: 'vertical-rl', fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#BDBDBD', transform: 'rotate(180deg)' }}>
-                      Operations
-                    </span>
-                  </button>
-                )}
               </div>
 
               {/* Canvas */}
@@ -2411,7 +2383,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                   onDelete={handleInspectorDelete}
                   onEditActivity={setEditingActivityId}
                   pendingActivityRefresh={pendingActivityRefresh}
-                  opLibrary={opLibrary}
                   canWrite={canWriteTemplate}
                 />
               )}
@@ -2521,7 +2492,6 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
         </PreviewCtx.Provider>
         </SimCtx.Provider>
       </ParallelCtx.Provider>
-      </SequenceCtx.Provider>
 
       {editingActivityId !== null && (
         <ActivityBuilderModal

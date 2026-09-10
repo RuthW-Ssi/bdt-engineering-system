@@ -5,7 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 SKIP='(node_modules/|dist/|build/|coverage/|generated/|prisma/migrations/|\.d\.ts$)'
 count() { # count <git pathspec>...  (git globs: * also matches "/")
   local files
-  files=$(git ls-files -- "$@" | grep -vE "$SKIP" || true)
+  files=$(git ls-files -- "$@" | grep -vE "$SKIP" | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done || true)
   [ -z "$files" ] && { echo 0; return; }
   printf '%s\n' "$files" | tr '\n' '\0' | xargs -0 cat | wc -l | tr -d ' '
 }
