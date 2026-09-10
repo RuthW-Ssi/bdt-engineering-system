@@ -16,7 +16,6 @@ import { ApiOperation, ApiBearerAuth, ApiTags, ApiQuery } from '@nestjs/swagger'
 import { PrismaService } from '../../prisma/prisma.service'
 import { RoutingService } from './services/routing.service'
 import { CycleTimeService } from './services/cycle-time.service'
-import { StdCostService } from './services/std-cost.service'
 import { WorkcenterService } from './services/workcenter.service'
 import { TemplateBindingService } from './services/template-binding.service'
 import { TemplateSimulatorService } from './services/template-simulator.service'
@@ -47,7 +46,6 @@ export class RoutingsController {
     private readonly prisma: PrismaService,
     private readonly routingService: RoutingService,
     private readonly cycleTime: CycleTimeService,
-    private readonly stdCost: StdCostService,
     private readonly wcService: WorkcenterService,
     private readonly templateBindingService: TemplateBindingService,
     private readonly simulatorService: TemplateSimulatorService,
@@ -151,24 +149,6 @@ export class RoutingsController {
     return this.templateBindingService.bindProduct(productId)
   }
 
-  // ── Std cost ────────────────────────────────────────────────────
-
-  @Post('products/:code/std-cost/recompute')
-  @RequiresPermission('routings', 'update')
-  @ApiOperation({ summary: 'Recompute standard production cost' })
-  async recomputeStdCost(@Param('code') code: string) {
-    const productId = await this.routingService.findProductId(code)
-    return this.stdCost.compute(productId)
-  }
-
-  @Get('products/:code/std-cost')
-  @RequiresPermission('routings', 'view')
-  @ApiOperation({ summary: 'Get standard cost breakdown' })
-  async getStdCost(@Param('code') code: string) {
-    const productId = await this.routingService.findProductId(code)
-    return this.stdCost.compute(productId)
-  }
-
   // ── Routing templates ───────────────────────────────────────────
 
   @Get('routing-templates')
@@ -192,14 +172,6 @@ export class RoutingsController {
   @ApiOperation({ summary: 'Create a new routing template' })
   createRoutingTemplate(@Body() dto: CreateRoutingTemplateDto, @CurrentUser() user: JwtPayload) {
     return this.prismaCreateTemplate(dto, user.sub)
-  }
-
-  @Get('routing-templates/operations-library')
-  @RequiresPermission('routings', 'view')
-  @ApiTags('RoutingTemplates')
-  @ApiOperation({ summary: 'All operations across templates — for drag-and-reuse library' })
-  getOperationsLibrary(@Query('search') search?: string) {
-    return this.routingService.findOperationsLibrary(search)
   }
 
   @Put('routing-templates/:id/snapshot')
@@ -286,13 +258,6 @@ export class RoutingsController {
     if (!exists) throw new NotFoundException(`Routing template ${id} not found`)
     await this.prisma.routing_template.delete({ where: { id } })
     return { deleted: true }
-  }
-
-  @Get('routings/templates')
-  @RequiresPermission('routings', 'view')
-  @ApiOperation({ summary: 'List routing templates (legacy alias)' })
-  listTemplates() {
-    return this.routingService.listTemplates()
   }
 
   @Get('routings/:id')

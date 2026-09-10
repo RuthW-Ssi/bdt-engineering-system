@@ -27,6 +27,11 @@
 
 ⚠️ **สำคัญมาก:** "data ครบ" ในโปรเจกต์นี้ต้องการ **3 source แยกกัน** — ขาดส่วนใดส่วนหนึ่งจะมี table เปล่า
 
+> **⚠️ อัปเดต 2026-09-10:** `import:routing-xlsx`, `seed:routing` และ `seed:factory1` ถูกลบออกแล้ว —
+> script เหล่านี้อ้าง Prisma model ที่ไม่มีในสคีมาปัจจุบัน (compile ไม่ผ่าน) ตารางแถวที่ 2/2b ด้านล่างจึงใช้ไม่ได้
+> `prisma:seed` ตอนนี้ seed แค่ admin user + machine-tracker demo data เท่านั้น
+> ข้อมูล routing มาจาก DB (pg_restore / UI) ไม่ได้มาจาก script อีกต่อไป
+
 | Source | เติมตารางเหล่านี้ | คำสั่ง |
 |---|---|---|
 | **1. `prisma:seed`** | res_users, uom_*, account_account, product_category, mark_prefix_master, tekla_prefix_mapping, steel_grade, project (0X202), product_code_seq, part_code_seq, products (12 STD templates) | `pnpm prisma:seed` |

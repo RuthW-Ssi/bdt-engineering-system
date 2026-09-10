@@ -4,7 +4,6 @@ import { DrawingsService } from './drawings.service'
 import { DrawingApsService } from './drawing-aps.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 import { QueryDrawingDto } from './dto/query-drawing.dto'
-import { QueryLatestDrawingVersionDto } from './dto/query-latest-drawing-version.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
@@ -33,7 +32,7 @@ export class DrawingsController {
 
   @Get('latest-version')
   @ApiOperation({ summary: 'Highest version already used for a zone (or sub-zone) — null if none yet' })
-  getLatestVersion(@Query() query: QueryLatestDrawingVersionDto) {
+  getLatestVersion(@Query() query: QueryDrawingDto) {
     return this.svc.getLatestVersion(query.zone_id, query.sub_zone_id ?? null)
   }
 
