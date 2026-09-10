@@ -928,7 +928,7 @@ function OverviewPanel({
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
               below), so this card is scoped to the two phases that actually
-              have a plan-date field to compare against (see PlanDateTable),
+              have a plan-date field to compare against (see PlanDateBarChart),
               plus the Schedule Plan-vs-Actual view sharing the same tab
               switcher rather than living in its own separate card below.
               Schedule first — the plan-vs-actual health check is the more
@@ -972,7 +972,7 @@ function OverviewPanel({
               ))}
             </div>
           </div>
-          {/* No overflowY here — PlanDateTable owns its own internal
+          {/* No overflow here — PlanDateBarChart owns its own internal
               scroll (see its comment) now that this whole card has a
               fixed height; a second overflow:auto on this wrapper just
               nested two independent scrollbars for the same content. */}
@@ -980,7 +980,7 @@ function OverviewPanel({
             {planTab === 'schedule' ? (
               <ScheduleTabBody schedule={overview.schedule_progress} />
             ) : (
-              <PlanDateTable rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
+              <PlanDateBarChart rows={planTab === 'fab' ? total.fab_plan_breakdown : total.erection_plan_breakdown} />
             )}
           </div>
         </StatCard>
@@ -1214,55 +1214,73 @@ function StatCard({ label, value, accent, children, style }: {
 // replaces what used to be a single percent bar for these two phases. A
 // percent can't show plan-vs-actual meaningfully once assemblies/zones each
 // plan their own date (see PlanDateBucket's comment on the backend); a
-// per-date breakdown table sidesteps that by never averaging across dates
-// at all — every distinct plan date gets its own row.
-function PlanDateTable({ rows }: { rows: PlanDateBucket[] }) {
-  const th: React.CSSProperties = {
-    textAlign: 'right', fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.03em', color: '#ABABAB', padding: '4px 8px', whiteSpace: 'nowrap',
-    borderBottom: '1px solid #E0E0E0',
+// per-date breakdown sidesteps that by never averaging across dates at all
+// — every distinct plan date gets its own bar.
+//
+// Stacked bar chart (2026-09, replaced a per-date table) — this data is a
+// real time series (many distinct plan dates) where each date's Total
+// splits into 3 parts that sum to it, which is exactly what a stacked bar
+// shows at a glance; a grouped 3-bars-per-date layout would need 3x the
+// width for the same date count, and a line chart implies a continuous
+// trend between points that isn't true here (each date is its own cohort
+// of assemblies, not a running total).
+const PLAN_BAR_COLOR = { not_started: '#E0E0E0', on_time: '#1A7A3D', delay: '#C8202A' } as const
+function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
+  if (rows.length === 0) {
+    return <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
   }
-  const td: React.CSSProperties = {
-    textAlign: 'right', padding: '5px 8px', fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 11.5,
-    borderBottom: '1px solid #F3F3F3',
-  }
+  const maxTotal = Math.max(...rows.map(r => r.total), 1)
+  const barsHeight = 108
+  // flex:1/minHeight:0 (not a hardcoded height) — the card this sits in
+  // has a real height:258 (see the StatCard usage above), matching the
+  // Schedule tab's own natural height, so this fills whatever's left
+  // below the header; overflowX handles any project with more plan dates
+  // than fit at a legible bar width, instead of growing the whole card
+  // (and, on a short viewport, hiding the Zone table below it).
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {rows.length === 0 ? (
-        <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
-      ) : (
-        // flex:1/minHeight:0 (not a hardcoded maxHeight) — the card this
-        // sits in now has a real height:211 (see the StatCard usage above),
-        // matching the Schedule tab's own natural height, so this can just
-        // fill whatever's left below the header and let its own
-        // overflowY:auto handle any project with more plan dates than fit,
-        // instead of the table's unbounded content growing the whole card
-        // (and, on a short viewport, hiding the Zone table below it).
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', border: '1px solid #EDEFF2', borderRadius: 8 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-            <thead>
-              <tr>
-                <th style={{ ...th, textAlign: 'left', position: 'sticky', top: 0, background: 'white' }}>Plan Date</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Total</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Not Started</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>On Time</th>
-                <th style={{ ...th, position: 'sticky', top: 0, background: 'white' }}>Delay</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(r => (
-                <tr key={r.date}>
-                  <td style={{ ...td, textAlign: 'left', color: '#1A1A1A', fontWeight: 600 }}>{formatDate(r.date)}</td>
-                  <td style={td}>{r.total}</td>
-                  <td style={{ ...td, color: '#ABABAB' }}>{r.not_started}</td>
-                  <td style={{ ...td, color: '#1A7A3D' }}>{r.on_time}</td>
-                  <td style={{ ...td, color: r.delay > 0 ? '#C8202A' : '#ABABAB', fontWeight: r.delay > 0 ? 700 : 400 }}>{r.delay}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <div style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 7, height: barsHeight }}>
+        {rows.map(r => {
+          const scale = barsHeight / maxTotal
+          return (
+            <div
+              key={r.date}
+              title={`${formatDate(r.date)} — Total ${r.total}, Not Started ${r.not_started}, On Time ${r.on_time}, Delay ${r.delay}`}
+              style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', width: 20, flexShrink: 0, height: '100%' }}
+            >
+              {r.delay > 0 && <div style={{ height: r.delay * scale, background: PLAN_BAR_COLOR.delay, borderRadius: '2px 2px 0 0' }} />}
+              {r.on_time > 0 && <div style={{ height: r.on_time * scale, background: PLAN_BAR_COLOR.on_time, borderRadius: r.delay > 0 ? undefined : '2px 2px 0 0' }} />}
+              {r.not_started > 0 && (
+                <div style={{ height: r.not_started * scale, background: PLAN_BAR_COLOR.not_started, borderRadius: r.delay === 0 && r.on_time === 0 ? '2px 2px 0 0' : undefined }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 7, marginTop: 4 }}>
+        {rows.map(r => (
+          <div
+            key={r.date}
+            style={{
+              width: 20, flexShrink: 0, height: 34, fontSize: 9, fontFamily: 'IBM Plex Mono, ui-monospace, monospace', color: '#8E8E8E',
+              writingMode: 'vertical-rl', transform: 'rotate(180deg)', overflow: 'hidden', whiteSpace: 'nowrap',
+            }}
+          >
+            {formatDate(r.date)}
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 12, marginTop: 6, fontSize: 10, color: '#8E8E8E', whiteSpace: 'nowrap' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 2, background: PLAN_BAR_COLOR.not_started, flexShrink: 0 }} /> Not Started
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 2, background: PLAN_BAR_COLOR.on_time, flexShrink: 0 }} /> On Time
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 7, height: 7, borderRadius: 2, background: PLAN_BAR_COLOR.delay, flexShrink: 0 }} /> Delay
+        </span>
+      </div>
     </div>
   )
 }
