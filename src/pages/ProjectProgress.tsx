@@ -977,7 +977,7 @@ function OverviewPanel({
               scroll (see its comment) now that this whole card has a
               fixed height; a second overflow:auto on this wrapper just
               nested two independent scrollbars for the same content. */}
-          <div style={{ marginTop: 6, flex: 1, minHeight: 0 }}>
+          <div style={{ marginTop: 6, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             {planTab === 'schedule' ? (
               <ScheduleTabBody schedule={overview.schedule_progress} />
             ) : (
