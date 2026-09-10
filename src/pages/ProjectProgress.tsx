@@ -869,7 +869,7 @@ function OverviewPanel({
           back into 3. Moved back here after also briefly living as a
           3D-viewport overlay — the overlay collided visually with the
           model itself. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 16, flexShrink: 0 }}>
         <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
         <StatCard label="Assemblies" value={total.assembly_count}>
           {scheduledCount > 0 && (
@@ -923,7 +923,7 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
-        <StatCard label="" value="" accent="#C8202A" style={{ height: 258, marginBottom: 12, display: 'flex', flexDirection: 'column' }}>
+        <StatCard label="" value="" accent="#C8202A" style={{ height: 280, marginBottom: 16, display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment/Transport progress is already
               visible elsewhere on this page (the isolate-by-status pills
               under the 3D panel, and the F/M/T/E columns in the zone table
@@ -1198,7 +1198,7 @@ function StatCard({ label, value, accent, children, style }: {
   style?: React.CSSProperties
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '9px 14px', ...style }}>
+    <div style={{ background: 'white', border: '1px solid #E0E0E0', borderRadius: 12, padding: '13px 16px', ...style }}>
       {label !== '' && (
         <div style={{ fontSize: 10.5, fontWeight: 700, color: '#ABABAB', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
       )}
@@ -1230,7 +1230,7 @@ function PlanDateBarChart({ rows }: { rows: PlanDateBucket[] }) {
     return <div style={{ fontSize: 11.5, color: '#ABABAB', padding: '2px 0 2px 14px' }}>No plan dates set yet</div>
   }
   const maxTotal = Math.max(...rows.map(r => r.total), 1)
-  const barsHeight = 108
+  const barsHeight = 122
   // flex:1/minHeight:0 (not a hardcoded height) — the card this sits in
   // has a real height:258 (see the StatCard usage above), matching the
   // Schedule tab's own natural height, so this fills whatever's left
