@@ -162,6 +162,116 @@
   `drawings`, `work-orders`, `manufacturing-orders`, `customers` already
   ship with today. See finding F-001 for full reasoning.
 
+### R-012 · A03:2021 Injection (Stored XSS) — file-preview iframes trust fetched `Content-Type` with no sandbox, and upstream `Content-Type` is client-supplied with no allowlist
+
+- **OWASP:** A03:2021 (Injection, XSS) / API8:2023 (Security
+  Misconfiguration)
+- **Impact:** High — `POST /file-storage/presigned-upload` accepts a
+  client-supplied `contentType` with no allowlist; on the GCS driver this
+  is served back verbatim on download. `DrawingPreviewPanel.tsx`'s new PDF
+  preview (Sprint T01) is the first code path in the app that renders
+  fetched blob bytes in-page (`URL.createObjectURL` → unsandboxed
+  `<iframe>`) rather than forcing a download — a `blob:` URL's origin is
+  the app's own origin, so a spoofed `Content-Type: text/html` object
+  renders as live, same-origin HTML/JS. The JWT lives in
+  `localStorage['bdt_token']` (`src/api/client.ts`,
+  `src/context/AuthContext.tsx`), so this is a realistic path to full
+  session/account takeover of any user who opens a planted preview. No CSP
+  is configured anywhere in the app (`vercel.json`, `index.html`) to blunt
+  this.
+- **Likelihood:** Medium — requires an authenticated account (internal SSI
+  Steel users only, single-tenant) to plant the payload via `presigned-
+  upload` + `POST /drawings`, and a target user to open that specific
+  file's preview. Compounded (not caused) by `R-001`/`R-011`'s
+  permission-ungated drawings module — no elevated privilege is needed
+  beyond "any logged-in user."
+- **Owner:** frontend (force-retype the fetched blob to `application/pdf`
+  in `useDrawingPdfUrl()` before `URL.createObjectURL()`) + backend
+  (`presigned-upload` content-type allowlist)
+- **Fix path — CORRECTED 2026-09-14 (same day, third pass):** the
+  originally-recommended `sandbox=""` on `DrawingPreviewPanel.tsx`'s
+  preview `<iframe>` was implemented, then **reverted** after live-browser
+  testing (Playwright, real Chrome) showed it blocks the native PDF viewer
+  entirely ("This page has been blocked by Chrome" — Chromium bug 413851:
+  the native viewer is implemented as a plugin, `sandbox` unconditionally
+  disables plugins, no token re-enables them). The fix now standing on
+  `dev-t-drawing-pdf-upload` is: (1) backend `contentType` allowlist in
+  `FileStorageController.presignedUpload()` — unchanged from the original
+  fix; (2) frontend — `src/hooks/useDrawings.ts`'s `useDrawingPdfUrl()`
+  re-wraps the fetched blob as `new Blob([blob], { type: 'application/pdf'
+  })` before minting the object URL, forcing what the browser renders the
+  `blob:` URL as regardless of the server-declared/fetched content type,
+  from any source. `sandbox=""` should **not** be reintroduced on this
+  iframe — it is confirmed incompatible with the feature, not merely
+  unneeded.
+- **Status:** Open → **Mitigated** — shipped commit `f257848` on `dev-t-drawing-pdf-upload` (verified
+  twice same day — see below). Independently re-reviewed the actual diff
+  both times, probed for bypasses (case sensitivity, whitespace, charset
+  suffixes, type confusion, JSON duplicate-key smuggling on the backend
+  allowlist; sniffing/`Content-Disposition`/original-type-passthrough/
+  allowlist-bypass-robustness on the frontend force-retype — none found
+  exploitable in either pass), and re-ran the relevant test suites myself
+  each time (backend Jest 5/5 pass; frontend Vitest 13/13 pass across
+  `useDrawings.test.tsx` + `DrawingPreviewPanel.test.tsx`, including the
+  force-retype test and the no-sandbox test). Full re-review recorded in
+  the finding ref's "Second Correction" section. **Move this entry to
+  "Mitigated risks" with the commit hash once `/release-gate` commits this
+  branch** — leaving it here (not yet moved) only because no commit ref
+  exists yet, per this register's own convention.
+- **Verification note:** the backend allowlist alone still closes the
+  concrete PoC (only `application/pdf`/`application/octet-stream` can ever
+  reach GCS as stored `Content-Type`, and neither is browser-renderable as
+  same-origin HTML/script). The frontend force-retype is a genuine,
+  independent second layer that does **not** rely on `sandbox` — the
+  `Blob()` constructor's `type` option fully and structurally overrides
+  what the browser treats the resulting `blob:` URL's Content-Type as
+  (confirmed against the File API Blob URL Store algorithm: a blob: URL's
+  response is synthesized entirely from the JS-side Blob object's own
+  `type`/bytes, nothing from the original HTTP response — headers
+  included — survives into it). Confirmed `application/pdf` is not in any
+  of the WHATWG MIME Sniffing spec's sniffable-override categories
+  (absent/unknown/`text/plain`-variant/same-category-image-audio-video),
+  so a declared `application/pdf` cannot be sniffed back into HTML/script
+  execution regardless of the actual bytes. Same fix pattern independently
+  confirmed as the accepted mitigation for this exact bug class by a prior
+  real-world advisory (wireapp/wire-webapp GHSA-382j-mmc8-m5rw, stored XSS
+  via `createObjectURL` on an attacker-influenced blob type — fixed by
+  constraining the type before `createObjectURL`, same technique). Prior
+  non-blocking follow-up (confirm live-browser rendering) is now resolved:
+  it *was* broken (sandbox blocked all PDF rendering), root-caused to the
+  sandbox layer specifically (not the allowlist, not the retype), and
+  fixed by removing sandbox and relying on force-retype instead — not by
+  loosening sandbox tokens (no working token combination exists; confirmed
+  via fresh research, not assumed). Residual, explicitly out-of-scope
+  observation: without `sandbox`, a *validly-formed* malicious PDF could
+  still use in-format capabilities (link/navigation actions, PDFium's
+  limited form-JS subset) — generic to any PDF-preview feature anywhere,
+  not a content-type-confusion or same-origin-script-execution issue, and
+  `sandbox=""` was never capable of mitigating it here either (Chromium
+  never ran the native viewer under sandbox at all), so removing it is not
+  a regression against any previously-working protection.
+- **Created:** 2026-09-14 (F-Drawing PDF Upload + Preview review, T01)
+- **Finding ref:** `docs/security/findings/2026-09-14-drawing-pdf-upload.md` F-001
+  (see "Second Correction — sandbox reverted, force-retype is the
+  mitigation" section, added 2026-09-14, third same-day pass — supersedes
+  the earlier "Fix Verification" section's `sandbox=""`-based reasoning,
+  which described a fix no longer present in the code)
+- **Related, not superseded:** `docs/security/findings/
+  2026-08-24-drawing-gcs-dxf.md` F-01 flagged the same root cause (missing
+  `contentType` allowlist on `presigned-upload`) earlier, scored Medium and
+  framed around unauthorized-overwrite/integrity risk — that entry predates
+  this one because no in-page-render sink existed yet to turn it into an
+  XSS chain. The allowlist fix verified here also closes that entry's
+  content-type root cause, though F-01's arbitrary-key overwrite concern is
+  broader and would still need its own key-prefix check to fully close —
+  F-01 itself stays Open, unaffected by this verification.
+- **Release note:** reviewed as a release-gate **BLOCK** for the T01 /
+  F-Drawing PDF Upload + Preview ship (Severity High per the release-gate
+  table) — see finding F-001 for full reasoning and PoC. **Re-reviewed
+  2026-09-14 (same day): RESOLVED**, fixes verified effective, no bypass
+  found — clears the BLOCK once this branch commits. Pending commit ref
+  to formally close.
+
 ---
 
 ## Mitigated risks

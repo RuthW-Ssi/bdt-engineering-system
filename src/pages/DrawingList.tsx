@@ -12,6 +12,15 @@ import { DrawingPreviewPanel } from '../components/drawings/DrawingPreviewPanel'
 
 const filterSelectStyle = { height: 32, padding: '0 8px', fontSize: 13, borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }
 
+type FileType = 'dwg' | 'pdf'
+
+// DWG and PDF are independent artifact streams (see useUploadDrawings) with
+// their own version history — browsing one never shows the other's files.
+export function filterDrawingsByType(drawings: Drawing[], fileType: FileType): Drawing[] {
+  const suffix = `.${fileType}`
+  return drawings.filter(d => d.file_name.toLowerCase().endsWith(suffix))
+}
+
 export function DrawingList() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
@@ -42,13 +51,22 @@ export function DrawingList() {
   const numericZoneId = zoneId ? parseInt(zoneId) : undefined
   const numericSubZoneId = subZoneId ? parseInt(subZoneId) : null
 
-  const { data: drawingsList = [], isLoading: drawingsLoading, isError: drawingsError, refetch } = useZoneDrawings(numericZoneId, numericSubZoneId)
+  const { data: drawingsListRaw = [], isLoading: drawingsLoading, isError: drawingsError, refetch } = useZoneDrawings(numericZoneId, numericSubZoneId)
   const uploadDrawingsMutation = useUploadDrawings({
     projectId, projectCode: activeProject?.project_code,
     zoneId: numericZoneId, zoneCode: selectedZone?.code,
     subZoneId: numericSubZoneId, subZoneCode: selectedSubZone?.code ?? null,
   })
   const deleteDrawingMutation = useDeleteDrawing(numericZoneId, numericSubZoneId)
+
+  // Browse-side type filter — independent of whatever type the upload modal
+  // has picked. Resets on zone/sub-zone switch since a leftover pick from a
+  // previous zone is a stale filter, not a deliberate choice for the new one.
+  const [fileType, setFileType] = useState<FileType>('dwg')
+  useEffect(() => {
+    setFileType('dwg')
+  }, [numericZoneId, numericSubZoneId])
+  const drawingsList = filterDrawingsByType(drawingsListRaw, fileType)
 
   // Versioning is sparse — each version is "what was added in that upload
   // action", not a full snapshot (see wiki: features/file-storage-gcs-backup-plan.md).
@@ -159,6 +177,17 @@ export function DrawingList() {
           <option value="">{subZones.length === 0 && zoneId ? '(no sub-zones)' : '(No sub-zone)'}</option>
           {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
         </select>
+        {zoneId && (
+          <select
+            aria-label="File type"
+            value={fileType}
+            onChange={e => setFileType(e.target.value as FileType)}
+            style={{ ...filterSelectStyle, minWidth: 100 }}
+          >
+            <option value="dwg">DWG</option>
+            <option value="pdf">PDF</option>
+          </select>
+        )}
         {versions.length > 0 && (
           <select
             value={selectedVersion ?? ''}
@@ -195,7 +224,7 @@ export function DrawingList() {
         {zoneId && !drawingsLoading && !drawingsError && drawingsList.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
             <FileText size={32} style={{ opacity: 0.3 }} />
-            <div style={{ fontSize: 13 }}>No drawings uploaded for {selectedZone?.code ?? 'this zone'} yet</div>
+            <div style={{ fontSize: 13 }}>No {fileType.toUpperCase()} files uploaded for {selectedZone?.code ?? 'this zone'} yet</div>
             <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-1.5 rounded-md text-white"
@@ -253,7 +282,7 @@ export function DrawingList() {
         <DrawingUploadModal
           scopeLabel={scopeLabel}
           isUploading={uploadDrawingsMutation.isPending}
-          onFilesConfirmed={files => uploadDrawingsMutation.mutate(files, { onSuccess: () => setShowUploadModal(false) })}
+          onFilesConfirmed={(files, type) => uploadDrawingsMutation.mutate({ files, fileType: type }, { onSuccess: () => setShowUploadModal(false) })}
           onClose={() => setShowUploadModal(false)}
         />
       )}

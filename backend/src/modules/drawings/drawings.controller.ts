@@ -4,6 +4,7 @@ import { DrawingsService } from './drawings.service'
 import { DrawingApsService } from './drawing-aps.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 import { QueryDrawingDto } from './dto/query-drawing.dto'
+import { LatestVersionQueryDto } from './dto/latest-version-query.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
@@ -31,9 +32,9 @@ export class DrawingsController {
   }
 
   @Get('latest-version')
-  @ApiOperation({ summary: 'Highest version already used for a zone (or sub-zone) — null if none yet' })
-  getLatestVersion(@Query() query: QueryDrawingDto) {
-    return this.svc.getLatestVersion(query.zone_id, query.sub_zone_id ?? null)
+  @ApiOperation({ summary: 'Highest version already used for a zone (or sub-zone), scoped to .dwg or .pdf — null if none yet' })
+  getLatestVersion(@Query() query: LatestVersionQueryDto) {
+    return this.svc.getLatestVersion(query.zone_id, query.sub_zone_id ?? null, query.file_type)
   }
 
   @Delete(':id')
