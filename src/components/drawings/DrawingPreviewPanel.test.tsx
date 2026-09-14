@@ -55,7 +55,7 @@ describe('DrawingPreviewPanel', () => {
 
     render(<DrawingPreviewPanel drawing={makeDrawing({ file_name: 'plan-A.pdf', file_key: 'drawings/0X220/Z1/v1/plan-A.pdf' })} />)
 
-    const iframe = screen.getByTitle('plan-A.pdf') as HTMLIFrameElement
+    expect(screen.getByTitle('plan-A.pdf')).toBeInTheDocument()
     expect(screen.queryByTestId('aps-preview')).not.toBeInTheDocument()
   })
 

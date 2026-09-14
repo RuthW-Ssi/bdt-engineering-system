@@ -120,7 +120,7 @@ describe('useDrawingPdfUrl', () => {
 
     const { result, rerender } = renderHook(
       ({ fileKey }: { fileKey: string | null }) => useDrawingPdfUrl(fileKey),
-      { wrapper, initialProps: { fileKey: 'drawings/0X220/Z1/v1/plan-A.pdf' } },
+      { wrapper, initialProps: { fileKey: 'drawings/0X220/Z1/v1/plan-A.pdf' as string | null } },
     )
     await waitFor(() => expect(result.current.data).toBe('blob:fake-url'))
 
