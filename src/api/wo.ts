@@ -97,9 +97,9 @@ export interface WoDetail {
   updated_by: string | null
   manufacturing_order: { id: number; mo_code: string; status: string; primary_mark_prefix_code: string; primary_mark_prefix: MarkPrefix }
   mrp_workcenter: { id: number; code: string; name: string; machine: string | null }
-  bom_assembly: { id: number; assembly_mark: string; name: string | null; length_mm: number | null; surface_area_m2: number | null; weight_kg: number | null; width_mm: number | null; height_mm: number | null; dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } }
+  bom_assembly: { id: number; assembly_mark: string; name: string | null; length_mm: number | null; surface_area_m2: number | null; weight_kg: number | null; width_mm: number | null; height_mm: number | null; dispatch: { id: number; project: { name: string } | null; zone: { id: number; label: string } | null; sub_zone: { id: number; name: string } | null } }
   mark_prefix: MarkPrefix
-  snapshot_dispatch: { id: number; project: { name: string } | null; zone: { label: string } | null; sub_zone: { name: string } | null } | null
+  snapshot_dispatch: { id: number; project: { name: string } | null; zone: { id: number; label: string } | null; sub_zone: { id: number; name: string } | null } | null
   source_routing_op: SourceRoutingOp | null
 }
 

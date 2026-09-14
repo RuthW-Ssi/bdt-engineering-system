@@ -236,7 +236,14 @@ export function WoDetail() {
         {tab === 'Overview' && <OverviewTab wo={wo} bomOutdated={!!bom?.is_outdated} onMo={() => navigate(`/mo/${wo.mo_id}`)} />}
         {tab === 'Schedule' && <ScheduleTab woId={woId} />}
         {tab === 'Events' && <EventsTab woId={woId} />}
-        {tab === 'Visual' && <WoVisualTab woId={woId} mark={wo.bom_assembly.assembly_mark} />}
+        {tab === 'Visual' && (
+          <WoVisualTab
+            woId={woId}
+            mark={wo.bom_assembly.assembly_mark}
+            zoneId={(wo.snapshot_dispatch ?? wo.bom_assembly.dispatch).zone?.id ?? null}
+            subZoneId={(wo.snapshot_dispatch ?? wo.bom_assembly.dispatch).sub_zone?.id ?? null}
+          />
+        )}
       </div>
 
       {/* Action modal (reason / qty) */}
