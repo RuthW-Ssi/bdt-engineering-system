@@ -23,8 +23,11 @@ export async function getDrawingsByZone(zoneId: number, subZoneId: number | null
   return (await apiClient.get('/drawings', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
-export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null): Promise<{ version: number | null }> {
-  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
+// DWG and PDF are independent artifact streams (source CAD vs. a print-ready
+// companion) — each has its own version sequence per zone(+sub-zone), so the
+// lookup is scoped by fileType too.
+export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null, fileType: 'dwg' | 'pdf'): Promise<{ version: number | null }> {
+  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined, file_type: fileType } })).data
 }
 
 export interface UploadDrawingInput {
@@ -90,18 +93,25 @@ export async function getDrawingApsViewerToken(id: number): Promise<DrawingApsVi
   return (await apiClient.get(`/drawings/${id}/aps-viewer-token`)).data
 }
 
-// GET /file-storage/download is JWT-guarded — a bare <a href> can't attach
-// the Authorization header, so this fetches the file as an authenticated
-// blob and triggers a synthetic download, matching the exact pattern
-// ProjectProgress.tsx's handleExport already uses for the same problem
-// (see backend/../file-storage.controller.ts's download() + apiClient's
-// request interceptor for why: the endpoint requires a Bearer token).
-export async function downloadDrawing(fileKey: string, fileName: string): Promise<void> {
+// GET /file-storage/download is JWT-guarded — a bare <a href>/<iframe src>
+// can't attach the Authorization header, so this fetches the file as an
+// authenticated blob, matching the pattern ProjectProgress.tsx's
+// handleExport already uses for the same problem (see
+// backend/../file-storage.controller.ts's download() + apiClient's request
+// interceptor for why: the endpoint requires a Bearer token). Shared by
+// downloadDrawing (triggers a save) and the PDF preview panel (renders the
+// blob in an iframe) — same fetch, different thing done with the result.
+export async function fetchDrawingBlob(fileKey: string): Promise<Blob> {
   const res = await apiClient.get('/file-storage/download', {
     params: { key: fileKey },
     responseType: 'blob',
   })
-  const url = URL.createObjectURL(res.data as Blob)
+  return res.data as Blob
+}
+
+export async function downloadDrawing(fileKey: string, fileName: string): Promise<void> {
+  const blob = await fetchDrawingBlob(fileKey)
+  const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = fileName
