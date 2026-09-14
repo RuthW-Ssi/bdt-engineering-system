@@ -294,3 +294,78 @@ describe('findMissingMarkPrefixes', () => {
     expect(result).toEqual([])
   })
 })
+
+// ── autoCreateCustomProducts: library linked by mark_prefix, not name ──────
+// Bug found 2026-09-14 via production data audit (project 6, ROD zones): a
+// custom product got mark_prefix="RB" (correctly parsed from assembly_mark
+// "DBN-A5-RB1") but library_id linked to the "ROD" library (prefix "R") —
+// because the OLD code matched library_id by the raw Tekla `name` field
+// ("ROD"), a completely separate lookup from the mark_prefix parse. Same root
+// mechanism as the CTR→COLUMN mismatch found earlier the same day. Since
+// findMissingMarkPrefixes now guarantees (pre-transaction) that every prefix
+// reaching this method already has an active Product Library entry, the only
+// correct source for library_id is that same prefix — never the assembly's
+// free-text name.
+describe('autoCreateCustomProducts — library linked by prefix', () => {
+  function makePrismaMock(overrides: Record<string, any> = {}) {
+    return {
+      bom_assembly: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 1, assembly_mark: 'DBN-A5-RB1', name: 'ROD', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null },
+        ]),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      product_library: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 99, name: 'Round Bar', mark_prefix: 'RB' },
+          { id: 1, name: 'ROD', mark_prefix: 'R' }, // decoy — matches the assembly's raw `name`, must NOT be picked
+        ]),
+      },
+      project: { findUnique: jest.fn().mockResolvedValue({ project_code: 'DBN' }) },
+      project_zone: { findUnique: jest.fn().mockResolvedValue({ code: 'A5' }) },
+      products: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({ id: 500, product_code: 'CUS-00500' }),
+      },
+      ...overrides,
+    }
+  }
+  function makeCodeGen() {
+    return { generate: jest.fn().mockResolvedValue('CUS-00500') }
+  }
+
+  it('links the new custom product via the Product Library entry whose mark_prefix matches the parsed prefix, ignoring a same-named decoy library', async () => {
+    const prisma = makePrismaMock()
+    const svc = new BomMatchingService(prisma as any, makeCodeGen() as any)
+
+    await svc.autoCreateCustomProducts(1, 5, 2, 1)
+
+    expect(prisma.products.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ mark_prefix: 'RB', library_id: 99 }) }),
+    )
+  })
+
+  it('queries Product Library by mark_prefix, not by assembly name', async () => {
+    const prisma = makePrismaMock()
+    const svc = new BomMatchingService(prisma as any, makeCodeGen() as any)
+
+    await svc.autoCreateCustomProducts(1, 5, 2, 1)
+
+    const call = prisma.product_library.findMany.mock.calls[0][0]
+    expect(call.where.mark_prefix).toEqual({ in: ['RB'] })
+    expect(call.where.name).toBeUndefined()
+  })
+
+  it('leaves library_id null when no Product Library entry owns the parsed prefix', async () => {
+    const prisma = makePrismaMock({
+      product_library: { findMany: jest.fn().mockResolvedValue([]) },
+    })
+    const svc = new BomMatchingService(prisma as any, makeCodeGen() as any)
+
+    await svc.autoCreateCustomProducts(1, 5, 2, 1)
+
+    expect(prisma.products.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ library_id: null }) }),
+    )
+  })
+})

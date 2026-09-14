@@ -187,13 +187,23 @@ export class BomMatchingService {
 
     if (!unmatched.length) return 0
 
-    // Batch-load library entries matching assembly names (case-insensitive)
-    const assemblyNames = [...new Set(unmatched.map(a => a.name?.trim()).filter(Boolean))] as string[]
+    // Batch-load library entries by mark_prefix — NOT by the assembly's raw
+    // `name` text. A product's library link must always agree with its own
+    // mark_prefix; matching by name independently let a product end up
+    // tagged e.g. mark_prefix="RB" while linked to the unrelated "ROD"
+    // library, because the imported Tekla `name` field happened to read
+    // "ROD" (bug found 2026-09-14 via production data audit, project 6 ROD
+    // zones — same root mechanism as the CTR→COLUMN mismatch found the same
+    // day). findMissingMarkPrefixes already guarantees every prefix reaching
+    // this method has an active Product Library entry, so this lookup should
+    // always resolve for a legitimately-registered prefix.
+    const prefixByMark = new Map(unmatched.map(a => [a.assembly_mark, parseAssemblyMark(a.assembly_mark).prefix]))
+    const uniquePrefixes = [...new Set(prefixByMark.values())]
     const libraryEntries = await this.prisma.product_library.findMany({
-      where: { active: true, name: { in: assemblyNames, mode: 'insensitive' } },
-      select: { id: true, name: true },
+      where: { active: true, mark_prefix: { in: uniquePrefixes } },
+      select: { id: true, name: true, mark_prefix: true },
     })
-    const libraryByName = new Map(libraryEntries.map(e => [e.name.trim().toLowerCase(), e]))
+    const libraryByPrefix = new Map(libraryEntries.map(e => [e.mark_prefix, e]))
 
     // Fetch project_code and zone_code once for sMark construction
     const [proj, zone] = await Promise.all([
@@ -205,10 +215,8 @@ export class BomMatchingService {
 
     let created = 0
     for (const asm of unmatched) {
-      const nameKey = asm.name?.trim().toLowerCase() ?? ''
-      const libEntry = libraryByName.get(nameKey)
-
       const { prefix, number } = parseAssemblyMark(asm.assembly_mark)
+      const libEntry = libraryByPrefix.get(prefix)
 
       const segment = asm.assembly_mark.includes('-') ? asm.assembly_mark.split('-').pop()! : asm.assembly_mark
       const oMark = asm.assembly_mark
