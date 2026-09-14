@@ -173,3 +173,124 @@ describe('BomMatchingService', () => {
     expect(tx.bom_assembly.update).toHaveBeenCalledTimes(2)
   })
 })
+
+// ── findMissingMarkPrefixes ───────────────────────────────────────────────
+// Pre-transaction guard for upload(): any assembly mark whose prefix isn't
+// already registered in Product Library must reject the whole upload instead
+// of silently creating an orphan mark_prefix_master row (see
+// autoCreateCustomProducts' removed blind upsert — this replaces it).
+// Constructed directly (no NestJS TestingModule) since findMissingMarkPrefixes
+// only touches the `tx` argument, not the injected prisma/codeGen.
+describe('findMissingMarkPrefixes', () => {
+  function makeSvc() {
+    return new BomMatchingService({} as any, {} as any)
+  }
+
+  it('returns [] without querying when the assembly list is empty', async () => {
+    const svc = makeSvc()
+    const tx = { $queryRaw: jest.fn(), product_library: { findMany: jest.fn() } }
+    const result = await svc.findMissingMarkPrefixes(tx as any, [])
+    expect(result).toEqual([])
+    expect(tx.$queryRaw).not.toHaveBeenCalled()
+  })
+
+  it('skips assemblies that match a standard product by name (no prefix needed)', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ name: 'COLUMN' }]), // standard match
+      product_library: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const result = await svc.findMissingMarkPrefixes(tx as any, [{ assembly_mark: 'TH-2CO1', name: 'COLUMN' }])
+    expect(result).toEqual([])
+    expect(tx.product_library.findMany).not.toHaveBeenCalled()
+  })
+
+  it('returns [] when the custom-path prefix is already registered in Product Library', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]), // no standard match
+      product_library: { findMany: jest.fn().mockResolvedValue([{ mark_prefix: 'CO' }]) },
+    }
+    const result = await svc.findMissingMarkPrefixes(tx as any, [{ assembly_mark: 'TH-2CO1', name: 'COLUMN' }])
+    expect(result).toEqual([])
+  })
+
+  it('returns the prefix when no standard match and no Product Library entry owns it', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      product_library: { findMany: jest.fn().mockResolvedValue([{ mark_prefix: 'CO' }]) },
+    }
+    const result = await svc.findMissingMarkPrefixes(tx as any, [{ assembly_mark: 'DBN-B1-CTR8', name: 'COLUMN' }])
+    expect(result).toEqual(['CTR'])
+  })
+
+  it('dedupes and sorts multiple missing prefixes', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      product_library: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const assemblies = [
+      { assembly_mark: 'DBN-B1-CTR8', name: 'X' },
+      { assembly_mark: 'DBN-B1-CTR9', name: 'X' },
+      { assembly_mark: 'DBN-B1-BR1', name: 'Y' },
+    ]
+    const result = await svc.findMissingMarkPrefixes(tx as any, assemblies)
+    expect(result).toEqual(['BR', 'CTR'])
+  })
+
+  // QA-01 (BLOCK, 2026-09-14): enforceStandardIntegrity demotes a
+  // MATCHED_STANDARD assembly back to unmatched, post-commit, if ANY of its
+  // parts (in THIS upload) isn't itself MATCHED_STANDARD — INNER JOIN on
+  // bom_assembly_part/bom_part, so an assembly with zero listed parts is
+  // never demoted. A standard-name match alone is therefore not proof this
+  // assembly stays exempt from the prefix check; must mirror that demotion
+  // decision pre-transaction using the same-upload parts + junction rows.
+
+  it('does NOT skip a standard-matched assembly that would be demoted (a listed part is not standard-matched)', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ name: 'COLUMN' }]) // assembly standard match
+        .mockResolvedValueOnce([]),                  // part standard match — none
+      product_library: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const assemblies = [{ assembly_mark: 'DBN-B1-CTR8', name: 'COLUMN' }]
+    const parts = [{ part_mark: 'P1' }]
+    const assemblyParts = [{ assembly_mark: 'DBN-B1-CTR8', part_mark: 'P1' }]
+    const result = await svc.findMissingMarkPrefixes(tx as any, assemblies, parts, assemblyParts)
+    expect(result).toEqual(['CTR'])
+  })
+
+  it('skips a standard-matched assembly whose listed parts are ALL standard-matched (never demoted)', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ name: 'COLUMN' }]) // assembly standard match
+        .mockResolvedValueOnce([{ name: 'P1' }]),    // part standard match — matched
+      product_library: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const assemblies = [{ assembly_mark: 'TH-2CO1', name: 'COLUMN' }]
+    const parts = [{ part_mark: 'P1' }]
+    const assemblyParts = [{ assembly_mark: 'TH-2CO1', part_mark: 'P1' }]
+    const result = await svc.findMissingMarkPrefixes(tx as any, assemblies, parts, assemblyParts)
+    expect(result).toEqual([])
+    expect(tx.product_library.findMany).not.toHaveBeenCalled()
+  })
+
+  it('skips a standard-matched assembly with no parts listed in the junction, even when other assemblies have parts (INNER JOIN semantics — never demoted)', async () => {
+    const svc = makeSvc()
+    const tx = {
+      $queryRaw: jest.fn()
+        .mockResolvedValueOnce([{ name: 'COLUMN' }]) // assembly standard match
+        .mockResolvedValueOnce([{ name: 'P1' }]),    // part standard match
+      product_library: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const assemblies = [{ assembly_mark: 'TH-2CO1', name: 'COLUMN' }]
+    const parts = [{ part_mark: 'P1' }]
+    const assemblyParts = [{ assembly_mark: 'OTHER-MARK', part_mark: 'P1' }] // no junction row for TH-2CO1
+    const result = await svc.findMissingMarkPrefixes(tx as any, assemblies, parts, assemblyParts)
+    expect(result).toEqual([])
+  })
+})
