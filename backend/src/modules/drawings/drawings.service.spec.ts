@@ -3,6 +3,7 @@ import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import { DrawingsService } from './drawings.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
+import { LatestVersionQueryDto } from './dto/latest-version-query.dto'
 
 function makePrisma(drawings: { id: number; file_key: string }[]) {
   return {
@@ -134,11 +135,11 @@ describe('DrawingsService', () => {
       const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue(null) } }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any, makeDrawingAps() as any)
 
-      const result = await svc.getLatestVersion(7, null)
+      const result = await svc.getLatestVersion(7, null, 'dwg')
 
       expect(result).toEqual({ version: null })
       expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-        where: { zone_id: 7, sub_zone_id: null },
+        where: { zone_id: 7, sub_zone_id: null, file_name: { endsWith: '.dwg', mode: 'insensitive' } },
         orderBy: { version: 'desc' },
       }))
     })
@@ -147,7 +148,7 @@ describe('DrawingsService', () => {
       const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 3 }) } }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any, makeDrawingAps() as any)
 
-      const result = await svc.getLatestVersion(7, null)
+      const result = await svc.getLatestVersion(7, null, 'dwg')
 
       expect(result).toEqual({ version: 3 })
     })
@@ -156,12 +157,50 @@ describe('DrawingsService', () => {
       const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 1 }) } }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any, makeDrawingAps() as any)
 
-      await svc.getLatestVersion(7, 3)
+      await svc.getLatestVersion(7, 3, 'dwg')
 
       expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-        where: { zone_id: 7, sub_zone_id: 3 },
+        where: { zone_id: 7, sub_zone_id: 3, file_name: { endsWith: '.dwg', mode: 'insensitive' } },
       }))
     })
+
+    it('scopes to .pdf files only when file_type is pdf — independent version sequence from .dwg', async () => {
+      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 2 }) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any, makeDrawingAps() as any)
+
+      const result = await svc.getLatestVersion(7, null, 'pdf')
+
+      expect(result).toEqual({ version: 2 })
+      expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+        where: { zone_id: 7, sub_zone_id: null, file_name: { endsWith: '.pdf', mode: 'insensitive' } },
+      }))
+    })
+  })
+})
+
+describe('LatestVersionQueryDto validation', () => {
+  it('accepts file_type "dwg"', async () => {
+    const dto = plainToInstance(LatestVersionQueryDto, { zone_id: '7', file_type: 'dwg' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_type')).toBe(false)
+  })
+
+  it('accepts file_type "pdf"', async () => {
+    const dto = plainToInstance(LatestVersionQueryDto, { zone_id: '7', file_type: 'pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_type')).toBe(false)
+  })
+
+  it('rejects a missing file_type', async () => {
+    const dto = plainToInstance(LatestVersionQueryDto, { zone_id: '7' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_type')).toBe(true)
+  })
+
+  it('rejects an unrecognized file_type value', async () => {
+    const dto = plainToInstance(LatestVersionQueryDto, { zone_id: '7', file_type: 'dxf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_type')).toBe(true)
   })
 })
 

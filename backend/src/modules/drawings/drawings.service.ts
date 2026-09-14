@@ -48,9 +48,14 @@ export class DrawingsService {
   // highest version tag used so far for this zone(+sub-zone)", not a count.
   // Scoped per zone(+sub-zone) since 2026-08-25's Zone rescope — mirrors
   // bom-upload.service.ts's getLatestRevision(projectId, zoneId, subZoneId).
-  async getLatestVersion(zoneId: number, subZoneId: number | null) {
+  // Also scoped per file_type (.dwg vs .pdf, matched on file_name — there's
+  // no stored type column, same filename-suffix check create() already uses
+  // for the APS push) — DWG and PDF are independent artifact streams
+  // (source CAD needing APS vs. a print-ready companion) with their own
+  // version history, so uploading one never bumps the other's counter.
+  async getLatestVersion(zoneId: number, subZoneId: number | null, fileType: 'dwg' | 'pdf') {
     const latest = await this.prisma.drawing.findFirst({
-      where: { zone_id: zoneId, sub_zone_id: subZoneId },
+      where: { zone_id: zoneId, sub_zone_id: subZoneId, file_name: { endsWith: `.${fileType}`, mode: 'insensitive' } },
       orderBy: { version: 'desc' },
       select: { version: true },
     })
