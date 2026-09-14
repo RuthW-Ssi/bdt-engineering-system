@@ -1,9 +1,36 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, Cuboid as CuboidIcon, Loader2, MoveHorizontal, MoveVertical, RotateCw, SearchX } from 'lucide-react'
+import { AlertTriangle, Cuboid as CuboidIcon, FileText, Loader2, MoveHorizontal, MoveVertical, RotateCw, SearchX } from 'lucide-react'
 import { BimViewport, type BimFocusRequest, type BimViewportHandle } from '../bim/BimViewport'
 import { useBimViewerToken } from '../../hooks/useBim'
 import { useWoBimMatch } from '../../hooks/useWo'
-import { WoDrawingPlaceholder } from './WoDrawingPlaceholder'
+import { useZoneDrawings } from '../../hooks/useDrawings'
+import type { Drawing } from '../../api/drawings'
+import { DrawingPreviewPanel } from '../drawings/DrawingPreviewPanel'
+
+// A drawing's filename leads with its mark, e.g. "DBN-B1-CTR10 - - Rev 1.dwg"
+// — there is no mark/WO association in the drawing schema (see
+// wiki/features/drawing.md's Constraints list), so this is filename
+// convention, not a stored relation. Split on " - " (the CAD export tool's
+// own field separator) rather than a prefix/substring check, so "CTR1"
+// never matches a file actually named "CTR10 - ...".
+function extractMarkFromFilename(fileName: string): string {
+  const withoutExt = fileName.replace(/\.[^.]+$/, '')
+  return withoutExt.split(' - ')[0].trim()
+}
+
+// Only the latest .dwg version is searched (never an older revision that
+// happens to share a mark) — mirrors WoBimMatchService's own
+// orderBy: [{major_version: 'desc'}, {minor_version: 'desc'}] for the 3D
+// model half of this same tab. Exported (pure, no I/O) for unit testing,
+// same pattern as DrawingList.tsx's filterDrawingsByType.
+export function findLatestDwgForMark(drawings: Drawing[], mark: string): Drawing | null {
+  const dwgs = drawings.filter(d => d.file_name.toLowerCase().endsWith('.dwg'))
+  if (dwgs.length === 0) return null
+  const latestVersion = Math.max(...dwgs.map(d => d.version))
+  const matches = dwgs.filter(d => d.version === latestVersion && extractMarkFromFilename(d.file_name).toLowerCase() === mark.toLowerCase())
+  if (matches.length === 0) return null
+  return matches.reduce((newest, d) => (new Date(d.create_date) > new Date(newest.create_date) ? d : newest))
+}
 
 const PANE_BOX_STYLE = {
   display: 'flex',
@@ -38,14 +65,18 @@ function EmptyBox({ icon, message }: { icon: ReactNode; message: string }) {
 }
 
 // Sprint 28 · F-WO Visual Tab — isolated 3D view of the single assembly this
-// WO is for, side by side with a Drawing stub (future feature). Reuses
+// WO is for, side by side with its shop drawing (2026-09-14: swapped the old
+// "coming soon" mockup — formerly WoDrawingPlaceholder.tsx, now deleted —
+// for the real Drawing feature via findLatestDwgForMark below). Reuses
 // BimViewport/useBimViewerToken unchanged, same as BimViewer.tsx and
 // ProjectProgress.tsx.
-export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
+export function WoVisualTab({ woId, mark, zoneId, subZoneId }: { woId: number; mark: string; zoneId: number | null; subZoneId: number | null }) {
   const { data: bimMatch, isLoading: matchLoading, isError: matchError } = useWoBimMatch(woId)
   const modelId = bimMatch?.status === 'ok' ? bimMatch.model_id : null
   const { data: viewerToken } = useBimViewerToken(modelId)
   const viewportRef = useRef<BimViewportHandle>(null)
+  const { data: zoneDrawings = [] } = useZoneDrawings(zoneId ?? undefined, subZoneId ?? null)
+  const drawing = zoneId != null ? findLatestDwgForMark(zoneDrawings, mark) : null
   // 'default' = whatever fitToView already framed (no orientation button
   // pressed yet) — not the same as neither button being "active" once the
   // user has toggled once, but there's no way to read the camera's current
@@ -179,7 +210,11 @@ export function WoVisualTab({ woId, mark }: { woId: number; mark: string }) {
         )}
       </div>
       <div className="flex-1 min-h-[240px] min-w-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
-        <WoDrawingPlaceholder mark={mark} />
+        {drawing ? (
+          <DrawingPreviewPanel drawing={drawing} />
+        ) : (
+          <EmptyBox icon={<FileText size={28} />} message={`No drawing uploaded for mark "${mark}" yet.`} />
+        )}
       </div>
     </div>
   )
