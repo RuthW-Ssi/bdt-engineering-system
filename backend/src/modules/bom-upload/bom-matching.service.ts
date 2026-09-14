@@ -85,6 +85,91 @@ export class BomMatchingService {
     ))
   }
 
+  // Pre-transaction guard for BomUploadService.upload(): an assembly that
+  // won't end up MATCHED_STANDARD falls through to autoCreateCustomProducts,
+  // which tags the new custom product with a prefix parsed straight out of
+  // its assembly_mark — completely independent of Product Library. Left
+  // unchecked, that prefix may have no curated Product Library entry at all
+  // (see the removed blind mark_prefix_master upsert below), so the routing
+  // template's own Mark Prefix picker (which only lists Product Library
+  // entries) can never find it. Reject the whole upload up front instead,
+  // and name every missing prefix so the user can register it in Engineer
+  // Products first.
+  //
+  // A standard-name match on the assembly alone is NOT proof it stays
+  // exempt: enforceStandardIntegrity demotes a MATCHED_STANDARD assembly
+  // back to unmatched, post-commit, if ANY of its parts in this same upload
+  // isn't itself MATCHED_STANDARD (INNER JOIN semantics — an assembly with
+  // zero listed parts is never demoted). Mirror that same decision here,
+  // pre-transaction, using this upload's own part list + assembly-part
+  // junction rows (QA-01, 2026-09-14) — otherwise an assembly whose name
+  // happens to match a standard catalog product, but whose actual parts
+  // this time don't, would slip through with an unchecked prefix.
+  async findMissingMarkPrefixes(
+    tx: Tx,
+    assemblies: Array<{ assembly_mark: string; name?: string | null }>,
+    parts: Array<{ part_mark: string }> = [],
+    assemblyParts: Array<{ assembly_mark: string; part_mark: string }> = [],
+  ): Promise<string[]> {
+    if (!assemblies.length) return []
+    const normalize = (s: string) => s.trim().toUpperCase()
+    const uniqueNames = [...new Set(assemblies.map(a => normalize(a.name ?? '')))]
+
+    const standardMatches = await tx.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM products
+      WHERE product_kind = 'assembly'
+        AND product_type = 'standard'
+        AND active = true
+        AND UPPER(TRIM(name)) = ANY(${uniqueNames}::text[])
+    `
+    const standardNames = new Set(standardMatches.map(r => normalize(r.name)))
+    const standardMatchedMarks = new Set(
+      assemblies.filter(a => standardNames.has(normalize(a.name ?? ''))).map(a => a.assembly_mark),
+    )
+
+    const demoted = new Set<string>()
+    if (standardMatchedMarks.size && parts.length && assemblyParts.length) {
+      const uniquePartMarks = [...new Set(parts.map(p => normalize(p.part_mark)))]
+      const partStandardMatches = await tx.$queryRaw<Array<{ name: string }>>`
+        SELECT name FROM products
+        WHERE product_kind = 'part'
+          AND product_type = 'standard'
+          AND active = true
+          AND UPPER(TRIM(name)) = ANY(${uniquePartMarks}::text[])
+      `
+      const standardPartNames = new Set(partStandardMatches.map(r => normalize(r.name)))
+
+      const partsByAssembly = new Map<string, string[]>()
+      for (const ap of assemblyParts) {
+        if (!partsByAssembly.has(ap.assembly_mark)) partsByAssembly.set(ap.assembly_mark, [])
+        partsByAssembly.get(ap.assembly_mark)!.push(ap.part_mark)
+      }
+
+      for (const mark of standardMatchedMarks) {
+        const myParts = partsByAssembly.get(mark) ?? []
+        if (myParts.some(pm => !standardPartNames.has(normalize(pm)))) demoted.add(mark)
+      }
+    }
+
+    const candidateMarks = assemblies
+      .filter(a => !standardMatchedMarks.has(a.assembly_mark) || demoted.has(a.assembly_mark))
+      .map(a => a.assembly_mark)
+    if (!candidateMarks.length) return []
+
+    const libraryEntries = await tx.product_library.findMany({
+      where: { active: true, mark_prefix: { not: null } },
+      select: { mark_prefix: true },
+    })
+    const knownPrefixes = new Set(libraryEntries.map(e => e.mark_prefix!.toUpperCase()))
+
+    const missing = new Set<string>()
+    for (const mark of candidateMarks) {
+      const { prefix } = parseAssemblyMark(mark)
+      if (!knownPrefixes.has(prefix)) missing.add(prefix)
+    }
+    return [...missing].sort()
+  }
+
   async autoCreateCustomProducts(
     dispatchId: number,
     projectId: number,
@@ -135,12 +220,6 @@ export class BomMatchingService {
       if (asm.length_mm)       attrs.length_mm = Number(asm.length_mm)
       if (asm.width_mm)        attrs.width_mm  = Number(asm.width_mm)
       if (asm.height_mm)       attrs.height_mm = Number(asm.height_mm)
-
-      await this.prisma.mark_prefix_master.upsert({
-        where: { code: prefix },
-        update: {},
-        create: { code: prefix, label: prefix, category: 'main_structure', part_type_code: 'm' },
-      })
 
       // Reuse existing product if same mark already exists in this project/zone
       let product = await this.prisma.products.findFirst({
@@ -204,7 +283,7 @@ export class BomMatchingService {
   }
 }
 
-function parseAssemblyMark(mark: string): { prefix: string; number: string } {
+export function parseAssemblyMark(mark: string): { prefix: string; number: string } {
   // Format: optional {text}-{digits}{LETTERS}{digits}, e.g. "TH-2CO1" → prefix="CO", number="1"
   const segment = mark.includes('-') ? mark.split('-').pop()! : mark
   const m = segment.match(/^\d*([A-Za-z]+)(\d+.*)$/)

@@ -143,12 +143,14 @@ function defaultParsed(): ParsedBomFile {
   }
 }
 
-function makeMatching() {
+function makeMatching(overrides: Record<string, any> = {}) {
   return {
+    findMissingMarkPrefixes: jest.fn().mockResolvedValue([]),
     matchAssemblies: jest.fn().mockResolvedValue(undefined),
     matchParts: jest.fn().mockResolvedValue(undefined),
     enforceStandardIntegrity: jest.fn().mockResolvedValue(undefined),
     autoCreateCustomProducts: jest.fn().mockResolvedValue(0),
+    ...overrides,
   }
 }
 
@@ -435,6 +437,73 @@ describe('BomUploadService.upload()', () => {
       [],
       1, 2, null, 1,
     )).rejects.toThrow('Missing NC files for part marks: P1')
+  })
+
+  it('rejects the whole upload when an assembly mark has an unregistered prefix, before any DB write or file save', async () => {
+    const prisma = makePrisma()
+    const storage = makeStorage()
+    const matching = makeMatching({ findMissingMarkPrefixes: jest.fn().mockResolvedValue(['CTR']) })
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser() as any, matching as any, makeDiffService(prisma) as any, makeWorkOrders() as any)
+
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1))
+      .rejects.toThrow('Unknown mark prefix(es) — create these in Engineer Products (Product Library) first: CTR')
+
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(storage.putObject).not.toHaveBeenCalled()
+  })
+
+  it('lists every missing prefix in the rejection message', async () => {
+    const prisma = makePrisma()
+    const matching = makeMatching({ findMissingMarkPrefixes: jest.fn().mockResolvedValue(['BR', 'CTR', 'STR']) })
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, matching as any, makeDiffService(prisma) as any, makeWorkOrders() as any)
+
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1))
+      .rejects.toThrow('Unknown mark prefix(es) — create these in Engineer Products (Product Library) first: BR, CTR, STR')
+  })
+
+  it('proceeds normally when every assembly mark has a registered prefix', async () => {
+    const prisma = makePrisma()
+    const matching = makeMatching({ findMissingMarkPrefixes: jest.fn().mockResolvedValue([]) })
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, matching as any, makeDiffService(prisma) as any, makeWorkOrders() as any)
+
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1)).resolves.toBeDefined()
+    expect(matching.findMissingMarkPrefixes).toHaveBeenCalledWith(
+      prisma,
+      [{ assembly_mark: 'WH-CO-001', name: 'Col A', qty: 1, weight_kg: 500, surface_area_m2: 5 }],
+      [],
+      [],
+    )
+  })
+
+  // QA-01 (BLOCK, 2026-09-14): findMissingMarkPrefixes needs this upload's own
+  // Part List + Assembly Part List to correctly mirror enforceStandardIntegrity's
+  // post-commit demotion decision — confirm upload() actually threads them
+  // through instead of always calling with empty arrays.
+  it('passes this upload\'s Part List and Assembly Part List rows through to findMissingMarkPrefixes', async () => {
+    const prisma = makePrisma()
+    const matching = makeMatching({ findMissingMarkPrefixes: jest.fn().mockResolvedValue([]) })
+    const parser = {
+      peekContractNo: jest.fn().mockReturnValue(''),
+      parse: jest.fn().mockImplementation((_buf: Buffer, docType: string) => {
+        if (docType === 'ASSEMBLY_LIST') return { docType, assemblies: [{ assembly_mark: 'A1', name: 'COLUMN' }], parts: [], assemblyParts: [] }
+        if (docType === 'PART_LIST') return { docType, assemblies: [], parts: [{ part_mark: 'P1', profile: 'L50x50x5' }], assemblyParts: [] }
+        return { docType, assemblies: [], parts: [], assemblyParts: [{ assembly_mark: 'A1', part_mark: 'P1' }] }
+      }),
+    }
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, parser as any, matching as any, makeDiffService(prisma) as any, makeWorkOrders() as any)
+
+    await svc.upload(
+      [makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }), makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' })],
+      [],
+      1, 2, null, 1,
+    )
+
+    expect(matching.findMissingMarkPrefixes).toHaveBeenCalledWith(
+      prisma,
+      [{ assembly_mark: 'A1', name: 'COLUMN' }],
+      [{ part_mark: 'P1', profile: 'L50x50x5' }],
+      [{ assembly_mark: 'A1', part_mark: 'P1' }],
+    )
   })
 
   it('skips unmatched assembly/part mark pairs but still creates junctions for matched ones, logging each skip', async () => {
