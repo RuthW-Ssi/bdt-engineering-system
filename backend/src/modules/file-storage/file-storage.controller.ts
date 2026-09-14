@@ -11,6 +11,19 @@ import * as fs from 'fs'
 import { FileStorageService } from './file-storage.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 
+// This endpoint's contentType is stored as GCS object metadata and served
+// back verbatim on download (see GcsFileStorageDriver) — an unvalidated
+// value lets an uploader make their own file come back as, say, text/html.
+// That was low-risk while every consumer forced a download, but the Drawing
+// PDF preview (DrawingPreviewPanel.tsx) now renders fetched bytes in-page
+// via an <iframe src="blob:...">, whose type is taken from this same
+// contentType — a spoofed text/html turns that into stored XSS (security
+// finding F-001, docs/security/findings/2026-09-14-drawing-pdf-upload.md).
+// This endpoint's one real caller (drawing upload, src/api/drawings.ts)
+// only ever sends these two — allowlist to exactly that, not a denylist
+// (denylists miss whatever executable MIME type nobody thought to add).
+const ALLOWED_UPLOAD_CONTENT_TYPES = ['application/pdf', 'application/octet-stream']
+
 @ApiTags('file-storage')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -32,6 +45,9 @@ export class FileStorageController {
   async presignedUpload(@Body() body: { key: string; contentType: string }) {
     if (!body.key || !body.contentType) {
       throw new BadRequestException('key and contentType are required')
+    }
+    if (!ALLOWED_UPLOAD_CONTENT_TYPES.includes(body.contentType)) {
+      throw new BadRequestException(`contentType must be one of: ${ALLOWED_UPLOAD_CONTENT_TYPES.join(', ')}`)
     }
     const result = await this.svc.getUploadUrl(body.key, body.contentType)
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000)

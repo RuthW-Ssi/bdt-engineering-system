@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing,
-  getDrawingApsStatus, getDrawingApsViewerToken,
+  getDrawingApsStatus, getDrawingApsViewerToken, fetchDrawingBlob,
 } from '../api/drawings'
 
 export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | null) {
@@ -45,15 +45,16 @@ interface UploadDrawingsScope {
 // abort the others. One upload action = one version of THIS zone(+sub-zone)'s
 // drawing set — the next version is fetched once here, not once per file
 // (mirrors how BIM's upload computes nextMajor/nextMinor once per upload,
-// not per file). Version numbering is scoped per zone(+sub-zone), not per
-// project, since 2026-08-25's Zone rescope — uploading to Zone A never
-// bumps Zone B's version counter.
+// not per file). Version numbering is scoped per zone(+sub-zone) AND per
+// file type (.dwg vs .pdf are independent artifact streams — see
+// getLatestDrawingVersion) — uploading to Zone A never bumps Zone B's
+// counter, and uploading a PDF batch never bumps the DWG counter either.
 export function useUploadDrawings(scope: UploadDrawingsScope) {
   const { projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode } = scope
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (files: File[]) => {
-      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId)
+    mutationFn: async ({ files, fileType }: { files: File[]; fileType: 'dwg' | 'pdf' }) => {
+      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId, fileType)
       const nextVersion = (latest ?? 0) + 1
       const fileNames = dedupeFileNames(files)
       const results = await Promise.allSettled(
@@ -114,5 +115,37 @@ export function useDrawingApsViewerToken(id: number | null) {
     queryFn: () => getDrawingApsViewerToken(id!),
     enabled: id != null,
     staleTime: 50 * 60 * 1000, // APS 2-legged tokens are valid ~1h
+  })
+}
+
+// PDF preview needs no APS translation (unlike .dwg) — just an authenticated
+// blob turned into an object URL an <iframe> can render directly. staleTime
+// Infinity: a given file_key's bytes never change (a new upload gets a new
+// key under a new version folder), so the cached URL is reused rather than
+// refetched every time this fileKey is selected again (e.g. switching the
+// DWG/PDF browse toggle back and forth). Deliberately does NOT revoke the
+// object URL on unmount/change — a revoke-on-cleanup effect was tried and
+// reverted: because the value is cached and reused, "this caller stopped
+// asking for it" does not mean "nobody will ask again," and revoking on
+// that signal left the next reuse pointing at a dead blob (PDF viewer:
+// "It may have been moved, edited, or deleted."). The tab's small number of
+// distinct PDF previews per session is released when the page unloads —
+// an acceptable trade-off against re-introducing that bug.
+export function useDrawingPdfUrl(fileKey: string | null) {
+  return useQuery({
+    queryKey: ['drawings', 'pdf-blob-url', fileKey],
+    queryFn: async () => {
+      const blob = await fetchDrawingBlob(fileKey!)
+      // Never trust the server-declared content-type for what this blob
+      // renders as (security finding F-001) — this hook only ever runs for
+      // a file the caller has already decided is a PDF, so re-wrap
+      // unconditionally rather than pass the fetched blob's own `type`
+      // through. Closes the content-type-spoofing vector at the one place
+      // it actually matters (what the browser renders the object URL as),
+      // independent of the backend's own upload-time allowlist.
+      return URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+    },
+    enabled: fileKey != null,
+    staleTime: Infinity,
   })
 }
