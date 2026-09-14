@@ -134,6 +134,29 @@ export class BomUploadService {
       }
     }
 
+    // 4b. Validate: every assembly mark that won't end up MATCHED_STANDARD
+    // (including one demoted post-commit by enforceStandardIntegrity because
+    // one of its own parts isn't itself standard — see findMissingMarkPrefixes'
+    // own header comment) must have its prefix already registered in Product
+    // Library — fail fast (before any DB write or file save) rather than
+    // silently creating a custom product + orphan mark_prefix_master row for
+    // an unknown prefix.
+    const asmListForPrefixCheck = parsed.get('ASSEMBLY_LIST')
+    if (asmListForPrefixCheck?.assemblies.length) {
+      const asmPartListForPrefixCheck = parsed.get('ASSEMBLY_PART_LIST')
+      const missingPrefixes = await this.matching.findMissingMarkPrefixes(
+        this.prisma,
+        asmListForPrefixCheck.assemblies,
+        rawPartList?.parts ?? [],
+        asmPartListForPrefixCheck?.assemblyParts ?? [],
+      )
+      if (missingPrefixes.length > 0) {
+        throw new BadRequestException(
+          `Unknown mark prefix(es) — create these in Engineer Products (Product Library) first: ${missingPrefixes.join(', ')}`,
+        )
+      }
+    }
+
     // 5. Deduplicate Part List by part_mark; use NC data as canonical source
     const dedupedParts = this.buildDedupedParts(rawPartList?.parts ?? [], ncMap)
 
