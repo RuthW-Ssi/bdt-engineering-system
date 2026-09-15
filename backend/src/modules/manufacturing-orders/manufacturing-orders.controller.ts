@@ -8,8 +8,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common'
+import type { Response } from 'express'
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { MoStatus } from '@prisma/client'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
@@ -18,6 +20,7 @@ import { RequiresPermission } from '../../common/decorators/permission.decorator
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
+import { MoPrintService } from './mo-print/mo-print.service'
 import { CreateMoDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
@@ -27,7 +30,10 @@ import { ChangeStatusDto } from './dto/change-status.dto'
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('mo')
 export class ManufacturingOrderController {
-  constructor(private readonly svc: ManufacturingOrderService) {}
+  constructor(
+    private readonly svc: ManufacturingOrderService,
+    private readonly moPrint: MoPrintService,
+  ) {}
 
   @Get()
   @RequiresPermission('orders', 'view')
@@ -121,4 +127,19 @@ export class ManufacturingOrderController {
     return this.svc.cancel(id, user.sub, user.login)
   }
 
+  // Plain @Res() (no passthrough) — Nest's passthrough mode still JSON-
+  // serializes whatever the handler returns (a raw Buffer becomes
+  // {"type":"Buffer","data":[...]}, confirmed live against a real request),
+  // so the binary body must be sent manually. Exceptions thrown inside
+  // buildPdf() (NotFoundException, the missing-drawing ConflictException)
+  // are still caught by Nest's normal exception filters regardless — only
+  // the success path bypasses Nest's own response handling here.
+  @Get(':id/print-packet')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'Print packet — manifest + one signable traveler per WO + embedded shop drawings (409 if any WO is missing a PDF drawing)' })
+  async printPacket(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
+    const bytes = await this.moPrint.buildPdf(id)
+    res.set({ 'Content-Type': 'application/pdf' })
+    res.send(Buffer.from(bytes))
+  }
 }

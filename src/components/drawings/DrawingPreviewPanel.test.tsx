@@ -2,20 +2,12 @@ import { vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { Drawing } from '../../api/drawings'
 import { DrawingPreviewPanel } from './DrawingPreviewPanel'
-import { useDrawingApsStatus, useDrawingApsViewerToken, useDrawingPdfUrl } from '../../hooks/useDrawings'
+import { useDrawingPdfUrl } from '../../hooks/useDrawings'
 
 vi.mock('../../hooks/useDrawings', () => ({
-  useDrawingApsStatus: vi.fn(),
-  useDrawingApsViewerToken: vi.fn(),
   useDrawingPdfUrl: vi.fn(),
 }))
 
-vi.mock('./DrawingApsPreview', () => ({
-  DrawingApsPreview: ({ urn }: { urn: string }) => <div data-testid="aps-preview">{urn}</div>,
-}))
-
-const mockedApsStatus = vi.mocked(useDrawingApsStatus)
-const mockedApsToken = vi.mocked(useDrawingApsViewerToken)
 const mockedPdfUrl = vi.mocked(useDrawingPdfUrl)
 
 function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
@@ -23,15 +15,12 @@ function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
     id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, version: 1,
     file_key: 'drawings/0X220/Z1/v1/plan-A.dwg', file_name: 'plan-A.dwg',
     mime_type: null, uploaded_by_id: 1, create_date: '2026-01-01T00:00:00Z',
-    aps_urn: null, aps_translation_status: null, aps_translation_error: null,
     ...overrides,
   }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockedApsStatus.mockReturnValue({ data: undefined } as any)
-  mockedApsToken.mockReturnValue({ data: undefined } as any)
   mockedPdfUrl.mockReturnValue({ data: undefined, isLoading: false, isError: false } as any)
 })
 
@@ -41,22 +30,25 @@ describe('DrawingPreviewPanel', () => {
     expect(screen.getByText(/select a drawing to preview/i)).toBeInTheDocument()
   })
 
-  it('renders the APS viewer for a .dwg once translation is complete (unchanged behavior)', () => {
-    mockedApsStatus.mockReturnValue({ data: { id: 1, status: 'complete', error: null } } as any)
-    mockedApsToken.mockReturnValue({ data: { urn: 'urn:abc', access_token: 'tok' } } as any)
-
+  // .dwg has no in-page preview — the Autodesk APS 2D-preview push was
+  // removed 2026-09-15 (unconditional billed Model Derivative job on every
+  // upload, no dedup; a bug in the push path itself burned real Flex-token
+  // budget confirming it — see wiki/features/drawing.md). Honest
+  // download-to-view empty state instead, same pattern as every other
+  // unavailable-preview case on this panel.
+  it('shows an honest "download to view" empty state for a .dwg — no in-page preview', () => {
     render(<DrawingPreviewPanel drawing={makeDrawing()} />)
 
-    expect(screen.getByTestId('aps-preview')).toHaveTextContent('urn:abc')
+    expect(screen.getByText('plan-A.dwg')).toBeInTheDocument()
+    expect(screen.getByText(/no in-page preview for \.dwg/i)).toBeInTheDocument()
   })
 
-  it('renders a PDF in an iframe instead of going through APS', () => {
+  it('renders a PDF in an iframe', () => {
     mockedPdfUrl.mockReturnValue({ data: 'blob:fake-url', isLoading: false, isError: false } as any)
 
     render(<DrawingPreviewPanel drawing={makeDrawing({ file_name: 'plan-A.pdf', file_key: 'drawings/0X220/Z1/v1/plan-A.pdf' })} />)
 
     expect(screen.getByTitle('plan-A.pdf')).toBeInTheDocument()
-    expect(screen.queryByTestId('aps-preview')).not.toBeInTheDocument()
   })
 
   // Security finding F-001 (docs/security/findings/2026-09-14-drawing-pdf-upload.md):

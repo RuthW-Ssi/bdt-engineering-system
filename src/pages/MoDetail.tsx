@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench } from 'lucide-react'
+import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer } from 'lucide-react'
 import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus } from '../hooks/useMo'
 import { useWos } from '../hooks/useWo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
-import type { MoStatus } from '../api/mo'
+import { fetchMoPrintPacketBlob, type MoStatus } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
+import { getErrorMessage } from '../lib/getErrorMessage'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -36,6 +37,8 @@ export function MoDetail() {
   const [tab, setTab] = useState<Tab>('Overview')
   const [reasonModal, setReasonModal] = useState<{ to: MoStatus; label: string } | null>(null)
   const [reason, setReason] = useState('')
+  const [printing, setPrinting] = useState(false)
+  const [printError, setPrintError] = useState<string | null>(null)
 
   const { data: mo, isLoading } = useMo(moId)
   const changeStatus = useChangeMoStatus(moId)
@@ -52,6 +55,28 @@ export function MoDetail() {
     setReason('')
   }
 
+  // Opens the merged PDF in a new tab (browser's native viewer, print icon
+  // built in) rather than triggering a download — matches how PDF drawing
+  // previews already work (DrawingPreviewPanel.tsx). Deliberately never
+  // revokes the object URL — same accepted trade-off as
+  // wiki/features/drawing.md's blob-URL fix (eager revoke broke a
+  // switch-back-to-cached-file case there); a handful of packets printed
+  // per session is not worth the risk of revoking a URL the new tab still
+  // needs.
+  async function handlePrint() {
+    setPrinting(true)
+    setPrintError(null)
+    try {
+      const blob = await fetchMoPrintPacketBlob(moId)
+      const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
+      window.open(url, '_blank')
+    } catch (err) {
+      setPrintError(getErrorMessage(err, 'Failed to generate the print packet.'))
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
       {/* Header */}
@@ -62,6 +87,14 @@ export function MoDetail() {
         <MoStatusPill status={mo.status} />
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
+          <button
+            onClick={handlePrint}
+            disabled={printing}
+            className="flex items-center gap-1.5"
+            style={{ height: 34, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: printing ? 'default' : 'pointer', border: '1px solid #C2C2C2', background: '#fff', color: '#333', opacity: printing ? 0.6 : 1 }}
+          >
+            {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Print
+          </button>
           {canWrite && mo.status === 'DRAFT' && (
             <button
               onClick={() => navigate(`/mo/${moId}/edit`)}
@@ -86,6 +119,12 @@ export function MoDetail() {
           ))}
         </div>
       </div>
+
+      {printError && (
+        <div style={{ background: '#FCEBEB', color: '#C8202A', fontSize: 13, padding: '8px 24px', flexShrink: 0 }}>
+          {printError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white border-b border-chrome-100 px-6 flex items-center gap-1" style={{ flexShrink: 0 }}>

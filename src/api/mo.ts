@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios'
 import { apiClient } from './client'
 
 // ── Enums (mirror Prisma) ─────────────────────────────────────────────────────
@@ -282,4 +283,27 @@ export async function getRoutingSuggestions(mark_prefix_id: string): Promise<Rou
 
 export async function getRoutingTemplateDetail(id: number): Promise<RoutingTemplateDetail> {
   return (await apiClient.get(`/routing-templates/${id}`)).data
+}
+
+// GET /mo/:id/print-packet is JWT-guarded, so it's fetched as an
+// authenticated blob (same reason as fetchDrawingBlob in api/drawings.ts).
+// `responseType: 'blob'` means axios never JSON-parses an ERROR body either
+// (the 409 "missing drawing" payload arrives as a Blob, not the plain
+// object getErrorMessage.ts expects) — read it back to JSON here so that
+// helper still surfaces the real message instead of falling back to a
+// generic one.
+export async function fetchMoPrintPacketBlob(id: number): Promise<Blob> {
+  try {
+    return (await apiClient.get(`/mo/${id}/print-packet`, { responseType: 'blob' })).data as Blob
+  } catch (err) {
+    if (isAxiosError(err) && err.response?.data instanceof Blob) {
+      const text = await err.response.data.text()
+      try {
+        err.response.data = JSON.parse(text)
+      } catch {
+        // not JSON — leave the blob in place, getErrorMessage falls back
+      }
+    }
+    throw err
+  }
 }
