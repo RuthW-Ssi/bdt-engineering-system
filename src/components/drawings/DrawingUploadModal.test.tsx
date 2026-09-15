@@ -19,38 +19,24 @@ function fileInput() {
 }
 
 describe('DrawingUploadModal', () => {
-  it('defaults to DWG — dropzone only accepts .dwg', () => {
+  it('dropzone only accepts .pdf — .dwg upload was removed 2026-09-15', () => {
     renderModal()
-    expect(screen.getByText(/DWG · up to 50 MB each/)).toBeInTheDocument()
-    expect(fileInput().accept).toBe('.dwg')
-  })
-
-  it('switching the file-type picker to PDF restricts the dropzone to .pdf', () => {
-    renderModal()
-    fireEvent.change(screen.getByLabelText(/file type/i), { target: { value: 'pdf' } })
     expect(screen.getByText(/PDF · up to 50 MB each/)).toBeInTheDocument()
     expect(fileInput().accept).toBe('.pdf')
   })
 
-  it('switching file type clears any already-staged files, so a batch never mixes DWG and PDF', () => {
+  it('has no file-type picker — .pdf is the only option now', () => {
     renderModal()
-    const dwgFile = new File(['x'], 'plan-A.dwg')
-    fireEvent.change(fileInput(), { target: { files: [dwgFile] } })
-    expect(screen.getByText('plan-A.dwg')).toBeInTheDocument()
-
-    fireEvent.change(screen.getByLabelText(/file type/i), { target: { value: 'pdf' } })
-
-    expect(screen.queryByText('plan-A.dwg')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/file type/i)).not.toBeInTheDocument()
   })
 
-  it('confirms with the currently selected file type', () => {
+  it('confirms with the staged files, no file-type argument', () => {
     const { onFilesConfirmed } = renderModal()
-    fireEvent.change(screen.getByLabelText(/file type/i), { target: { value: 'pdf' } })
     const pdfFile = new File(['x'], 'plan-A.pdf')
     fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
 
     fireEvent.click(screen.getByRole('button', { name: /upload/i }))
 
-    expect(onFilesConfirmed).toHaveBeenCalledWith([pdfFile], 'pdf')
+    expect(onFilesConfirmed).toHaveBeenCalledWith([pdfFile])
   })
 })

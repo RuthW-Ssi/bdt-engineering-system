@@ -10,8 +10,6 @@ vi.mock('../api/drawings', () => ({
   getLatestDrawingVersion: vi.fn(),
   uploadDrawing: vi.fn(),
   deleteDrawing: vi.fn(),
-  getDrawingApsStatus: vi.fn(),
-  getDrawingApsViewerToken: vi.fn(),
   fetchDrawingBlob: vi.fn(),
 }))
 
@@ -33,32 +31,18 @@ beforeEach(() => {
 })
 
 describe('useUploadDrawings', () => {
-  it('looks up the next version scoped to the selected file type before uploading', async () => {
+  it('looks up the next version before uploading', async () => {
     mocked.getLatestDrawingVersion.mockResolvedValue({ version: 2 })
     mocked.uploadDrawing.mockResolvedValue({} as any)
     const file = new File(['x'], 'plan-A.pdf')
 
     const { result } = renderHook(() => useUploadDrawings(scope), { wrapper })
     await act(async () => {
-      await result.current.mutateAsync({ files: [file], fileType: 'pdf' })
+      await result.current.mutateAsync([file])
     })
 
-    expect(mocked.getLatestDrawingVersion).toHaveBeenCalledWith(7, null, 'pdf')
+    expect(mocked.getLatestDrawingVersion).toHaveBeenCalledWith(7, null)
     expect(mocked.uploadDrawing).toHaveBeenCalledWith(expect.objectContaining({ version: 3 }))
-  })
-
-  it('DWG and PDF uploads look up their next version independently of each other', async () => {
-    mocked.getLatestDrawingVersion.mockResolvedValue({ version: null })
-    mocked.uploadDrawing.mockResolvedValue({} as any)
-    const file = new File(['x'], 'plan-A.dwg')
-
-    const { result } = renderHook(() => useUploadDrawings(scope), { wrapper })
-    await act(async () => {
-      await result.current.mutateAsync({ files: [file], fileType: 'dwg' })
-    })
-
-    expect(mocked.getLatestDrawingVersion).toHaveBeenCalledWith(7, null, 'dwg')
-    expect(mocked.uploadDrawing).toHaveBeenCalledWith(expect.objectContaining({ version: 1 }))
   })
 })
 
