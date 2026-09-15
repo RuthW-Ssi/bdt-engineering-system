@@ -39,6 +39,10 @@ export class FileStorageService implements OnModuleInit {
     return this.driver.getDownloadUrl(key)
   }
 
+  getObject(key: string) {
+    return this.driver.getObject(key)
+  }
+
   getMetadata(key: string) {
     return this.driver.getMetadata(key)
   }

@@ -42,11 +42,12 @@ export interface ApsPropertyItem {
 
 // Thin wrapper over Autodesk Platform Services (APS, formerly Forge): 2-legged
 // OAuth, OSS bucket/object upload, Model Derivative translate + manifest +
-// metadata/properties. No Prisma/domain logic here — see BimService /
-// DrawingApsService. Shared by two independent features (BIM, Drawing) that
-// each own a separate OSS bucket — every bucket-scoped method takes an
-// explicit `bucketKey` (defaulting to the BIM bucket for backward
-// compatibility with BIM's existing call sites, which never pass one).
+// metadata/properties. No Prisma/domain logic here — see BimService. Every
+// bucket-scoped method takes an explicit `bucketKey` (defaulting to the BIM
+// bucket for backward compatibility with BIM's existing call sites, which
+// never pass one) — a holdover from when Drawing also had its own bucket
+// (its .dwg-to-APS-preview push was removed 2026-09-15, see
+// wiki/features/drawing.md).
 @Injectable()
 export class ApsClientService {
   private tokenCache?: { token: string; expiresAt: number }
@@ -60,9 +61,6 @@ export class ApsClientService {
   }
   get bucketKey() {
     return process.env.APS_BIM_BUCKET_KEY || 'bdt-bim-dev'
-  }
-  get drawingBucketKey() {
-    return process.env.APS_DRAWING_BUCKET_KEY || 'bdt-drawing-dev'
   }
 
   private requireCredentials() {
@@ -151,8 +149,7 @@ export class ApsClientService {
 
   // Mirrors createSignedUpload()'s shape but for reads — mints a short-lived
   // signed GET URL for an object already in an OSS bucket. Used by the BIM
-  // GCS backup-copy step (BimBackupService) and by DrawingApsService's
-  // GCS-to-APS push (opposite direction, same primitive).
+  // GCS backup-copy step (BimBackupService).
   async getSignedDownloadUrl(objectKey: string, bucketKey: string = this.bucketKey): Promise<string> {
     const token = await this.getAccessToken()
     const res = await fetch(

@@ -19,6 +19,10 @@ export class LocalFileStorageDriver implements FileStorageDriver {
     return `${API_PUBLIC_URL}/api/v1/file-storage/download?key=${encodeURIComponent(key)}`
   }
 
+  async getObject(key: string): Promise<Buffer> {
+    return fs.readFileSync(this.resolvePath(key))
+  }
+
   async getMetadata(key: string) {
     const filePath = this.resolvePath(key)
     try {

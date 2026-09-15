@@ -50,6 +50,11 @@ export class GcsFileStorageDriver implements FileStorageDriver {
     }
   }
 
+  async getObject(key: string): Promise<Buffer> {
+    const [buf] = await this.bucket.file(key).download()
+    return buf
+  }
+
   async delete(key: string): Promise<void> {
     await this.bucket.file(key).delete({ ignoreNotFound: true })
   }

@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
-import { DrawingApsService } from './drawing-aps.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 
 @Injectable()
@@ -9,11 +8,16 @@ export class DrawingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly fileStorage: FileStorageService,
-    private readonly drawingAps: DrawingApsService,
   ) {}
 
+  // .pdf-only as of 2026-09-15 — CreateDrawingDto rejects any other
+  // extension. .dwg upload (and its Autodesk APS 2D-preview push) was
+  // removed entirely: every upload was an unconditional billed Model
+  // Derivative job with no dedup, and a pre-existing bug in the push path
+  // itself burned real Flex-token budget confirming this cost was real. See
+  // wiki/features/drawing.md's "DWG removed entirely" entry.
   async create(dto: CreateDrawingDto, uploadedById: number) {
-    const drawing = await this.prisma.drawing.create({
+    return this.prisma.drawing.create({
       data: {
         project_id: dto.project_id,
         zone_id: dto.zone_id,
@@ -25,16 +29,6 @@ export class DrawingsService {
         uploaded_by_id: uploadedById,
       },
     })
-
-    // Fire-and-forget — DWG preview generation must never block or fail the
-    // primary GCS upload response. Only .dwg carries anything APS can
-    // usefully translate into a 2D view; DrawingUploadModal only ever
-    // offers .dwg, but this check stays defensive rather than assuming.
-    if (drawing.file_name.toLowerCase().endsWith('.dwg')) {
-      void this.drawingAps.pushToAps(drawing.id, drawing.file_key, drawing.file_name)
-    }
-
-    return drawing
   }
 
   findByZone(zoneId: number, subZoneId: number | null) {
@@ -48,14 +42,14 @@ export class DrawingsService {
   // highest version tag used so far for this zone(+sub-zone)", not a count.
   // Scoped per zone(+sub-zone) since 2026-08-25's Zone rescope — mirrors
   // bom-upload.service.ts's getLatestRevision(projectId, zoneId, subZoneId).
-  // Also scoped per file_type (.dwg vs .pdf, matched on file_name — there's
-  // no stored type column, same filename-suffix check create() already uses
-  // for the APS push) — DWG and PDF are independent artifact streams
-  // (source CAD needing APS vs. a print-ready companion) with their own
-  // version history, so uploading one never bumps the other's counter.
-  async getLatestVersion(zoneId: number, subZoneId: number | null, fileType: 'dwg' | 'pdf') {
+  // Always scoped to .pdf (matched on file_name — there's no stored type
+  // column) even though upload is .pdf-only now — legacy .dwg rows from
+  // before the 2026-09-15 removal still exist with their own, separate
+  // version numbers, and must never leak into the counter new .pdf uploads
+  // read from.
+  async getLatestVersion(zoneId: number, subZoneId: number | null) {
     const latest = await this.prisma.drawing.findFirst({
-      where: { zone_id: zoneId, sub_zone_id: subZoneId, file_name: { endsWith: `.${fileType}`, mode: 'insensitive' } },
+      where: { zone_id: zoneId, sub_zone_id: subZoneId, file_name: { endsWith: '.pdf', mode: 'insensitive' } },
       orderBy: { version: 'desc' },
       select: { version: true },
     })
