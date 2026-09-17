@@ -30,6 +30,21 @@ interface PaginatedRoutings {
   totalPages: number
 }
 
+// ── applies_to_product_type cell ──────────────────────────────
+
+// 'ALL' is a synthetic sentinel (not a real mark_prefix_master row) meaning
+// the routing template applies to every mark prefix — render a distinct,
+// fixed label for it instead of the normal prefixMap lookup, which would
+// otherwise show "ALL" with no matching sublabel since no such row exists.
+export function appliesToProductTypeLabel(
+  appliesTo: string | null,
+  prefixMap: Map<string, string>,
+): { code: string; sublabel: string | null } | null {
+  if (!appliesTo) return null
+  if (appliesTo === 'ALL') return { code: 'ALL', sublabel: 'ทุก Mark Prefix' }
+  return { code: appliesTo, sublabel: prefixMap.get(appliesTo) ?? null }
+}
+
 // ── State pill ─────────────────────────────────────────────────
 
 const STATE_STYLE: Record<string, { bg: string; text: string; label: string }> = {
@@ -219,14 +234,18 @@ export function RoutingList() {
                 <div className="truncate" style={{ fontSize: 12, color: '#555', maxWidth: 300 }}>{r.name}</div>
               </div>
               <div style={{ fontSize: 12, color: '#555' }}>
-                {r.applies_to_product_type
-                  ? <>
-                      <span className="font-mono" style={{ fontWeight: 600, color: '#1F1F1F' }}>{r.applies_to_product_type}</span>
-                      {prefixMap.has(r.applies_to_product_type) && (
-                        <span style={{ color: '#8E8E8E' }}> · {prefixMap.get(r.applies_to_product_type)}</span>
+                {(() => {
+                  const info = appliesToProductTypeLabel(r.applies_to_product_type, prefixMap)
+                  if (!info) return <span style={{ color: '#BDBDBD' }}>—</span>
+                  return (
+                    <>
+                      <span className="font-mono" style={{ fontWeight: 600, color: '#1F1F1F' }}>{info.code}</span>
+                      {info.sublabel && (
+                        <span style={{ color: '#8E8E8E' }}> · {info.sublabel}</span>
                       )}
                     </>
-                  : <span style={{ color: '#BDBDBD' }}>—</span>}
+                  )
+                })()}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#555' }}>
                 <Layers size={13} style={{ color: '#8E8E8E' }} />
