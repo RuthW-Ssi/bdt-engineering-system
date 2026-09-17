@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
+import { computeActivityDuration } from './activity-duration.util'
 
 /**
  * T-WO.03 · Auto-create Work Orders when an MO becomes CONFIRMED.
@@ -164,74 +165,16 @@ export class WorkOrderAutoCreateService {
     return woCount
   }
 
+  // Delegates to the shared computeActivityDuration (extracted 2026-09-15,
+  // see that file's header comment) — same math, this call site just keeps
+  // its original 2-field return shape and discards the per-activity
+  // breakdown the MO print packet needs but WO creation doesn't.
   private computeDuration(
-    acts: { source_activity_id: number | null }[],
+    acts: { name: string; source_activity_id: number | null }[],
     bom: { length_mm: unknown; surface_area_m2: unknown; width_mm: unknown },
     activityMap: Map<number, { formula_code: string | null; per_minute: unknown; duration_min: unknown; kind: string }>,
   ): { run_min: number; setup_min: number } {
-    const lengthMm   = Number(bom.length_mm       ?? 0)
-    const areaSqM    = Number(bom.surface_area_m2  ?? 0)
-    const widthMm    = Number(bom.width_mm         ?? 0)
-
-    let runMin   = 0
-    let setupMin = 0
-
-    for (const snapAct of acts) {
-      const srcId = snapAct.source_activity_id as number | null
-      if (!srcId) continue
-      const act = activityMap.get(srcId)
-      if (!act) continue
-
-      const rate        = Number(act.per_minute  ?? 0)
-      const fixedMin    = Number(act.duration_min ?? 0)
-
-      // Setup activities: always fixed time, goes into setup_time_min
-      if (act.kind === 'setup') {
-        setupMin += fixedMin
-        continue
-      }
-
-      // Map formula_code → dimensional quantity
-      switch (act.formula_code) {
-        case 'weld_length_mm':
-        case 'cut_length_mm':
-        case 'edge_length_mm':
-        case 'bevel_length_mm':
-          runMin += rate > 0 ? lengthMm / rate : fixedMin
-          break
-
-        case 'product_area':
-        case 'sumNet_surface_area':
-          runMin += rate > 0 ? areaSqM / rate : fixedMin
-          break
-
-        // Perimeter expression yields mm, but per_minute is m/min → ÷1000
-        case 'product_perimeter':
-          runMin += rate > 0 ? (2 * lengthMm + 2 * widthMm) / 1000 / rate : fixedMin
-          break
-
-        // Count-based: count not stored in bom_assembly → use fixed duration_min
-        case 'per_piece':
-        case 'per unit':
-        case 'bend_count':
-        case 'hole_count':
-        case 'tack_points':
-        case 'assembly_point':
-        case 'count_part':
-        case 'cut_count':
-          runMin += fixedMin
-          break
-
-        default:
-          runMin += fixedMin
-      }
-    }
-
-    // Fallback: no activities matched → duration stays 0 → clamped to 1 below
-
-    return {
-      run_min:   Math.max(1, Math.round(runMin)),
-      setup_min: Math.max(0, Math.round(setupMin)),
-    }
+    const { run_min, setup_min } = computeActivityDuration(acts, bom, activityMap)
+    return { run_min, setup_min }
   }
 }

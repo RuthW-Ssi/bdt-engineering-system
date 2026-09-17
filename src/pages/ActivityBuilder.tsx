@@ -8,6 +8,7 @@ import { usePermission } from '../hooks/usePermission'
 import { apiClient } from '../api/client'
 import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
 import { routingFormulaParamsApi, type RoutingFormulaParam } from '../api/routingFormulas'
+import { ACTIVITY_KINDS, type ActivityKind } from '../api/activities'
 
 interface ConsumableEntry {
   id: number
@@ -31,6 +32,7 @@ interface LaborEntry {
 
 interface FormValues {
   name: string
+  kind: ActivityKind
   duration_min: number
   per_minute: number | ''
   formula_code: string
@@ -374,7 +376,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   const updateMutation = useUpdateActivity(activityId ?? 0)
 
   const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<FormValues>({
-    defaultValues: { name: '', duration_min: 0, per_minute: '', formula_code: '', ratio: '', ratio_unit: '', per_time: '' },
+    defaultValues: { name: '', kind: 'run', duration_min: 0, per_minute: '', formula_code: '', ratio: '', ratio_unit: '', per_time: '' },
   })
   const watchedFormulaCode = watch('formula_code')
   const watchedRatio       = watch('ratio')
@@ -384,12 +386,13 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
     if (existing) {
       reset({
         name: existing.name,
+        kind: existing.kind ?? 'run',
         duration_min: Number(existing.duration_min),
-        per_minute: (existing as any).per_minute != null ? Number((existing as any).per_minute) : '',
-        formula_code: (existing as any).formula_code ?? '',
-        ratio:      (existing as any).ratio      != null ? Number((existing as any).ratio)      : '',
-        ratio_unit: (existing as any).ratio_unit ?? '',
-        per_time:   (existing as any).per_time   != null ? Number((existing as any).per_time)   : '',
+        per_minute: existing.per_minute != null ? Number(existing.per_minute) : '',
+        formula_code: existing.formula_code ?? '',
+        ratio:      existing.ratio      != null ? Number(existing.ratio)      : '',
+        ratio_unit: existing.ratio_unit ?? '',
+        per_time:   existing.per_time   != null ? Number(existing.per_time)   : '',
       })
       setSelectedConsumables(existing.consumes.map((c) => ({ id: c.material.id, code: c.material.default_code, name: c.material.name, formula_id: c.formula?.id ?? undefined })))
       setSelectedTools((existing.tools ?? []).map((t) => ({ id: t.resource.id, code: t.resource.code, name: t.resource.name, qty: t.qty ?? 1 })))
@@ -400,6 +403,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
   async function onSubmit(values: FormValues) {
     const payload = {
       name: values.name,
+      kind: values.kind,
       duration_min: Number(values.duration_min),
       per_minute:   values.per_minute !== '' ? Number(values.per_minute) : undefined,
       formula_code: values.formula_code || undefined,
@@ -467,6 +471,13 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                       <AlertCircle size={11} />{errors.name.message}
                     </div>
                   )}
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  {/* setup time is summed separately from run time in the WO duration calc */}
+                  <label htmlFor="activity-kind" style={labelStyle}>Kind</label>
+                  <select id="activity-kind" {...register('kind')} style={{ ...inputStyle, fontSize: 12 }}>
+                    {ACTIVITY_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label style={labelStyle}>Duration (min) <span style={{ color: '#C8202A' }}>*</span></label>
