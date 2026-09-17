@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
-import { IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength, ValidateNested } from 'class-validator'
+import { IsIn, IsInt, IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, MaxLength, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
+
+export const ACTIVITY_KINDS = ['run', 'setup', 'move', 'inspect'] as const
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
 export class ConsumeEntryDto {
   @IsInt() @Min(1)
@@ -62,13 +65,18 @@ export class CreateActivityDto {
   @Type(() => ToolEntryDto)
   tools?: ToolEntryDto[]
 
+  @ApiPropertyOptional({ description: 'Activity kind — setup time is summed separately from run time', enum: ACTIVITY_KINDS, example: 'run' })
+  @IsOptional()
+  @IsIn(ACTIVITY_KINDS)
+  kind?: ActivityKind
+
   @ApiProperty({ description: 'Duration in minutes (≥ 0)', example: 5.5 })
   @IsNumber()
   @Min(0)
   @Type(() => Number)
   duration_min: number
 
-  @ApiPropertyOptional({ description: 'Production rate (units/min) — legacy, kept for fallback', example: 500 })
+  @ApiPropertyOptional({ description: 'Production rate (units/min). Derived as ratio / per_time whenever both are set — only used as-is otherwise', example: 500 })
   @IsOptional()
   @IsNumber()
   @Min(0)

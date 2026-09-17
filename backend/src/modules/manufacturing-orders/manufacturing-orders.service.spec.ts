@@ -137,3 +137,63 @@ describe('ManufacturingOrderService.findOne — stale_assembly_warnings', () => 
     expect((result as any).stale_assembly_warnings).toEqual([])
   })
 })
+
+// getConsumeSummaryByWorkOrder (2026-09-16, for the print packet's per-WO
+// traveler "Consume" table) shares its formula-evaluation loop with the
+// pre-existing getConsumeSummary (MO-wide total) via a private
+// computeConsumeByWorkOrder helper — these tests lock in that both the
+// per-WO breakdown and the merged MO total come out correct from the same
+// underlying computation, across two WOs on different assemblies that both
+// consume the same material.
+describe('ManufacturingOrderService — Consume Summary (per-WO and MO-wide)', () => {
+  function makeConsumeService() {
+    const wos = [
+      {
+        id: 10,
+        op_attributes: { activities: [{ source_activity_id: 501 }] },
+        bom_assembly: { length_mm: 2000, surface_area_m2: null, weight_kg: null },
+      },
+      {
+        id: 20,
+        op_attributes: { activities: [{ source_activity_id: 502 }] },
+        bom_assembly: { length_mm: 1000, surface_area_m2: null, weight_kg: null },
+      },
+    ]
+    const consumeRows = [
+      {
+        activity_id: 501,
+        material: { id: 1, default_code: 'MAT1', name: 'Welding Wire' },
+        formula: { id: 1, name: 'f1', expr: 'length * 10', result_unit: 'kg' },
+      },
+      {
+        activity_id: 502,
+        material: { id: 1, default_code: 'MAT1', name: 'Welding Wire' },
+        formula: { id: 2, name: 'f2', expr: 'length * 5', result_unit: 'kg' },
+      },
+    ]
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, mo_code: 'MO-0001' }) },
+      work_order: { findMany: jest.fn().mockResolvedValue(wos) },
+      activity_consume: { findMany: jest.fn().mockResolvedValue(consumeRows) },
+    }
+    const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any)
+    return { svc, prisma }
+  }
+
+  it('getConsumeSummaryByWorkOrder scopes each WO to its own assembly dimensions (WO 10: length=2m → 20kg; WO 20: length=1m → 5kg)', async () => {
+    const { svc } = makeConsumeService()
+
+    const byWo = await svc.getConsumeSummaryByWorkOrder(1)
+
+    expect(byWo.get(10)).toEqual([{ material_id: 1, code: 'MAT1', name: 'Welding Wire', qty: 20, unit: 'kg' }])
+    expect(byWo.get(20)).toEqual([{ material_id: 1, code: 'MAT1', name: 'Welding Wire', qty: 5, unit: 'kg' }])
+  })
+
+  it('getConsumeSummary merges the same two WOs into one MO-wide total (20kg + 5kg = 25kg)', async () => {
+    const { svc } = makeConsumeService()
+
+    const summary = await svc.getConsumeSummary(1)
+
+    expect(summary).toEqual([{ material_id: 1, code: 'MAT1', name: 'Welding Wire', qty: 25, unit: 'kg' }])
+  })
+})

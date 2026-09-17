@@ -20,6 +20,18 @@ const INCLUDE = {
   },
 } as const
 
+// computeActivityDuration() scales by per_minute (units/min), but the
+// Activity form captures "every <ratio> units takes <per_time> min" and has
+// no per_minute input — so ratio/per_time is the source of truth whenever
+// both are set. Without this, every UI-created activity saved per_minute
+// NULL and its formula silently fell back to fixed duration_min.
+function derivePerMinute(ratio: number | null | undefined, perTime: number | null | undefined, fallback: number | undefined): number | undefined {
+  if (ratio != null && perTime != null && perTime > 0) return ratio / perTime
+  return fallback
+}
+
+const toNumber = (v: unknown): number | null => (v == null ? null : Number(v))
+
 export interface RoutingFormulaParam {
   code: string
   description: string
@@ -81,7 +93,8 @@ export class ActivitiesService {
           activity_code,
           name: dto.name,
           duration_min: dto.duration_min,
-          per_minute:   dto.per_minute   ?? null,
+          per_minute:   derivePerMinute(dto.ratio, dto.per_time, dto.per_minute) ?? null,
+          ...(dto.kind !== undefined && { kind: dto.kind }),
           formula_code: dto.formula_code ?? null,
           ratio:        dto.ratio        ?? null,
           ratio_unit:   dto.ratio_unit   ?? null,
@@ -108,7 +121,17 @@ export class ActivitiesService {
   }
 
   async update(id: number, dto: UpdateActivityDto, userId: number) {
-    await this.findOne(id)
+    const existing = await this.findOne(id)
+    // The edit form re-sends the per_minute it loaded, so once ratio or
+    // per_time changes that value is stale — recompute from the merged pair.
+    const touchesRate = dto.ratio !== undefined || dto.per_time !== undefined
+    const perMinute = touchesRate
+      ? derivePerMinute(
+          dto.ratio !== undefined ? dto.ratio : toNumber(existing.ratio),
+          dto.per_time !== undefined ? dto.per_time : toNumber(existing.per_time),
+          dto.per_minute,
+        )
+      : dto.per_minute
     const consumeIds =
       dto.consumes !== undefined ? await this.resolveConsumes(dto.consumes) : undefined
     const laborEntries =
@@ -120,7 +143,8 @@ export class ActivitiesService {
       data: {
         ...(dto.name         !== undefined && { name:         dto.name }),
         ...(dto.duration_min !== undefined && { duration_min: dto.duration_min }),
-        ...(dto.per_minute   !== undefined && { per_minute:   dto.per_minute }),
+        ...(perMinute        !== undefined && { per_minute:   perMinute }),
+        ...(dto.kind         !== undefined && { kind:         dto.kind }),
         ...(dto.formula_code !== undefined && { formula_code: dto.formula_code }),
         ...(dto.ratio        !== undefined && { ratio:        dto.ratio }),
         ...(dto.ratio_unit   !== undefined && { ratio_unit:   dto.ratio_unit }),

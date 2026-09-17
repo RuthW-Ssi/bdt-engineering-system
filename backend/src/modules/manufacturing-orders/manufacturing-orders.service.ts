@@ -281,14 +281,18 @@ export class ManufacturingOrderService {
     }
   }
 
-  // ── Consume Summary: planned material totals across all WOs ─────────────────
-  async getConsumeSummary(moId: number) {
-    await this.requireMo(moId)
-
+  // Shared by getConsumeSummary (merged MO total) and
+  // getConsumeSummaryByWorkOrder (per-WO breakdown, for the print packet's
+  // per-WO traveler "Consume" table) — evaluates each WO's own activities'
+  // consume formulas against that WO's own assembly dimensions. Returns
+  // RAW (unrounded) qty per WO so each caller can round at its own
+  // aggregation level without compounding rounding error.
+  private async computeConsumeByWorkOrder(moId: number) {
     // 1. Fetch all WOs with assembly dimensions + resolved activities (stored in op_attributes by wo-auto-create)
     const wos = await this.prisma.work_order.findMany({
       where: { mo_id: moId },
       select: {
+        id: true,
         op_attributes: true,
         bom_assembly: { select: { length_mm: true, surface_area_m2: true, weight_kg: true } },
       },
@@ -326,7 +330,7 @@ export class ManufacturingOrderService {
     }
 
     // 3. For each WO, evaluate formulas using that assembly's dimensions
-    const totals = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }>()
+    const byWo = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }[]>()
 
     for (const wo of wos) {
       const acts = Array.isArray((wo.op_attributes as any)?.activities) ? (wo.op_attributes as any).activities : []
@@ -338,6 +342,7 @@ export class ManufacturingOrderService {
         thickness: 0,
       }
 
+      const totals = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }>()
       for (const act of acts) {
         if (!act.source_activity_id) continue
         for (const c of consumeMap.get(act.source_activity_id) ?? []) {
@@ -351,11 +356,49 @@ export class ManufacturingOrderService {
           else { totals.set(c.material_id, { material_id: c.material_id, code: c.code, name: c.mat_name, qty, unit: c.unit }) }
         }
       }
+      byWo.set(wo.id, [...totals.values()])
+    }
+
+    return byWo
+  }
+
+  // ── Consume Summary: planned material totals across all WOs ─────────────────
+  async getConsumeSummary(moId: number) {
+    await this.requireMo(moId)
+    const byWo = await this.computeConsumeByWorkOrder(moId)
+
+    const totals = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }>()
+    for (const items of byWo.values()) {
+      for (const item of items) {
+        const existing = totals.get(item.material_id)
+        if (existing) existing.qty += item.qty
+        else totals.set(item.material_id, { ...item })
+      }
     }
 
     return [...totals.values()]
       .sort((a, b) => b.qty - a.qty)
       .map(r => ({ ...r, qty: Math.round(r.qty * 100) / 100 }))
+  }
+
+  // ── Consume Summary keyed per Work Order — same computation as
+  // getConsumeSummary but grouped by WO instead of merged into one MO
+  // total. Powers the print packet's per-WO traveler "Consume" table, so
+  // an operator sees + signs off on what THIS operation planned to use.
+  async getConsumeSummaryByWorkOrder(moId: number) {
+    await this.requireMo(moId)
+    const byWo = await this.computeConsumeByWorkOrder(moId)
+
+    const rounded = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }[]>()
+    for (const [woId, items] of byWo) {
+      rounded.set(
+        woId,
+        items
+          .map(r => ({ ...r, qty: Math.round(r.qty * 100) / 100 }))
+          .sort((a, b) => b.qty - a.qty),
+      )
+    }
+    return rounded
   }
 
   // ── Assemblies tab: lines + total + remaining + allocation breakdown ────────
