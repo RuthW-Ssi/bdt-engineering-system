@@ -18,6 +18,8 @@ import { CreateEquipmentResourceDto } from './dto/create-resource.dto'
 import { UpdateEquipmentResourceDto } from './dto/update-resource.dto'
 import { CreateOperatorDto } from './dto/create-operator.dto'
 import { UpdateOperatorDto } from './dto/update-operator.dto'
+import { CreateTeamDto } from './dto/create-team.dto'
+import { UpdateTeamDto } from './dto/update-team.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
@@ -129,6 +131,30 @@ export class MachinesController {
     @Body() dto: UpdateOperatorDto,
   ) {
     return this.svc.updateOperator(id, dto)
+  }
+
+  @Get('teams')
+  @RequiresPermission('machines', 'view')
+  @ApiOperation({ summary: 'List teams' })
+  findAllTeams() {
+    return this.svc.findAllTeams()
+  }
+
+  @Post('teams')
+  @RequiresPermission('machines', 'create')
+  @ApiOperation({ summary: 'Create team' })
+  createTeam(@Body() dto: CreateTeamDto) {
+    return this.svc.createTeam(dto)
+  }
+
+  @Patch('teams/:id')
+  @RequiresPermission('machines', 'update')
+  @ApiOperation({ summary: 'Update team' })
+  updateTeam(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateTeamDto,
+  ) {
+    return this.svc.updateTeam(id, dto)
   }
 
   @Get(':id')

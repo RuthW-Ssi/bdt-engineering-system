@@ -8,14 +8,14 @@ import { useConfirm } from '../components/ui/ConfirmDialog'
 
 const LIMIT = 10
 import { useMachines } from '../hooks/useMachines'
-import { useLaborSkills } from '../hooks/useLaborSkills'
+import { useLaborSkills, useTeams } from '../hooks/useLaborSkills'
 import { MachineStatusPill } from '../components/machines/MachineStatusPill'
 import { DaysSincePmBadge } from '../components/machines/DaysSincePmBadge'
 import { createResource, updateResource } from '../api/machines'
-import { createOperator, updateOperator, getSkills } from '../api/laborSkills'
+import { createOperator, updateOperator, getSkills, createTeam, updateTeam } from '../api/laborSkills'
 import { consumeFormulasApi, FORMULA_CATEGORY_LABELS, type ConsumeFormula } from '../api/consumeFormulas'
 import type { EquipmentStatus, Machine } from '../api/machines'
-import type { Operator } from '../api/laborSkills'
+import type { Operator, Team } from '../api/laborSkills'
 import { usePermission } from '../hooks/usePermission'
 
 type Tab = 'machine' | 'tool' | 'operator' | 'formula'
@@ -41,14 +41,30 @@ type ModalState =
   | { tab: 'operator'; row?: Operator }
   | null
 
+type OperatorSubTab = 'operator' | 'team'
+
+const OPERATOR_SUB_TABS: { id: OperatorSubTab; label: string }[] = [
+  { id: 'operator', label: 'Operator' },
+  { id: 'team',     label: 'Team' },
+]
+
+const OPERATOR_STATUS_OPTIONS: { value: 'all' | 'active' | 'inactive'; label: string }[] = [
+  { value: 'all',      label: 'All' },
+  { value: 'active',   label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+]
+
 export function ResourceList() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('machine')
+  const [operatorSubTab, setOperatorSubTab] = useState<OperatorSubTab>('operator')
   const [statusFilter, setStatusFilter] = useState<EquipmentStatus | ''>('')
+  const [operatorStatusFilter, setOperatorStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
   const [nameSearch, setNameSearch] = useState('')
   const [modal, setModal] = useState<ModalState>(null)
   const [page, setPage] = useState(1)
   const [formulaModal, setFormulaModal] = useState<{ open: boolean; row?: ConsumeFormula } | null>(null)
+  const [teamModal, setTeamModal] = useState<{ open: boolean; row?: Team } | null>(null)
   const qc = useQueryClient()
   const confirm = useConfirm()
   const canCreate = usePermission('machines', 'create')
@@ -67,6 +83,7 @@ export function ResourceList() {
   const handlingQuery = useMachines({ type: 'handling', name: nameSearch || undefined, status: statusFilter || undefined })
   const laborQuery = useLaborSkills()
   const toolQuery = useMachines({ type: 'tool', name: nameSearch || undefined })
+  const teamQuery = useTeams()
 
   const machineRows = useMemo(() => [
     ...(machineQuery.data ?? []),
@@ -76,9 +93,17 @@ export function ResourceList() {
   const operatorRows = useMemo(() => {
     const q = nameSearch.toLowerCase()
     return (laborQuery.data ?? []).filter(o =>
-      !q || o.name.toLowerCase().includes(q) || o.code.toLowerCase().includes(q)
+      (!q || o.name.toLowerCase().includes(q) || o.code.toLowerCase().includes(q)) &&
+      (operatorStatusFilter === 'all' || (operatorStatusFilter === 'active') === o.active)
     )
-  }, [laborQuery.data, nameSearch])
+  }, [laborQuery.data, nameSearch, operatorStatusFilter])
+
+  const teamRows = useMemo(() => {
+    const q = nameSearch.toLowerCase()
+    return (teamQuery.data ?? []).filter(t =>
+      !q || t.name.toLowerCase().includes(q) || t.code.toLowerCase().includes(q)
+    )
+  }, [teamQuery.data, nameSearch])
 
   const formulaQuery = useQuery({ queryKey: ['consume-formulas'], queryFn: consumeFormulasApi.list, staleTime: 5 * 60 * 1000 })
 
@@ -89,9 +114,13 @@ export function ResourceList() {
     )
   }, [formulaQuery.data, nameSearch])
 
+  const isOperatorSubTab = activeTab === 'operator' && operatorSubTab === 'operator'
+  const isTeamSubTab = activeTab === 'operator' && operatorSubTab === 'team'
+
   const isLoading =
     (activeTab === 'machine' && (machineQuery.isLoading || handlingQuery.isLoading)) ||
-    (activeTab === 'operator' && laborQuery.isLoading) ||
+    (isOperatorSubTab && laborQuery.isLoading) ||
+    (isTeamSubTab && teamQuery.isLoading) ||
     (activeTab === 'tool' && toolQuery.isLoading) ||
     (activeTab === 'formula' && formulaQuery.isLoading)
 
@@ -99,14 +128,17 @@ export function ResourceList() {
     activeTab === 'machine' ? machineRows.length :
     activeTab === 'tool' ? (toolQuery.data?.length ?? 0) :
     activeTab === 'formula' ? formulaRows.length :
+    isTeamSubTab ? teamRows.length :
     operatorRows.length
 
-  // reset page when tab or filters change
-  useEffect(() => { setPage(1) }, [activeTab, nameSearch, statusFilter])
+  // reset page when tab, sub-tab, or filters change
+  useEffect(() => { setPage(1) }, [activeTab, operatorSubTab, nameSearch, statusFilter, operatorStatusFilter])
 
   function handleTabChange(tab: Tab) {
     setActiveTab(tab)
+    setOperatorSubTab('operator')
     setStatusFilter('')
+    setOperatorStatusFilter('all')
     setNameSearch('')
     setModal(null)
   }
@@ -114,11 +146,13 @@ export function ResourceList() {
   const addLabel =
     activeTab === 'machine' ? 'Add Machine' :
     activeTab === 'tool' ? 'Add Tool' :
-    activeTab === 'formula' ? 'Add Formula' : 'Add Operator'
+    activeTab === 'formula' ? 'Add Formula' :
+    isTeamSubTab ? 'Add Team' : 'Add Operator'
 
   const allRows =
     activeTab === 'machine' ? machineRows :
     activeTab === 'tool' ? (toolQuery.data ?? []) :
+    isTeamSubTab ? teamRows :
     activeTab === 'operator' ? operatorRows :
     formulaRows
   const totalForPage = allRows.length
@@ -144,7 +178,7 @@ export function ResourceList() {
         </span>
         {activeTab !== 'formula' && canCreate && (
           <button
-            onClick={() => setModal({ tab: activeTab as 'machine' | 'tool' | 'operator' })}
+            onClick={() => isTeamSubTab ? setTeamModal({ open: true }) : setModal({ tab: activeTab as 'machine' | 'tool' | 'operator' })}
             style={{ height: 34, padding: '0 16px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
           >
             <Plus size={14} />{addLabel}
@@ -218,6 +252,48 @@ export function ResourceList() {
             ))}
           </div>
         )}
+
+        {/* Operator / Team sub-tabs — operator tab only */}
+        {activeTab === 'operator' && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {OPERATOR_SUB_TABS.map(o => (
+              <button
+                key={o.id}
+                onClick={() => setOperatorSubTab(o.id)}
+                style={{
+                  height: 26, padding: '0 12px', fontSize: 11, fontWeight: 600, borderRadius: 999,
+                  border: '1px solid ' + (operatorSubTab === o.id ? '#C8202A' : '#D8D8D8'),
+                  background: operatorSubTab === o.id ? '#FCEBEB' : '#fff',
+                  color: operatorSubTab === o.id ? '#C8202A' : '#666', cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Active / Inactive filter — operator sub-tab only */}
+        {isOperatorSubTab && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {OPERATOR_STATUS_OPTIONS.map(o => (
+              <button
+                key={o.value}
+                onClick={() => setOperatorStatusFilter(o.value)}
+                style={{
+                  height: 26, padding: '0 10px', fontSize: 11, fontWeight: 600, borderRadius: 999,
+                  border: '1px solid ' + (operatorStatusFilter === o.value ? '#C8202A' : '#D8D8D8'),
+                  background: operatorStatusFilter === o.value ? '#FCEBEB' : '#fff',
+                  color: operatorStatusFilter === o.value ? '#C8202A' : '#666', cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Content ── */}
@@ -237,10 +313,17 @@ export function ResourceList() {
                 canEdit={canUpdate}
               />
             )}
-            {activeTab === 'operator' && (
+            {isOperatorSubTab && (
               <LaborTable
                 operators={operatorRows.slice(sliceStart, sliceEnd)}
                 onEdit={row => setModal({ tab: 'operator', row })}
+                canEdit={canUpdate}
+              />
+            )}
+            {isTeamSubTab && (
+              <TeamTable
+                rows={teamRows.slice(sliceStart, sliceEnd)}
+                onEdit={row => setTeamModal({ open: true, row })}
                 canEdit={canUpdate}
               />
             )}
@@ -272,6 +355,9 @@ export function ResourceList() {
       )}
       {formulaModal?.open && (
         <FormulaModal row={formulaModal.row} onClose={() => setFormulaModal(null)} canDelete={canDelete} />
+      )}
+      {teamModal?.open && (
+        <TeamModal row={teamModal.row} onClose={() => setTeamModal(null)} />
       )}
     </div>
   )
@@ -325,17 +411,21 @@ function MachineTable({ rows, onRowClick, onEdit, canEdit }: {
 }
 
 // ── Operator Table ────────────────────────────────────────────────────────────
-function LaborTable({ operators, onEdit, canEdit }: { operators: Operator[]; onEdit: (row: Operator) => void; canEdit: boolean }) {
+function LaborTable({ operators, onEdit, canEdit }: {
+  operators: Operator[]
+  onEdit: (row: Operator) => void
+  canEdit: boolean
+}) {
   if (!operators.length) return <EmptyState label="No operators found" />
   return (
     <>
-      <ColHeader cols={['Code', 'Name', 'Nationality', 'Position', 'Skills', '']}
-        widths="180px 200px 90px 160px 1fr 60px" />
+      <ColHeader cols={['Code', 'Name', 'Nationality', 'Position', 'Team', 'Status', '']}
+        widths="140px 200px 80px 1fr 240px 90px 60px" />
       {operators.map(r => (
         <div key={r.id} style={rowCardStyle}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
-          <div style={gridStyle('180px 200px 90px 160px 1fr 60px')}>
+          <div style={gridStyle('140px 200px 80px 1fr 240px 90px 60px')}>
             <Cell><span style={monoStyle}>{r.code}</span></Cell>
             <Cell><span style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{r.name}</span></Cell>
             <Cell>
@@ -347,18 +437,8 @@ function LaborTable({ operators, onEdit, canEdit }: { operators: Operator[]; onE
               }}>{r.nationality ?? '—'}</span>
             </Cell>
             <Cell><span style={{ fontSize: 12, color: '#555' }}>{r.position_raw ?? '—'}</span></Cell>
-            <Cell>
-              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                {r.skills.length === 0
-                  ? <span style={{ fontSize: 12, color: '#C2C2C2' }}>—</span>
-                  : r.skills.map(s => (
-                    <span key={s.skill.id} style={{ fontSize: 11, padding: '2px 7px', borderRadius: 999, background: '#F5F3FF', color: '#6D28D9', border: '1px solid #DDD6FE' }}>
-                      {s.skill.name}{s.level ? ` (${s.level})` : ''}
-                    </span>
-                  ))
-                }
-              </div>
-            </Cell>
+            <Cell><span style={{ fontSize: 12, color: r.team ? '#555' : '#C2C2C2' }}>{r.team?.name ?? '—'}</span></Cell>
+            <Cell><StatusBadge active={r.active} /></Cell>
             <Cell>
               {canEdit && <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>}
             </Cell>
@@ -366,6 +446,49 @@ function LaborTable({ operators, onEdit, canEdit }: { operators: Operator[]; onE
         </div>
       ))}
     </>
+  )
+}
+
+// ── Team Table ────────────────────────────────────────────────────────────────
+function TeamTable({ rows, onEdit, canEdit }: { rows: Team[]; onEdit: (row: Team) => void; canEdit: boolean }) {
+  if (!rows.length) return <EmptyState label="No teams found" />
+  return (
+    <>
+      <ColHeader cols={['Code', 'Name', '']} widths="180px 1fr 60px" />
+      {rows.map(r => (
+        <div key={r.id} style={rowCardStyle}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
+          <div style={gridStyle('180px 1fr 60px')}>
+            <Cell><span style={monoStyle}>{r.code}</span></Cell>
+            <Cell><span style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{r.name}</span></Cell>
+            <Cell>
+              {canEdit && <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>}
+            </Cell>
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+// ── Status Badge (clickable when onClick is given) ─────────────────────────────
+// Read-only status pill — change status via the Edit form, not from here.
+function StatusBadge({ active }: { active: boolean }) {
+  const bg = active ? '#F0FDF4' : '#F5F5F5'
+  const color = active ? '#16A34A' : '#8E8E8E'
+  const border = active ? '#BBF7D0' : '#E0E0E0'
+  const dot = active ? '#16A34A' : '#9E9E9E'
+
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      fontSize: 11, padding: '2px 9px', borderRadius: 999, fontWeight: 600,
+      background: bg, color, border: `1px solid ${border}`,
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: dot, flexShrink: 0 }} />
+      {active ? 'Active' : 'Inactive'}
+    </span>
   )
 }
 
@@ -422,7 +545,11 @@ function ResourceModal({ tab, row, onClose }: { tab: 'machine' | 'tool'; row?: M
             name: form.name, location: form.location || undefined,
             manufacturer: form.manufacturer || undefined, model: form.model || undefined, qty })
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['machines'] }); onClose() },
+    onSuccess: () => {
+      toast.success(`${tabLabel} ${isEdit ? 'updated' : 'created'}`)
+      qc.invalidateQueries({ queryKey: ['machines'] })
+      onClose()
+    },
   })
 
   return (
@@ -496,8 +623,12 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
     nationality: row?.nationality ?? 'TH',
     position_raw: row?.position_raw ?? '',
     start_raw: toDateInputValue(row?.start_raw ?? ''),
+    team_id: row?.team?.id?.toString() ?? '',
+    status: row?.active === false ? 'inactive' : 'active',
   })
   const set = (field: string, val: string) => setForm(f => ({ ...f, [field]: val }))
+
+  const { data: teams = [] } = useTeams()
 
   // skill selection state: { skill_id, name, level? }
   const [selectedSkills, setSelectedSkills] = useState<{ skill_id: number; name: string; level?: string }[]>(
@@ -534,11 +665,17 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
     mutationFn: () => isEdit && row
       ? updateOperator(row.id, { code: form.code || undefined, name: form.name || undefined,
           nationality: form.nationality || undefined, position_raw: form.position_raw || undefined,
-          start_raw: form.start_raw || undefined, skills: skillPayload })
+          start_raw: form.start_raw || undefined, team_id: form.team_id ? Number(form.team_id) : null,
+          active: form.status === 'active', skills: skillPayload })
       : createOperator({ code: form.code, name: form.name, nationality: form.nationality || undefined,
           position_raw: form.position_raw || undefined, start_raw: form.start_raw || undefined,
+          team_id: form.team_id ? Number(form.team_id) : undefined,
           skills: skillPayload }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['operators'] }); onClose() },
+    onSuccess: () => {
+      toast.success(`Operator ${isEdit ? 'updated' : 'created'}`)
+      qc.invalidateQueries({ queryKey: ['operators'] })
+      onClose()
+    },
   })
 
   return (
@@ -568,6 +705,20 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
             <input type="date" value={form.start_raw} onChange={e => set('start_raw', e.target.value)}
               style={inputStyle} />
           </FormField>
+          <FormField label="Team">
+            <select value={form.team_id} onChange={e => set('team_id', e.target.value)} style={inputStyle}>
+              <option value="">— No team —</option>
+              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </FormField>
+          {isEdit && (
+            <FormField label="Status">
+              <select value={form.status} onChange={e => set('status', e.target.value)} style={inputStyle}>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </FormField>
+          )}
 
           {/* Skill picker */}
           <FormField label="Skills">
@@ -611,6 +762,46 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
                 ))}
               </div>
             )}
+          </FormField>
+        </div>
+        {mutation.isError && <ErrMsg />}
+        <ModalFooter onClose={onClose} onSave={() => mutation.mutate()} saving={mutation.isPending} disabled={!form.code.trim() || !form.name.trim()} />
+      </div>
+    </ModalOverlay>
+  )
+}
+
+// ── Team Modal ─────────────────────────────────────────────────────────────────
+function TeamModal({ row, onClose }: { row?: Team; onClose: () => void }) {
+  const qc = useQueryClient()
+  const isEdit = !!row
+
+  const [form, setForm] = useState({ code: row?.code ?? '', name: row?.name ?? '' })
+  const set = (field: 'code' | 'name', val: string) => setForm(f => ({ ...f, [field]: val }))
+
+  const mutation = useMutation({
+    mutationFn: () => isEdit && row
+      ? updateTeam(row.id, { code: form.code || undefined, name: form.name || undefined })
+      : createTeam({ code: form.code, name: form.name }),
+    onSuccess: () => {
+      toast.success(`Team ${isEdit ? 'updated' : 'created'}`)
+      qc.invalidateQueries({ queryKey: ['teams'] })
+      onClose()
+    },
+  })
+
+  return (
+    <ModalOverlay onClose={onClose}>
+      <div style={modalBoxStyle}>
+        <ModalHeader title={isEdit ? 'Edit Team' : 'Add Team'} onClose={onClose} />
+        <div style={formBodyStyle}>
+          <FormField label="Code *">
+            <input value={form.code} onChange={e => set('code', e.target.value)}
+              placeholder="TEAM-A" style={{ ...inputStyle, fontFamily: 'monospace' }} autoFocus />
+          </FormField>
+          <FormField label="Name *">
+            <input value={form.name} onChange={e => set('name', e.target.value)}
+              placeholder="Team name..." style={inputStyle} />
           </FormField>
         </div>
         {mutation.isError && <ErrMsg />}
@@ -705,8 +896,9 @@ const editBtnStyle: React.CSSProperties = {
 const modalBoxStyle: React.CSSProperties = {
   background: '#fff', borderRadius: 10, width: 460,
   boxShadow: '0 20px 60px rgba(0,0,0,0.15)', overflow: 'hidden',
+  maxHeight: '88vh', display: 'flex', flexDirection: 'column',
 }
-const formBodyStyle: React.CSSProperties = { padding: '20px', display: 'flex', flexDirection: 'column', gap: 14 }
+const formBodyStyle: React.CSSProperties = { padding: '20px', display: 'flex', flexDirection: 'column', gap: 14, overflowY: 'auto', minHeight: 0 }
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid #E0E0E0',
   fontSize: 13, outline: 'none', boxSizing: 'border-box', background: '#FAFAFA',
@@ -901,12 +1093,20 @@ function FormulaModal({ row, onClose, canDelete }: { row?: ConsumeFormula; onClo
       if (isEdit) return consumeFormulasApi.update(row!.id, payload)
       return consumeFormulasApi.create(payload as Parameters<typeof consumeFormulasApi.create>[0])
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['consume-formulas'] }); onClose() },
+    onSuccess: () => {
+      toast.success(`Formula ${isEdit ? 'updated' : 'created'}`)
+      qc.invalidateQueries({ queryKey: ['consume-formulas'] })
+      onClose()
+    },
   })
 
   const deleteMutation = useMutation({
     mutationFn: () => consumeFormulasApi.remove(row!.id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['consume-formulas'] }); onClose() },
+    onSuccess: () => {
+      toast.success('Resource deleted')
+      qc.invalidateQueries({ queryKey: ['consume-formulas'] })
+      onClose()
+    },
   })
 
   const CATS = ['paint', 'welding', 'cutting', 'abrasive', 'fastener']
