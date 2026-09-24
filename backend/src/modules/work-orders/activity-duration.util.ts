@@ -24,11 +24,22 @@ export interface ActivityDurationResult {
   breakdown: ActivityDurationBreakdownItem[]
 }
 
-export function computeActivityDuration(
+// Multi-mark redesign (2026-09-17): a work_order_mark's contribution to its WO's
+// totals must be summed with every OTHER mark's contribution (× that mark's
+// qty_planned) BEFORE the final rounding/clamping — rounding once per mark first
+// would compound rounding error across marks. This raw variant returns the
+// unrounded, unclamped run_min/setup_min for exactly ONE unit of ONE bom (the
+// same per-activity math `computeActivityDuration` always used), so a caller
+// (WorkOrderAutoCreateService.recomputeDuration()) can multiply-then-sum-then-
+// round-once across all of a WO's non-removed marks. `computeActivityDuration`
+// itself is unchanged (byte-for-byte — same rounding/clamping as before) and
+// stays the right call for any single-bom, single-unit use (e.g. the MO print
+// packet's per-WO traveler, still 1 bom per WO there).
+export function computeActivityDurationRaw(
   acts: { name: string; source_activity_id: number | null }[],
   bom: { length_mm: unknown; surface_area_m2: unknown; width_mm: unknown },
   activityMap: Map<number, { formula_code: string | null; per_minute: unknown; duration_min: unknown; kind: string }>,
-): ActivityDurationResult {
+): { run_min: number; setup_min: number; breakdown: ActivityDurationBreakdownItem[] } {
   const lengthMm = Number(bom.length_mm ?? 0)
   const areaSqM = Number(bom.surface_area_m2 ?? 0)
   const widthMm = Number(bom.width_mm ?? 0)
@@ -95,11 +106,26 @@ export function computeActivityDuration(
     breakdown.push({ name: snapAct.name, kind: 'run', minutes: contribution, unresolved: false })
   }
 
-  // Fallback: no activities matched → duration stays 0 → clamped to 1 below
+  // Fallback: no activities matched → duration stays 0 — left unclamped here;
+  // computeActivityDuration() (single-unit callers) clamps to 1, multi-mark
+  // summation (recomputeDuration()) clamps once after summing every mark.
 
+  return { run_min: runMin, setup_min: setupMin, breakdown }
+}
+
+// Thin wrapper over computeActivityDurationRaw() — same rounding/clamping this
+// function has always done, for callers computing ONE unit's duration in
+// isolation (MO print packet's per-WO traveler; anywhere no multi-mark
+// summation is involved).
+export function computeActivityDuration(
+  acts: { name: string; source_activity_id: number | null }[],
+  bom: { length_mm: unknown; surface_area_m2: unknown; width_mm: unknown },
+  activityMap: Map<number, { formula_code: string | null; per_minute: unknown; duration_min: unknown; kind: string }>,
+): ActivityDurationResult {
+  const raw = computeActivityDurationRaw(acts, bom, activityMap)
   return {
-    run_min: Math.max(1, Math.round(runMin)),
-    setup_min: Math.max(0, Math.round(setupMin)),
-    breakdown,
+    run_min: Math.max(1, Math.round(raw.run_min)),
+    setup_min: Math.max(0, Math.round(raw.setup_min)),
+    breakdown: raw.breakdown,
   }
 }
