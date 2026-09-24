@@ -272,11 +272,96 @@
   found — clears the BLOCK once this branch commits. Pending commit ref
   to formally close.
 
+### R-013 · A04:2021 Insecure Design — destructive schema migrations shipped without staging-data verification or backfill
+
+- **OWASP:** A04:2021 (Insecure Design) — best-fit mapping, flagged as
+  imperfect: this is a data-integrity/availability risk from the dev team's
+  own migration process (irreversible loss of live business data), not a
+  classic attacker-driven confidentiality vulnerability, so neither the
+  OWASP API Top 10 2023 nor Top 10 2021 lens has a clean category for it.
+  Framed as a missing design-time control ("verify before destroy" gate on
+  any migration dropping columns/tables that predate the branch) rather than
+  an implementation bug.
+- **Impact:** Critical/High depending on instance — a `DROP COLUMN`/`DROP
+  TABLE` migration on a table that existed before the current branch, shipped
+  with no backfill into the replacement schema and no query confirming the
+  columns are actually empty on the target (staging/production) database.
+  First observed with real, evidenced impact on `work_order.{bom_assembly_id,
+  qty_done, qty_scrapped, qty_reusable, bom_dispatch_id_snapshot}` (live since
+  Sprint 14, 2026-06-16) and `manufacturing_order.due_date` (live since the
+  Sprint 13 MO pilot) — both actively-used, user-facing columns dropped with
+  zero backfill in `dev-t-wo-multimark-team-qc`'s migration set.
+- **Likelihood:** Medium — this repo's own migration history shows the
+  precursor pattern recurring: migration comments asserting "no data loss...
+  checked against every environment" that, on inspection, were only ever
+  checked against local dev, and this project's own migration comments
+  separately admit local dev has "pre-existing, unrelated drift" from
+  migration history (renamed FK constraints, a dropped `stock_quant` table,
+  a missing FK) — i.e. local dev is demonstrably not a reliable proxy for
+  staging/production state on this project, so a comment's confidence level
+  cannot be taken at face value without an actual query against the real
+  target.
+- **Owner:** data (schema/migration authoring + backfill design) + backend
+  (flags when a column being dropped is read/written elsewhere) + devops
+  (runs the read-only staging verification query pre-merge, per
+  `feedback_staging_credentials_self_managed` — this is a human/devops step,
+  not something an agent should do unprompted)
+- **Fix path:** before merging any migration with `DROP COLUMN`/`DROP TABLE`
+  touching a table that predates the branch, run a read-only `COUNT`/
+  non-null check against the actual staging database for the columns about
+  to be dropped, and record the real number in the migration's own comment —
+  replacing unverifiable phrasing like "checked against every environment"
+  with an actual count from the environment that matters. For any non-zero
+  count, either add a backfill step into the new schema shape before the
+  drop, or obtain and document explicit sign-off that the loss is accepted.
+  Migrations that drop a table/column created earlier in the *same, still-
+  unmerged* migration batch are exempt in practice (no window exists for
+  real data to have landed there) but should still say so explicitly rather
+  than reuse the "checked every environment" phrasing.
+- **Status:** Open
+- **Created:** 2026-09-24 (F-WO Multi-Mark Team QC review)
+- **Finding ref:** `docs/security/findings/2026-09-24-wo-multimark-team-qc.md`
+  F-001 (Critical), F-002 (High), F-003 (Low — the overclaimed-phrasing
+  sub-issue)
+
 ---
 
 ## Mitigated risks
 
-_(none yet)_
+### R-014 · API8:2023 Security Misconfiguration — Supabase Data-API RLS disabled workspace-wide (~85 public tables)
+
+- **OWASP:** API8:2023 (Security Misconfiguration)
+- **Impact:** High (as filed) — Postgres Row Level Security was disabled on
+  all ~85 public-schema tables workspace-wide, confirmed 2026-08-25 via
+  Supabase's own advisor output during an unrelated staging-cleanup session
+  (see `knowledge-base/log.md`'s 2026-08-25 entry). With RLS off, any caller
+  reaching these tables through Supabase's auto-generated Data API
+  (PostgREST) — as opposed to this app's own NestJS backend, which connects
+  via direct/pooler Postgres URLs and enforces its own JWT + permission-
+  module checks — would bypass all app-level authorization entirely.
+- **Likelihood:** Low-Medium in practice — this app's real traffic path is
+  Vercel → Cloud Run (NestJS) → Postgres, not through Supabase's Data API;
+  actual exploitability depended on whether the Data API surface was even
+  reachable with a usable key, not on RLS being off alone.
+- **Owner:** devops (Supabase project/dashboard configuration, not
+  application code)
+- **Fix:** user enabled the Data-API RLS enforcement toggle directly in the
+  Supabase dashboard (2026-09-23) — a project-configuration change, **no
+  code commit**. No `docs/security/findings/` doc exists for this one; the
+  only prior record is the `knowledge-base/log.md` 2026-08-25 entry.
+- **Status:** Mitigated — dashboard config, no commit ref
+- **Created:** 2026-08-25 (first confirmed, mis-filed at the time — see
+  correction below); this register entry backfilled 2026-09-24 as part of
+  the Sprint 36 documentation backfill.
+- **Correction (2026-09-24):** `knowledge-base/log.md`'s 2026-08-25 entry
+  says this was "already tracked as risk R-011 from the BIM viewer security
+  review, not new" — **that was wrong**. `R-011` is a distinct, unrelated
+  risk (BIM Viewer BOLA — `bim_model`/`bim_element` routes with no
+  project-membership check, an application-layer authorization gap in this
+  app's own NestJS controllers). This RLS/Data-API gap is a Supabase
+  project-configuration issue, orthogonal to R-011's app-code gap — fixing
+  one has no effect on the other. Filed here as its own risk, R-014, so nobody
+  assumes R-011 already covers it.
 
 ---
 
