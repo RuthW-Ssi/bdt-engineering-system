@@ -871,8 +871,9 @@ export class WorkOrdersService {
   /**
    * PATCH /wo/:id/parts (2026-09-17) — sets weight_kg directly (no plan to
    * compare against, unlike /consume — see work_order_part's own doc comment
-   * for why). No upper bound. 400s on a bom_assembly_part_id that doesn't
-   * already have a work_order_part row on this WO.
+   * for why). Capped by computePartBudget() below (the MO-wide total minus
+   * what other WOs already committed). 400s on a bom_assembly_part_id that
+   * doesn't already have a work_order_part row on this WO.
    */
   async updatePartActuals(id: number, dto: UpdatePartsDto, userName: string) {
     const wo = await this.requireWo(id)

@@ -318,11 +318,30 @@
   unmerged* migration batch are exempt in practice (no window exists for
   real data to have landed there) but should still say so explicitly rather
   than reuse the "checked every environment" phrasing.
-- **Status:** Open
+- **Status:** Open — the risk class (missing verify-before-destroy gate)
+  stays open as a process gap even though this instance's concrete findings
+  are resolved (see below); it will recur on the next branch with a
+  destructive migration unless the Fix path above becomes standard practice.
 - **Created:** 2026-09-24 (F-WO Multi-Mark Team QC review)
 - **Finding ref:** `docs/security/findings/2026-09-24-wo-multimark-team-qc.md`
   F-001 (Critical), F-002 (High), F-003 (Low — the overclaimed-phrasing
   sub-issue)
+- **Instance resolution (2026-09-24, same day):** read-only `COUNT` queries
+  run against live staging (project `eebubyfkzeqhzwzqrqfz`) resolved both
+  concrete findings differently: F-001's `qty_done`/`qty_scrapped`/
+  `qty_reusable` were confirmed 0/218 non-null (safe as written), but
+  `bom_assembly_id`/`bom_dispatch_id_snapshot` were confirmed **218/218**
+  non-null — a real, evidenced data-loss risk, not a false positive. Fixed by
+  adding a backfill `INSERT INTO work_order_mark ... SELECT ... FROM
+  work_order JOIN mo_assembly_line` directly into
+  `20260917114912_multi_mark_work_orders/migration.sql` (before the
+  `DROP COLUMN`, since a later migration cannot recover already-dropped
+  data), sourcing `qty_planned` from `mo_assembly_line.qty` — verified
+  lossless via a 218-row join-match count and tested against a throwaway
+  scratch database with synthetic rows before being trusted. F-002's
+  `due_date` was confirmed 0/5 non-null — genuinely safe, no code change
+  needed, comment updated with the verified count. See findings file's
+  "Resolution" section for full detail.
 
 ---
 

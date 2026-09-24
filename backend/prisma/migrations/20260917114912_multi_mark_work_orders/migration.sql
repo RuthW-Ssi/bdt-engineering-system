@@ -10,16 +10,6 @@
 ALTER TYPE "WoEventType" ADD VALUE 'UNHOLD';
 ALTER TYPE "WoEventType" ADD VALUE 'MARK_REMOVED';
 
--- DropForeignKey
-ALTER TABLE "work_order" DROP CONSTRAINT "work_order_bom_assembly_id_fkey";
-
--- AlterTable
-ALTER TABLE "work_order" DROP COLUMN "bom_assembly_id",
-DROP COLUMN "bom_dispatch_id_snapshot",
-DROP COLUMN "qty_done",
-DROP COLUMN "qty_reusable",
-DROP COLUMN "qty_scrapped";
-
 -- AlterTable
 ALTER TABLE "work_order_event" ADD COLUMN "work_order_mark_id" INTEGER;
 
@@ -41,6 +31,48 @@ CREATE TABLE "work_order_mark" (
 
     CONSTRAINT "work_order_mark_pkey" PRIMARY KEY ("id")
 );
+
+-- Backfill (added 2026-09-24 — security + QA review both independently
+-- flagged that the DROP COLUMN below originally had ZERO backfill into the
+-- new work_order_mark table. Verified against live staging via read-only
+-- COUNT: 218/218 existing work_order rows have non-null bom_assembly_id/
+-- bom_dispatch_id_snapshot — without this insert, every pre-existing WO
+-- would lose its assembly link and end up with zero marks post-migration.
+-- qty_planned has no equivalent column on the old work_order row (the
+-- single-assembly-per-WO model never stored "planned qty" on work_order
+-- itself) — sourced from mo_assembly_line.qty via (mo_id, bom_assembly_id),
+-- the same value the old model implicitly used as that WO's one assembly's
+-- planned quantity. Confirmed on staging: all 218 rows have exactly one
+-- matching mo_assembly_line row (enforced by that table's own
+-- @@unique([mo_id, bom_assembly_id])), so this INNER JOIN is lossless.
+INSERT INTO "work_order_mark" (
+    "work_order_id", "bom_assembly_id", "bom_dispatch_id_snapshot",
+    "qty_planned", "qty_done", "qty_scrapped", "qty_reusable",
+    "created_at", "created_by"
+)
+SELECT
+    wo."id",
+    wo."bom_assembly_id",
+    wo."bom_dispatch_id_snapshot",
+    mal."qty",
+    wo."qty_done",
+    wo."qty_scrapped",
+    wo."qty_reusable",
+    wo."created_at",
+    wo."created_by"
+FROM "work_order" wo
+JOIN "mo_assembly_line" mal
+    ON mal."mo_id" = wo."mo_id" AND mal."bom_assembly_id" = wo."bom_assembly_id";
+
+-- DropForeignKey
+ALTER TABLE "work_order" DROP CONSTRAINT "work_order_bom_assembly_id_fkey";
+
+-- AlterTable
+ALTER TABLE "work_order" DROP COLUMN "bom_assembly_id",
+DROP COLUMN "bom_dispatch_id_snapshot",
+DROP COLUMN "qty_done",
+DROP COLUMN "qty_reusable",
+DROP COLUMN "qty_scrapped";
 
 -- CreateIndex
 CREATE INDEX "work_order_mark_bom_assembly_id_idx" ON "work_order_mark"("bom_assembly_id");

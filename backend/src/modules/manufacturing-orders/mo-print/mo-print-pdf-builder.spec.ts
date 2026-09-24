@@ -130,6 +130,11 @@ function makePlan(rows: MoPrintWorkOrderRow[], overrides: Partial<MoPrintPacketP
   }
 }
 
+// PDF/font rendering is genuinely slow; the default 5000ms has no headroom
+// once CPU is shared across a full parallel test run (confirmed 2026-09-24:
+// 16.3s solo vs. a timeout embedded in a 56-suite run).
+jest.setTimeout(20000)
+
 describe('buildMoPrintPdf', () => {
   it('produces one manifest page, then a traveler page + one dedicated drawing page per WO row, in order', async () => {
     const plan = makePlan([
