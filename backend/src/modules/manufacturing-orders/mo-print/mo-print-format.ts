@@ -7,6 +7,13 @@ export function fmt2(n: number): string {
   return n.toFixed(2)
 }
 
+// Whole-number display (2026-09-21) — the WO traveler's own quantities/
+// durations/weights round to the nearest whole unit rather than fmt2's fixed
+// 2 decimals (matches Consume's qty already being a plain Int).
+export function fmt0(n: number): string {
+  return String(Math.round(n))
+}
+
 // Largest font size (up to `size`) at which `text` fits `maxWidth`, floored
 // at `minSize` — keeps a long value (e.g. a Thai project name) inside its
 // cell on the one-page WO traveler instead of spilling into the next one.

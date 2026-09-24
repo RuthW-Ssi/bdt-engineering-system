@@ -24,6 +24,7 @@ import { MoPrintService } from './mo-print/mo-print.service'
 import { CreateMoDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 
 @ApiTags('Manufacturing Orders')
 @ApiBearerAuth()
@@ -127,6 +128,36 @@ export class ManufacturingOrderController {
     return this.svc.cancel(id, user.sub, user.login)
   }
 
+  // Multi-mark redesign (2026-09-17): WO creation is now fully manual — this
+  // replaces the old auto-create-on-confirm flow. Find-or-creates the WO for
+  // (this MO, operation_id), then adds a work_order_mark row for each assembly
+  // line not already on it (idempotent — already-present ones are reported as
+  // skipped, never duplicated).
+  @Post(':id/work-orders')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Create/add-marks: find-or-create the WO for (this MO, operation_id) + attach assembly lines as marks' })
+  createWorkOrder(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateWoDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.createWorkOrder(id, dto, user.login, user.sub)
+  }
+
+  // Single-page form revision (2026-09-17): read-only preview of what
+  // createWorkOrder would compute for Parts/Consume, for the CURRENT
+  // mark+qty selection — called live as the user picks marks, before Create
+  // is ever pressed. No DB writes.
+  @Post(':id/work-orders/preview')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'Preview Parts + Consume for a candidate (operation, marks) selection — no writes' })
+  previewWorkOrder(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PreviewWoDto,
+  ) {
+    return this.svc.previewWorkOrder(id, dto)
+  }
+
   // Plain @Res() (no passthrough) — Nest's passthrough mode still JSON-
   // serializes whatever the handler returns (a raw Buffer becomes
   // {"type":"Buffer","data":[...]}, confirmed live against a real request),
@@ -136,9 +167,26 @@ export class ManufacturingOrderController {
   // the success path bypasses Nest's own response handling here.
   @Get(':id/print-packet')
   @RequiresPermission('orders', 'view')
-  @ApiOperation({ summary: 'Print packet — manifest + one signable traveler per WO + embedded shop drawings (409 if any WO is missing a PDF drawing)' })
-  async printPacket(@Param('id', ParseIntPipe) id: number, @Res() res: Response) {
-    const bytes = await this.moPrint.buildPdf(id)
+  @ApiOperation({ summary: 'Print packet — optional MO overview page + one signable traveler per selected WO + embedded shop drawings (409 if any selected WO is missing a PDF drawing, or nothing at all is selected)' })
+  @ApiQuery({ name: 'wo_ids', required: false, description: 'Comma-separated WO ids to include as travelers (2026-09-21 selective print). Omitted = every non-cancelled WO.' })
+  @ApiQuery({ name: 'include_manifest', required: false, description: '"false" to omit the MO overview page — e.g. printing just some WO travelers, or (with wo_ids empty) just the MO overview alone. Omitted/anything else = included (prior behavior).' })
+  async printPacket(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('wo_ids') woIdsRaw: string | undefined,
+    @Query('include_manifest') includeManifestRaw: string | undefined,
+    @Res() res: Response,
+  ) {
+    // `!== undefined` (not a truthy check) — the frontend's picker sends
+    // `wo_ids=` (empty string) on purpose when the user deselects every WO
+    // ("just the MO"), and that must parse to `[]` (explicit: zero WOs), not
+    // fall through to `undefined` (implicit: every WO — the no-filter
+    // default when the param is omitted entirely). A truthy check on '' would
+    // wrongly collapse those two very different requests into one.
+    const woIds = woIdsRaw !== undefined
+      ? woIdsRaw.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n))
+      : undefined
+    const includeManifest = includeManifestRaw !== 'false'
+    const bytes = await this.moPrint.buildPdf(id, woIds, includeManifest)
     res.set({ 'Content-Type': 'application/pdf' })
     res.send(Buffer.from(bytes))
   }

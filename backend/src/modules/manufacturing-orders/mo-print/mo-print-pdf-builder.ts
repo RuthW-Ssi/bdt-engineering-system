@@ -7,8 +7,8 @@ import * as path from 'path'
 // "no fontkit instance was found" — confirmed via the compiled output.
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFPage, rgb, type RGB } from 'pdf-lib'
-import type { MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, fitTableRows, fitTextSize, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes, summarizeOperations } from './mo-print-format'
+import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
+import { capList, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes } from './mo-print-format'
 import { generateWoQrPng } from './mo-print-qr'
 
 // pdf-lib's built-in StandardFonts only encode WinAnsi (Latin-1) and throw
@@ -60,7 +60,7 @@ interface Fonts {
 function drawSectionBand(page: PDFPage, fonts: Fonts, x: number, y: number, width: number, title: string): number {
   const height = SECTION_BAND_HEIGHT
   page.drawRectangle({ x, y: y - height, width, height, color: rgb(0.85, 0.85, 0.85), borderColor: BLACK, borderWidth: 0.75 })
-  page.drawText(title, { x: x + 8, y: y - 13, size: 10, font: fonts.bold, color: BLACK })
+  page.drawText(title, { x: x + 8, y: y - 13, size: 11, font: fonts.bold, color: BLACK })
   return height
 }
 
@@ -121,9 +121,9 @@ function drawFormGrid(page: PDFPage, fonts: Fonts, x: number, y: number, width: 
     let colX = x
     row.cells.forEach((cell, i) => {
       if (i > 0) page.drawLine({ start: { x: colX, y: rowTop }, end: { x: colX, y: rowBottom }, thickness: 0.75, color: BLACK })
-      page.drawText(cell.label, { x: colX + 6, y: rowTop - 11, size: 7, font: fonts.regular, color: GRAY })
+      page.drawText(cell.label, { x: colX + 6, y: rowTop - 11, size: 9, font: fonts.regular, color: GRAY })
       if (cell.value) {
-        const size = fitTextSize(fonts.bold, cell.value, widths[i] - 12, 10)
+        const size = fitTextSize(fonts.bold, cell.value, widths[i] - 12, 13)
         page.drawText(cell.value, { x: colX + 6, y: rowTop - 24, size, font: fonts.bold, color: BLACK })
       }
       colX += widths[i]
@@ -181,16 +181,45 @@ async function buildManifestPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
       ],
     },
     {
+      // Moved here from the Assembly List's per-row Project/Zone columns
+      // (2026-09-22: "เอา project zone ออกจาก assembly แล้วเอาไปไว้ตรง mo
+      // info แทน") — same value repeated on every row once an MO was
+      // scoped to one project+zone at create time; shown once here instead.
+      // Same value/format as each WO traveler's own Project/Zone cells.
+      height: 30,
+      cells: [
+        { label: 'Project', value: plan.mo.projectCode && plan.mo.projectName ? `${plan.mo.projectCode} — ${plan.mo.projectName}` : '—' },
+        { label: 'Zone', value: plan.mo.subZoneName ? `${plan.mo.zoneLabel} / ${plan.mo.subZoneName}` : plan.mo.zoneLabel ?? '—' },
+      ],
+    },
+    {
+      // Below Project/Zone (2026-09-22: "เอา mark prfix ลงมาอยู่ใต้ project zone").
       height: 30,
       cells: [
         { label: 'Mark Prefix', value: plan.mo.primary_mark_prefix_code },
-        { label: 'Due Date', value: plan.mo.due_date ? plan.mo.due_date.toISOString().slice(0, 10) : '—' },
+      ],
+    },
+    {
+      height: 30,
+      cells: [
+        // Date+time — plan_start/plan_finish are timestamptz, same as
+        // actual_start/actual_finish below (2026-09-22).
+        { label: 'Plan Start', value: plan.mo.plan_start ? formatPlanDateTime(plan.mo.plan_start) : '—' },
+        { label: 'Plan Finish', value: plan.mo.plan_finish ? formatPlanDateTime(plan.mo.plan_finish) : '—' },
+      ],
+    },
+    {
+      height: 30,
+      cells: [
+        { label: 'Actual Start', value: plan.mo.actual_start ? formatPlanDateTime(plan.mo.actual_start) : '—' },
+        { label: 'Actual Finish', value: plan.mo.actual_finish ? formatPlanDateTime(plan.mo.actual_finish) : '—' },
       ],
     },
   ])
   drawRoutingChecklist(page, fonts, plan, MARGIN, y - 12, MO_LEFT_COL_WIDTH)
 
   drawMoAssemblyList(doc, page, fonts, plan, MARGIN + MO_LEFT_COL_WIDTH + MO_COL_GAP, columnsTop)
+  drawMoWatermark(page, fonts, plan)
 
   buildAssemblyPartsPages(doc, fonts, plan)
 }
@@ -233,7 +262,12 @@ function drawTickBox(page: PDFPage, col: TableColumn, rowTop: number, rowHeight:
 }
 
 // One row per routing operation (not per WO — today each operation has one
-// WO per mark; see summarizeOperations), ruled down to the page bottom.
+// WO per mark), ruled down to the page bottom. Reads plan.routingOps, NOT
+// plan.rows (2026-09-22: "ทำไม routing ในหน้าแรกไม่แสดง" — plan.rows is
+// scoped to whichever WOs a selective print selected for their own
+// traveler pages; this checklist is meant to summarize the MO's whole
+// routing plan regardless of that, so it needs its own unfiltered source —
+// see MoPrintService.getRoutingOps).
 function drawRoutingChecklist(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan, x: number, top: number, width: number): void {
   const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Routing')
   const cols = layoutColumns([
@@ -245,9 +279,7 @@ function drawRoutingChecklist(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPl
   const groups: ColumnGroup[] = [{ label: 'Release', first: 4, last: 5 }, { label: 'Done', first: 6, last: 7 }]
   const headerTop = top - bandHeight
   const bodyTop = headerTop - HEADER_ROW_HEIGHT * 2
-  const ops = summarizeOperations(plan.rows.map(r => ({
-    sequence: r.wo.sequence, operationLabel: r.operationLabel, workCenterName: r.workCenterName, woCode: r.wo.wo_code,
-  })))
+  const ops = plan.routingOps
   const rowCount = Math.max(ops.length, Math.floor((bodyTop - MARGIN) / ROUTING_ROW_HEIGHT))
   const rowHeight = (bodyTop - MARGIN) / rowCount
 
@@ -263,16 +295,16 @@ function drawRoutingChecklist(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPl
 // The MO's marks (one row per mo_assembly_line), ruled down the right
 // column. Marks that don't fit continue on full-width pages right after
 // the MO page.
+// Project/Zone dropped (2026-09-22, moved to MO Info) — their freed width
+// went to Mark/Name, the two columns most likely to need it.
 const MO_ASSEMBLY_COLUMNS: [label: string, weight: number][] = [
-  ['No.', 24], ['Project', 70], ['Zone', 90], ['Mark', 90], ['Name', 110],
+  ['No.', 24], ['Mark', 140], ['Name', 180],
   ['Width (mm)', 55], ['Length (mm)', 55], ['Height (mm)', 55], ['Weight (kg)', 60], ['Qty', 40],
 ]
 
 function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan, x: number, top: number): void {
   const markValues = (mark: MoPrintPacketPlan['marks'][number]) => [
     String(mark.seq),
-    mark.projectCode,
-    mark.subZoneName ? `${mark.zoneLabel} / ${mark.subZoneName}` : mark.zoneLabel,
     mark.assemblyMark,
     mark.name ?? '—',
     mark.width_mm != null ? fmt2(mark.width_mm) : '—',
@@ -298,31 +330,62 @@ function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan:
   let remaining = plan.marks
   remaining = remaining.slice(drawChunk(page, x, top, MO_RIGHT_COL_WIDTH, 'Assembly List', remaining))
   while (remaining.length > 0) {
-    remaining = remaining.slice(drawChunk(addPrintPage(doc), MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, 'Assembly List (cont.)', remaining))
+    const contPage = addPrintPage(doc)
+    remaining = remaining.slice(drawChunk(contPage, MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, 'Assembly List (cont.)', remaining))
+    drawMoWatermark(contPage, fonts, plan)
   }
+}
+
+// Withdrawal Log — one row per round, for the store to record when each
+// round happened and who was involved as a whole (2026-09-22: "ด้านบน
+// อยากให้มีเพิ่ม 1 table...รอบเบิก, date/time, ผู้เบิก, ผู้ควบคุม store...
+// row ก็จะมี ครั้งที่ 1, 2, 3") — sits above the Assembly Part List table,
+// since that one's own "1st/2nd/3rd Withdrawal" columns are per-part (just
+// By/Qty) with no shared place to note the round's own date/time or who
+// signed off on it overall. "1st/2nd/3rd" reuses the same round labels as
+// the table below instead of a separate "ครั้งที่ N" numbering.
+function drawWithdrawalLog(page: PDFPage, fonts: Fonts, x: number, top: number, width: number): number {
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Withdrawal Log')
+  const cols = layoutColumns([['Round', 60], ['Date/Time', 150], ['Requested By', 220], ['Store Controller', 220]], x, width)
+  const tableHeight = drawCappedTable(page, fonts, cols, top - bandHeight, CONSUME_ROW_HEIGHT, 3, [
+    { values: ['1st'] },
+    { values: ['2nd'] },
+    { values: ['3rd'] },
+  ])
+  return bandHeight + tableHeight
 }
 
 // Assembly Part List — every assembly in the MO as a shaded group row,
 // with the bom_parts (cut pieces) it needs listed beneath it (2026-09-16,
 // replacing a flat part list aggregated across assemblies). Right of each
-// part: blank By / Qty cells for at most three withdrawals — a part may be
-// drawn from the store no more than 3 times — then a Note cell.
+// part: one blank cell per round ("1st"/"2nd"/"3rd", 2026-09-22 — was its
+// own "By"/"Qty" pair under a "Nth Withdrawal" group label, simplified once
+// the Withdrawal Log above started covering who/when for the round as a
+// whole) — a part may be drawn from the store no more than 3 times — then
+// a Note cell.
 // Starts on its own page after the MO page and overflows onto more,
-// repeating the column header and — mid-group — the assembly's row.
+// repeating the column header and — mid-group — the assembly's row. The
+// Withdrawal Log (2026-09-22) sits above it on that same first page only —
+// continuation pages go straight into "Assembly Part List (cont.)".
 function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPacketPlan): void {
   if (plan.assemblyParts.length === 0) return
   let currentPage = addPrintPage(doc)
   let y = PAGE_HEIGHT - MARGIN
+  y -= drawWithdrawalLog(currentPage, fonts, MARGIN, y, CONTENT_WIDTH) + TRAVELER_SECTION_GAP
   y -= drawSectionBand(currentPage, fonts, MARGIN, y, CONTENT_WIDTH, 'Assembly Part List')
 
+  // One plain column per round now, not a "By" + "Qty" pair under a "Nth
+  // Withdrawal" group label (2026-09-22: "column by ก็เอาออกด้วยสิ 1st
+  // Withdrawal ให้เหลือแค่ 1st พอ") — with no sub-columns left to group,
+  // "1st"/"2nd"/"3rd" are just the columns' own labels; drawHeader below
+  // uses drawGroupedHeader's compact (single-row) mode with an empty
+  // groups list for that, same as it takes for an ordinary ungrouped
+  // column elsewhere.
   const cols = layoutColumns([
     ['Part Mark', 130], ['Profile', 110], ['Grade', 70], ['Qty', 55], ['Weight (kg)', 70],
-    ['By', 95], ['Qty', 50], ['By', 95], ['Qty', 50], ['By', 95], ['Qty', 50],
+    ['1st', 90], ['2nd', 90], ['3rd', 90],
     ['Note', 140],
   ])
-  const withdrawalGroups: ColumnGroup[] = ['1st', '2nd', '3rd'].map((nth, i) => ({
-    label: `${nth} Withdrawal`, first: 5 + i * 2, last: 6 + i * 2,
-  }))
   const groupHeight = 18
   const partHeight = 16
   const partIndent = 14
@@ -335,7 +398,7 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
     currentPage.drawLine({ start: { x: MARGIN, y }, end: { x: MARGIN + CONTENT_WIDTH, y }, thickness: 0.5, color: GRAY })
   }
   const drawHeader = () => {
-    y -= drawGroupedHeader(currentPage, fonts, cols, withdrawalGroups, y)
+    y -= drawGroupedHeader(currentPage, fonts, cols, [], y, true)
   }
   // No column dividers across a group row — its label spans the table.
   const drawGroupRow = (group: MoPrintPacketPlan['assemblyParts'][number], continued: boolean) => {
@@ -350,6 +413,7 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
   }
   const startNewPage = () => {
     closeTable()
+    drawMoWatermark(currentPage, fonts, plan)
     y = PAGE_HEIGHT - MARGIN
     currentPage = addPrintPage(doc)
     tableTop = y
@@ -366,10 +430,16 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
         startNewPage()
         drawGroupRow(group, true)
       }
+      // Each withdrawal round's own By/Qty stay blank hand-fill cells
+      // (2026-09-22: tried pre-filling Qty with the part's planned amount —
+      // "ฉันหมายถึงเป็นช่องให้กรอก qty ไม่ใช่เอาจำนวน qty มาใส่" — the
+      // ruled cell itself, under the "Qty" column label, already IS the
+      // fill-in field; it doesn't need a number printed in it first).
       const values = part
         ? [part.part_mark, part.profile ?? '—', part.grade ?? '—', fmt2(part.qty), part.weight_kg != null ? fmt2(part.weight_kg) : '—']
         : ['No parts']
       values.forEach((value, i) => {
+        if (!value) return
         const inset = i === 0 ? partIndent : 3
         const c = cols[i]
         currentPage.drawText(value, { x: c.x + inset, y: y - 11.5, size: fitTextSize(fonts.regular, value, c.w - inset - 3, 8), font: fonts.regular, color: part ? BLACK : GRAY })
@@ -380,20 +450,28 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
     }
   }
   closeTable()
+  drawMoWatermark(currentPage, fonts, plan)
 }
 
-// WO traveler — exactly one A3-landscape page per WO, in two columns
-// (2026-09-16 redesign from the user's hand sketch):
+// WO traveler — starts as one A3-landscape page per WO (2026-09-16 redesign
+// from the user's hand sketch, since restructured 2026-09-21), in two
+// columns:
 //   left:  Work Order Details + QR → Consume → Production Time →
-//          Activities. Consume and Activities split the leftover height
-//          evenly (2026-09-16: "ลด activity และเพิ่ม consume ให้เท่ากัน").
-//          The bottom-left QC Inspection box was dropped the same day —
-//          the right column's QC log (with Signature/Note per check)
-//          replaces it.
-//   right: Assembly List beside a QC record table (Self-check + QC),
-//          both ruled all the way down the page
-// Nothing ever overflows onto a second page — see drawCappedTable for how
-// a list longer than its slot is handled.
+//          Activities, each a fixed-capacity table (see drawCappedTable)
+//          pulled up snug against the one above it — these stay one-page,
+//          a long list is capped with "+N more (see QR)".
+//   right: Assembly List & QC — one row per mark on this WO (a multi-mark
+//          WO prints every mark together, not a separate page per mark),
+//          each with its own 3-round QC log. UNLIKE the left column, this
+//          is never capped (2026-09-21: "ต้องแสดง assembly list ทั้งหมด" —
+//          every mark must show) — it overflows onto full-width
+//          "(cont.)" pages after the first if there isn't room, same
+//          chunk-and-continue shape as drawMoAssemblyList on the manifest.
+// This WO's shop drawing gets its own dedicated page right after the
+// traveler (buildDrawingPage, called from buildMoPrintPdf's per-row loop).
+// Parts are deliberately NOT printed here (2026-09-21, after a brief
+// same-day detour that added and then removed a WO-level Parts page) —
+// see the `marks` field doc comment on MoPrintWorkOrderRow for why.
 const TRAVELER_COL_GAP = 16
 // The right column is a hand-written check log, so it gets the wider share
 // of the page (2026-09-16: "เอา qc กว้างกว่าเลยเพราะ user ต้องมาเขียนลง
@@ -402,11 +480,12 @@ const TRAVELER_LEFT_COL_WIDTH = 480
 const TRAVELER_RIGHT_COL_WIDTH = CONTENT_WIDTH - TRAVELER_COL_GAP - TRAVELER_LEFT_COL_WIDTH
 const TRAVELER_SECTION_GAP = 12
 const PRODUCTION_ROW_HEIGHT = 34
-// Consume/Activities tables: preferred row height, and the floor rows may
-// shrink to (6pt text — the smallest that stays legible printed) before a
-// long list gets capped.
-const LIST_ROW_HEIGHT = 15
-const LIST_MIN_ROW_HEIGHT = 11
+// Shared preferred row height for Consume and Activities (2026-09-21) — a
+// taller alternative to the original 15pt list rows, since a WO rarely
+// needs many skinny rows. Consume is fixed at 6 of these; Activities
+// computes how many fit in whatever space is actually left (see
+// drawActivities) and may stretch them slightly taller to fill it exactly.
+const CONSUME_ROW_HEIGHT = 24
 
 async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPacketPlan, row: MoPrintWorkOrderRow): Promise<void> {
   const page = addPrintPage(doc)
@@ -419,17 +498,40 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
   y -= drawSectionBand(page, fonts, leftX, y, colWidth, 'Work Order Details')
   y -= (await drawWoDetails(doc, page, fonts, plan, row, leftX, y, colWidth)) + TRAVELER_SECTION_GAP
   const productionHeight = SECTION_BAND_HEIGHT + PRODUCTION_ROW_HEIGHT * 2
-  const listSlotHeight = (y - MARGIN - productionHeight - TRAVELER_SECTION_GAP * 2) / 2
 
-  drawWoConsume(page, fonts, row, leftX, y, colWidth, listSlotHeight)
-  y -= listSlotHeight + TRAVELER_SECTION_GAP
+  // Production Time/Activities pulled up snug against Consume's actual
+  // (fixed) height (2026-09-21) — Consume no longer fills a pre-computed
+  // slot.
+  const consumeHeight = drawWoConsume(page, fonts, row, leftX, y, colWidth)
+  y -= consumeHeight + TRAVELER_SECTION_GAP
   drawProductionTime(page, fonts, row, leftX, y, colWidth)
   y -= productionHeight + TRAVELER_SECTION_GAP
-  drawActivities(page, fonts, row, leftX, y, colWidth, listSlotHeight)
+  // Activities fills the rest of the column down to MARGIN (2026-09-22),
+  // so its own bottom border lands on the same line as the right column's.
+  drawActivities(page, fonts, row, leftX, y, colWidth)
 
-  drawAssemblyAndQcRecord(page, fonts, row, MARGIN + colWidth + TRAVELER_COL_GAP, top, TRAVELER_RIGHT_COL_WIDTH)
+  const rightX = MARGIN + colWidth + TRAVELER_COL_GAP
+  const placed = drawAssemblyAndQcChunk(page, fonts, row.marks, rightX, top, TRAVELER_RIGHT_COL_WIDTH, 'Assembly List & QC')
 
+  // Each column keeps its own complete, independent border (2026-09-22) —
+  // no line bridging the gap between them after all ("เส้นนั้นคิดว่าไม่
+  // ควรจะมีนะ ไม่อยากให้มันเชื่อมกัน", reversing the same day's earlier
+  // "เส้นของทั้ง 2 table" ask). Both still land on y=MARGIN exactly
+  // (drawActivities/drawAssemblyAndQcChunk use the same formula), so their
+  // bottom edges read as level with each other without needing to be
+  // physically joined.
   drawWoWatermark(page, fonts, row)
+
+  // Every mark must show (2026-09-21: "ต้องแสดง assembly list ทั้งหมด") —
+  // continue on full-width page(s) instead of capping, same shape as
+  // drawMoAssemblyList's "(cont.)" pages on the manifest.
+  let remaining = row.marks.slice(placed)
+  while (remaining.length > 0) {
+    const contPage = addPrintPage(doc)
+    const n = drawAssemblyAndQcChunk(contPage, fonts, remaining, MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, 'Assembly List & QC (cont.)')
+    remaining = remaining.slice(n)
+    drawWoWatermark(contPage, fonts, row)
+  }
 }
 
 // Identification grid + the QR in its own bordered box to the grid's
@@ -437,13 +539,17 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
 // this WO's page in the app — no scan-to-complete flow exists yet (see
 // mo-print-qr.ts). Planned time moved out of here into Production Time.
 async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan, row: MoPrintWorkOrderRow, x: number, top: number, width: number): Promise<number> {
-  const qrColWidth = 110
+  // 110 → 140 (2026-09-21: "ขยาย qr code เพิ่มอีกหน่อย") — the box's own
+  // width is still what bounds qrSize below (the grid is taller than it is
+  // wide), so growing the box is what actually grows the code, not just
+  // its padding.
+  const qrColWidth = 140
   const qrGap = 10
   const gridWidth = width - qrColWidth - qrGap
   const gridHeight = drawFormGrid(page, fonts, x, top, gridWidth, [
-    { height: 30, cells: [{ label: 'Manufacturing Order', value: plan.mo.mo_code }, { label: 'Work Order', value: row.wo.wo_code }] },
+    { height: 40, cells: [{ label: 'Manufacturing Order', value: plan.mo.mo_code }, { label: 'Work Order', value: row.wo.wo_code }] },
     {
-      height: 30,
+      height: 40,
       cells: [
         { label: 'Sequence / Work Center', value: `${row.wo.sequence} — ${row.workCenterName}` },
         // The specific routing operation (e.g. "SAW auto weld"), distinct
@@ -452,22 +558,26 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
         { label: 'Operation', value: row.operationLabel ?? '—' },
       ],
     },
+    // Mark/Quantity dropped (2026-09-21) — already shown in the Assembly
+    // List & QC table on the right, so repeating them here was pure
+    // duplication; replaced with Team (who this WO is issued to). Project/
+    // Zone dropped the same day, then restored right back to this same row
+    // the same day too ("เอา project กับ zone กลับมาไว้ที่เดิม") — unlike
+    // Mark/Quantity, nothing else on the traveler shows them.
     {
-      // Per WO, not on the manifest — a single MO can span multiple
-      // projects/zones since each WO's assembly has its own dispatch.
-      height: 30,
+      height: 40,
       cells: [
         { label: 'Project', value: `${row.projectCode} — ${row.projectName}` },
         { label: 'Zone', value: row.subZoneName ? `${row.zoneLabel} / ${row.subZoneName}` : row.zoneLabel },
       ],
     },
-    { height: 30, cells: [{ label: 'Mark', value: row.assemblyMark }, { label: 'Quantity', value: row.qty != null ? fmt2(row.qty) : '—' }] },
+    { height: 40, cells: [{ label: 'Team', value: row.assignedTo ?? '—' }] },
   ])
 
   const qrBoxX = x + gridWidth + qrGap
   page.drawRectangle({ x: qrBoxX, y: top - gridHeight, width: qrColWidth, height: gridHeight, borderColor: BLACK, borderWidth: 0.75 })
   const qrPng = await doc.embedPng(await generateWoQrPng(row.woUrl))
-  const qrSize = Math.min(qrColWidth, gridHeight) - 12 * 2
+  const qrSize = Math.min(qrColWidth, gridHeight) - 4 * 2
   page.drawImage(qrPng, {
     x: qrBoxX + (qrColWidth - qrSize) / 2,
     y: top - gridHeight + (gridHeight - qrSize) / 2,
@@ -479,20 +589,35 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
 
 // This WO's own share of material consumption (same formulas as the
 // manifest's MO-wide Consume table, evaluated against just this WO), with
-// an "Actual" hand-fill column, plus Requested By / Responsible sign
-// boxes beside it. Fills its `slotHeight` exactly (see fitTableRows).
-function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number, slotHeight: number): void {
+// an "Actual" hand-fill column, plus Requested By / Responsible sign boxes
+// beside it. Fixed at 6 rows (2026-09-21), not sized off the space left in
+// the column (unlike Activities below it, or the right column's Assembly
+// List & QC) — sits in the middle of the left column, not at its bottom,
+// so there's no "last line" of its own to line up with anything. Returns
+// the actual height drawn (band + table) so the caller can pull Production
+// Time/Activities up snug against Consume's real bottom edge.
+function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): number {
   const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Consume')
   const signWidth = 140
-  const { capacity, rowHeight } = fitTableRows(slotHeight - bandHeight, row.consume.length, LIST_ROW_HEIGHT, LIST_MIN_ROW_HEIGHT)
+  // Fixed at 6 rows (2026-09-21) — was fill-the-slot via fitTableRows; the
+  // sign boxes to the right are sized off tableHeight below, so they shrink
+  // to match automatically. Left-over slot height is simply blank page,
+  // same trade-off already accepted for the QC table's 3-round cap.
+  const capacity = 6
+  const rowHeight = CONSUME_ROW_HEIGHT
   const cols = layoutColumns([['Code', 100], ['Material', 300], ['Qty', 70], ['Unit', 50], ['Actual', 90]], x, width - signWidth)
   const tableHeight = drawCappedTable(page, fonts, cols, top - bandHeight, rowHeight, capacity, row.consume.map(item => ({
-    values: [item.code, item.name, fmt2(item.qty), item.unit ?? '—', ''],
+    values: [item.code, item.name, fmt0(item.qty), item.unit ?? '—', ''],
   })))
+  // Each sign box is itself split top/bottom (2026-09-21) — signature above,
+  // date/time below — rather than one open box per person.
   drawFormGrid(page, fonts, x + width - signWidth, top - bandHeight, signWidth, [
-    { height: tableHeight / 2, cells: [{ label: 'Requested By' }] },
-    { height: tableHeight / 2, cells: [{ label: 'Responsible' }] },
+    { height: tableHeight / 4, cells: [{ label: 'Requested By' }] },
+    { height: tableHeight / 4, cells: [{ label: 'Date/Time' }] },
+    { height: tableHeight / 4, cells: [{ label: 'Responsible' }] },
+    { height: tableHeight / 4, cells: [{ label: 'Date/Time' }] },
   ])
+  return bandHeight + tableHeight
 }
 
 // Who's on the job, plus planned vs actual timing. Plan Start/Finish come
@@ -513,7 +638,7 @@ function drawProductionTime(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRo
       cells: [
         { label: 'Plan Start', value: formatPlanDateTime(row.planStart) },
         { label: 'Plan Finish', value: formatPlanDateTime(row.planEnd) },
-        { label: 'Plan Duration', value: `${fmt2(row.wo.setup_time_min)} + ${fmt2(row.wo.expected_duration_min)} = ${fmt2(plannedTotal)} min` },
+        { label: 'Plan Duration', value: `${fmt0(plannedTotal)} min` },
       ],
     },
     { height: rowHeight, cells: [{ label: 'Actual Start' }, { label: 'Actual Finish' }, { label: 'Actual Duration' }] },
@@ -524,65 +649,119 @@ function drawProductionTime(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRo
 // (computeActivityDuration — same math the WO was created with), so the
 // floor can check the planned activity list for completeness. An
 // "unresolved" activity (no time formula could be computed) is flagged in
-// red rather than shown as an indistinguishable "0 min". Fills its
-// `slotHeight` exactly (see fitTableRows) — rows shrink before any get
-// capped, since hiding planned steps defeats the point of the list.
-function drawActivities(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number, slotHeight: number): void {
+// red rather than shown as an indistinguishable "0 min". Fixed-size table,
+// same as Consume — see the capacity/rowHeight comment below for the
+// trade-off this replaced (used to shrink rows rather than ever cap them).
+function drawActivities(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): void {
   const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Activities')
-  const { capacity, rowHeight } = fitTableRows(slotHeight - bandHeight, row.activities.length, LIST_ROW_HEIGHT, LIST_MIN_ROW_HEIGHT)
+  const bodyTop = top - bandHeight
+  // Capacity computed from the space actually left down to MARGIN, same
+  // "fill exactly to the bottom margin" idiom as drawAssemblyAndQcChunk on
+  // the right column (2026-09-22: "เส้นสุดท้ายของ column กับ activity ควร
+  // เท่ากัน" — Activities is the left column's last block, so its bottom
+  // border should land on the same line as the right column's, not
+  // wherever a fixed row count happens to end). Was a fixed 10 rows,
+  // grown/trimmed by hand each time something above it changed height —
+  // this replaces that guesswork with the same self-adjusting formula.
+  // Still trades away the original "never hide a planned step" rule below:
+  // a WO with more real activities than fit falls back to "+N more (see
+  // QR)", same as any other capped table, instead of shrinking rows
+  // further to show every one.
+  //
+  // drawCappedTable draws its own header AT `rowHeight` (not a separate
+  // fixed header height like drawGroupedHeader's compact mode) — so the
+  // space split has to reserve a `+1`th row for it, or the table overshoots
+  // MARGIN by one whole rowHeight (caught 2026-09-22 by rendering and
+  // comparing against the right column's own line, not from the formula
+  // alone — see the vertical-centering investigation earlier for why
+  // that's the reliable way to check this kind of thing).
+  const totalRows = Math.max(2, Math.floor((bodyTop - MARGIN) / CONSUME_ROW_HEIGHT))
+  const capacity = totalRows - 1
+  const rowHeight = (bodyTop - MARGIN) / totalRows
   const cols = layoutColumns([['Activity', 380], ['Type', 80], ['Planned Min', 130], ['Actual', 130]], x, width)
-  drawCappedTable(page, fonts, cols, top - bandHeight, rowHeight, capacity, row.activities.map(act => ({
-    values: [act.name, act.kind, act.unresolved ? 'unresolved' : fmt2(act.minutes), ''],
+  drawCappedTable(page, fonts, cols, bodyTop, rowHeight, capacity, row.activities.map(act => ({
+    values: [act.name, act.kind, act.unresolved ? 'unresolved' : fmt0(act.minutes), ''],
     color: act.unresolved ? rgb(0.78, 0.13, 0.16) : undefined,
   })))
 }
 
-// Right column: two separate tables side by side, sharing one set of
-// ruled rows that run all the way down to the bottom margin (2026-09-16
-// feedback — replaces a single combined table + a Notes box):
-//   Assembly List — the WO's assembly (mark, name, qty, per-piece weight)
-//     on the first row; deliberately no part breakdown ("เอา part ออก
-//     เอาไว้แค่ assembly" — parts are on the manifest's Assembly Part
-//     List).
-//   QC — a hand-fill check log, one row per check: Self-check (Date, Qty)
-//     and QC (Qty, Passed, Not Passed, Signature, Note). Passed / Not
-//     Passed are plain blank cells, so a tick or a count both fit.
-const RECORD_ROW_HEIGHT = 24
-// Assembly List only ever holds one filled row; the QC log is where people
-// write, so it takes the larger share.
-const ASSEMBLY_TABLE_SHARE = 0.3
-const ASSEMBLY_QC_GAP = 10
+// Right column: Assembly List & QC — one row per mark on this WO, each
+// identifying one assembly (Mark/Name/Qty/Weight) plus its own QC log
+// capped at 3 rounds (Result + Signature, each split top/bottom via
+// drawSplitCell) and a shared Note cell. No more "Self-check" block.
+//
+// One row per mark, not one page per mark (2026-09-21: "ทุก assembly ต้อง
+// รวมอยู่ใน wo เดียวกัน") — a multi-mark WO used to print a separate
+// traveler page per mark; now every mark goes on ONE table together.
+// That table is never capped (2026-09-21 follow-up: "ต้องแสดง assembly
+// list ทั้งหมด" — a WO with 10 marks must show all 10, not "+5 more") — it
+// chunks across as many pages as it needs; drawAssemblyAndQcChunk draws one
+// page's worth and returns how many marks it placed, and buildTravelerPage
+// loops it until every mark is shown.
+const RECORD_ROW_HEIGHT = 50
 
-function drawAssemblyAndQcRecord(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): void {
-  const assemblyWidth = (width - ASSEMBLY_QC_GAP) * ASSEMBLY_TABLE_SHARE
-  const qcX = x + assemblyWidth + ASSEMBLY_QC_GAP
-  const qcWidth = x + width - qcX
+// A cell split top/bottom by one divider line, each half carrying its own
+// small label (2026-09-21) — the "Requested By / Date-Time" sign boxes in
+// Consume started this pattern; Result (Passed/Not) and Signature
+// (Signature/Date-Time) below reuse it instead of spending a whole separate
+// column on what's really a second, secondary field.
+function drawSplitCell(page: PDFPage, fonts: Fonts, col: TableColumn, bodyTop: number, rowHeight: number, topLabel: string, bottomLabel: string): void {
+  const midY = bodyTop - rowHeight / 2
+  page.drawLine({ start: { x: col.x, y: midY }, end: { x: col.x + col.w, y: midY }, thickness: 0.5, color: GRAY })
+  page.drawText(topLabel, { x: col.x + 3, y: bodyTop - 10, size: 6, font: fonts.regular, color: GRAY })
+  page.drawText(bottomLabel, { x: col.x + 3, y: midY - 10, size: 6, font: fonts.regular, color: GRAY })
+}
 
-  drawSectionBand(page, fonts, x, top, assemblyWidth, 'Assembly List')
-  drawSectionBand(page, fonts, qcX, top, qcWidth, 'QC')
+// Draws as many mark rows as fit between `top` and the bottom margin,
+// stretching RECORD_ROW_HEIGHT slightly to exactly fill that space (same
+// "compute capacity from space, then stretch to fill" idiom as
+// drawMoAssemblyList's own drawChunk on the manifest) — returns how many it
+// placed so the caller can continue with the remainder on another page.
+// Repeated-column-group shape (Result/Signature × 1st/2nd/3rd, one shared
+// Note column) matches the manifest's Assembly Part List withdrawal rounds.
+function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, marks: MoPrintAssemblyMarkRow[], x: number, top: number, width: number, title: string): number {
+  drawSectionBand(page, fonts, x, top, width, title)
   const headerTop = top - SECTION_BAND_HEIGHT
-  const bodyTop = headerTop - HEADER_ROW_HEIGHT * 2
-  const rowCount = Math.floor((bodyTop - MARGIN) / RECORD_ROW_HEIGHT)
-  const rowHeight = (bodyTop - MARGIN) / rowCount
+  const bodyTop0 = headerTop - HEADER_ROW_HEIGHT
 
-  const assemblyCols = layoutColumns([['Mark', 70], ['Name', 60], ['Qty', 30], ['Weight (kg)', 50]], x, assemblyWidth)
-  drawRuledTable(page, fonts, assemblyCols, [], headerTop, rowHeight, rowCount)
-  const firstRow = [
-    row.assemblyMark,
-    row.assemblyName ?? '—',
-    row.qty != null ? fmt2(row.qty) : '—',
-    row.assemblyWeightKg != null ? fmt2(row.assemblyWeightKg) : '—',
-  ]
-  firstRow.forEach((value, i) => {
-    const c = assemblyCols[i]
-    page.drawText(value, { x: c.x + 3, y: bodyTop - rowHeight / 2 - 3, size: fitTextSize(fonts.regular, value, c.w - 6, 9), font: fonts.regular, color: BLACK })
+  // Weight (kg) dropped (2026-09-22: "เอา weight ออก") — Mark/Name/Qty is
+  // now the whole identity block, so the QC round columns shift down by
+  // one slot (was 4-9, now 3-8; Note was 10, now 9).
+  const cols = layoutColumns([
+    ['Mark', 70], ['Name', 60], ['Qty', 30],
+    ['Result', 45], ['Signature', 70],
+    ['Result', 45], ['Signature', 70],
+    ['Result', 45], ['Signature', 70],
+    ['Note', 70],
+  ], x, width)
+  const qcRounds: ColumnGroup[] = ['1st', '2nd', '3rd'].map((nth, i) => ({ label: nth, first: 3 + i * 2, last: 4 + i * 2 }))
+
+  const capacity = Math.max(1, Math.floor((bodyTop0 - MARGIN) / RECORD_ROW_HEIGHT))
+  const rowHeight = (bodyTop0 - MARGIN) / capacity
+  drawRuledTable(page, fonts, cols, qcRounds, headerTop, rowHeight, capacity, true)
+
+  const placed = marks.slice(0, capacity)
+  placed.forEach((mark, i) => {
+    const bodyTop = bodyTop0 - rowHeight * i
+    for (const j of [3, 5, 7]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, 'Passed', 'Not')
+    for (const j of [4, 6, 8]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, 'Signature', 'Date/Time')
+    const values = [
+      mark.assemblyMark,
+      mark.name ?? '—',
+      mark.qty != null ? fmt0(mark.qty) : '—',
+    ]
+    values.forEach((value, j) => {
+      const c = cols[j]
+      const size = fitTextSize(fonts.regular, value, c.w - 6, 10)
+      // Every identity column centered horizontally (2026-09-22: "mark กับ
+      // name ด้วย" — extends the earlier Qty/Weight-only centering to
+      // Mark/Name too).
+      const x = c.x + (c.w - fonts.regular.widthOfTextAtSize(value, size)) / 2
+      // Vertically centered — same baseline formula as drawCappedTable.
+      page.drawText(value, { x, y: bodyTop - rowHeight / 2 - size * 0.35, size, font: fonts.regular, color: BLACK })
+    })
   })
-
-  const qcCols = layoutColumns([
-    ['Date', 55], ['Qty', 35],
-    ['Qty', 35], ['Passed', 40], ['Not Passed', 45], ['Signature', 70], ['Note', 70],
-  ], qcX, qcWidth)
-  drawRuledTable(page, fonts, qcCols, [{ label: 'Self-check', first: 0, last: 1 }, { label: 'QC', first: 2, last: 6 }], headerTop, rowHeight, rowCount)
+  return placed.length
 }
 
 const HEADER_ROW_HEIGHT = 14
@@ -593,17 +772,41 @@ interface ColumnGroup { label: string; first: number; last: number }
 // their columns' own labels; ungrouped labels span both rows. Draws the
 // header's column dividers too (a divider inside a group starts under the
 // group label). Returns the header's height.
-function drawGroupedHeader(page: PDFPage, fonts: Fonts, cols: TableColumn[], groups: ColumnGroup[], top: number): number {
+//
+// `compact` (2026-09-21) — one row instead of two: each group's label spans
+// its whole column range with no per-column sub-labels beneath it (the QC
+// table's split-cell labels — Passed/Not, Signature/Date-Time — already say
+// what each half is, so a second header row was pure duplication). Column
+// dividers still run the full row, including inside a group, so the body's
+// actual column boundaries stay visible.
+function drawGroupedHeader(page: PDFPage, fonts: Fonts, cols: TableColumn[], groups: ColumnGroup[], top: number, compact = false): number {
   const x = cols[0].x
   const lastCol = cols[cols.length - 1]
   const width = lastCol.x + lastCol.w - x
-  const bottom = top - HEADER_ROW_HEIGHT * 2
+  const height = compact ? HEADER_ROW_HEIGHT : HEADER_ROW_HEIGHT * 2
+  const bottom = top - height
   const groupOf = (i: number) => groups.find(g => i >= g.first && i <= g.last)
 
-  page.drawRectangle({ x, y: bottom, width, height: HEADER_ROW_HEIGHT * 2, color: rgb(0.9, 0.9, 0.9) })
+  page.drawRectangle({ x, y: bottom, width, height, color: rgb(0.9, 0.9, 0.9) })
+
+  if (compact) {
+    cols.forEach((c, i) => {
+      const g = groupOf(i)
+      if (!g || i === g.first) {
+        const label = g ? g.label : c.label
+        const labelWidth = g ? cols[g.last].x + cols[g.last].w - c.x : c.w
+        page.drawText(label, { x: c.x + 3, y: top - 10, size: fitTextSize(fonts.bold, label, labelWidth - 6, 9), font: fonts.bold, color: BLACK })
+      }
+      if (i === 0) return
+      page.drawLine({ start: { x: c.x, y: top }, end: { x: c.x, y: bottom }, thickness: 0.75, color: BLACK })
+    })
+    page.drawLine({ start: { x, y: bottom }, end: { x: x + width, y: bottom }, thickness: 0.75, color: BLACK })
+    return height
+  }
+
   cols.forEach((c, i) => {
     const y = groupOf(i) ? bottom + 4 : bottom + HEADER_ROW_HEIGHT - 3
-    page.drawText(c.label, { x: c.x + 3, y, size: fitTextSize(fonts.bold, c.label, c.w - 6, 8), font: fonts.bold, color: BLACK })
+    page.drawText(c.label, { x: c.x + 3, y, size: fitTextSize(fonts.bold, c.label, c.w - 6, 9), font: fonts.bold, color: BLACK })
     if (i === 0) return
     const g = groupOf(i)
     const lineTop = g && i > g.first ? top - HEADER_ROW_HEIGHT : top
@@ -611,20 +814,20 @@ function drawGroupedHeader(page: PDFPage, fonts: Fonts, cols: TableColumn[], gro
   })
   for (const g of groups) {
     const [a, b] = [cols[g.first], cols[g.last]]
-    page.drawText(g.label, { x: a.x + 3, y: top - 10, size: 8, font: fonts.bold, color: BLACK })
+    page.drawText(g.label, { x: a.x + 3, y: top - 10, size: 9, font: fonts.bold, color: BLACK })
     page.drawLine({ start: { x: a.x, y: top - HEADER_ROW_HEIGHT }, end: { x: b.x + b.w, y: top - HEADER_ROW_HEIGHT }, thickness: 0.75, color: BLACK })
   }
   page.drawLine({ start: { x, y: bottom }, end: { x: x + width, y: bottom }, thickness: 0.75, color: BLACK })
-  return HEADER_ROW_HEIGHT * 2
+  return height
 }
 
 // drawGroupedHeader followed by `rowCount` blank ruled rows, bordered.
 // Values are drawn by the caller.
-function drawRuledTable(page: PDFPage, fonts: Fonts, cols: TableColumn[], groups: ColumnGroup[], top: number, rowHeight: number, rowCount: number): void {
+function drawRuledTable(page: PDFPage, fonts: Fonts, cols: TableColumn[], groups: ColumnGroup[], top: number, rowHeight: number, rowCount: number, compactHeader = false): void {
   const x = cols[0].x
   const lastCol = cols[cols.length - 1]
   const width = lastCol.x + lastCol.w - x
-  const headerBottom = top - drawGroupedHeader(page, fonts, cols, groups, top)
+  const headerBottom = top - drawGroupedHeader(page, fonts, cols, groups, top, compactHeader)
   const bottom = headerBottom - rowHeight * rowCount
 
   for (let r = 1; r < rowCount; r++) {
@@ -646,7 +849,7 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, cols: TableColumn[], top: 
   const x = cols[0].x
   const last = cols[cols.length - 1]
   const width = last.x + last.w - x
-  const textSize = Math.min(8, rowHeight - 5)
+  const textSize = Math.min(9, rowHeight - 5)
   const baseline = (rowTop: number) => rowTop - rowHeight / 2 - textSize * 0.35
 
   page.drawRectangle({ x, y: top - rowHeight, width, height: rowHeight, color: rgb(0.9, 0.9, 0.9) })
@@ -672,55 +875,85 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, cols: TableColumn[], top: 
   return top - y
 }
 
-// Shop drawing on its own page, right after its WO's traveler — only the
-// drawing's first page (real shop drawings in this app are single-view
-// PDFs), scaled to fill the sheet. No page border, since the drawing has
-// its own title-block frame; just the WO code in the top-left corner so a
-// sheet separated from its traveler can still be matched back to it
-// (2026-09-16, replaces the inline Shop Drawing Preview that used to fill
-// the bottom of the traveler).
-async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, row: MoPrintWorkOrderRow, drawingDoc: PDFDocument): Promise<void> {
-  const page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT])
-
-  const labelSize = 12
-  const labelY = PAGE_HEIGHT - BORDER_INSET - labelSize
-  page.drawText(row.wo.wo_code, { x: BORDER_INSET, y: labelY, size: labelSize, font: fonts.bold, color: BLACK })
-
-  const areaTop = labelY - 8
-  const areaWidth = PAGE_WIDTH - BORDER_INSET * 2
-  const areaHeight = areaTop - BORDER_INSET
+// Shop drawing on its own page, right after its WO's traveler — one page
+// PER MARK, not per WO (2026-09-22: "wo มีหลายมาก mark ทำไมถึงแสดงแค่
+// print แค่ 1 drawing ต้อง print ทุก drawing ที่มี mark" — a multi-mark WO
+// used to embed only its primary mark's drawing once; now every mark gets
+// its own page, see buildMoPrintPdf's per-mark loop). Only the drawing's
+// first page (real shop drawings in this app are single-view PDFs).
+//
+// Full-bleed, sized to the drawing's OWN native page dimensions (2026-09-23:
+// "drawing ต้องเต็มแผ่นตามของจริง" — the drawing must fill the sheet,
+// matching the real thing). Was previously fit-and-centered onto a fixed
+// A3-landscape sheet shared with the rest of the packet — since a shop
+// drawing's own title-block page is rarely A3-landscape-shaped, that always
+// left letterboxing on one axis. Now the destination PAGE itself is created
+// at the embedded drawing's exact width/height, so it draws 1:1 at (0,0)
+// with zero scaling and zero blank margin — a printed sheet that's pixel-
+// identical to opening the source drawing file on its own. PDF pages may
+// vary in size within one document; this reads fine in any viewer/printer.
+// No page border, since the drawing has its own title-block frame; the
+// corner label (WO code + this mark, so a sheet separated from its traveler
+// can still be matched back to it — mark included since a WO can now
+// produce several of these sheets) moved from top-left to BOTTOM-RIGHT the
+// same day, on the user's direct instruction, to sit clear of the drawing's
+// own content up top.
+async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow, drawingDoc: PDFDocument): Promise<void> {
   const embeddedDrawing = await doc.embedPage(drawingDoc.getPage(0))
-  const scale = Math.min(areaWidth / embeddedDrawing.width, areaHeight / embeddedDrawing.height)
-  const drawnWidth = embeddedDrawing.width * scale
-  const drawnHeight = embeddedDrawing.height * scale
-  page.drawPage(embeddedDrawing, {
-    x: BORDER_INSET + (areaWidth - drawnWidth) / 2,
-    y: BORDER_INSET + (areaHeight - drawnHeight) / 2,
-    width: drawnWidth,
-    height: drawnHeight,
+  const page = doc.addPage([embeddedDrawing.width, embeddedDrawing.height])
+  page.drawPage(embeddedDrawing, { x: 0, y: 0, width: embeddedDrawing.width, height: embeddedDrawing.height })
+
+  const label = `${row.wo.wo_code} · ${mark.assemblyMark}`
+  const labelSize = 12
+  const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
+  page.drawText(label, {
+    x: page.getWidth() - BORDER_INSET - labelWidth,
+    // A tighter margin than BORDER_INSET (2026-09-23: "เอาต่ำลงมาอีก" — move
+    // it down more) — the drawing's own title block sits right at the
+    // bottom of the sheet, so BORDER_INSET's 20pt margin still read as
+    // crowding it; this sits the label closer to the true page edge instead.
+    y: 6,
+    size: labelSize,
+    font: fonts.bold,
+    color: BLACK,
   })
 
-  drawWoWatermark(page, fonts, row)
+  drawWoWatermark(page, fonts, row, mark.assemblyMark)
 }
 
-// WO code over the mark, big translucent red type centered on the page —
-// stamped last, on top of everything, on both the drawing page and the
-// traveler (2026-09-16, from the user's hand-marked sample print) so every
-// sheet is unmistakably tied to its WO at a glance. Opacity is
-// deliberately just 8%: at the first-tried 30% the drawing linework under
-// the letters tinted dark red on pink and read as unclear — the user
-// compared 30%/multiply/outline variants and picked this. Sized so the
-// wider line spans half the page, capped for short codes.
-function drawWoWatermark(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow): void {
-  const lines = [row.wo.wo_code, row.assemblyMark]
+// Big translucent red type centered on the page — stamped last, on top of
+// everything, on every page of the packet (2026-09-16, from the user's
+// hand-marked sample print, for the WO/drawing pages; extended 2026-09-23 —
+// "mo ทุกหน้าต้องมี ลายน้ำเป็น mo ด้วยทุกหน้า" — to every MO-section page
+// too: buildManifestPage, the Assembly List's continuation pages, and every
+// page buildAssemblyPartsPages adds, none of which had any watermark at
+// all before). Opacity is deliberately just 8%: at the first-tried 30% the
+// drawing linework under the letters tinted dark red on pink and read as
+// unclear — the user compared 30%/multiply/outline variants and picked
+// this. Sized so the widest line spans most of the page, capped for short
+// codes — enlarged 2026-09-23 ("ขยายขนาดลายน้ำเพิ่มขึ้นอีก ทั้ง mo wo", the
+// same message that asked for the MO watermark) from a 110pt/50%-of-width
+// cap to 160pt/70%.
+//
+// Reads the PAGE's own width/height (pdf-lib's page.getWidth()/getHeight()),
+// not the module-level PAGE_WIDTH/PAGE_HEIGHT constants — traveler/manifest
+// pages are always exactly that fixed A3-landscape size so this was a no-op
+// distinction until 2026-09-23, when drawing pages (buildDrawingPage) started
+// varying in size to match each embedded drawing's own dimensions; using the
+// constants here would then center the watermark on the WRONG box.
+function drawWatermark(page: PDFPage, fonts: Fonts, lines: string[]): void {
+  const pageWidth = page.getWidth()
+  const pageHeight = page.getHeight()
   const widestAt1pt = Math.max(...lines.map(line => fonts.bold.widthOfTextAtSize(line, 1)))
-  const size = Math.min(110, (PAGE_WIDTH * 0.5) / widestAt1pt)
+  const size = Math.min(160, (pageWidth * 0.7) / widestAt1pt)
   const lineGap = size * 1.1
   lines.forEach((line, i) => {
     page.drawText(line, {
-      x: (PAGE_WIDTH - fonts.bold.widthOfTextAtSize(line, size)) / 2,
-      // Centers the two-line block vertically (0.35 ≈ half a cap height).
-      y: PAGE_HEIGHT / 2 + lineGap * (0.5 - i) - size * 0.35,
+      x: (pageWidth - fonts.bold.widthOfTextAtSize(line, size)) / 2,
+      // Centers the block vertically (0.35 ≈ half a cap height); a single
+      // line collapses to just pageHeight/2 - size*0.35 since lineGap*0.5
+      // is then the whole offset for i=0.
+      y: pageHeight / 2 + lineGap * ((lines.length - 1) / 2 - i) - size * 0.35,
       size,
       font: fonts.bold,
       color: rgb(0.85, 0.1, 0.1),
@@ -729,16 +962,40 @@ function drawWoWatermark(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow):
   })
 }
 
+// `markCode` (optional) adds a second line below the WO code — omitted on
+// the traveler (2026-09-21: "ลายน้ำ ทั้งหมดใน wo ใส่แค่ wo พอ ไม่ต้องใส่
+// mark ของ assembly" — a traveler covers every mark on the WO via Assembly
+// List & QC, so the watermark there just needs the WO code), but back on
+// 2026-09-22 for the drawing page specifically, once that became one page
+// per mark instead of one per WO — multiple sheets sharing the same WO
+// code watermark would otherwise be indistinguishable from each other.
+function drawWoWatermark(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, markCode?: string): void {
+  drawWatermark(page, fonts, markCode ? [row.wo.wo_code, markCode] : [row.wo.wo_code])
+}
+
+// MO code, one line — every page belonging to the MO section (manifest,
+// Assembly List continuation, Assembly Part List) shares just this one
+// watermark, unlike the WO pages which stamp per-row/per-mark (2026-09-23).
+function drawMoWatermark(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan): void {
+  drawWatermark(page, fonts, [plan.mo.mo_code])
+}
+
 // Builds the full printable packet: one manifest page summarizing the MO,
-// then per WO a signable traveler page followed by that WO's matched shop
-// drawing on its own page (see buildDrawingPage). `fetchDrawingBytes` is
-// injected so this function stays pure/testable — the caller
-// (MoPrintService) owns actually reaching file storage. Callers must have
-// already resolved plan.rows against findLatestPdfForMark; this function
-// trusts every row has a drawing.
+// then per WO a signable traveler page followed by ITS MARKS' matched shop
+// drawings, one page each (see buildDrawingPage; 2026-09-22 — a WO used to
+// contribute a single drawing page from its primary mark only).
+// `fetchDrawingBytes` is injected so this function stays pure/testable —
+// the caller (MoPrintService) owns actually reaching file storage, and now
+// takes the specific mark being drawn alongside its row. Callers must have
+// already resolved plan.rows[].marks[] against findLatestPdfForMark; this
+// function trusts every mark has a drawing.
+// `includeManifest` (2026-09-21 selective print) — the MO overview page is
+// now its own toggle, independent of which WO travelers are picked, so
+// "just the MO" (no WOs) and "just some WOs, no MO page" are both valid.
 export async function buildMoPrintPdf(
   plan: MoPrintPacketPlan,
-  fetchDrawingBytes: (row: MoPrintWorkOrderRow) => Promise<Uint8Array>,
+  fetchDrawingBytes: (row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow) => Promise<Uint8Array>,
+  includeManifest = true,
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   doc.setTitle(formatPrintPacketTitle(plan.mo.mo_code, new Date()))
@@ -748,14 +1005,17 @@ export async function buildMoPrintPdf(
     bold: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Bold.ttf')), { features: FONT_FEATURES }),
   }
 
-  await buildManifestPage(doc, fonts, plan)
+  if (includeManifest) {
+    await buildManifestPage(doc, fonts, plan)
+  }
 
   for (const row of plan.rows) {
-    const drawingBytes = await fetchDrawingBytes(row)
-    const drawingDoc = await PDFDocument.load(drawingBytes)
-
     await buildTravelerPage(doc, fonts, plan, row)
-    await buildDrawingPage(doc, fonts, row, drawingDoc)
+    for (const mark of row.marks) {
+      const drawingBytes = await fetchDrawingBytes(row, mark)
+      const drawingDoc = await PDFDocument.load(drawingBytes)
+      await buildDrawingPage(doc, fonts, row, mark, drawingDoc)
+    }
   }
 
   return doc.save()
