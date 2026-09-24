@@ -10,6 +10,12 @@ interface OperatorSkill {
   level: string | null
 }
 
+export interface TeamRef {
+  id: number
+  code: string
+  name: string
+}
+
 export interface Operator {
   id: number
   code: string
@@ -17,6 +23,8 @@ export interface Operator {
   nationality: string | null
   position_raw: string | null
   start_raw: string | null
+  active: boolean
+  team: TeamRef | null
   skills: OperatorSkill[]
 }
 
@@ -41,6 +49,7 @@ export interface CreateOperatorPayload {
   nationality?: string
   position_raw?: string
   start_raw?: string
+  team_id?: number
   skills?: SkillEntryPayload[]
 }
 
@@ -50,6 +59,8 @@ export interface UpdateOperatorPayload {
   nationality?: string
   position_raw?: string
   start_raw?: string
+  team_id?: number | null
+  active?: boolean
   skills?: SkillEntryPayload[]
 }
 
@@ -60,5 +71,38 @@ export async function createOperator(payload: CreateOperatorPayload): Promise<Op
 
 export async function updateOperator(id: number, payload: UpdateOperatorPayload): Promise<Operator> {
   const res = await apiClient.patch(`/machines/operators/${id}`, payload)
+  return res.data
+}
+
+export interface Team {
+  id: number
+  code: string
+  name: string
+  active: boolean
+}
+
+export async function getTeams(): Promise<Team[]> {
+  const res = await apiClient.get('/machines/teams')
+  return res.data
+}
+
+export interface CreateTeamPayload {
+  code: string
+  name: string
+}
+
+export interface UpdateTeamPayload {
+  code?: string
+  name?: string
+  active?: boolean
+}
+
+export async function createTeam(payload: CreateTeamPayload): Promise<Team> {
+  const res = await apiClient.post('/machines/teams', payload)
+  return res.data
+}
+
+export async function updateTeam(id: number, payload: UpdateTeamPayload): Promise<Team> {
+  const res = await apiClient.patch(`/machines/teams/${id}`, payload)
   return res.data
 }
