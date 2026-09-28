@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn, MaxLength, IsArray, ValidateNested, IsInt, Min } from 'class-validator'
+import { IsString, IsOptional, IsIn, MaxLength, IsArray, ValidateNested, IsInt, IsPositive, Min } from 'class-validator'
 import { Type } from 'class-transformer'
 
 export class SkillEntryDto {
@@ -40,4 +40,9 @@ export class CreateOperatorDto {
   @ValidateNested({ each: true })
   @Type(() => SkillEntryDto)
   skills?: SkillEntryDto[]
+
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  team_id?: number
 }

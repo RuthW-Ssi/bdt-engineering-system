@@ -5,11 +5,8 @@ import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
-import {
-  OperationTemplateService,
-  CreateOperationTemplateDto,
-  UpdateOperationTemplateDto,
-} from './services/operation-template.service'
+import { OperationTemplateService } from './services/operation-template.service'
+import { CreateOperationTemplateDto, UpdateOperationTemplateDto } from './dto/operation-template.dto'
 
 @ApiTags('OperationTemplates')
 @ApiBearerAuth()

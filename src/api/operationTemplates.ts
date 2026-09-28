@@ -43,6 +43,7 @@ export interface OperationTemplateDetailDto {
   method?: string | null
   op_type_id: number | null
   workcenter_id: number | null
+  icon?: string | null
   activities: OpActDto[]
 }
 

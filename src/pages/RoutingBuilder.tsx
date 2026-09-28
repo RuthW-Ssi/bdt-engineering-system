@@ -17,6 +17,7 @@ import { useActivities } from '../hooks/useActivities'
 import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
 import { ActivityBuilderModal } from './ActivityBuilder'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import type { MarkPrefixDTO } from '../api/types'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
 
@@ -1526,7 +1527,20 @@ const LAYOUT_START = { x: 60, y: 200 }
 
 // ── MarkPrefixPicker ───────────────────────────────────────────
 
-function MarkPrefixPicker({
+// Synthetic pseudo-prefix meaning "applies to every mark prefix" — NOT a real
+// mark_prefix_master row, so it must never be sourced from useMarkPrefixes()
+// or merged into its cache. The backend treats the sentinel string 'ALL' as
+// matching every mark prefix when suggesting/matching a routing template for
+// a Manufacturing Order. Exported so tests can assert its exact shape.
+export const ALL_MARK_PREFIX_OPTION: MarkPrefixDTO = {
+  code: 'ALL',
+  label: 'ALL — ทุก Mark Prefix',
+  category: '',
+  part_type_code: '',
+  active: true,
+}
+
+export function MarkPrefixPicker({
   value, prefixes, onChange,
 }: {
   value: string
@@ -1643,6 +1657,9 @@ function RoutingBuilderInner() {
   const [templateName, setTemplateName] = useState('')
   const [productType, setProductType] = useState('')
   const { data: markPrefixes = [] } = useMarkPrefixes()
+  // Compose the picker's option list with the synthetic 'ALL' entry prepended
+  // — never mutate markPrefixes itself, it's the shared useMarkPrefixes() cache.
+  const markPrefixOptions = useMemo(() => [ALL_MARK_PREFIX_OPTION, ...markPrefixes], [markPrefixes])
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const dropDataRef = useRef<Record<string, OperationData>>({})
   const [previewMode, setPreviewMode] = useState(false)
@@ -2241,7 +2258,7 @@ const expandCtxValue = useMemo(() => ({ expandedIds, toggleExpand, expandAll, co
                 placeholder="Template name" />
               <MarkPrefixPicker
                 value={productType}
-                prefixes={markPrefixes}
+                prefixes={markPrefixOptions}
                 onChange={setProductType}
               />
               {/* Floor Plan Background — locked to factory layout (Layout-F1) */}

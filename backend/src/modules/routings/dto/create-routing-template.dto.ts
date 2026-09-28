@@ -33,6 +33,9 @@ export class UpdateRoutingTemplateDto {
   @IsString() @IsOptional() @MaxLength(60)
   name?: string
 
+  @IsString() @IsOptional() @MaxLength(20)
+  applies_to_product_type?: string
+
   @IsString() @IsOptional()
   description?: string
 

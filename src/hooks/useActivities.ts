@@ -2,10 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { activitiesApi } from '../api/activities'
 import type { CreateActivityPayload } from '../api/activities'
 
-export function useActivities(params?: Parameters<typeof activitiesApi.list>[0]) {
+export function useActivities(params?: Parameters<typeof activitiesApi.list>[0], options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['activities', params],
     queryFn: () => activitiesApi.list(params),
+    enabled: options?.enabled,
   })
 }
 

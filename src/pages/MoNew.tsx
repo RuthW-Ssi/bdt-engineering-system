@@ -14,6 +14,25 @@ import { usePermission } from '../hooks/usePermission'
 
 const PANEL: React.CSSProperties = { border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff' }
 const PANEL_SCROLL: React.CSSProperties = { ...PANEL, flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }
+const FIELD_LABEL: React.CSSProperties = {
+  fontSize: 10, fontWeight: 600, color: '#AAA',
+  textTransform: 'uppercase', letterSpacing: '0.05em',
+  marginBottom: 5,
+}
+const DATE_INPUT: React.CSSProperties = {
+  width: '100%', padding: '5px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+  color: '#555', background: '#fff', border: '1px solid #D4D4D4',
+}
+
+// Server value is a UTC ISO string; datetime-local inputs read/write in the
+// browser's own local time, so this reads it back with local getters (not
+// getUTC*) to land on the same wall-clock value the user originally picked.
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 function ColHead({ n, title, hint }: { n: number; title: string; hint?: string }) {
   return (
@@ -39,8 +58,21 @@ export function MoNew() {
   const [selected, setSelected] = useState<Record<number, { item: AssemblyPickerItem; qty: number }>>({})
   const [routingId, setRoutingId] = useState<number | null>(null)
   const [filter, setFilter] = useState<AssemblyFilter>(DEFAULT_FILTER)
-  const patchFilter = (patch: Partial<AssemblyFilter>) => setFilter(prev => ({ ...prev, ...patch }))
   const [routingName, setRoutingName] = useState<string | null>(null)
+  const [planStart, setPlanStart] = useState('')
+  const [planFinish, setPlanFinish] = useState('')
+
+  // Project/zone scope the assembly list — changing either invalidates
+  // whatever was already picked under the old scope (same reset selectPrefix
+  // does for mark prefix, 2026-09-22).
+  function patchFilter(patch: Partial<AssemblyFilter>) {
+    setFilter(prev => ({ ...prev, ...patch }))
+    if ('projectId' in patch || 'zoneId' in patch) {
+      setSelected({})
+      setRoutingId(null)
+      setRoutingName(null)
+    }
+  }
 
   // prefill once when editing (only DRAFT is editable — bounce otherwise)
   const seeded = useRef(false)
@@ -54,6 +86,8 @@ export function MoNew() {
     setMarkPrefix(existing.primary_mark_prefix_code)
     setRoutingId(existing.routing_template_id)
     setRoutingName(existing.routing_template?.name ?? null)
+    setPlanStart(toDatetimeLocal(existing.plan_start))
+    setPlanFinish(toDatetimeLocal(existing.plan_finish))
     const sel: Record<number, { item: AssemblyPickerItem; qty: number }> = {}
     for (const l of existing.assembly_lines) {
       sel[l.bom_assembly_id] = {
@@ -71,6 +105,14 @@ export function MoNew() {
       }
     }
     setSelected(sel)
+    // Only prefill when the existing draft is unambiguously single-project/
+    // zone — an older multi-project draft (predates this scoping rule) is
+    // left unset so the user picks one explicitly rather than guessing.
+    if (existing.projects_involved.length === 1 && existing.zones_involved.length === 1) {
+      const p = existing.projects_involved[0]
+      const z = existing.zones_involved[0]
+      setFilter(prev => ({ ...prev, projectId: p.id, projectName: p.name, zoneId: z.id, zoneLabel: z.label }))
+    }
   }, [isEdit, existing, editId, navigate])
 
   function selectPrefix(code: string) {
@@ -92,7 +134,8 @@ export function MoNew() {
   const lines = Object.values(selected).filter(s => s.qty > 0)
   const totalQty = lines.reduce((s, l) => s + l.qty, 0)
   const canWrite = usePermission('orders', isEdit ? 'update' : 'create')
-  const canSave = canWrite && !!markPrefix && !!routingId && lines.length > 0
+  const readyForAssemblies = !!markPrefix && !!filter.projectId && !!filter.zoneId
+  const canSave = canWrite && readyForAssemblies && !!routingId && lines.length > 0
   const saving = createMut.isPending || updateMut.isPending
 
   async function save(confirm: boolean) {
@@ -100,6 +143,11 @@ export function MoNew() {
     const payload = {
       primary_mark_prefix_code: markPrefix,
       routing_template_id: routingId,
+      // datetime-local's value has no timezone — new Date(...) reads it in
+      // the browser's own local time, so .toISOString() converts it to an
+      // unambiguous UTC instant before it leaves the client.
+      plan_start: planStart ? new Date(planStart).toISOString() : undefined,
+      plan_finish: planFinish ? new Date(planFinish).toISOString() : undefined,
       assembly_lines: lines.map(l => ({ bom_assembly_id: l.item.id, qty: l.qty })),
     }
     try {
@@ -143,18 +191,18 @@ export function MoNew() {
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <ColHead n={2} title="Mark Prefix" />
               <div style={{ flex: 1, minHeight: 0 }}>
-                <MarkPrefixGrid value={markPrefix} onChange={selectPrefix} />
+                <MarkPrefixGrid value={markPrefix} onChange={selectPrefix} projectId={filter.projectId} zoneId={filter.zoneId} />
               </div>
             </div>
           </div>
 
           {/* 3. Assemblies */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <ColHead n={3} title="Assemblies" hint={markPrefix ? 'qty ≤ remaining' : undefined} />
+            <ColHead n={3} title="Assemblies" hint={readyForAssemblies ? 'qty ≤ remaining' : undefined} />
             <div style={PANEL_SCROLL}>
-              {markPrefix
-                ? <AssemblyPicker key={markPrefix} markPrefix={markPrefix} selected={selected} onSetQty={setQty} filter={filter} />
-                : <PickFirst />}
+              {readyForAssemblies
+                ? <AssemblyPicker key={markPrefix} markPrefix={markPrefix!} selected={selected} onSetQty={setQty} filter={filter} />
+                : <PickFirst label={!filter.projectId || !filter.zoneId ? 'Select a project & zone first' : 'Select a mark prefix first'} />}
             </div>
           </div>
 
@@ -164,7 +212,20 @@ export function MoNew() {
             <div style={PANEL_SCROLL}>
               {markPrefix
                 ? <RoutingSuggestion markPrefix={markPrefix} value={routingId} onChange={(rid, name) => { setRoutingId(rid); setRoutingName(name) }} />
-                : <PickFirst />}
+                : <PickFirst label="Select a mark prefix first" />}
+            </div>
+            <div style={{ marginTop: 10, flexShrink: 0 }}>
+              <ColHead n={5} title="Plan" />
+            </div>
+            <div style={{ ...PANEL, flexShrink: 0, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div>
+                <div style={FIELD_LABEL}>Plan Start</div>
+                <input type="datetime-local" value={planStart} onChange={e => setPlanStart(e.target.value)} style={DATE_INPUT} />
+              </div>
+              <div>
+                <div style={FIELD_LABEL}>Plan Finish</div>
+                <input type="datetime-local" value={planFinish} min={planStart || undefined} onChange={e => setPlanFinish(e.target.value)} style={DATE_INPUT} />
+              </div>
             </div>
           </div>
         </div>
@@ -185,10 +246,10 @@ export function MoNew() {
   )
 }
 
-function PickFirst() {
+function PickFirst({ label }: { label: string }) {
   return (
     <div className="flex items-center justify-center" style={{ minHeight: 160, color: '#B0B0B0', fontSize: 13, border: '1px dashed #DDD', borderRadius: 8 }}>
-      Select a mark prefix first
+      {label}
     </div>
   )
 }

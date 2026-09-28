@@ -5,10 +5,12 @@ import { AlertCircle, ArrowLeft, Check, Pencil, Save, Trash2, X } from 'lucide-r
 import { toast } from 'sonner'
 import { apiClient } from '../api/client'
 import ActivityLibraryPanel from '../components/operations/ActivityLibraryPanel'
+import IconPickerField from '../components/operations/IconPickerField'
 import { useOperationTemplate, useUpdateFromLibrary } from '../hooks/useOperationTemplates'
 import { ActivityBuilderModal } from './ActivityBuilder'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { usePermission } from '../hooks/usePermission'
+import type { ActivityDto } from '../api/activities'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ interface EquipmentResource { id: number; code: string; name: string; type: stri
 interface FormState {
   op_code: string; name: string
   op_type_id: number | ''; workcenter_id: number | ''; method: string
+  icon: string | null
   activities: FormActivity[]
 }
 
@@ -89,12 +92,57 @@ export default function OperationBuilder() {
 
   const [editingActivity, setEditingActivity] = useState<{ sourceId: number; opActId: number } | null>(null)
   const [form, setForm] = useState<FormState>({
-    op_code: '', name: '', op_type_id: '', workcenter_id: '', method: '', activities: [] as FormActivity[],
+    op_code: '', name: '', op_type_id: '', workcenter_id: '', method: '', icon: null, activities: [] as FormActivity[],
   })
   const queryClient = useQueryClient()
   const patch = (p: Partial<FormState>) => setForm(f => ({ ...f, ...p }))
   const initializedRef = useRef(false)
   const updateFromLibMut = useUpdateFromLibrary(templateId ?? 0)
+
+  // Builds a draft activity row from a library Activity, mirroring exactly
+  // what OperationTemplateService.addFromLibrary() does server-side (name,
+  // measure=activity_code, per_minute=duration_min, tools/skills/consumes
+  // copied verbatim) — used to stage a pick into local form state, in BOTH
+  // create and edit mode (2026-09-25, 2nd revision): "+Add" used to persist
+  // immediately in edit mode via a separate API call, which fought with
+  // Save/Publish's own full-replace-on-save of the activities list — remove
+  // (a pure local filter, never hit an API) would appear to work but the
+  // "removed" row was never actually deleted server-side, so an immediate
+  // re-add created a genuine duplicate row; the refetch after that add then
+  // clobbered the local removal entirely. User also flagged the immediate
+  // persist itself as surprising ("ไม่กด save ก็บันทึกเพราะอะไร"). Staging
+  // locally in both modes means add/remove are symmetric, nothing persists
+  // before Save/Publish, and that single call's existing full-replace logic
+  // is the only place activities are ever written.
+  function activityToFormActivity(act: ActivityDto): FormActivity {
+    return {
+      localId: uid(),
+      name: act.name,
+      measure: act.activity_code,
+      unit: '',
+      per_minute: act.duration_min ? String(act.duration_min) : '',
+      source_activity_id: act.id,
+      source_activity_code: act.activity_code,
+      snapshot_at: new Date().toISOString(),
+      is_stale: false,
+      tools: (act.tools ?? []).map(t => ({ id: t.resource.id, qty: t.qty ?? 1 })),
+      consumables: [],
+      labors: act.skills.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
+      op_materials: act.consumes.map(c => ({
+        material_id: c.material.id, name: c.material.name, code: c.material.default_code,
+        formula_id: c.formula?.id ?? null, formula_name: c.formula?.name ?? null,
+        formula_unit: c.formula?.result_unit ?? null, formula_expr: c.formula?.expr ?? null,
+      })),
+      ratio:        act.ratio    != null ? Number(act.ratio)    : null,
+      ratio_unit:   act.ratio_unit ?? null,
+      per_time:     act.per_time != null ? Number(act.per_time) : null,
+      formula_code: act.formula_code ?? null,
+    }
+  }
+
+  function handleAddActivity(act: ActivityDto) {
+    patch({ activities: [...form.activities, activityToFormActivity(act)] })
+  }
 
   // Load existing template in edit mode
   const { data: templateDetail, isLoading: loadingTpl } = useOperationTemplate(templateId, true)
@@ -135,6 +183,7 @@ export default function OperationBuilder() {
         op_type_id:   templateDetail.op_type_id ?? '',
         workcenter_id: templateDetail.workcenter_id ?? '',
         method:       templateDetail.method ?? '',
+        icon:         templateDetail.icon ?? null,
         activities:   mapActivities(templateDetail.activities),
       })
     } else {
@@ -189,6 +238,7 @@ export default function OperationBuilder() {
     time_mode:    'by_activities',
     duration_min: null,
     formula_expr: null,
+    icon:         form.icon,
     activities:   form.activities.map((a, i) => ({
       name: a.name, measure: a.measure, unit: a.unit || null,
       per_minute: a.per_minute ? Number(a.per_minute) : null,
@@ -215,6 +265,10 @@ export default function OperationBuilder() {
     onSuccess: (data) => {
       toast.success('Operation saved')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
+      // OperationLibraryList reads ['operation-templates'] — without this,
+      // navigating there after save shows the stale op_code/name/status
+      // until refresh (found via UX audit, 2026-09-25).
+      queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
       if (isEdit) navigate('/operation-library')
       else navigate(`/operation-library/${data.id}/edit`)
     },
@@ -231,6 +285,7 @@ export default function OperationBuilder() {
     onSuccess: () => {
       toast.success('Operation published')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
+      queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
       navigate('/operation-library')
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to publish operation — please try again'); console.error(e) },
@@ -241,6 +296,7 @@ export default function OperationBuilder() {
     onSuccess: () => {
       toast.success('Operation deleted')
       queryClient.invalidateQueries({ queryKey: ['op-template-detail'] })
+      queryClient.invalidateQueries({ queryKey: ['operation-templates'] })
       navigate('/operation-library')
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete operation — please try again'); console.error(e) },
@@ -350,6 +406,10 @@ export default function OperationBuilder() {
                 <option value="">— Select type —</option>
                 {opTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.label}</option>)}
               </select>
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <div style={label}>Icon</div>
+              <IconPickerField value={form.icon} onChange={icon => patch({ icon })} />
             </div>
           </div>
 
@@ -543,12 +603,13 @@ export default function OperationBuilder() {
         {/* ── RIGHT: Activity Library (40%) ── */}
         <div style={{ flex: '0 0 40%', borderLeft: '1px solid #E0E0E0', background: '#FAFAFA', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <ActivityLibraryPanel
-            templateId={templateId}
             existingSourceIds={new Set(
-              (templateDetail?.activities ?? [])
+              form.activities
                 .map(a => a.source_activity_id)
                 .filter((id): id is number => id !== null)
             )}
+            operationTypeId={form.op_type_id ? Number(form.op_type_id) : null}
+            onAdd={handleAddActivity}
           />
         </div>
       </div>

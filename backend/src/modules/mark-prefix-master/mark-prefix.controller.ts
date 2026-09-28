@@ -12,8 +12,16 @@ export class MarkPrefixController {
 
   @Get('with-pending-count')
   @ApiOperation({ summary: 'T-MO.03 · mark prefixes + pending BOM count (MO form Section 1)' })
-  withPendingCount() {
-    return this.svc.withPendingCount()
+  @ApiQuery({ name: 'project_id', required: false })
+  @ApiQuery({ name: 'zone_id', required: false })
+  withPendingCount(
+    @Query('project_id') project_id?: string,
+    @Query('zone_id') zone_id?: string,
+  ) {
+    return this.svc.withPendingCount({
+      project_id: project_id ? Number(project_id) : undefined,
+      zone_id: zone_id ? Number(zone_id) : undefined,
+    })
   }
 
   @Get()

@@ -23,7 +23,19 @@ export class UpdateMoDto {
 
   @IsOptional()
   @IsISO8601()
-  due_date?: string
+  plan_start?: string
+
+  @IsOptional()
+  @IsISO8601()
+  plan_finish?: string
+
+  @IsOptional()
+  @IsISO8601()
+  actual_start?: string
+
+  @IsOptional()
+  @IsISO8601()
+  actual_finish?: string
 
   @IsOptional()
   @IsArray()

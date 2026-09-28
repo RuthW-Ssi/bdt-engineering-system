@@ -19,9 +19,11 @@ import { JwtPayload } from '../auth/auth.service'
 import { WorkOrdersService } from './work-orders.service'
 import { ScheduleService } from './schedule.service'
 import { WoBimMatchService } from './wo-bim-match.service'
-import { UpdateWoDto } from './dto/update-wo.dto'
-import { WoDoneDto, WoNoteDto, WoReasonDto } from './dto/wo-transition.dto'
+import { CancelWoDto, WoDoneDto, WoNoteDto, WoReasonDto } from './dto/wo-transition.dto'
+import { RemoveMarkDto } from './dto/remove-mark.dto'
 import { AcceptVersionDto } from './dto/accept-version.dto'
+import { UpdateConsumeDto } from './dto/update-consume.dto'
+import { UpdatePartsDto } from './dto/update-parts.dto'
 
 @ApiTags('Work Orders')
 @ApiBearerAuth()
@@ -37,7 +39,7 @@ export class WorkOrdersController {
   @Get()
   @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'List WOs · filter status|mo_id|work_center_id|mark_prefix_code · search wo_code' })
-  @ApiQuery({ name: 'status', required: false, enum: ['NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'DONE', 'CANCELLED'] })
+  @ApiQuery({ name: 'status', required: false, enum: ['NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'ON_HOLD', 'DONE', 'CANCELLED'] })
   @ApiQuery({ name: 'mo_id', required: false })
   @ApiQuery({ name: 'work_center_id', required: false })
   @ApiQuery({ name: 'mark_prefix_code', required: false })
@@ -69,7 +71,7 @@ export class WorkOrdersController {
 
   @Get(':id')
   @RequiresPermission('orders', 'view')
-  @ApiOperation({ summary: 'WO detail + MO context + operation snapshot + snapshot dispatch' })
+  @ApiOperation({ summary: 'WO detail + MO context + operation snapshot + per-mark snapshot dispatch/qty/bom-version status' })
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.svc.findOne(id)
   }
@@ -79,17 +81,6 @@ export class WorkOrdersController {
   @ApiOperation({ summary: 'WO event log (newest first)' })
   getEvents(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getEvents(id)
-  }
-
-  @Patch(':id')
-  @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'Edit WO (NOT_STARTED only · 409 otherwise)' })
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateWoDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.svc.update(id, dto, user.login)
   }
 
   // ── Status transitions (T-WO.05) · invalid → 409 with allowed_next[] ─────────
@@ -106,7 +97,7 @@ export class WorkOrdersController {
 
   @Post(':id/start')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'RELEASED → IN_PROGRESS · sets actual_start_at · event=START' })
+  @ApiOperation({ summary: 'RELEASED → IN_PROGRESS · sets actual_start · event=START' })
   start(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoNoteDto,
@@ -128,35 +119,48 @@ export class WorkOrdersController {
 
   @Post(':id/resume')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'PAUSED → IN_PROGRESS · event=RESUME' })
+  @ApiOperation({ summary: 'PAUSED → IN_PROGRESS (event=RESUME), OR ON_HOLD → restores pre_hold_status (event=UNHOLD) — branches on current status' })
   resume(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoNoteDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.transition(id, 'resume', dto, user.login)
+    return this.svc.resume(id, dto, user.login)
+  }
+
+  // Manual hold (multi-mark redesign, 2026-09-17) — factory admin/manager action
+  // only, never auto-triggered by BOM uploads any more.
+  @Post(':id/hold')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Any non-terminal status → ON_HOLD · requires reason · captures pre_hold_status · event=HOLD' })
+  hold(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: WoReasonDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.transition(id, 'hold', dto, user.login)
   }
 
   @Post(':id/done')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'IN_PROGRESS|PAUSED → DONE · requires qty_done · sets actual_end_at · event=DONE' })
+  @ApiOperation({ summary: 'IN_PROGRESS|PAUSED → DONE · body.marks[] must cover every non-removed mark · event=DONE (whole-WO)' })
   done(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoDoneDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.transition(id, 'done', dto, user.login)
+    return this.svc.done(id, dto, user.login)
   }
 
   @Post(':id/cancel')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'any ≠ DONE → CANCELLED · requires reason · event=CANCEL · cascades to no-output sibling WOs (same mo_id+bom_assembly_id)' })
+  @ApiOperation({ summary: 'any non-terminal → CANCELLED · requires reason + per-mark QC breakdown (mark_disposition[]: qty_qc_passed/qty_rework/qty_renew) for marks with output · event=CANCEL · cascades to no-output sibling WOs sharing a mark' })
   cancel(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: WoReasonDto,
+    @Body() dto: CancelWoDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.transition(id, 'cancel', dto, user.login)
+    return this.svc.cancel(id, dto, user.login)
   }
 
   @Get(':id/cancel-siblings')
@@ -166,17 +170,59 @@ export class WorkOrdersController {
     return this.svc.cancelSiblings(id)
   }
 
-  // ── BOM Version Alert (T-WO.04) ──────────────────────────────────────────────
+  // Multi-mark redesign (2026-09-17): removes ONE mark from a WO, distinct from
+  // cancelling the whole WO above. The WO's last non-removed mark cannot be
+  // removed this way — cancel the whole WO instead in that case.
+  @Post(':id/remove-mark')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Soft-remove one mark from this WO · requires reason + QC breakdown (qty_qc_passed/qty_rework/qty_renew) if that mark has output · 400 if it is the WO\'s last mark · cascades to no-output sibling WOs carrying the same mark · event=MARK_REMOVED' })
+  removeMark(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RemoveMarkDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.removeMark(id, dto, user.login)
+  }
+
+  // Plan-vs-actual material consume (2026-09-17): qty_planned is computed
+  // automatically (WorkOrderAutoCreateService.recomputeConsume, on create/add-marks/
+  // remove-mark/accept-new-version); this route records the real qty_actual —
+  // no upper bound, real usage can exceed the plan.
+  @Patch(':id/consume')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Record actual material usage per material_id (no cap vs the planned qty) · 400 if a material_id isn\'t already planned on this WO' })
+  updateConsume(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateConsumeDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateConsumeActuals(id, dto, user.login)
+  }
+
+  // Part withdrawal — plan vs actual (2026-09-17), same shape as /consume above
+  // but for bom_assembly_part rows (WorkOrderAutoCreateService.recomputeParts).
+  @Patch(':id/parts')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Set part withdrawal weight_kg per bom_assembly_part_id — no plan to compare against, whatever is sent is authoritative · 400 if a part isn\'t already planned on this WO' })
+  updateParts(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdatePartsDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updatePartActuals(id, dto, user.login)
+  }
+
+  // ── BOM Version Alert (T-WO.04) — now per-mark ───────────────────────────────
   @Get(':id/bom-version-status')
   @RequiresPermission('orders', 'view')
-  @ApiOperation({ summary: 'is_outdated + delta_types (REMOVED|QTY_CHANGED|SPEC_CHANGED)' })
+  @ApiOperation({ summary: 'Per-mark array: is_outdated + delta_types (REMOVED|QTY_CHANGED|SPEC_CHANGED) for every non-removed mark on this WO' })
   bomVersionStatus(@Param('id', ParseIntPipe) id: number) {
     return this.svc.bomVersionStatus(id)
   }
 
   @Post(':id/accept-new-version')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'Move bom_dispatch_id_snapshot to latest + event=ACCEPT_VERSION · note required + qty_reusable conditional when resolving ON_HOLD' })
+  @ApiOperation({ summary: 'Per-mark (body.bom_assembly_id selects which): move that mark to the latest version + event=ACCEPT_VERSION · optional apply_to_other_wos to propagate to sibling WOs\' matching mark · QC breakdown (qty_qc_passed/qty_rework/qty_renew) required if qty_done exceeds the new qty' })
   acceptNewVersion(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AcceptVersionDto,
@@ -202,9 +248,18 @@ export class WorkOrdersController {
   // Deliberately UNGATED, same reasoning as `:id/schedule` right above — this
   // resolves a read-only rendering aid for a WO you already passed `orders`
   // view to load via `GET /wo/:id`, not a separate permission surface.
+  //
+  // `bom_assembly_id` (multi-mark redesign, 2026-09-17): wires the frontend's
+  // Visual tab mark-selector through to WoBimMatchService.getBimMatch's
+  // already-supported second argument — omitted, it falls back to the WO's
+  // first non-removed mark (see that service's own doc comment).
   @Get(':id/bim-match')
-  @ApiOperation({ summary: 'Resolve this WO\'s assembly mark to a BIM model + isolated global_id for the Visual tab' })
-  getBimMatch(@Param('id', ParseIntPipe) id: number) {
-    return this.bimMatch.getBimMatch(id)
+  @ApiOperation({ summary: 'Resolve one of this WO\'s marks (default: first) to a BIM model + isolated global_id for the Visual tab' })
+  @ApiQuery({ name: 'bom_assembly_id', required: false })
+  getBimMatch(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('bom_assembly_id') bomAssemblyId?: string,
+  ) {
+    return this.bimMatch.getBimMatch(id, bomAssemblyId ? Number(bomAssemblyId) : undefined)
   }
 }

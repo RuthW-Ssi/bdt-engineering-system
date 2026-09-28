@@ -85,24 +85,21 @@ export function AssemblyPicker({
 
   const groups = useMemo(() => {
     const raw = data?.groups ?? []
-    const allItems = raw.flatMap(g => g.items)
+    const matchesProjectZone = (it: AssemblyPickerItem) =>
+      (filter.projectName == null || it.project === filter.projectName) &&
+      (filter.zoneLabel == null || it.zone === filter.zoneLabel)
+    const allItems = raw.flatMap(g => g.items).filter(matchesProjectZone)
 
     const baseGroups: AssemblyPickerGroup[] = filter.groupBy === 'none' || filter.sortBy === 'mark'
       ? [{ key: null, label: 'All', bom_version: null, project_due_date: null, zone_end_date: null, sub_zone_due_date: null, items: allItems }]
       : raw
+          .map(g => ({ ...g, items: g.items.filter(matchesProjectZone) }))
+          .filter(g => g.items.length > 0)
 
     const filtered = baseGroups.filter(g => {
       // hide groups with null value for the selected sort level
       if (filter.sortBy === 'subzone' && g.key?.subzone == null) return false
       if (filter.sortBy === 'zone'    && g.key?.zone    == null) return false
-      // urgency filter — always against the zone end date, regardless of
-      // grouping level (no more project/zone/sub-zone due-date split).
-      if (filter.urgentDays === null && !filter.showOverdue) return true
-      const days = daysUntil(g.zone_end_date)
-      if (days === null) return true
-      if (filter.urgentDays !== null && filter.showOverdue) return days <= filter.urgentDays
-      if (filter.urgentDays !== null) return days >= 0 && days <= filter.urgentDays
-      if (filter.showOverdue) return days < 0
       return true
     })
 
@@ -145,12 +142,7 @@ export function AssemblyPicker({
   return (
     <div>
       <div className="flex items-center" style={{ marginBottom: 10 }}>
-        <span style={{ fontSize: 12, color: '#777' }}>{totalItems} assemblies</span>
-        {(filter.urgentDays !== null || filter.showOverdue) && (
-          <span style={{ fontSize: 11, color: '#C8202A', marginLeft: 8 }}>
-            · showing {groups.reduce((s, g) => s + g.items.length, 0)} filtered
-          </span>
-        )}
+        <span style={{ fontSize: 12, color: '#777' }}>{visibleItems.length} assemblies</span>
         <div style={{ flex: 1 }} />
         {visibleItems.length > 0 && (
           <div style={{ display: 'flex', gap: 4 }}>
@@ -170,7 +162,9 @@ export function AssemblyPicker({
 
       {totalItems === 0 ? (
         <div style={{ color: '#8E8E8E', fontSize: 13, padding: '12px 0' }}>No assemblies available for this mark prefix.</div>
-      ) : groups.length === 0 ? null : (
+      ) : groups.length === 0 ? (
+        <div style={{ color: '#8E8E8E', fontSize: 13, padding: '12px 0' }}>No assemblies for this mark prefix in the selected project/zone.</div>
+      ) : (
         groups.map((g, gi) => {
           const gkey = `${gi}::${g.label}`
           const isCollapsed = collapsed.has(gkey)

@@ -5,8 +5,11 @@ import { WoBimMatchService } from './wo-bim-match.service'
 function makePrisma(overrides: Record<string, unknown> = {}) {
   return {
     work_order: {
+      // A WO now spans marks[] (work_order_mark, 2026-09-17 multi-mark
+      // redesign) — findUnique's select pre-filters to non-removed marks,
+      // so every mark handed back here is assumed printable/matchable.
       findUnique: jest.fn().mockResolvedValue({
-        bom_assembly: { assembly_mark: 'TC-CO3', dispatch: { project_id: 1 } },
+        marks: [{ bom_assembly_id: 2868, bom_assembly: { assembly_mark: 'TC-CO3', dispatch: { project_id: 1 } } }],
       }),
     },
     bim_model: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -123,5 +126,54 @@ describe('WoBimMatchService.getBimMatch', () => {
     expect(result.status).toBe('ok')
     expect(result.global_id).toBe('guid-first')
     expect(result.match_count).toBe(3)
+  })
+
+  // Multi-mark redesign (2026-09-17): a WO can now span several marks —
+  // bomAssemblyId lets a caller (a future frontend mark-selector) request a
+  // specific one instead of always matching the first.
+  describe('bomAssemblyId parameter', () => {
+    function makeMultiMarkPrisma(overrides: Record<string, unknown> = {}) {
+      return makePrisma({
+        work_order: {
+          findUnique: jest.fn().mockResolvedValue({
+            marks: [
+              { bom_assembly_id: 2868, bom_assembly: { assembly_mark: 'TC-CO3', dispatch: { project_id: 1 } } },
+              { bom_assembly_id: 2869, bom_assembly: { assembly_mark: 'TC-CO9', dispatch: { project_id: 1 } } },
+            ],
+          }),
+        },
+        bim_model: { findFirst: jest.fn().mockResolvedValue(null) },
+        ...overrides,
+      })
+    }
+
+    it('defaults to the WO\'s first non-removed mark when omitted', async () => {
+      const svc = new WoBimMatchService(makeMultiMarkPrisma())
+
+      const result = await svc.getBimMatch(1)
+
+      expect(result.mark).toBe('TC-CO3')
+    })
+
+    it('matches the requested mark when bomAssemblyId is given', async () => {
+      const svc = new WoBimMatchService(makeMultiMarkPrisma())
+
+      const result = await svc.getBimMatch(1, 2869)
+
+      expect(result.mark).toBe('TC-CO9')
+    })
+
+    it('throws NotFoundException when bomAssemblyId does not match any mark on the WO', async () => {
+      const svc = new WoBimMatchService(makeMultiMarkPrisma())
+
+      await expect(svc.getBimMatch(1, 9999)).rejects.toThrow(NotFoundException)
+    })
+
+    it('throws NotFoundException when the WO has no non-removed marks', async () => {
+      const prisma = makePrisma({ work_order: { findUnique: jest.fn().mockResolvedValue({ marks: [] }) } })
+      const svc = new WoBimMatchService(prisma)
+
+      await expect(svc.getBimMatch(1)).rejects.toThrow(NotFoundException)
+    })
   })
 })

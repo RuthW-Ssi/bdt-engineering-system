@@ -10,9 +10,13 @@ const LIMIT = 10
 
 const STATUSES: (MoStatus | 'ALL')[] = ['ALL', 'DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'DONE', 'CANCELLED']
 
+// plan_start/plan_finish are real instants (timestamptz, date+time) — shown
+// here as just the date for a compact list row, in the browser's own local
+// time (not forced UTC) so the calendar day matches what was actually
+// picked, not its UTC-shifted equivalent.
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 export function MoList() {
@@ -99,7 +103,7 @@ export function MoList() {
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>
                 <span><strong style={{ color: '#333' }}>{mo.assembly_count}</strong> assemblies</span>
                 <span><strong style={{ color: '#333' }}>{mo.operation_count}</strong> ops</span>
-                <span>Due: <strong style={{ color: '#333' }}>{fmtDate(mo.due_date)}</strong></span>
+                <span>Plan: <strong style={{ color: '#333' }}>{fmtDate(mo.plan_start)} – {fmtDate(mo.plan_finish)}</strong></span>
               </div>
               <MoStatusPill status={mo.status} />
               <ChevronRight size={16} style={{ color: '#C2C2C2', flexShrink: 0 }} />
