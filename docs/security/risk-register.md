@@ -343,6 +343,52 @@
   needed, comment updated with the verified count. See findings file's
   "Resolution" section for full detail.
 
+### R-015 · API3:2023-adjacent / A03:2021 — interface-typed request-body DTOs silently bypass the global ValidationPipe
+
+- **OWASP:** API3:2023 (Broken Object Property Level Authorization),
+  cross-referenced with A03:2021's input-validation principle
+- **Impact:** Medium-High depending on the field — the endpoint has *no*
+  request-body validation at all, not a narrower gap on one field. Impact
+  for any given field depends entirely on how that field's value is used
+  downstream (see the confirmed-safe case below); a future field added to
+  the same interface without checking how it's consumed could land
+  anywhere from harmless to a real injection/type-confusion path.
+- **Likelihood:** Confirmed present today, not hypothetical — verified by
+  reading the actual installed `@nestjs/common@10.4.22` ValidationPipe
+  source (`backend/node_modules/@nestjs/common/pipes/validation.pipe.js:104-109`):
+  a `@Body()` parameter typed as a plain TypeScript `interface` (rather
+  than a `class-validator`-decorated class) compiles to `Object` at
+  runtime, which is explicitly in the pipe's own validation-skip list —
+  regardless of the global pipe's `whitelist`/`transform` config. Confirmed
+  exactly 2 occurrences repo-wide via
+  `grep -rl "^export interface Create.*Dto\|^export interface Update.*Dto" backend/src/modules/`:
+  `backend/src/modules/routings/services/operation-template.service.ts`
+  (`CreateOperationTemplateDto`/`UpdateOperationTemplateDto`, consumed by
+  `POST/PATCH /operation-templates`) and
+  `backend/src/modules/projects/project-progress.service.ts` (not reviewed
+  — outside the diff that surfaced this risk, named here for completeness
+  of the repo-wide pattern only).
+- **Owner:** backend
+- **Fix path:** Convert both interfaces into real `class-validator`-
+  decorated classes, matching the pattern every other DTO in the backend
+  already correctly uses (`@IsString() @MaxLength(n)`, `@IsInt()`,
+  `@IsOptional()`, `@ValidateNested({ each: true })` for nested arrays,
+  etc.). As a repo-wide follow-up: grep for this `export interface
+  ...Dto` shape periodically (or add an ESLint/type-level check) so a new
+  instance of this pattern doesn't get reintroduced on the next endpoint.
+- **Status:** Open
+- **Created:** 2026-09-28 (S36 Leftovers + Operation Icon + MO Print
+  Packet Round 4 review)
+- **Finding ref:**
+  `docs/security/findings/2026-09-28-s36-leftovers-op-icon-print-r4.md`
+  F-001 (High) — for the `operation_template.icon` instance specifically,
+  traced its full downstream use and confirmed no injection/XSS path
+  exists today (it's used only as a safe dictionary-lookup key on both
+  frontend and backend, never rendered/interpolated as content) — the risk
+  here is the missing validation boundary itself (malformed input reaches
+  Prisma/Postgres unvalidated, surfacing as an unhandled 500 instead of a
+  clean 400), not a confirmed live exploit.
+
 ---
 
 ## Mitigated risks
