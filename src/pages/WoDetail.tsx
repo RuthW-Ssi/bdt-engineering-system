@@ -16,6 +16,7 @@ import type {
 import { siblingQtyDone } from '../api/wo'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import DaysRemainingBadge from '../components/DaysRemainingBadge'
 
 const TABS = ['Overview', 'Schedule', 'Events', 'Visual'] as const
 type Tab = (typeof TABS)[number]
@@ -701,7 +702,7 @@ function OverviewTab({
       <Card title="Execution">
         <Row k="Released" v={wo.released_at ? `${fmtDateTime(wo.released_at)} · ${wo.released_by ?? ''}` : '—'} />
         <Row k="Plan Start" v={fmtDateTime(wo.plan_start)} />
-        <Row k="Plan Finish" v={fmtDateTime(wo.plan_finish)} />
+        <Row k="Plan Finish" v={<>{fmtDateTime(wo.plan_finish)} <DaysRemainingBadge planFinish={wo.plan_finish} /></>} />
         <Row k="Actual Start" v={fmtDateTime(wo.actual_start)} />
         <Row k="Actual Finish" v={fmtDateTime(wo.actual_finish)} />
         <Row k="Team" v={wo.subcontractor?.name ?? wo.assigned_to ?? '—'} />
