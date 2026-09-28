@@ -1466,7 +1466,7 @@ enum MoStatus {
 
 model manufacturing_order {
   id                       Int                @id @default(autoincrement())
-  mo_code                  String             @unique @db.VarChar(20) // MO-00001 · race-safe via mo_code_seq (P5)
+  mo_code                  String             @unique @db.VarChar(20) // MO-26000001 · race-safe via mo_code_seq (P5)
   // P12: exactly 1 mark prefix per MO. FK by code (mark_prefix_master PK = code).
   primary_mark_prefix_code String             @db.VarChar(10)
   primary_mark_prefix      mark_prefix_master @relation(fields: [primary_mark_prefix_code], references: [code])
@@ -1529,9 +1529,11 @@ model mo_status_history {
   @@index([mo_id])
 }
 
-// 🟥 Custom: mo_code_seq (MO-NNNNN counter · SELECT FOR UPDATE, P5)
+// 🟥 Custom: mo_code_seq (MO-YYNNNNNN counter · atomic upsert, P5)
+// One row per year (2-digit) — code format is MO-YYNNNNNN (2026-09-28),
+// see mo-code.generator.ts's header comment.
 model mo_code_seq {
-  id       Int @id
+  year     Int @id
   next_val Int @default(1)
 }
 
@@ -1542,7 +1544,7 @@ model mo_code_seq {
 
 model work_order {
   id                    Int       @id @default(autoincrement())
-  wo_code               String    @unique @db.VarChar(20) // WO-NNNNNNNN · race-safe via work_order_code_seq (Q18)
+  wo_code               String    @unique @db.VarChar(20) // WO-26000001 · race-safe via work_order_code_seq (Q18)
   mo_id                 Int
   source_routing_op_id  Int? // soft ref → mrp_routing_workcenter.id (snapshot immutable; replaces mo_operation_id)
   sequence              Int // copied from mo_operation.sequence
@@ -1678,9 +1680,11 @@ model work_order_event {
   @@index([work_order_mark_id])
 }
 
-// 🟥 Custom: work_order_code_seq (WO-NNNNNNNN counter · SELECT FOR UPDATE, Q18)
+// 🟥 Custom: work_order_code_seq (WO-YYNNNNNN counter · atomic upsert, Q18)
+// One row per year (2-digit) — code format is WO-YYNNNNNN (2026-09-28),
+// see wo-auto-create.service.ts's createOrAddMarks() comment.
 model work_order_code_seq {
-  id       Int @id
+  year     Int @id
   next_val Int @default(1)
 }
 
