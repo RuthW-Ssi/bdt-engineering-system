@@ -2,12 +2,28 @@ import { PrismaClient, Prisma, WoStatus } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// Mirrors WorkOrderAutoCreateService.createOrAddMarks()'s wo_code allocation
+// (2026-09-28 year-prefix change) — work_order_code_seq's PK is now `year`,
+// not the old fixed `id = 1`.
+//
+// NOTE: this whole script (seed-wo.ts) predates the 2026-09-17 multi-mark WO
+// redesign and is already broken independently of this fix — work_order.create()
+// below still writes bom_assembly_id/bom_dispatch_id_snapshot/earliest_start_at/
+// target_end_at/actual_start_at/actual_end_at/qty_done/qty_scrapped, none of
+// which exist on work_order any more (moved to work_order_mark, or renamed —
+// see that model's own comments). Only this generator helper was fixed here;
+// the rest of the script needs a real rewrite to the multi-mark shape before
+// `pnpm seed:wo` will run at all — out of scope for today's mo_code/wo_code
+// format change.
 async function nextWoCode(tx: Prisma.TransactionClient): Promise<string> {
-  await tx.$executeRaw`INSERT INTO work_order_code_seq (id, next_val) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`
-  const rows = await tx.$queryRaw<{ next_val: number }[]>`SELECT next_val FROM work_order_code_seq WHERE id = 1 FOR UPDATE`
-  const n = rows[0].next_val
-  await tx.$executeRaw`UPDATE work_order_code_seq SET next_val = ${n + 1} WHERE id = 1`
-  return `WO-${String(n).padStart(8, '0')}`
+  const year = new Date().getFullYear() % 100
+  const rows = await tx.$queryRaw<{ allocated: number }[]>`
+    INSERT INTO work_order_code_seq (year, next_val) VALUES (${year}, 2)
+    ON CONFLICT (year) DO UPDATE SET next_val = work_order_code_seq.next_val + 1
+    RETURNING next_val - 1 AS allocated
+  `
+  const n = rows[0].allocated
+  return `WO-${year.toString().padStart(2, '0')}${n.toString().padStart(6, '0')}`
 }
 
 const DAY = 86_400_000

@@ -9,24 +9,31 @@ import { PrismaClient, Prisma, MoStatus } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// Mirrors MoCodeGenerator.next() (2026-09-28 year-prefix change) — mo_code_seq's
+// PK is now `year`, not the old fixed `id = 1`; MO-00001 stopped existing once
+// every real mo_code got renumbered to MO-YYNNNNNN, so idempotency below checks
+// by create_uid instead of a hardcoded old-format code string.
 async function nextMoCode(tx: Prisma.TransactionClient): Promise<string> {
-  await tx.$executeRaw`INSERT INTO mo_code_seq (id, next_val) VALUES (1, 1) ON CONFLICT (id) DO NOTHING`
-  const rows = await tx.$queryRaw<{ next_val: number }[]>`SELECT next_val FROM mo_code_seq WHERE id = 1 FOR UPDATE`
-  const n = rows[0].next_val
-  await tx.$executeRaw`UPDATE mo_code_seq SET next_val = ${n + 1} WHERE id = 1`
-  return `MO-${String(n).padStart(5, '0')}`
+  const year = new Date().getFullYear() % 100
+  const rows = await tx.$queryRaw<{ allocated: number }[]>`
+    INSERT INTO mo_code_seq (year, next_val) VALUES (${year}, 2)
+    ON CONFLICT (year) DO UPDATE SET next_val = mo_code_seq.next_val + 1
+    RETURNING next_val - 1 AS allocated
+  `
+  const n = rows[0].allocated
+  return `MO-${year.toString().padStart(2, '0')}${n.toString().padStart(6, '0')}`
 }
 
 async function main() {
-  const exists = await prisma.manufacturing_order.findUnique({ where: { mo_code: 'MO-00001' } })
-  if (exists) {
-    console.log('⏭  MO-00001 already exists — skipping MO seed.')
-    return
-  }
-
   const admin = await prisma.res_users.findUnique({ where: { login: 'admin' } })
   if (!admin) throw new Error('admin user not found — run the base seed first')
   const uid = admin.id
+
+  const exists = await prisma.manufacturing_order.count({ where: { create_uid: uid } })
+  if (exists > 0) {
+    console.log('⏭  admin already has manufacturing_order rows — skipping MO seed.')
+    return
+  }
 
   // routing template with the most operations
   const template = await prisma.routing_template.findFirst({

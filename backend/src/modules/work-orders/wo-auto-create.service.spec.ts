@@ -92,7 +92,10 @@ function makeTx(overrides: Record<string, unknown> = {}) {
       create: jest.fn().mockResolvedValue({}),
       update: jest.fn().mockResolvedValue({}),
     },
-    $queryRaw: jest.fn().mockResolvedValue([{ next_val: 900 }]),
+    // Single atomic upsert now (INSERT ... ON CONFLICT ... RETURNING), not a
+    // separate SELECT-FOR-UPDATE + UPDATE pair — see wo-auto-create.service.ts's
+    // createOrAddMarks() comment (2026-09-28, wo_code year-prefix change).
+    $queryRaw: jest.fn().mockResolvedValue([{ allocated: 900 }]),
     $executeRaw: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -106,6 +109,12 @@ describe('WorkOrderAutoCreateService.createOrAddMarks', () => {
 
     const result = await svc.createOrAddMarks(tx, 1, 1, [{ assembly_line_id: 1, qty: 1 }], 'tester')
 
+    // wo_code is WO-YYNNNNNN — the year comes from the real wall clock
+    // (not injectable), so compute the expected prefix the same way the
+    // service does rather than hardcoding a year that goes stale.
+    const year = (new Date().getFullYear() % 100).toString().padStart(2, '0')
+    const expectedCode = `WO-${year}000900`
+
     // Always creates fresh, no find-or-create lookup by (mo, operation) at
     // all (2026-09-23: an operation may have several WOs, and there's no
     // way to add marks to an already-created one — "สร้าง wo แล้วไม่ควรเพิ่ม
@@ -114,11 +123,10 @@ describe('WorkOrderAutoCreateService.createOrAddMarks', () => {
     // WO's op_attributes.
     expect(tx.work_order.findUnique).not.toHaveBeenCalledWith(expect.objectContaining({ where: { mo_id_source_routing_op_id: expect.anything() } }))
     expect(tx.$queryRaw).toHaveBeenCalled()
-    expect(tx.$executeRaw).toHaveBeenCalled()
     expect(tx.work_order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          wo_code: 'WO-00000900', mo_id: 1, source_routing_op_id: 1, work_center_id: 5,
+          wo_code: expectedCode, mo_id: 1, source_routing_op_id: 1, work_center_id: 5,
           status: 'NOT_STARTED', created_by: 'tester',
         }),
       }),
@@ -126,7 +134,7 @@ describe('WorkOrderAutoCreateService.createOrAddMarks', () => {
     expect(tx.work_order_mark.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ work_order_id: 900, bom_assembly_id: 100, bom_dispatch_id_snapshot: 10, created_by: 'tester' }),
     })
-    expect(result).toEqual({ work_order_id: 900, wo_code: 'WO-00000900', marks_added: 1 })
+    expect(result).toEqual({ work_order_id: 900, wo_code: expectedCode, marks_added: 1 })
   })
 
   // Structured Team picker (2026-09-22) — user: "ทีมดึงมาทำเป็น dropdown".
