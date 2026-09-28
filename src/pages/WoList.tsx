@@ -4,6 +4,7 @@ import { Search, Loader2, AlertTriangle } from 'lucide-react'
 import { useWos } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { PaginationBar } from '../components/PaginationBar'
+import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import type { WoStatus } from '../api/wo'
 
 const LIMIT = 10
@@ -138,7 +139,10 @@ export function WoList() {
               </div>
               <div style={{ padding: '10px 12px' }}><WoStatusPill status={w.status} /></div>
               <div style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{w.subcontractor?.name ?? w.assigned_to ?? '—'}</div>
-              <div style={{ padding: '10px 12px', fontSize: 12, color: '#555' }}>{fmtDay(w.plan_finish)}</div>
+              <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <span style={{ fontSize: 12, color: '#555' }}>{fmtDay(w.plan_finish)}</span>
+                <DaysRemainingBadge planFinish={w.plan_finish} />
+              </div>
               <div style={{ padding: '10px 12px' }}>
                 {w.is_outdated ? (
                   <span title="Newer BOM version available" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#C62828', fontSize: 11, fontWeight: 700 }}>

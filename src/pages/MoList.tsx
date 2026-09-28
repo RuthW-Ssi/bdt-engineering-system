@@ -4,6 +4,7 @@ import { Search, Loader2, Package, ChevronRight } from 'lucide-react'
 import { useMos } from '../hooks/useMo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { PaginationBar } from '../components/PaginationBar'
+import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import type { MoStatus } from '../api/mo'
 
 const LIMIT = 10
@@ -103,7 +104,7 @@ export function MoList() {
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>
                 <span><strong style={{ color: '#333' }}>{mo.assembly_count}</strong> assemblies</span>
                 <span><strong style={{ color: '#333' }}>{mo.operation_count}</strong> ops</span>
-                <span>Plan: <strong style={{ color: '#333' }}>{fmtDate(mo.plan_start)} – {fmtDate(mo.plan_finish)}</strong></span>
+                <span>Plan: <strong style={{ color: '#333' }}>{fmtDate(mo.plan_start)} – {fmtDate(mo.plan_finish)}</strong> <DaysRemainingBadge planFinish={mo.plan_finish} /></span>
               </div>
               <MoStatusPill status={mo.status} />
               <ChevronRight size={16} style={{ color: '#C2C2C2', flexShrink: 0 }} />

@@ -3,6 +3,7 @@ import { Loader2, Info, ChevronDown, ChevronsDownUp, ChevronsUpDown } from 'luci
 import { useAssembliesByPrefix } from '../../hooks/useMo'
 import type { AssemblyPickerGroup, AssemblyPickerItem } from '../../api/mo'
 import type { AssemblyFilter } from './AssemblyFilterBar'
+import { daysUntil } from '../../lib/dateMath'
 
 const DIM_LABEL: Record<string, string> = { project: 'Project', zone: 'Zone', subzone: 'Sub Zone' }
 
@@ -17,14 +18,6 @@ function groupDisplayName(g: AssemblyPickerGroup, sortBy: AssemblyFilter['sortBy
   if (sortBy === 'zone')    return { label: DIM_LABEL.zone,    value: g.key.zone    ?? '-' }
   if (sortBy === 'subzone') return { label: DIM_LABEL.subzone, value: g.key.subzone ?? '-' }
   return groupSegments(g)[0] ?? { label: '', value: g.label }
-}
-
-function daysUntil(dateStr: string | null): number | null {
-  if (!dateStr) return null
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const d = new Date(dateStr)
-  return Math.ceil((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
 }
 
 function sortGroups(groups: AssemblyPickerGroup[], sortBy: AssemblyFilter['sortBy']): AssemblyPickerGroup[] {
