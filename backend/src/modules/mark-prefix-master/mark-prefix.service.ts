@@ -23,8 +23,11 @@ export class MarkPrefixService {
    * T-MO.03 · MO form Section 1 grid data.
    * pending_bom_count = # of assemblies resolving to this prefix (P10) that
    * still have remaining qty to allocate. Tiles with count 0 are disabled.
+   * project_id/zone_id (2026-09-22) scope the count to the MO's selected
+   * project + zone — an unscoped count would show tiles as available when
+   * every matching assembly actually belongs to a different project/zone.
    */
-  async withPendingCount() {
+  async withPendingCount(opts?: { project_id?: number; zone_id?: number }) {
     const prefixes = await this.prisma.mark_prefix_master.findMany({
       where: { active: true },
       orderBy: [{ category: 'asc' }, { code: 'asc' }],
@@ -33,7 +36,17 @@ export class MarkPrefixService {
     const codes = prefixes.map((p) => p.code).sort((a, b) => b.length - a.length)
 
     const assemblies = await this.prisma.bom_assembly.findMany({
-      where: { status: 'ACTIVE' },
+      where: {
+        status: 'ACTIVE',
+        ...(opts?.project_id != null || opts?.zone_id != null
+          ? {
+              dispatch: {
+                ...(opts?.project_id != null ? { project_id: opts.project_id } : {}),
+                ...(opts?.zone_id != null ? { zone_id: opts.zone_id } : {}),
+              },
+            }
+          : {}),
+      },
       select: {
         id: true,
         assembly_mark: true,

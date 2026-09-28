@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsIn, MaxLength, IsArray, ValidateNested } from 'class-validator'
+import { IsString, IsOptional, IsIn, IsBoolean, IsInt, IsPositive, MaxLength, IsArray, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import { SkillEntryDto } from './create-operator.dto'
 
@@ -32,4 +32,14 @@ export class UpdateOperatorDto {
   @ValidateNested({ each: true })
   @Type(() => SkillEntryDto)
   skills?: SkillEntryDto[]
+
+  // null explicitly clears the team; undefined/omitted leaves it untouched.
+  @IsOptional()
+  @IsInt()
+  @IsPositive()
+  team_id?: number | null
+
+  @IsOptional()
+  @IsBoolean()
+  active?: boolean
 }

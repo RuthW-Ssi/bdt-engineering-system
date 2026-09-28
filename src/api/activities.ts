@@ -22,6 +22,13 @@ interface ActivityToolDto {
   qty: number
 }
 
+export interface OperationTypeDto {
+  id: number
+  key: string
+  label: string
+  color: string
+}
+
 export const ACTIVITY_KINDS = ['run', 'setup', 'move', 'inspect'] as const
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
 
@@ -30,6 +37,8 @@ export interface ActivityDto {
   activity_code: string
   name: string
   kind: ActivityKind
+  operation_type_id: number | null
+  operation_type: OperationTypeDto | null
   machine: ActivityMachineDto | null
   consumes: ActivityConsumeDto[]
   skills: ActivityLaborDto[]
@@ -51,6 +60,7 @@ export interface CreateActivityPayload {
   name: string
   machine_id?: number
   kind?: ActivityKind
+  operation_type_id?: number | null
   duration_min: number
   per_minute?: number
   formula_code?: string
@@ -71,7 +81,7 @@ export interface PaginatedActivities {
 }
 
 export const activitiesApi = {
-  list(params?: { q?: string; machine_id?: number; material_id?: number; page?: number; limit?: number }): Promise<PaginatedActivities> {
+  list(params?: { q?: string; machine_id?: number; material_id?: number; operation_type_id?: number; page?: number; limit?: number }): Promise<PaginatedActivities> {
     return apiClient.get('/activities', { params }).then((r) => r.data)
   },
 

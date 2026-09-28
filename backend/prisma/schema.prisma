@@ -38,9 +38,9 @@ model res_users {
   product_library_written product_library[] @relation("pl_write")
 
   // Sprint 3: BOM + Drawing audit
-  boms_created      product_bom[]      @relation("bom_create")
-  boms_written      product_bom[]      @relation("bom_write")
-  drawings          drawing[]
+  boms_created product_bom[] @relation("bom_create")
+  boms_written product_bom[] @relation("bom_write")
+  drawings     drawing[]
 
   // Sprint 4: Routing audit
   workcenters_created mrp_workcenter[]         @relation("wc_create")
@@ -81,7 +81,7 @@ model res_users {
   mos_written manufacturing_order[] @relation("mo_write")
 
   // Cutting Plan audit
-  cutting_plan_uploads_created  cutting_plan_upload[] @relation("cutting_plan_upload_create")
+  cutting_plan_uploads_created cutting_plan_upload[] @relation("cutting_plan_upload_create")
 
   // Sprint 23: BIM Viewer audit
   bim_models_created bim_model[] @relation("bim_model_create")
@@ -194,6 +194,7 @@ model materials {
   bom_lines         product_bom_line[]    @relation("BomLineMaterial")
   assembly_paint    mbom_assembly_paint[] @relation("PaintMaterial")
   activity_consumes activity_consume[]    @relation("activity_consume_material")
+  wo_consumes       work_order_consume[]
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -306,43 +307,43 @@ model project {
   write_user      res_users    @relation("project_write", fields: [write_uid], references: [id])
   write_date      DateTime     @default(now()) @db.Timestamptz
 
-  zones         project_zone[]
-  products      products[]
-  boms          product_bom[]         @relation("ProjectBom")
-  dispatches    bom_dispatch[]        @relation("ProjectDispatches")
-  bim_models    bim_model[]           @relation("ProjectBimModels")
-  drawings      drawing[]
+  zones                   project_zone[]
+  products                products[]
+  boms                    product_bom[]           @relation("ProjectBom")
+  dispatches              bom_dispatch[]          @relation("ProjectDispatches")
+  bim_models              bim_model[]             @relation("ProjectBimModels")
+  drawings                drawing[]
   progress_change_batches progress_change_batch[]
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
 model project_zone {
-  id                    Int       @id @default(autoincrement())
-  project_id            Int
-  project               project   @relation(fields: [project_id], references: [id])
-  code                  String    @db.VarChar(20)
-  label                 String    @db.VarChar(80)
-  erection_sequence     Int?
+  id                Int       @id @default(autoincrement())
+  project_id        Int
+  project           project   @relation(fields: [project_id], references: [id])
+  code              String    @db.VarChar(20)
+  label             String    @db.VarChar(80)
+  erection_sequence Int?
   // Whole-zone work window (fab start through erection finish) — despite the
   // "erection" name this field pair had 2026-06 through 2026-09, it was
   // never erection-only: renamed 2026-09 once a second consumer (schedule
   // Plan-vs-Actual) needed the same window for fab pace, not just erection.
-  target_start          DateTime? @db.Date
-  target_end            DateTime? @db.Date
-  crane_assignment      String?   @db.VarChar(60)
-  notes                 String?   @db.Text
-  active                Boolean   @default(true)
+  target_start      DateTime? @db.Date
+  target_end        DateTime? @db.Date
+  crane_assignment  String?   @db.VarChar(60)
+  notes             String?   @db.Text
+  active            Boolean   @default(true)
   // BIM-first progress entry (2026-09) — true only for the one synthetic
   // "Pending BOM" zone per project that holds BIM-sourced placeholder
   // assemblies before a real BOM exists. Excluded from delay detection
   // (never has target dates), project rollup totals, and zone pickers used
   // by BOM upload / Work Order creation.
-  is_placeholder        Boolean   @default(false)
+  is_placeholder    Boolean   @default(false)
 
-  products      products[]
-  sub_zones     sub_zone[]
-  dispatches    bom_dispatch[]        @relation("ZoneDispatches")
-  drawings      drawing[]
+  products   products[]
+  sub_zones  sub_zone[]
+  dispatches bom_dispatch[] @relation("ZoneDispatches")
+  drawings   drawing[]
 
   @@unique([project_id, code])
 }
@@ -362,8 +363,8 @@ model sub_zone {
   create_date DateTime     @default(now()) @db.Timestamptz
   write_date  DateTime     @updatedAt @db.Timestamptz
 
-  dispatches    bom_dispatch[]        @relation("SubZoneDispatches")
-  drawings      drawing[]
+  dispatches bom_dispatch[] @relation("SubZoneDispatches")
+  drawings   drawing[]
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -406,11 +407,11 @@ model products {
 
   // Standard-only fields
   variant_attributes Json?
-  derivation_flags   Json          @default("[]")
-  confidence         String        @default("high") @db.VarChar(10)
-  stock_policy       String?       @db.VarChar(20)
-  reorder_min        Decimal?      @db.Decimal(12, 3)
-  reorder_max        Decimal?      @db.Decimal(12, 3)
+  derivation_flags   Json     @default("[]")
+  confidence         String   @default("high") @db.VarChar(10)
+  stock_policy       String?  @db.VarChar(20)
+  reorder_min        Decimal? @db.Decimal(12, 3)
+  reorder_max        Decimal? @db.Decimal(12, 3)
 
   // Custom-only fields
   project_id         Int?
@@ -590,6 +591,7 @@ model mrp_op_type {
 
   routing_ops         mrp_routing_workcenter[]
   operation_templates operation_template[]
+  activities          activity[]
 }
 
 // ── 🟨 Work Center (Odoo mrp.workcenter + ISA-95/Siemens enrichment) ──
@@ -922,11 +924,11 @@ model bom_assembly {
   write_user      res_users    @relation("assembly_write", fields: [write_uid], references: [id])
   write_date      DateTime     @default(now()) @db.Timestamptz
 
-  assembly_parts    bom_assembly_part[]
-  mo_assembly_lines mo_assembly_line[] // Sprint 13: MO allocation (P17)
-  work_orders       work_order[] // Sprint 14: WO execution (F-WO)
-  paint_configs     mbom_assembly_paint[]
-  progress          bom_assembly_progress? // Sprint 24: manual progress tracking
+  assembly_parts          bom_assembly_part[]
+  mo_assembly_lines       mo_assembly_line[] // Sprint 13: MO allocation (P17)
+  work_order_marks        work_order_mark[] // Sprint 14→multi-mark redesign 2026-09-17: WO execution (F-WO), many-per-WO
+  paint_configs           mbom_assembly_paint[]
+  progress                bom_assembly_progress? // Sprint 24: manual progress tracking
   progress_change_entries progress_change_entry[]
 
   @@unique([dispatch_id, assembly_mark])
@@ -984,9 +986,43 @@ model bom_assembly_part {
   create_user res_users    @relation("asmpart_create", fields: [create_uid], references: [id])
   create_date DateTime     @default(now()) @db.Timestamptz
 
+  work_order_parts work_order_part[]
+
   @@unique([assembly_id, part_id])
   @@index([assembly_id])
   @@index([part_id])
+}
+
+// 🟨 Part withdrawal (2026-09-17, qty-primary 2026-09-21), parallel to
+// work_order_consume but for physical parts (bom_assembly_part) instead of
+// formula-driven materials — and deliberately simpler: NO plan/actual split
+// (unlike work_order_consume). `qty` (pieces) is the field the user actually
+// edits — parts are discrete physical items withdrawn by count, not weighed
+// out by hand — auto-populated with a computed suggestion (bom_assembly_part
+// .qty × the mark's qty_planned) the first time a mark is added, capped by
+// WorkOrderAutoCreateService.computePartBudget() (real total pieces needed
+// for this mark in this MO, minus what other WOs of the same MO already
+// took). `weight_kg` is a stored derived value (qty × bom_part.weight_kg) —
+// kept in sync whenever qty is written, purely for display/reporting so
+// readers don't need to join back to bom_part; it is never independently
+// edited or capped. Each bom_assembly_part_id is already mark-specific
+// (bom_assembly_part.assembly_id scopes to one bom_assembly = one mark), so
+// a row here always belongs to exactly one mark — see
+// WorkOrderAutoCreateService.recomputeParts.
+model work_order_part {
+  id                   Int               @id @default(autoincrement())
+  work_order_id        Int
+  work_order           work_order        @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+  bom_assembly_part_id Int
+  bom_assembly_part    bom_assembly_part @relation(fields: [bom_assembly_part_id], references: [id])
+  qty                  Decimal           @db.Decimal(12, 3)
+  weight_kg            Decimal           @db.Decimal(12, 3)
+  created_at           DateTime          @default(now()) @db.Timestamptz
+  created_by           String            @db.VarChar(120)
+  updated_at           DateTime          @updatedAt @db.Timestamptz
+  updated_by           String?           @db.VarChar(120)
+
+  @@unique([work_order_id, bom_assembly_part_id])
 }
 
 // ── 🟥 mBOM Assembly Paint Config ───────────────────────────────
@@ -1023,35 +1059,35 @@ model bom_assembly_progress {
   assembly_id                 Int          @id
   assembly                    bom_assembly @relation(fields: [assembly_id], references: [id], onDelete: Cascade)
   // Fabrication stages — integer percent 0-100, workflow order
-  cut                          Int          @default(0)
-  buildup                      Int          @default(0)
-  weld1                        Int          @default(0)
-  fitup_drill                  Int          @default(0)
-  weld2                        Int          @default(0)
-  qc_inspection                Int          @default(0)
-  primer                       Int          @default(0)
-  fireproof                    Int          @default(0)
-  top_coat                     Int          @default(0)
-  qc_final                     Int          @default(0)
+  cut                         Int          @default(0)
+  buildup                     Int          @default(0)
+  weld1                       Int          @default(0)
+  fitup_drill                 Int          @default(0)
+  weld2                       Int          @default(0)
+  qc_inspection               Int          @default(0)
+  primer                      Int          @default(0)
+  fireproof                   Int          @default(0)
+  top_coat                    Int          @default(0)
+  qc_final                    Int          @default(0)
   // Fabrication — phase-level plan/actual finish (distinct from the 10
   // per-stage percents above), manual entry only, no auto-fill on 100%.
-  fab_plan_finish_date         DateTime?    @db.Date
-  fab_actual_finish_date       DateTime?    @db.Date
+  fab_plan_finish_date        DateTime?    @db.Date
+  fab_actual_finish_date      DateTime?    @db.Date
   // Transport
-  plan_load_date               DateTime?    @db.Date
-  actual_load_date             DateTime?    @db.Date
-  loaded_pcs                   Int          @default(0)
+  plan_load_date              DateTime?    @db.Date
+  actual_load_date            DateTime?    @db.Date
+  loaded_pcs                  Int          @default(0)
   // Erection — erected_pcs == qty ⇒ terminal "done" status (ladder only)
-  erected_pcs                  Int          @default(0)
-  erection_plan_finish_date    DateTime?    @db.Date
-  erection_actual_finish_date  DateTime?    @db.Date
+  erected_pcs                 Int          @default(0)
+  erection_plan_finish_date   DateTime?    @db.Date
+  erection_actual_finish_date DateTime?    @db.Date
   // Material Payment — parallel phase, fixed 3-value status (not a boolean)
-  payment_status                String       @default("Not Disbursed") @db.VarChar(20)
-  claimed_weight_kg             Decimal?     @db.Decimal(12, 3)
-  delivered_weight_kg           Decimal?     @db.Decimal(12, 3)
-  write_uid                    Int
-  write_user                   res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
-  write_date                   DateTime     @default(now()) @db.Timestamptz
+  payment_status              String       @default("Not Disbursed") @db.VarChar(20)
+  claimed_weight_kg           Decimal?     @db.Decimal(12, 3)
+  delivered_weight_kg         Decimal?     @db.Decimal(12, 3)
+  write_uid                   Int
+  write_user                  res_users    @relation("assembly_progress_write", fields: [write_uid], references: [id])
+  write_date                  DateTime     @default(now()) @db.Timestamptz
 }
 
 // ── 🟥 Progress Change History — one batch per write to bom_assembly_progress
@@ -1067,15 +1103,15 @@ model bom_assembly_progress {
 // rolling back that new batch — same mechanism, no special-cased "undo of
 // undo" logic).
 model progress_change_batch {
-  id                    Int       @id @default(autoincrement())
-  project_id            Int
-  project               project   @relation(fields: [project_id], references: [id])
-  source                String    @db.VarChar(20) // "manual_edit" | "bulk_edit" | "import" | "rollback"
-  file_name             String?   @db.VarChar(255) // set only when source = "import"
-  rolled_back_batch_id  Int?      // set only when source = "rollback"
-  create_uid            Int
-  create_user           res_users @relation("progress_batch_create", fields: [create_uid], references: [id])
-  create_date           DateTime  @default(now()) @db.Timestamptz
+  id                   Int       @id @default(autoincrement())
+  project_id           Int
+  project              project   @relation(fields: [project_id], references: [id])
+  source               String    @db.VarChar(20) // "manual_edit" | "bulk_edit" | "import" | "rollback"
+  file_name            String?   @db.VarChar(255) // set only when source = "import"
+  rolled_back_batch_id Int? // set only when source = "rollback"
+  create_uid           Int
+  create_user          res_users @relation("progress_batch_create", fields: [create_uid], references: [id])
+  create_date          DateTime  @default(now()) @db.Timestamptz
 
   entries progress_change_entry[]
 
@@ -1083,14 +1119,14 @@ model progress_change_batch {
 }
 
 model progress_change_entry {
-  id           Int                   @id @default(autoincrement())
-  batch_id     Int
-  batch        progress_change_batch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
-  assembly_id  Int
-  assembly     bom_assembly          @relation(fields: [assembly_id], references: [id])
-  field        String                @db.VarChar(40) // e.g. "cut", "payment_status", "erected_pcs"
-  old_value    String?
-  new_value    String?
+  id          Int                   @id @default(autoincrement())
+  batch_id    Int
+  batch       progress_change_batch @relation(fields: [batch_id], references: [id], onDelete: Cascade)
+  assembly_id Int
+  assembly    bom_assembly          @relation(fields: [assembly_id], references: [id])
+  field       String                @db.VarChar(40) // e.g. "cut", "payment_status", "erected_pcs"
+  old_value   String?
+  new_value   String?
 
   @@index([batch_id])
   @@index([assembly_id, field])
@@ -1106,6 +1142,11 @@ model operation_template {
   name          String          @db.VarChar(100)
   op_type_id    Int?
   op_type       mrp_op_type?    @relation(fields: [op_type_id], references: [id])
+  // Lucide icon key (e.g. "flame", "paint-roller") picked at create time in
+  // OperationBuilder — printed on the WO traveler's QR center + watermark
+  // (2026-09-29), see src/lib/fabIcons.ts on the frontend for the curated
+  // set and mo-print-pdf-builder.ts's icon renderer on the backend.
+  icon          String?         @db.VarChar(40)
   workcenter_id Int?
   workcenter    mrp_workcenter? @relation(fields: [workcenter_id], references: [id])
   method        String?         @db.VarChar(20)
@@ -1258,6 +1299,8 @@ model activity {
   ratio_unit                    String?                        @db.VarChar(20)
   per_time                      Decimal?                       @db.Decimal(10, 4)
   kind                          String                         @default("run") @db.Text
+  operation_type_id             Int?
+  operation_type                mrp_op_type?                   @relation(fields: [operation_type_id], references: [id])
   create_uid                    Int
   create_user                   res_users                      @relation("activity_create_user", fields: [create_uid], references: [id])
   create_date                   DateTime                       @default(now()) @db.Timestamptz
@@ -1323,6 +1366,10 @@ model operator {
   start_raw    String?  @db.VarChar(40)
   active       Boolean  @default(true)
   created_at   DateTime @default(now()) @db.Timestamptz
+  // Which team this operator belongs to (2026-09-22) — nullable, an
+  // operator can exist unassigned before being placed on a team.
+  team_id      Int?
+  team         team?    @relation(fields: [team_id], references: [id])
 
   skills                 operator_skill[]
   workcenter_assignments operator_workcenter[]
@@ -1427,8 +1474,16 @@ model manufacturing_order {
   routing_template_id      Int
   routing_template         routing_template   @relation(fields: [routing_template_id], references: [id])
   status                   MoStatus           @default(DRAFT)
-  // P21: due date only (DATE, no time).
-  due_date                 DateTime?          @db.Date
+  // Planned production window, set at create time — replaces the old single
+  // due_date (P21) with a start/finish pair. Date+time, matching
+  // work_order's own plan_start/plan_finish (2026-09-22).
+  plan_start               DateTime?          @db.Timestamptz
+  plan_finish              DateTime?          @db.Timestamptz
+  // Actual production window — hand-filled once known; not derived from
+  // work_order schedules. Date+time, since actual start/finish are logged
+  // to the minute (2026-09-22).
+  actual_start             DateTime?          @db.Timestamptz
+  actual_finish            DateTime?          @db.Timestamptz
   // Audit (parent only; children inherit lifecycle via cascade)
   create_uid               Int
   create_user              res_users          @relation("mo_create", fields: [create_uid], references: [id])
@@ -1444,7 +1499,6 @@ model manufacturing_order {
   @@index([status])
   @@index([primary_mark_prefix_code])
   @@index([routing_template_id])
-  @@index([due_date])
 }
 
 // P13/P15/P17 · partial allocation line. qty ≤ remaining; locked from DRAFT.
@@ -1487,61 +1541,141 @@ model mo_code_seq {
 // ═══════════════════════════════════════════════════════════════════════════
 
 model work_order {
-  id                       Int       @id @default(autoincrement())
-  wo_code                  String    @unique @db.VarChar(20) // WO-NNNNNNNN · race-safe via work_order_code_seq (Q18)
-  mo_id                    Int
-  source_routing_op_id     Int? // soft ref → mrp_routing_workcenter.id (snapshot immutable; replaces mo_operation_id)
-  sequence                 Int // copied from mo_operation.sequence
-  work_center_id           Int
-  expected_duration_min    Int
-  setup_time_min           Int
-  op_attributes            Json      @default("{}")
-  bom_assembly_id          Int
-  bom_dispatch_id_snapshot Int // soft ref → bom_dispatch.id · drives BOM Version Alert (Q12=B)
-  status                   WoStatus  @default(NOT_STARTED)
-  earliest_start_at        DateTime? @db.Timestamptz // Q13=C · scheduling anchor on WO (priority dropped)
-  actual_start_at          DateTime? @db.Timestamptz
-  actual_end_at            DateTime? @db.Timestamptz
-  target_end_at            DateTime? @db.Timestamptz
-  qty_done                 Decimal?  @db.Decimal(12, 3)
-  qty_scrapped             Decimal?  @db.Decimal(12, 3)
-  qty_reusable             Decimal?  @db.Decimal(12, 3) // captured on Accept when qty_done > new target qty, or on Cancel when qty_done > 0
-  pre_hold_status          WoStatus? // restored + cleared to null on Accept/Cancel
-  assigned_to              String?   @db.VarChar(120)
-  notes                    String?   @db.Text
-  released_at              DateTime? @db.Timestamptz
-  released_by              String?   @db.VarChar(120)
-  created_at               DateTime  @default(now()) @db.Timestamptz
-  updated_at               DateTime  @updatedAt @db.Timestamptz
-  created_by               String    @db.VarChar(120)
-  updated_by               String?   @db.VarChar(120)
-  is_pinned                Boolean   @default(false)
-  operator_mode            String    @default("internal") @db.Text
-  subcontractor_id         Int?
+  id                    Int       @id @default(autoincrement())
+  wo_code               String    @unique @db.VarChar(20) // WO-NNNNNNNN · race-safe via work_order_code_seq (Q18)
+  mo_id                 Int
+  source_routing_op_id  Int? // soft ref → mrp_routing_workcenter.id (snapshot immutable; replaces mo_operation_id)
+  sequence              Int // copied from mo_operation.sequence
+  work_center_id        Int
+  expected_duration_min Int
+  setup_time_min        Int
+  op_attributes         Json      @default("{}")
+  status                WoStatus  @default(NOT_STARTED)
+  // Renamed from earliest_start_at/target_end_at/actual_end_at (2026-09-22)
+  // to match manufacturing_order's plan_start/plan_finish/actual_start/
+  // actual_finish naming exactly — same concepts, was two different names
+  // for the same thing depending which screen you were on.
+  plan_start            DateTime? @db.Timestamptz // Q13=C · scheduling anchor on WO (priority dropped)
+  plan_finish           DateTime? @db.Timestamptz
+  // actual_start/actual_finish are system-set on status transition (start/
+  // done), never hand-filled — see WorkOrdersService.transition()/done().
+  actual_start          DateTime? @db.Timestamptz
+  actual_finish         DateTime? @db.Timestamptz
+  pre_hold_status       WoStatus? // restored + cleared to null on manual Resume
+  assigned_to           String?   @db.VarChar(120)
+  notes                 String?   @db.Text
+  released_at           DateTime? @db.Timestamptz
+  released_by           String?   @db.VarChar(120)
+  created_at            DateTime  @default(now()) @db.Timestamptz
+  updated_at            DateTime  @updatedAt @db.Timestamptz
+  created_by            String    @db.VarChar(120)
+  updated_by            String?   @db.VarChar(120)
+  is_pinned             Boolean   @default(false)
+  operator_mode         String    @default("internal") @db.Text
+  subcontractor_id      Int?
+  team_headcount        Int       // required (2026-09-25) — internal: auto-counted from active operators on the team, editable; external: entered manually
 
-  manufacturing_order manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
-  mrp_workcenter      mrp_workcenter      @relation("wo_workcenter", fields: [work_center_id], references: [id])
-  bom_assembly        bom_assembly        @relation(fields: [bom_assembly_id], references: [id])
-  subcontractor       subcontractor?      @relation(fields: [subcontractor_id], references: [id])
+  manufacturing_order manufacturing_order  @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  mrp_workcenter      mrp_workcenter       @relation("wo_workcenter", fields: [work_center_id], references: [id])
+  subcontractor       team?                @relation(fields: [subcontractor_id], references: [id])
   events              work_order_event[]
   schedules           prod_schedule[]
+  marks               work_order_mark[]
+  consumes            work_order_consume[]
+  parts               work_order_part[]
 
+  // Was @@unique([mo_id, source_routing_op_id]) ("one WO per operation per
+  // MO", 2026-09-17) — dropped 2026-09-23 ("เราต้องแยกเป็นหลาย wo ได้นะ เพื่อ
+  // แยกการทำงานกระจายโหลดให้หลายทีม") so an operation can be split across
+  // several WOs (different teams working the same op in parallel); a mark
+  // may deliberately appear on more than one of them (user's explicit
+  // choice — no cross-WO exclusivity enforced, unlike within one WO).
+  @@index([mo_id, source_routing_op_id])
   @@index([mo_id])
   @@index([status])
   @@index([work_center_id])
 }
 
-model work_order_event {
-  id            Int         @id @default(autoincrement())
-  work_order_id Int
-  event_type    WoEventType
-  notes         String?     @db.Text
-  recorded_by   String      @db.VarChar(120)
-  recorded_at   DateTime    @default(now()) @db.Timestamptz
+// 🟨 Multi-mark redesign (2026-09-17): a work_order now spans many marks —
+// one row per (work_order, bom_assembly) instead of work_order.bom_assembly_id.
+model work_order_mark {
+  id                       Int          @id @default(autoincrement())
+  work_order_id            Int
+  work_order               work_order   @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+  bom_assembly_id          Int
+  bom_assembly             bom_assembly @relation(fields: [bom_assembly_id], references: [id])
+  bom_dispatch_id_snapshot Int // soft ref → bom_dispatch.id · drives BOM Version Alert (Q12=B), snapshotted per mark
+  qty_planned              Decimal      @db.Decimal(12, 3) // snapshot of mo_assembly_line.qty at add-time
+  // Not Started / In Progress (2026-09-23) — work-state breakdown of qty_planned,
+  // entered alongside qty_done via the same POST /wo/:id/done payload (user:
+  // "ไปเพิ่ม column แบบที่เพิ่ม Done QC Passed Rework Renew ให้เป็น Not start
+  // In Progress..."). Optional, same as the QC fields below. Always
+  // qty_not_started + qty_in_progress + qty_done ≤ qty_planned.
+  qty_not_started          Decimal?     @db.Decimal(12, 3)
+  qty_in_progress          Decimal?     @db.Decimal(12, 3)
+  qty_done                 Decimal?     @db.Decimal(12, 3)
+  // QC breakdown of qty_done (2026-09-23, replaces qty_scrapped/qty_reusable —
+  // user: "เอา Scrapped Reusable เปลี่ยนเป็น Qc passed, Rework, Renew"). Same
+  // 3 fields serve BOTH contexts the old 2 fields split across: entered
+  // alongside qty_done during normal In Progress/Paused work (was: qty_done +
+  // qty_scrapped), AND entered when a mark's already-done output needs
+  // disposition on remove-mark/accept-new-version/cancel (was: qty_reusable
+  // alone). Always qty_qc_passed + qty_rework + qty_renew ≤ qty_done.
+  qty_qc_passed            Decimal?     @db.Decimal(12, 3) // passed QC outright, no further work needed
+  qty_rework               Decimal?     @db.Decimal(12, 3) // fixable — needs rework before it's acceptable
+  qty_renew                Decimal?     @db.Decimal(12, 3) // unusable as-is — must be completely remade
+  removed_at               DateTime?    @db.Timestamptz // soft-remove: mark taken out of this WO (BOM-removed or manual)
+  removed_by               String?      @db.VarChar(120)
+  removed_reason           String?      @db.Text
+  created_at               DateTime     @default(now()) @db.Timestamptz
+  created_by               String       @db.VarChar(120)
 
-  work_order work_order @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+  events work_order_event[]
+
+  @@unique([work_order_id, bom_assembly_id])
+  @@index([bom_assembly_id])
+}
+
+// 🟨 Material consume — plan vs actual (2026-09-17). Parallel to work_order_mark
+// but for the INPUT side (materials consumed) rather than the OUTPUT side (marks
+// produced). qty_planned is a snapshot of the live formula calculation
+// (ManufacturingOrderService.computeConsumeByWorkOrder) taken whenever the WO's
+// marks change (create/add-marks); qty_actual defaults to qty_planned but is
+// user-editable with no upper cap — real material usage can exceed the plan.
+model work_order_consume {
+  id            Int        @id @default(autoincrement())
+  work_order_id Int
+  work_order    work_order @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+  material_id   Int
+  material      materials  @relation(fields: [material_id], references: [id])
+  unit          String?    @db.VarChar(20)
+  // Whole units only (2026-09-21) — shop floor records consume to the
+  // nearest whole unit, not fractional kg/pcs; plain Int rather than Decimal
+  // so nothing downstream needs to reformat away a fixed-scale ".000" suffix.
+  qty_planned   Int
+  qty_actual    Int
+  created_at    DateTime   @default(now()) @db.Timestamptz
+  created_by    String     @db.VarChar(120)
+  updated_at    DateTime   @updatedAt @db.Timestamptz
+  updated_by    String?    @db.VarChar(120)
+
+  @@unique([work_order_id, material_id])
+}
+
+model work_order_event {
+  id                 Int         @id @default(autoincrement())
+  work_order_id      Int
+  work_order_mark_id Int? // set for per-mark events (ACCEPT_VERSION, MARK_REMOVED); null for whole-WO events
+  event_type         WoEventType
+  notes              String?     @db.Text
+  recorded_by        String      @db.VarChar(120)
+  recorded_at        DateTime    @default(now()) @db.Timestamptz
+
+  work_order      work_order       @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
+  work_order_mark work_order_mark? @relation(fields: [work_order_mark_id], references: [id], onDelete: Cascade)
 
   @@index([work_order_id, recorded_at])
+  @@index([work_order_mark_id])
 }
 
 // 🟥 Custom: work_order_code_seq (WO-NNNNNNNN counter · SELECT FOR UPDATE, Q18)
@@ -1587,7 +1721,7 @@ enum WoStatus {
   RELEASED
   IN_PROGRESS
   PAUSED
-  ON_HOLD // BOM major-change hold, system-imposed, distinct from operator-initiated PAUSED
+  ON_HOLD // manual hold by factory admin/manager (multi-mark redesign, 2026-09-17 — no more auto-hold), distinct from operator-initiated PAUSED
   DONE
   CANCELLED
 }
@@ -1598,8 +1732,10 @@ enum WoEventType {
   RESUME
   DONE
   CANCEL
-  ACCEPT_VERSION // T-WO.04 · BOM Version Alert accept audit (delta vs design §4 — spec requires an event row)
-  HOLD // written when a BOM upload triggers applyBomChangeHolds()
+  ACCEPT_VERSION // T-WO.04 · BOM Version Alert accept audit, now per-mark (multi-mark redesign, 2026-09-17)
+  HOLD // manual hold by factory admin/manager
+  UNHOLD // manual resume from ON_HOLD (multi-mark redesign, 2026-09-17)
+  MARK_REMOVED // a mark removed from its WO — BOM-removed or manual (multi-mark redesign, 2026-09-17)
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1753,14 +1889,18 @@ model wip_storage_io {
   @@unique([storage_id, wc_id, direction])
 }
 
-model subcontractor {
+// Renamed from subcontractor (2026-09-22) — same concept, broader now that
+// operator.team_id lets any operator belong to one, not just WOs.
+model team {
   id          Int          @id @default(autoincrement())
   code        String       @unique @db.Text
   name        String       @db.Text
+  team_type   String       @db.VarChar(20) // 'internal' | 'external' — required at creation (2026-09-25)
   skills      String[]     @default([])
   active      Boolean      @default(true)
   created_at  DateTime?    @default(now()) @db.Timestamptz
   work_orders work_order[]
+  operators   operator[]
 }
 
 model formula_code_seq {
@@ -1933,15 +2073,15 @@ model cutting_plan_remnant {
 // pass. Hybrid storage: headline quantities as typed columns for querying,
 // everything else in `properties` JSONB (IFC Psets vary per export/tool).
 model bim_model {
-  id                 Int      @id @default(autoincrement())
-  filename           String   @db.VarChar(255)
-  urn                String   @unique @db.VarChar(200) // APS Object URN (base64 of the OSS object id)
-  bucket_key         String   @db.VarChar(100)
-  translation_status String   @default("pending") @db.VarChar(20) // pending | processing | complete | failed
+  id                 Int     @id @default(autoincrement())
+  filename           String  @db.VarChar(255)
+  urn                String  @unique @db.VarChar(200) // APS Object URN (base64 of the OSS object id)
+  bucket_key         String  @db.VarChar(100)
+  translation_status String  @default("pending") @db.VarChar(20) // pending | processing | complete | failed
   translation_error  String? // set when translation_status = "failed"
 
-  project_id    Int
-  project       project      @relation("ProjectBimModels", fields: [project_id], references: [id])
+  project_id Int
+  project    project @relation("ProjectBimModels", fields: [project_id], references: [id])
 
   // Every upload is a new row (a version history, not an overwrite) — an
   // explicit major.minor pair the user chooses at upload time. Scoped by
@@ -1964,14 +2104,14 @@ model bim_element {
   model_id Int
   model    bim_model @relation(fields: [model_id], references: [id], onDelete: Cascade)
 
-  viewer_id    Int? // Properties-API `objectid` at extraction time — NOT a reliable live-Viewer dbId (confirmed 2026-07-20: diverges from the loaded Viewer's own numbering for Navisworks-routed IFC translations); kept for reference/debugging only, not used at runtime
-  external_id  String? @db.VarChar(200) // Properties-API `externalId` (Navisworks scene-graph path) — ALSO superseded (confirmed 2026-07-20: below the assembly level the live Viewer's own child numbering diverges from this too, and for some assemblies the Viewer's tree doesn't nest the real parts under it at all); kept for reference/debugging only
-  mark         String? @db.VarChar(100)
-  global_id    String? @db.VarChar(60) // IFC GlobalId (GUID) — the real runtime cross-reference: independent of Autodesk's translation/scene-graph numbering, resolved to a live dbId via viewer.model.getBulkProperties() at load time
-  ifc_type     String? @db.VarChar(60) // e.g. IfcBeam, IfcColumn
-  phase        String? @db.VarChar(20) // Tekla Common.Phase — construction phase/stage
-  position     String? @db.VarChar(100) // assembly-level only — Tekla Assembly.Assembly/Cast unit position code (e.g. "1/L/0.00-8900.00")
-  assembly_mark String? @db.VarChar(100) // set on part-level rows only — mark of the parent assembly (display only — marks repeat across physical instances, e.g. a purlin type reused 257 times, so this alone can't scope "this part's specific assembly")
+  viewer_id          Int? // Properties-API `objectid` at extraction time — NOT a reliable live-Viewer dbId (confirmed 2026-07-20: diverges from the loaded Viewer's own numbering for Navisworks-routed IFC translations); kept for reference/debugging only, not used at runtime
+  external_id        String? @db.VarChar(200) // Properties-API `externalId` (Navisworks scene-graph path) — ALSO superseded (confirmed 2026-07-20: below the assembly level the live Viewer's own child numbering diverges from this too, and for some assemblies the Viewer's tree doesn't nest the real parts under it at all); kept for reference/debugging only
+  mark               String? @db.VarChar(100)
+  global_id          String? @db.VarChar(60) // IFC GlobalId (GUID) — the real runtime cross-reference: independent of Autodesk's translation/scene-graph numbering, resolved to a live dbId via viewer.model.getBulkProperties() at load time
+  ifc_type           String? @db.VarChar(60) // e.g. IfcBeam, IfcColumn
+  phase              String? @db.VarChar(20) // Tekla Common.Phase — construction phase/stage
+  position           String? @db.VarChar(100) // assembly-level only — Tekla Assembly.Assembly/Cast unit position code (e.g. "1/L/0.00-8900.00")
+  assembly_mark      String? @db.VarChar(100) // set on part-level rows only — mark of the parent assembly (display only — marks repeat across physical instances, e.g. a purlin type reused 257 times, so this alone can't scope "this part's specific assembly")
   assembly_global_id String? @db.VarChar(60) // set on part-level rows only — global_id of the SPECIFIC parent assembly instance (looked up via externalId depth, same as assembly_mark) — the real per-instance scoping key
 
   weight_kg Decimal? @db.Decimal(12, 3)
@@ -1985,4 +2125,3 @@ model bim_element {
 
   @@index([model_id])
 }
-

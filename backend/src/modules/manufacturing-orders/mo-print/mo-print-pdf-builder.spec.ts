@@ -85,13 +85,13 @@ function textOriginYs(doc: PDFDocument, pageIndex: number): number[] {
   return Array.from(decodedContentStream(doc, pageIndex).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => Number(m[2]))
 }
 
-async function fakePdfBytes(pageCount: number): Promise<Uint8Array> {
+async function fakePdfBytes(pageCount: number, size: [number, number] = [200, 200]): Promise<Uint8Array> {
   const doc = await PDFDocument.create()
   for (let i = 0; i < pageCount; i++) {
     // A real shop drawing always has drawn content — a page with zero draw
     // calls has no /Contents stream at all, which doc.embedPage() (used
     // for the Shop Drawing page) rejects with MissingPageContentsEmbeddingError.
-    doc.addPage([200, 200]).drawLine({ start: { x: 0, y: 0 }, end: { x: 200, y: 200 } })
+    doc.addPage(size).drawLine({ start: { x: 0, y: 0 }, end: { x: size[0], y: size[1] } })
   }
   return doc.save()
 }
@@ -100,20 +100,21 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
   return {
     wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15 },
     workCenterName: 'Cutting',
-    assemblyMark: 'DBN-A1-CTR1',
-    qty: 1,
-    zoneLabel: 'BIF Zone 1',
-    subZoneName: null,
     projectName: 'Smash golf driving range Bangna',
     projectCode: 'DBN',
-    drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+    zoneLabel: 'BIF Zone 1',
+    subZoneName: null,
     activities: [],
     woUrl: 'http://localhost:5173/order/wo/1398',
     consume: [],
     operationLabel: 'OP-WELD-SAW — SAW auto weld',
-    assemblyName: 'Column A1',
-    assemblyWeightKg: 450,
+    marks: [{
+      assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450,
+      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+    }],
     assignedTo: null,
+    teamHeadcount: 1,
+    icon: null,
     planStart: null,
     planEnd: null,
     ...overrides,
@@ -122,13 +123,19 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
 
 function makePlan(rows: MoPrintWorkOrderRow[], overrides: Partial<MoPrintPacketPlan> = {}): MoPrintPacketPlan {
   return {
-    mo: { id: 85, mo_code: 'MO-00014', due_date: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR' },
+    mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', projectCode: null, projectName: null, zoneLabel: null, subZoneName: null },
     rows,
+    routingOps: [],
     marks: [],
     assemblyParts: [],
     ...overrides,
   }
 }
+
+// PDF/font rendering is genuinely slow; the default 5000ms has no headroom
+// once CPU is shared across a full parallel test run (confirmed 2026-09-24:
+// 16.3s solo vs. a timeout embedded in a 56-suite run).
+jest.setTimeout(20000)
 
 describe('buildMoPrintPdf', () => {
   it('produces one manifest page, then a traveler page + one dedicated drawing page per WO row, in order', async () => {
@@ -153,7 +160,7 @@ describe('buildMoPrintPdf', () => {
   // browser's native PDF viewer actually suggests as the filename on Save
   // (2026-09-16).
   it("sets the PDF's Title metadata to the MO code plus a timestamp, so 'Save' suggests a sane filename", async () => {
-    const plan = makePlan([makeRow()], { mo: { id: 85, mo_code: 'MO-00014', due_date: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR' } })
+    const plan = makePlan([makeRow()], { mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', projectCode: null, projectName: null, zoneLabel: null, subZoneName: null } })
 
     const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
     const merged = await PDFDocument.load(bytes)
@@ -161,14 +168,26 @@ describe('buildMoPrintPdf', () => {
     expect(merged.getTitle()).toMatch(/^MO-00014-\d{8}-\d{6}$/)
   })
 
-  it('renders every page (manifest, traveler, drawing) at A3 landscape', async () => {
+  it('renders the manifest and traveler pages at A3 landscape', async () => {
     const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
     const merged = await PDFDocument.load(bytes)
     const [a3Short, a3Long] = PageSizes.A3
-    for (let i = 0; i < merged.getPageCount(); i++) {
+    for (const i of [0, 1]) { // manifest, traveler — the drawing page (2) is covered below, it's deliberately NOT A3
       const { width, height } = merged.getPage(i).getSize()
       expect([width, height]).toEqual([a3Long, a3Short])
     }
+  })
+
+  // 2026-09-23: "drawing ต้องเต็มแผ่นตามของจริง" — full-bleed, so the
+  // drawing page's own size must match its embedded drawing's native size
+  // exactly (not the packet's fixed A3-landscape), otherwise it's scaled/
+  // letterboxed rather than "the real thing".
+  it('sizes the drawing page to match its embedded drawing\'s own dimensions, not the fixed A3-landscape packet size', async () => {
+    const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1)) // fakePdfBytes pages are 200x200
+    const merged = await PDFDocument.load(bytes)
+
+    const { width, height } = merged.getPage(2).getSize()
+    expect([width, height]).toEqual([200, 200])
   })
 
   it('draws a page border on every manifest and traveler page, but not on the drawing page', async () => {
@@ -221,6 +240,15 @@ describe('buildMoPrintPdf', () => {
     expect(merged.getPageCount()).toBe(1)
   })
 
+  // Selective print (2026-09-21) — includeManifest is its own toggle,
+  // independent of which WO rows are in the plan.
+  it('2026-09-21: omits the manifest page entirely when includeManifest is false, printing only the WO rows', async () => {
+    const plan = makePlan([makeRow(), makeRow({ wo: { id: 1399, wo_code: 'WO-00000740', sequence: 20, status: 'NOT_STARTED', expected_duration_min: 30, setup_time_min: 5 } })])
+    const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1), false)
+    const merged = await PDFDocument.load(bytes)
+    expect(merged.getPageCount()).toBe(2 * 2) // 2 rows × (traveler + drawing), no manifest page
+  })
+
   it('embeds the company logo on the manifest page only, not the traveler pages', async () => {
     const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
     const merged = await PDFDocument.load(bytes)
@@ -231,22 +259,29 @@ describe('buildMoPrintPdf', () => {
     // already occupies that same top-right corner on traveler pages).
   })
 
-  it('calls fetchDrawingBytes with the matching row so the caller knows which file to fetch', async () => {
+  it('calls fetchDrawingBytes with the matching row and mark so the caller knows which file to fetch', async () => {
     const row = makeRow()
     const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
 
     await buildMoPrintPdf(makePlan([row]), fetchDrawingBytes)
 
-    expect(fetchDrawingBytes).toHaveBeenCalledWith(row)
+    expect(fetchDrawingBytes).toHaveBeenCalledWith(row, row.marks[0])
   })
 
-  // Regression: project/zone names in this app are routinely Thai (e.g.
-  // "โกดังเก็บสินค้า Zone B") — pdf-lib's built-in StandardFonts only encode
-  // WinAnsi (Latin-1) and throw on the first non-Latin character. Live-caught
-  // on local dev while verifying this feature end-to-end (2026-09-15).
-  it('does not throw when the project/zone/mark text contains Thai characters', async () => {
+  // Regression: mark/team names in this app are routinely Thai (e.g. a
+  // Thai assembly name or assignee) — pdf-lib's built-in StandardFonts only
+  // encode WinAnsi (Latin-1) and throw on the first non-Latin character.
+  // Live-caught on local dev while verifying this feature end-to-end
+  // (2026-09-15).
+  it('does not throw when the mark/team text contains Thai characters', async () => {
     const plan = makePlan([
-      makeRow({ projectName: 'โกดังเก็บสินค้า Zone B', zoneLabel: 'โกดัง Zone B-1' }),
+      makeRow({
+        marks: [{
+          assemblyMark: 'DBN-A1-CTR1', name: 'เสาเหล็ก Column A1', qty: 1, weight_kg: 450,
+          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+        }],
+        assignedTo: 'ทีมช่างเชื่อม',
+      }),
     ])
 
     await expect(buildMoPrintPdf(plan, async () => fakePdfBytes(1))).resolves.toBeInstanceOf(Uint8Array)
@@ -259,8 +294,8 @@ describe('buildMoPrintPdf', () => {
     it('does not add extra pages for a normal-sized mark list', async () => {
       const plan = makePlan([makeRow()], {
         marks: [
-          { seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', projectCode: 'DBN', projectName: 'Smash golf driving range Bangna', zoneLabel: 'BIF Zone 1', subZoneName: null, width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 },
-          { seq: 2, assemblyMark: 'DBN-A1-CTR2', name: null, projectCode: 'DBN', projectName: 'Smash golf driving range Bangna', zoneLabel: 'BIF Zone 1', subZoneName: 'North Bay', width_mm: null, length_mm: 3000, height_mm: 200, weight_kg: null, qty: 2 },
+          { seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 },
+          { seq: 2, assemblyMark: 'DBN-A1-CTR2', name: null, width_mm: null, length_mm: 3000, height_mm: 200, weight_kg: null, qty: 2 },
         ],
       })
 
@@ -274,6 +309,24 @@ describe('buildMoPrintPdf', () => {
       const plan = makePlan([makeRow()], { marks: [] })
 
       await expect(buildMoPrintPdf(plan, async () => fakePdfBytes(1))).resolves.toBeInstanceOf(Uint8Array)
+    })
+
+    // 2026-09-22: "เอา project zone ออกจาก assembly แล้วเอาไปไว้ตรง mo info
+    // แทน" — Project/Zone moved off this table onto plan.mo instead (both
+    // with and without a sub-zone). Just a rendering smoke test (no
+    // structural page-count change expected) — the PDF library's text is
+    // CID-encoded, so exact string assertions aren't feasible here; see
+    // the file's other tests for that established limitation.
+    it('renders MO Info with a project/zone (and sub-zone) on plan.mo without throwing', async () => {
+      const plan = makePlan([makeRow()], {
+        mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', projectCode: 'DBN', projectName: 'Smash golf driving range Bangna', zoneLabel: 'BIF Zone 1', subZoneName: 'North Bay' },
+        marks: [{ seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 }],
+      })
+
+      const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
+      const merged = await PDFDocument.load(bytes)
+
+      expect(merged.getPageCount()).toBe(1 + 2)
     })
 
     it('continues a long mark list onto extra pages, without drawing past the page border', async () => {
@@ -290,6 +343,9 @@ describe('buildMoPrintPdf', () => {
       expect(manifestPages).toBeGreaterThan(1)
       for (let i = 0; i < manifestPages; i++) {
         for (const y of textOriginYs(merged, i)) expect(y).toBeGreaterThanOrEqual(20)
+        // 2026-09-23: every MO-section page gets the MO watermark, including
+        // "Assembly List (cont.)" pages, not just the first manifest page.
+        expect(pageHasTranslucentGraphicsState(merged, i)).toBe(true)
       }
     })
   })
@@ -332,6 +388,23 @@ describe('buildMoPrintPdf', () => {
       expect(merged.getPageCount()).toBe(1 + 2)
     })
 
+    // 2026-09-22: "ด้านบนอยากให้มีเพิ่ม 1 table...รอบเบิก, date/time,
+    // ผู้เบิก, ผู้ควบคุม store...row ก็จะมี ครั้งที่ 1, 2, 3" — a small
+    // 4-column/3-row Withdrawal Log sits above the Assembly Part List table
+    // on its first page.
+    it('puts a 4-column, 3-round Withdrawal Log above the Assembly Part List table, without drawing past the page border', async () => {
+      const plan = makePlan([makeRow()], {
+        assemblyParts: [{ assemblyMark: 'DBN-B1-CTR1', name: 'COLUMN', qty: 1, parts: [{ part_mark: 'DBN-B1-m65', profile: 'PIPE', grade: 'SS400', qty: 1, weight_kg: 10 }] }],
+      })
+
+      const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
+      const merged = await PDFDocument.load(bytes)
+
+      // MO page(0) + Assembly Part List page(1) + traveler(2) + drawing(3).
+      expect(decodedContentStream(merged, 1)).toMatch(/Tj/)
+      for (const y of textOriginYs(merged, 1)) expect(y).toBeGreaterThanOrEqual(20)
+    })
+
     it('overflows onto extra pages for a long list — including mid-group — without drawing past the page border', async () => {
       const assemblyParts = Array.from({ length: 6 }, (_, a) => ({
         assemblyMark: `M-${a}`, name: 'COLUMN', qty: 1,
@@ -347,6 +420,9 @@ describe('buildMoPrintPdf', () => {
       expect(manifestPages).toBeGreaterThan(2)
       for (let i = 0; i < manifestPages; i++) {
         for (const y of textOriginYs(merged, i)) expect(y).toBeGreaterThanOrEqual(20)
+        // 2026-09-23: every MO-section page gets the MO watermark, including
+        // every Assembly Part List overflow page, not just the first one.
+        expect(pageHasTranslucentGraphicsState(merged, i)).toBe(true)
       }
     })
   })
@@ -356,9 +432,8 @@ describe('buildMoPrintPdf', () => {
   // is no longer printed here (still per WO on each traveler).
   describe('MO page', () => {
     it('prints a single MO page for several operations and marks, with nothing below the page border', async () => {
-      const rows = [10, 20, 30].flatMap(sequence => ['M-1', 'M-2'].map((mark, i) => makeRow({
+      const rows = [10, 20, 30].flatMap(sequence => [0, 1].map(i => makeRow({
         wo: { id: sequence * 10 + i, wo_code: `WO-000000${sequence}${i}`, sequence, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15 },
-        assemblyMark: mark,
       })))
       const marks = ['M-1', 'M-2'].map((assemblyMark, i) => ({
         seq: i + 1, assemblyMark, name: 'โครงหลังคา', projectCode: 'DBN', projectName: 'x', zoneLabel: 'BIF Zone 1',
@@ -397,10 +472,12 @@ describe('buildMoPrintPdf', () => {
     })
   })
 
-  // Shop Drawing — the matched WO drawing's first page, scaled to fill its
-  // own dedicated A3 landscape page right after that WO's traveler
-  // (2026-09-16: replaces the inline preview at the bottom of the traveler).
-  describe('Shop Drawing (dedicated page per WO)', () => {
+  // Shop Drawing — each mark's matched drawing's first page, scaled to fill
+  // its own dedicated A3 landscape page right after that WO's traveler
+  // (2026-09-16: replaces the inline preview at the bottom of the
+  // traveler; 2026-09-22: one such page per mark, not one per WO — see the
+  // multi-mark describe block below for that specifically).
+  describe('Shop Drawing (dedicated page per mark)', () => {
     it('puts the matched drawing\'s first page on its own page after the traveler — not on the traveler, and without the source drawing\'s other pages', async () => {
       const plan = makePlan([makeRow()])
 
@@ -414,21 +491,78 @@ describe('buildMoPrintPdf', () => {
       expect(pageHasEmbeddedForm(merged, 2)).toBe(true)
     })
 
-    it('labels the drawing page with text (the WO code) so a sheet separated from its traveler can be matched back', async () => {
+    it('labels the drawing page with text (WO code + mark) so a sheet separated from its traveler can be matched back', async () => {
       const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
       const merged = await PDFDocument.load(bytes)
 
       expect(decodedContentStream(merged, 2)).toMatch(/Tj/)
     })
 
-    it('stamps a translucent two-line watermark (WO code + mark) across the middle of the drawing page', async () => {
+    // 2026-09-23: "ย้าย WO-00000165 · DBN-B1-STR1 ไปไว้มุมขวาล่าง" — moved
+    // from top-left to bottom-right, clear of the drawing's own content.
+    it('positions the corner label in the bottom-right of the drawing page, not top-left', async () => {
+      // A realistic (large, landscape) engineering-sheet size — the shared
+      // 200x200 fixture is too narrow for a "WO-code · mark" label at 12pt
+      // to visibly land right of center; real shop drawings are far larger
+      // than a print-packet page, not smaller.
+      const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1, [1600, 1000]))
+      const merged = await PDFDocument.load(bytes)
+      const { width: pageWidth, height: pageHeight } = merged.getPage(2).getSize()
+
+      const positions = Array.from(
+        decodedContentStream(merged, 2).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g),
+        m => ({ x: Number(m[1]), y: Number(m[2]) }),
+      )
+      // 3 text runs on the drawing page: the corner label + the watermark's
+      // 2 lines. The watermark sits centered mid-page (see the middle-third
+      // test above) — the label is whichever run ISN'T in that middle band.
+      const label = positions.find(p => !(p.y > pageHeight / 3 && p.y < (pageHeight * 2) / 3))
+      expect(label).toBeDefined()
+      expect(label!.y).toBeLessThan(pageHeight / 3)
+      expect(label!.x).toBeGreaterThan(pageWidth / 2)
+    })
+
+    // 2026-09-22: "ตรงลายน้ำบน Drawing ต้องใส่ mark ลงไปด้วย" — the drawing
+    // page's watermark carries the mark too (two lines), unlike the
+    // traveler's (WO code only) — a WO now contributes one drawing page per
+    // mark, so the mark is what tells otherwise-identical sheets apart.
+    it('stamps a translucent two-line WO-code + mark watermark across the middle of the drawing page', async () => {
       const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
       const merged = await PDFDocument.load(bytes)
-      const [pageHeight] = PageSizes.A3
+      // The drawing page's own height (2026-09-23: no longer the fixed A3
+      // constant — it's sized to match the embedded drawing, see the
+      // dedicated sizing test above), read back from the actual page so this
+      // stays correct regardless of what size fakePdfBytes produces.
+      const { height: pageHeight } = merged.getPage(2).getSize()
 
       expect(pageHasTranslucentGraphicsState(merged, 2)).toBe(true)
       const middleThirdYs = textOriginYs(merged, 2).filter(y => y > pageHeight / 3 && y < (pageHeight * 2) / 3)
       expect(middleThirdYs).toHaveLength(2)
+    })
+
+    // 2026-09-22: "wo มีหลายมาก mark ทำไมถึงแสดงแค่ print แค่ 1 drawing
+    // ต้อง print ทุก drawing ที่มี mark" — a multi-mark WO used to embed
+    // only its primary mark's drawing once; now every mark gets its own
+    // drawing page, fetched and labeled separately.
+    it('embeds one drawing page per mark on a multi-mark WO, not just the primary mark, each fetched and labeled separately', async () => {
+      const plan = makePlan([makeRow({
+        marks: [
+          { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf' } },
+          { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf' } },
+        ],
+      })])
+      const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
+
+      const bytes = await buildMoPrintPdf(plan, fetchDrawingBytes)
+      const merged = await PDFDocument.load(bytes)
+
+      // manifest(0) + traveler(1) + drawing for CTR1(2) + drawing for CTR2(3).
+      expect(merged.getPageCount()).toBe(1 + 1 + 2)
+      expect(fetchDrawingBytes).toHaveBeenCalledTimes(2)
+      expect(fetchDrawingBytes).toHaveBeenCalledWith(plan.rows[0], plan.rows[0].marks[0])
+      expect(fetchDrawingBytes).toHaveBeenCalledWith(plan.rows[0], plan.rows[0].marks[1])
+      expect(decodedContentStream(merged, 2)).toMatch(/Tj/)
+      expect(decodedContentStream(merged, 3)).toMatch(/Tj/)
     })
   })
 
@@ -443,6 +577,10 @@ describe('buildMoPrintPdf', () => {
     }))
     const longConsume = Array.from({ length: 60 }, (_, i) => ({
       material_id: i, code: `MAT-${i}`, name: `Material ${i}`, qty: 1, unit: 'kg',
+    }))
+    const longMarks = Array.from({ length: 30 }, (_, i) => ({
+      assemblyMark: `DBN-A1-CTR${i}`, name: `Column ${i}`, qty: 1, weight_kg: 450,
+      drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf` },
     }))
 
     it('does not throw with a normal activity list (including an unresolved one), a Thai consume list, and a full Production Time', async () => {
@@ -465,12 +603,24 @@ describe('buildMoPrintPdf', () => {
     })
 
     it('does not throw when a row has no activities, no consume, no assignee and no schedule', async () => {
-      const plan = makePlan([makeRow({ activities: [], consume: [], assignedTo: null, planStart: null, planEnd: null, assemblyName: null, assemblyWeightKg: null })])
+      const plan = makePlan([makeRow({
+        activities: [], consume: [], assignedTo: null, planStart: null, planEnd: null,
+        marks: [{
+          assemblyMark: 'DBN-A1-CTR1', name: null, qty: null, weight_kg: null,
+          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+        }],
+      })])
 
       await expect(buildMoPrintPdf(plan, async () => fakePdfBytes(1))).resolves.toBeInstanceOf(Uint8Array)
     })
 
-    it('keeps the traveler on exactly one page with very long activity AND consume lists, drawing nothing past the page border', async () => {
+    it('does not throw when a row has zero marks (Assembly List & QC table entirely blank)', async () => {
+      const plan = makePlan([makeRow({ marks: [] })])
+
+      await expect(buildMoPrintPdf(plan, async () => fakePdfBytes(1))).resolves.toBeInstanceOf(Uint8Array)
+    })
+
+    it('keeps the traveler on exactly one page with very long activity AND consume lists (left column stays capped), drawing nothing past the page border', async () => {
       const plan = makePlan([makeRow({ activities: longActivities, consume: longConsume })])
 
       const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
@@ -480,13 +630,42 @@ describe('buildMoPrintPdf', () => {
       for (const y of textOriginYs(merged, 1)) expect(y).toBeGreaterThanOrEqual(20)
     })
 
-    it('stamps the same translucent WO/mark watermark as the drawing page', async () => {
+    // 2026-09-21: "ต้องแสดง assembly list ทั้งหมด" — unlike the left
+    // column's tables (capped, "+N more"), Assembly List & QC must show
+    // every mark, however many there are, continuing onto full-width
+    // "(cont.)" pages instead.
+    it('shows every mark across as many continuation pages as it takes, never capping, drawing nothing past the page border', async () => {
+      const plan = makePlan([makeRow({ marks: longMarks })])
+
+      const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
+      const merged = await PDFDocument.load(bytes)
+
+      // One drawing page per mark trails the traveler pages (2026-09-22) —
+      // isolate the manifest+traveler+"(cont.)" pages from those (their own
+      // border-safety is covered by the dedicated Shop Drawing tests).
+      const travelerPageCount = merged.getPageCount() - 1 - longMarks.length
+      expect(travelerPageCount).toBeGreaterThan(1) // manifest + traveler + at least one "(cont.)" page.
+      for (let i = 1; i <= travelerPageCount; i++) {
+        for (const y of textOriginYs(merged, i)) expect(y).toBeGreaterThanOrEqual(20)
+      }
+    })
+
+    it('stamps a translucent WO-code watermark on the traveler page', async () => {
       const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
       const merged = await PDFDocument.load(bytes)
 
       expect(pageHasTranslucentGraphicsState(merged, 1)).toBe(true)
-      // The manifest is MO-level — no single WO to stamp.
-      expect(pageHasTranslucentGraphicsState(merged, 0)).toBe(false)
+    })
+
+    // 2026-09-23: "mo ทุกหน้าต้องมี ลายน้ำเป็น mo ด้วยทุกหน้า" — the manifest
+    // (MO-level, no single WO to stamp) previously had none at all; now it
+    // gets its own one-line MO-code watermark, same as every other
+    // MO-section page (Assembly List continuation, Assembly Part List).
+    it('stamps a translucent MO-code watermark on the manifest page too', async () => {
+      const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
+      const merged = await PDFDocument.load(bytes)
+
+      expect(pageHasTranslucentGraphicsState(merged, 0)).toBe(true)
     })
 
     it('fills the right half of the page too (Assembly List + QC log), not just the left column', async () => {

@@ -11,6 +11,24 @@ function makeDispatch(overrides: Record<string, any> = {}) {
   }
 }
 
+// One work_order_mark row (the new junction table, 2026-09-17 multi-mark
+// redesign) — a WO's findMany include pre-filters these to non-removed
+// only, so every mark a test hands back here is assumed printable.
+function makeMark(overrides: Record<string, any> = {}) {
+  return {
+    id: 1,
+    bom_assembly_id: 2868,
+    bom_assembly: {
+      id: 2868,
+      assembly_mark: 'DBN-A1-CTR1',
+      name: 'Column A1',
+      weight_kg: 450,
+      dispatch: makeDispatch(),
+    },
+    ...overrides,
+  }
+}
+
 function makeWo(overrides: Record<string, any> = {}) {
   return {
     id: 1398,
@@ -19,7 +37,6 @@ function makeWo(overrides: Record<string, any> = {}) {
     status: 'NOT_STARTED',
     expected_duration_min: 45,
     setup_time_min: 10,
-    bom_assembly_id: 2868,
     mrp_workcenter: { id: 1, name: 'Cutting' },
     // Soft ref → mrp_routing_workcenter.id (the specific routing operation
     // this WO was created from — e.g. "SAW auto weld" — distinct from
@@ -27,15 +44,14 @@ function makeWo(overrides: Record<string, any> = {}) {
     // "H-beam Fabrication"). Nullable: older/ad-hoc WOs predate this link.
     source_routing_op_id: 501,
     assigned_to: null,
+    subcontractor: null,
+    plan_start: null,
+    plan_finish: null,
     // Pre-filtered by the findMany include to the ACTIVE schedule version.
     schedules: [],
-    bom_assembly: {
-      id: 2868,
-      assembly_mark: 'DBN-A1-CTR1',
-      name: 'Column A1',
-      weight_kg: 450,
-      dispatch: makeDispatch(),
-    },
+    // One mark by default — a WO now spans a marks[] array (multi-mark
+    // redesign), but most tests here only care about the single-mark case.
+    marks: [makeMark()],
     ...overrides,
   }
 }
@@ -76,7 +92,7 @@ function makePdfDrawing(overrides: Record<string, any> = {}) {
 function makePrisma(overrides: Record<string, any> = {}) {
   return {
     manufacturing_order: {
-      findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-00014', due_date: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR' }),
+      findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', routing_template_id: 17 }),
     },
     mo_assembly_line: {
       findMany: jest.fn().mockResolvedValue([makeMoLine()]),
@@ -87,8 +103,17 @@ function makePrisma(overrides: Record<string, any> = {}) {
     activity: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    // Called two ways: getRoutingOps' template-snapshot lookup (where.template_id)
+    // and its resolve-labels-for-existing-WOs lookup (where.id.in) — the
+    // template op below shares makeWo()'s default sequence (10) + source_
+    // routing_op_id (501) so it's recognized as "already has a WO" by
+    // default and existing tests don't get a spurious extra routingOps row.
     mrp_routing_workcenter: {
-      findMany: jest.fn().mockResolvedValue([{ id: 501, op_code: 'OP-WELD-SAW', name: 'SAW auto weld' }]),
+      findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(
+        where?.template_id != null
+          ? [{ sequence: 10, op_code: 'OP-WELD-SAW', name: 'SAW auto weld', workcenter: { name: 'Cutting' } }]
+          : [{ id: 501, op_code: 'OP-WELD-SAW', name: 'SAW auto weld' }],
+      )),
     },
     ...overrides,
   }
@@ -128,18 +153,15 @@ describe('MoPrintService.buildPlan', () => {
 
     expect(plan.mo.mo_code).toBe('MO-00014')
     expect(plan.rows).toHaveLength(1)
-    expect(plan.rows[0]).toMatchObject({
-      assemblyMark: 'DBN-A1-CTR1',
-      workCenterName: 'Cutting',
-      qty: 1,
-      zoneLabel: 'BIF Zone 1',
-      projectName: 'Smash golf driving range Bangna',
-    })
-    expect(plan.rows[0].drawing.file_key).toBe('drawings/dbn-a1-ctr1-rev1.pdf')
+    expect(plan.rows[0]).toMatchObject({ workCenterName: 'Cutting' })
+    expect(plan.rows[0].marks).toEqual([{
+      assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450,
+      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+    }])
     expect(plan.rows[0].wo).toMatchObject({ expected_duration_min: 45, setup_time_min: 10 })
   })
 
-  it("carries the assembly's name + per-piece weight and the WO's assignee onto each row (for the traveler's Assembly List / Production Time)", async () => {
+  it("carries the assembly's name + per-piece weight onto its mark row, and the WO's assignee onto the row itself (for the traveler's Assembly List / Production Time)", async () => {
     const prisma = makePrisma({
       work_order: { findMany: jest.fn().mockResolvedValue([makeWo({ assigned_to: 'somchai' })]) },
     })
@@ -147,14 +169,15 @@ describe('MoPrintService.buildPlan', () => {
 
     const plan = await svc.buildPlan(85)
 
-    expect(plan.rows[0]).toMatchObject({ assemblyName: 'Column A1', assemblyWeightKg: 450, assignedTo: 'somchai' })
+    expect(plan.rows[0].marks[0]).toMatchObject({ name: 'Column A1', weight_kg: 450 })
+    expect(plan.rows[0]).toMatchObject({ assignedTo: 'somchai' })
   })
 
-  it('defaults assemblyName/assemblyWeightKg/assignedTo to null when the source fields are empty', async () => {
+  it('defaults a mark row\'s name/weight_kg and the row\'s assignedTo to null when the source fields are empty', async () => {
     const prisma = makePrisma({
       work_order: {
         findMany: jest.fn().mockResolvedValue([makeWo({
-          bom_assembly: { id: 2868, assembly_mark: 'DBN-A1-CTR1', name: null, weight_kg: null, dispatch: makeDispatch() },
+          marks: [makeMark({ bom_assembly: { id: 2868, assembly_mark: 'DBN-A1-CTR1', name: null, weight_kg: null, dispatch: makeDispatch() } })],
         })]),
       },
     })
@@ -162,7 +185,8 @@ describe('MoPrintService.buildPlan', () => {
 
     const plan = await svc.buildPlan(85)
 
-    expect(plan.rows[0]).toMatchObject({ assemblyName: null, assemblyWeightKg: null, assignedTo: null })
+    expect(plan.rows[0].marks[0]).toMatchObject({ name: null, weight_kg: null })
+    expect(plan.rows[0]).toMatchObject({ assignedTo: null })
   })
 
   it("takes each row's plan window from its schedule rows in the ACTIVE schedule version only — earliest start, latest end", async () => {
@@ -189,12 +213,71 @@ describe('MoPrintService.buildPlan', () => {
     }))
   })
 
-  it('leaves planStart/planEnd null for a WO with no schedule rows in the active version', async () => {
+  it('leaves planStart/planEnd null for a WO with no schedule rows AND no plan_start/plan_finish of its own', async () => {
     const svc = new MoPrintService(makePrisma() as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
 
     const plan = await svc.buildPlan(85)
 
     expect(plan.rows[0]).toMatchObject({ planStart: null, planEnd: null })
+  })
+
+  // 2026-09-22 fix — user: "เอา plan start plan finish มาใส่ใน pdf ด้วย".
+  // A WO's own plan_start/plan_finish (set at Create WO time) used to be
+  // ignored here entirely — only the separate production-scheduling
+  // feature's rows populated this cell, so it printed blank for any WO
+  // that had never been placed on an active schedule version even though
+  // it had perfectly good plan dates of its own.
+  it("falls back to the WO's own plan_start/plan_finish when it has no schedule rows", async () => {
+    const prisma = makePrisma({
+      work_order: {
+        findMany: jest.fn().mockResolvedValue([makeWo({
+          plan_start: new Date('2026-09-23T22:36:00Z'),
+          plan_finish: new Date('2026-09-25T22:36:00Z'),
+        })]),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows[0].planStart).toEqual(new Date('2026-09-23T22:36:00Z'))
+    expect(plan.rows[0].planEnd).toEqual(new Date('2026-09-25T22:36:00Z'))
+  })
+
+  it('prefers the active schedule window over plan_start/plan_finish when both exist', async () => {
+    const prisma = makePrisma({
+      work_order: {
+        findMany: jest.fn().mockResolvedValue([makeWo({
+          plan_start: new Date('2026-09-23T22:36:00Z'),
+          plan_finish: new Date('2026-09-25T22:36:00Z'),
+          schedules: [
+            { start_datetime: new Date('2026-09-17T01:00:00Z'), end_datetime: new Date('2026-09-17T05:00:00Z') },
+          ],
+        })]),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows[0].planStart).toEqual(new Date('2026-09-17T01:00:00Z'))
+    expect(plan.rows[0].planEnd).toEqual(new Date('2026-09-17T05:00:00Z'))
+  })
+
+  it("prefers the WO's team (subcontractor) over the legacy assigned_to free-text when both exist", async () => {
+    const prisma = makePrisma({
+      work_order: {
+        findMany: jest.fn().mockResolvedValue([makeWo({
+          assigned_to: 'Some old free-text value',
+          subcontractor: { name: 'Subcontractor Fabrication A (Beam)' },
+        })]),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows[0].assignedTo).toBe('Subcontractor Fabrication A (Beam)')
   })
 
   it("attaches each row's own share of consume (ManufacturingOrderService.getConsumeSummaryByWorkOrder), keyed by that WO's id", async () => {
@@ -285,7 +368,7 @@ describe('MoPrintService.buildPlan', () => {
     }))
   })
 
-  it("builds the manifest's Mark list — one row per mo_assembly_line (not per WO/operation), with the assembly's dimensions/weight and dispatch project/zone", async () => {
+  it("builds the manifest's Mark list — one row per mo_assembly_line (not per WO/operation), with the assembly's dimensions/weight", async () => {
     const prisma = makePrisma()
     const drawings = makeDrawings()
     const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
@@ -297,10 +380,6 @@ describe('MoPrintService.buildPlan', () => {
         seq: 1,
         assemblyMark: 'DBN-A1-CTR1',
         name: 'Column A1',
-        projectCode: 'DBN',
-        projectName: 'Smash golf driving range Bangna',
-        zoneLabel: 'BIF Zone 1',
-        subZoneName: null,
         width_mm: 200,
         length_mm: 6000,
         height_mm: 300,
@@ -308,6 +387,47 @@ describe('MoPrintService.buildPlan', () => {
         qty: 1,
       },
     ])
+  })
+
+  // 2026-09-22: "เอา project zone ออกจาก assembly แล้วเอาไปไว้ตรง mo info
+  // แทน" — dispatch project/zone moved off each Mark-list row (repeated
+  // identically on every one, since an MO is scoped to one project+zone at
+  // create time) onto plan.mo itself instead, derived from the first line.
+  it("puts the dispatch project/zone on plan.mo instead, derived from the MO's first assembly line", async () => {
+    const svc = new MoPrintService(makePrisma() as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.mo).toMatchObject({
+      projectCode: 'DBN',
+      projectName: 'Smash golf driving range Bangna',
+      zoneLabel: 'BIF Zone 1',
+      subZoneName: null,
+    })
+  })
+
+  it('carries a sub-zone name through onto plan.mo when the first line has one', async () => {
+    const prisma = makePrisma({
+      mo_assembly_line: {
+        findMany: jest.fn().mockResolvedValue([
+          makeMoLine({ bom_assembly: { id: 2868, assembly_mark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, assembly_parts: [], dispatch: makeDispatch({ sub_zone_id: 9, sub_zone: { id: 9, name: 'North Bay' } }) } }),
+        ]),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.mo).toMatchObject({ zoneLabel: 'BIF Zone 1', subZoneName: 'North Bay' })
+  })
+
+  it('leaves plan.mo project/zone null for an MO with no assembly lines at all', async () => {
+    const prisma = makePrisma({ mo_assembly_line: { findMany: jest.fn().mockResolvedValue([]) } })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.mo).toMatchObject({ projectCode: null, projectName: null, zoneLabel: null, subZoneName: null })
   })
 
   it('numbers Mark-list rows by their line_seq order, not insertion order, and carries a null dimension through as null', async () => {
@@ -356,7 +476,9 @@ describe('MoPrintService.buildPlan', () => {
           { name: 'Undocumented step', source_activity_id: null },
         ],
       },
-      bom_assembly: { id: 2868, assembly_mark: 'DBN-A1-CTR1', length_mm: 1000, surface_area_m2: 2, width_mm: 500, dispatch: makeDispatch() },
+      marks: [makeMark({
+        bom_assembly: { id: 2868, assembly_mark: 'DBN-A1-CTR1', length_mm: 1000, surface_area_m2: 2, width_mm: 500, dispatch: makeDispatch() },
+      })],
     })
     const activityFindMany = jest.fn().mockResolvedValue([
       { id: 501, formula_code: null, per_minute: null, duration_min: 15, kind: 'setup' },
@@ -387,6 +509,75 @@ describe('MoPrintService.buildPlan', () => {
     )
   })
 
+  // 2026-09-22: "ทำไม routing ในหน้าแรกไม่แสดง" — a selective print
+  // (workOrderIds narrowing `rows` down to a subset) used to leave the
+  // Routing checklist looking just as narrow, since it was derived FROM
+  // `rows`. routingOps is now its own query, unfiltered by workOrderIds.
+  it("computes routingOps from every non-cancelled WO, not narrowed by workOrderIds the way rows is", async () => {
+    const prisma = makePrisma({
+      work_order: {
+        findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(
+          where?.id
+            ? [makeWo({ id: 1, wo_code: 'WO-1', sequence: 10 })]
+            : [makeWo({ id: 1, wo_code: 'WO-1', sequence: 10 }), makeWo({ id: 2, wo_code: 'WO-2', sequence: 20 })],
+        )),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85, [1])
+
+    expect(plan.rows).toHaveLength(1)
+    expect(plan.rows[0].wo.wo_code).toBe('WO-1')
+    expect(plan.routingOps.map(op => op.sequence)).toEqual([10, 20])
+  })
+
+  // 2026-09-22 bug repro: a freshly CONFIRMED MO (MO-00011) has zero work
+  // orders until "Create Work Order" is used — routingOps was querying
+  // work_order alone, so a brand-new MO printed a completely blank Routing
+  // checklist even though its routing template has planned operations.
+  it("seeds routingOps from the routing template's own operations when the MO has zero work orders yet, with empty woCodes", async () => {
+    const prisma = makePrisma({
+      work_order: { findMany: jest.fn().mockResolvedValue([]) },
+      mrp_routing_workcenter: {
+        findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(
+          where?.template_id != null
+            ? [
+                { sequence: 10, op_code: 'OP-FITUP', name: 'Fit-up members', workcenter: { name: 'Welding (manual)' } },
+                { sequence: 20, op_code: 'OP-WELD-MAG', name: 'MIG/MAG welding', workcenter: { name: 'Welding (manual)' } },
+              ]
+            : [],
+        )),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.routingOps).toEqual([
+      { sequence: 10, operationLabel: 'OP-FITUP — Fit-up members', workCenterName: 'Welding (manual)', woCodes: [] },
+      { sequence: 20, operationLabel: 'OP-WELD-MAG — MIG/MAG welding', workCenterName: 'Welding (manual)', woCodes: [] },
+    ])
+  })
+
+  it('does not duplicate an operation that already has a WO with a second "planned only" row from the template', async () => {
+    const plan = await new MoPrintService(makePrisma() as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any).buildPlan(85)
+
+    // makePrisma()'s default template op (sequence 10) matches the default
+    // WO's own sequence — must collapse to one row, not two.
+    expect(plan.routingOps).toHaveLength(1)
+    expect(plan.routingOps[0].woCodes).toEqual(['WO-00000739'])
+  })
+
+  it('skips the routingOps query entirely when includeManifest is false', async () => {
+    const prisma = makePrisma()
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85, undefined, false)
+
+    expect(plan.routingOps).toEqual([])
+  })
+
   it('throws NotFoundException when the MO does not exist', async () => {
     const prisma = makePrisma({ manufacturing_order: { findUnique: jest.fn().mockResolvedValue(null) } })
     const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
@@ -394,11 +585,20 @@ describe('MoPrintService.buildPlan', () => {
     await expect(svc.buildPlan(999)).rejects.toThrow(NotFoundException)
   })
 
-  it('throws ConflictException when the MO has no non-cancelled work orders', async () => {
+  it('2026-09-21: does NOT throw when the MO has no non-cancelled work orders as long as the MO overview page is included (default) — "just the MO" is now a valid print', async () => {
     const prisma = makePrisma({ work_order: { findMany: jest.fn().mockResolvedValue([]) } })
     const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
 
-    await expect(svc.buildPlan(85)).rejects.toThrow(ConflictException)
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows).toEqual([])
+  })
+
+  it('2026-09-21: throws ConflictException when there are no work orders AND the MO overview page was explicitly excluded — nothing left to print', async () => {
+    const prisma = makePrisma({ work_order: { findMany: jest.fn().mockResolvedValue([]) } })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    await expect(svc.buildPlan(85, undefined, false)).rejects.toThrow(ConflictException)
   })
 
   it('blocks the whole packet — throws ConflictException naming the WO/mark — when any WO has no matching PDF drawing', async () => {
@@ -426,6 +626,60 @@ describe('MoPrintService.buildPlan', () => {
 
     expect(plan.rows).toHaveLength(2)
     expect(drawings.findByZone).toHaveBeenCalledTimes(1)
+  })
+
+  // Multi-mark redesign (2026-09-17): a WO is now per-operation and spans
+  // marks[] (work_order_mark), not a single bom_assembly. One Assembly-List
+  // row per non-removed mark, reusing the exact same per-assembly field
+  // mapping for each. Drawing/Activities are a stopgap resolved once per WO
+  // from its first mark only (deferred multi-mark print redesign).
+  // 2026-09-21 correction: "ทุก assembly ต้องรวมอยู่ใน wo เดียวกัน" — a
+  // multi-mark WO used to produce one row (one traveler page) PER mark;
+  // now every mark on the WO collapses into ONE row's marks[] array, so it
+  // prints as a single traveler page listing every mark together.
+  it('produces ONE row for a multi-mark WO, with every mark listed in that row\'s marks[]', async () => {
+    const secondAssembly = { id: 2869, assembly_mark: 'DBN-A1-CTR2', name: 'Column A2', weight_kg: 220, dispatch: makeDispatch() }
+    const prisma = makePrisma({
+      mo_assembly_line: {
+        findMany: jest.fn().mockResolvedValue([
+          makeMoLine({ bom_assembly_id: 2868, qty: 1 }),
+          makeMoLine({ id: 2, line_seq: 1, bom_assembly_id: 2869, qty: 3 }),
+        ]),
+      },
+      work_order: {
+        findMany: jest.fn().mockResolvedValue([makeWo({
+          marks: [makeMark(), makeMark({ id: 2, bom_assembly_id: 2869, bom_assembly: secondAssembly })],
+        })]),
+      },
+    })
+    // Each mark needs its own matching drawing now (2026-09-22) — the
+    // default makeDrawings() only has one, for DBN-A1-CTR1.
+    const drawings = makeDrawings({
+      findByZone: jest.fn().mockResolvedValue([
+        makePdfDrawing(),
+        makePdfDrawing({ id: 2, file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' }),
+      ]),
+    })
+    const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows).toHaveLength(1)
+    expect(plan.rows[0].marks).toEqual([
+      { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' } },
+      { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 3, weight_kg: 220, drawing: { file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' } },
+    ])
+  })
+
+  it('skips a WO with zero non-removed marks — produces no row for it, without throwing', async () => {
+    const prisma = makePrisma({
+      work_order: { findMany: jest.fn().mockResolvedValue([makeWo({ marks: [] })]) },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows).toEqual([])
   })
 })
 

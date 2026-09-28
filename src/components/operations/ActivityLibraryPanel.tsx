@@ -1,18 +1,31 @@
 import { useState } from 'react'
 import { useActivities } from '../../hooks/useActivities'
-import { useAddFromLibrary } from '../../hooks/useOperationTemplates'
 import { usePermission } from '../../hooks/usePermission'
+import type { ActivityDto } from '../../api/activities'
 
 interface ActivityLibraryPanelProps {
-  templateId: number | null
   existingSourceIds: Set<number>
+  operationTypeId?: number | null
+  // Caller decides what "add" means — immediately persist via API (edit mode,
+  // a real operation_template_id already exists) or stage locally into form
+  // state to be included in the single create/publish call (new operation,
+  // 2026-09-25: removed the old "must Save Draft first" requirement).
+  onAdd: (act: ActivityDto) => void
 }
 
-export default function ActivityLibraryPanel({ templateId, existingSourceIds }: ActivityLibraryPanelProps) {
+export default function ActivityLibraryPanel({ existingSourceIds, operationTypeId, onAdd }: ActivityLibraryPanelProps) {
+  const hasOperationType = operationTypeId != null
   const [search, setSearch] = useState('')
-  const { data: paged, isLoading } = useActivities({ q: search || undefined })
+
+  // ponytail: flat list has no pagination UI, so fetch the backend's max page
+  // size (200) instead of the default 20 — upgrade path is real pagination
+  // once the library exceeds 200 activities.
+  const { data: paged, isLoading } = useActivities({
+    q: search || undefined,
+    operation_type_id: operationTypeId ?? undefined,
+    limit: 200,
+  }, { enabled: hasOperationType })
   const activities = paged?.data ?? []
-  const addMut = useAddFromLibrary(templateId ?? 0)
   const canUpdate = usePermission('routings', 'update')
 
   return (
@@ -20,22 +33,25 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
       {/* Header */}
       <div style={{ padding: '12px 16px', borderBottom: '1px solid #E0E0E0', background: '#fff' }}>
         <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Activity Library</div>
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search activities…"
-          aria-label="Search activities"
-          style={{ width: '100%', padding: '6px 10px', border: '1px solid #DDD', borderRadius: 4, fontSize: 12, boxSizing: 'border-box' }}
-        />
+        {hasOperationType && (
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search activities…"
+            aria-label="Search activities"
+            style={{ width: '100%', padding: '6px 10px', border: '1px solid #DDD', borderRadius: 4, fontSize: 12, boxSizing: 'border-box' }}
+          />
+        )}
       </div>
 
-      {templateId === null && (
-        <div style={{ padding: 16, background: '#FFF8E1', borderBottom: '1px solid #FFE082', fontSize: 12, color: '#795548' }}>
-          Save the operation as Draft first to enable the Activity Library.
+      {!hasOperationType && (
+        <div style={{ padding: 24, textAlign: 'center', fontSize: 12, color: '#9E9E9E' }}>
+          Select an Operation Type on the left first — activities matching that type (plus "All") will show up here.
         </div>
       )}
 
       {/* Flat activity list */}
+      {hasOperationType && (
       <div style={{ flex: 1, overflowY: 'auto', padding: 8 }}>
         {isLoading && <div style={{ padding: 16, fontSize: 12, color: '#888' }}>Loading…</div>}
         {activities.map(act => {
@@ -50,22 +66,30 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: '#999', fontFamily: 'monospace' }}>{act.activity_code}</div>
                   <div style={{ fontSize: 12, fontWeight: 500 }}>{act.name}</div>
-                  <div style={{ marginTop: 4 }}>
+                  <div style={{ marginTop: 4, display: 'flex', gap: 4 }}>
                     <span style={{ fontSize: 11, background: '#E8F5E9', color: '#2E7D32', border: '1px solid #A5D6A7', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>
                       {Number(act.duration_min).toFixed(2)} min
+                    </span>
+                    <span style={{
+                      fontSize: 11, borderRadius: 10, padding: '1px 7px', fontWeight: 600,
+                      background: act.operation_type ? `${act.operation_type.color}20` : '#F5F5F5',
+                      color: act.operation_type?.color ?? '#9E9E9E',
+                      border: `1px solid ${act.operation_type ? act.operation_type.color + '66' : '#E0E0E0'}`,
+                    }}>
+                      {act.operation_type?.label ?? 'All'}
                     </span>
                   </div>
                 </div>
                 {canUpdate && (
                 <button
-                  disabled={templateId === null || alreadyAdded || addMut.isPending}
-                  onClick={() => addMut.mutate(act.id)}
+                  disabled={alreadyAdded}
+                  onClick={() => onAdd(act)}
                   title={alreadyAdded ? 'Already added' : 'Add to operation'}
                   style={{
                     padding: '4px 10px', fontSize: 11, borderRadius: 4, border: 'none',
                     background: alreadyAdded ? '#E0E0E0' : '#1976D2',
                     color: alreadyAdded ? '#999' : '#fff',
-                    cursor: templateId === null || alreadyAdded || addMut.isPending ? 'default' : 'pointer',
+                    cursor: alreadyAdded ? 'default' : 'pointer',
                     flexShrink: 0,
                   }}
                 >
@@ -83,6 +107,7 @@ export default function ActivityLibraryPanel({ templateId, existingSourceIds }: 
           </div>
         )}
       </div>
+      )}
     </div>
   )
 }

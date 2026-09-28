@@ -27,19 +27,40 @@ export interface WoBimMatchResult {
 export class WoBimMatchService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getBimMatch(woId: number): Promise<WoBimMatchResult> {
+  // `bomAssemblyId` lets a caller request a specific mark's BIM match — a
+  // WO can now span many marks — needed later by a frontend mark-selector
+  // (not built here). Omitted, it defaults to the WO's first non-removed
+  // mark, preserving today's single-mark behavior (2026-09-17 multi-mark
+  // redesign stopgap).
+  async getBimMatch(woId: number, bomAssemblyId?: number): Promise<WoBimMatchResult> {
     const wo = await this.prisma.work_order.findUnique({
       where: { id: woId },
       select: {
-        bom_assembly: {
-          select: { assembly_mark: true, dispatch: { select: { project_id: true } } },
+        marks: {
+          where: { removed_at: null },
+          orderBy: { id: 'asc' },
+          select: {
+            bom_assembly_id: true,
+            bom_assembly: {
+              select: { assembly_mark: true, dispatch: { select: { project_id: true } } },
+            },
+          },
         },
       },
     })
     if (!wo) throw new NotFoundException(`WO ${woId} not found`)
 
-    const mark = wo.bom_assembly.assembly_mark
-    const projectId = wo.bom_assembly.dispatch.project_id
+    const matchedMark = bomAssemblyId != null
+      ? wo.marks.find(m => m.bom_assembly_id === bomAssemblyId)
+      : wo.marks[0]
+    if (!matchedMark) {
+      throw new NotFoundException(
+        bomAssemblyId != null ? `WO ${woId} has no mark for bom_assembly ${bomAssemblyId}` : `WO ${woId} has no marks`,
+      )
+    }
+
+    const mark = matchedMark.bom_assembly.assembly_mark
+    const projectId = matchedMark.bom_assembly.dispatch.project_id
 
     const model = await this.prisma.bim_model.findFirst({
       where: { project_id: projectId },

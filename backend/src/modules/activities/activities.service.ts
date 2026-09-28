@@ -18,6 +18,7 @@ const INCLUDE = {
       resource: { select: { id: true, code: true, name: true } },
     },
   },
+  operation_type: { select: { id: true, key: true, label: true, color: true } },
 } as const
 
 // computeActivityDuration() scales by per_minute (units/min), but the
@@ -49,10 +50,12 @@ export class ActivitiesService {
   ) {}
 
   async findAll(query: QueryActivityDto) {
-    const { q, material_id, page = 1, limit = 20 } = query
+    const { q, material_id, operation_type_id, page = 1, limit = 20 } = query
     const where = {
       ...(q ? { name: { contains: q, mode: 'insensitive' as const } } : {}),
       ...(material_id ? { consumes: { some: { material_id } } } : {}),
+      // An activity with no operation_type_id applies to every operation type.
+      ...(operation_type_id ? { OR: [{ operation_type_id: null }, { operation_type_id }] } : {}),
     }
     const [data, total] = await Promise.all([
       this.prisma.activity.findMany({
@@ -95,6 +98,7 @@ export class ActivitiesService {
           duration_min: dto.duration_min,
           per_minute:   derivePerMinute(dto.ratio, dto.per_time, dto.per_minute) ?? null,
           ...(dto.kind !== undefined && { kind: dto.kind }),
+          operation_type_id: dto.operation_type_id ?? null,
           formula_code: dto.formula_code ?? null,
           ratio:        dto.ratio        ?? null,
           ratio_unit:   dto.ratio_unit   ?? null,
@@ -145,6 +149,7 @@ export class ActivitiesService {
         ...(dto.duration_min !== undefined && { duration_min: dto.duration_min }),
         ...(perMinute        !== undefined && { per_minute:   perMinute }),
         ...(dto.kind         !== undefined && { kind:         dto.kind }),
+        ...(dto.operation_type_id !== undefined && { operation_type_id: dto.operation_type_id }),
         ...(dto.formula_code !== undefined && { formula_code: dto.formula_code }),
         ...(dto.ratio        !== undefined && { ratio:        dto.ratio }),
         ...(dto.ratio_unit   !== undefined && { ratio_unit:   dto.ratio_unit }),

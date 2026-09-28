@@ -14,28 +14,23 @@ import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { CreateMoDto, MoAssemblyLineInputDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 
-/** Safely evaluate a formula expression with known numeric variables.
- *  Substitutes variable names → decimal strings, then asserts the resulting
- *  string contains only digits / operators / parens before evaluating.
+/**
+ * P3 status state machine: allowed forward transitions.
+ * IN_PROGRESS → CANCELLED added 2026-09-23 (user: "mo ต้องมี ปุ่ม complete
+ * แล้วก็ cancel ด้วย" — an in-progress MO needs both a Complete and a Cancel
+ * button, not Complete-only). Needs no extra logic beyond allowing the
+ * transition: `MoAllocationService`'s ALLOCATING_STATUSES already excludes
+ * CANCELLED regardless of which status it came from, so "allocation
+ * returned" (P15) just works; like every other MO status change, this never
+ * touches the MO's own WOs — they're left exactly as they are, independently
+ * manageable via their own status actions.
  */
-function evalFormulaExpr(expr: string, vars: Record<string, number>): number {
-  const KNOWN = ['length', 'area', 'weight', 'thickness']
-  let safe = expr
-  for (const k of KNOWN) {
-    safe = safe.replace(new RegExp(`\\b${k}\\b`, 'g'), String(vars[k] ?? 0))
-  }
-  // After substitution only numbers, operators, parentheses and whitespace are allowed
-  if (!/^[\d\s+\-*/().]+$/.test(safe)) return 0
-  // eslint-disable-next-line no-new-func
-  return Number(new Function(`return ${safe}`)())
-}
-
-/** P3 status state machine: allowed forward transitions. */
 const ALLOWED_TRANSITIONS: Record<MoStatus, MoStatus[]> = {
   DRAFT: ['CONFIRMED', 'CANCELLED'],
   CONFIRMED: ['IN_PROGRESS', 'CANCELLED'],
-  IN_PROGRESS: ['DONE'],
+  IN_PROGRESS: ['DONE', 'CANCELLED'],
   DONE: [],
   CANCELLED: [],
 }
@@ -148,7 +143,8 @@ export class ManufacturingOrderService {
       id: r.id,
       mo_code: r.mo_code,
       status: r.status,
-      due_date: r.due_date,
+      plan_start: r.plan_start,
+      plan_finish: r.plan_finish,
       mark_prefix: r.primary_mark_prefix,
       routing_template: { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name },
       assembly_count: r._count.assembly_lines,
@@ -283,82 +279,36 @@ export class ManufacturingOrderService {
 
   // Shared by getConsumeSummary (merged MO total) and
   // getConsumeSummaryByWorkOrder (per-WO breakdown, for the print packet's
-  // per-WO traveler "Consume" table) — evaluates each WO's own activities'
-  // consume formulas against that WO's own assembly dimensions. Returns
-  // RAW (unrounded) qty per WO so each caller can round at its own
-  // aggregation level without compounding rounding error.
+  // per-WO traveler "Consume" table). Reads each WO's own work_order_consume
+  // rows directly (2026-09-22 fix) — these are the WO's authoritative,
+  // already-computed-at-creation-time record (set by
+  // WorkOrderAutoCreateService.recomputeConsume(), formula-driven materials
+  // and, since the upsert fix, manually-entered no-formula ones alike), the
+  // same source WO Detail's own Consume card reads. Previously recomputed
+  // straight from activity_consume formulas at read-time, which silently
+  // dropped any material with no formula to evaluate — the print packet's
+  // Consume table came out completely blank for a WO whose only consumable
+  // was a no-formula material (user report: "consume ไม่แสดง" on a printed
+  // WO traveler). qty_planned here is already whole-unit-rounded (rounded
+  // once, at creation) rather than raw, so both callers just pass it through.
   private async computeConsumeByWorkOrder(moId: number) {
-    // 1. Fetch all WOs with assembly dimensions + resolved activities (stored in op_attributes by wo-auto-create)
-    const wos = await this.prisma.work_order.findMany({
-      where: { mo_id: moId },
+    const rows = await this.prisma.work_order_consume.findMany({
+      where: { work_order: { mo_id: moId } },
       select: {
-        id: true,
-        op_attributes: true,
-        bom_assembly: { select: { length_mm: true, surface_area_m2: true, weight_kg: true } },
+        work_order_id: true,
+        material_id: true,
+        qty_planned: true,
+        unit: true,
+        material: { select: { default_code: true, name: true } },
       },
     })
 
-    // 2. Collect all source_activity_ids from each WO's op_attributes.activities
-    const allActivityIds = new Set<number>()
-    for (const wo of wos) {
-      const acts = Array.isArray((wo.op_attributes as any)?.activities) ? (wo.op_attributes as any).activities : []
-      for (const a of acts) { if (a.source_activity_id) allActivityIds.add(a.source_activity_id) }
-    }
-
-    const consumeRows = allActivityIds.size > 0
-      ? await this.prisma.activity_consume.findMany({
-          where: { activity_id: { in: [...allActivityIds] } },
-          include: {
-            material: { select: { id: true, default_code: true, name: true } },
-            formula: { select: { id: true, name: true, expr: true, result_unit: true } },
-          },
-        })
-      : []
-
-    type ConsumeEntry = { material_id: number; code: string; mat_name: string; expr: string | null; unit: string | null }
-    const consumeMap = new Map<number, ConsumeEntry[]>()
-    for (const row of consumeRows) {
-      const list = consumeMap.get(row.activity_id) ?? []
-      list.push({
-        material_id: row.material.id,
-        code: row.material.default_code,
-        mat_name: row.material.name,
-        expr: row.formula?.expr ?? null,
-        unit: row.formula?.result_unit ?? null,
-      })
-      consumeMap.set(row.activity_id, list)
-    }
-
-    // 3. For each WO, evaluate formulas using that assembly's dimensions
     const byWo = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }[]>()
-
-    for (const wo of wos) {
-      const acts = Array.isArray((wo.op_attributes as any)?.activities) ? (wo.op_attributes as any).activities : []
-      const ba = wo.bom_assembly
-      const vars = {
-        length: ba.length_mm ? Number(ba.length_mm) / 1000 : 0,
-        area: ba.surface_area_m2 ? Number(ba.surface_area_m2) : 0,
-        weight: ba.weight_kg ? Number(ba.weight_kg) : 0,
-        thickness: 0,
-      }
-
-      const totals = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }>()
-      for (const act of acts) {
-        if (!act.source_activity_id) continue
-        for (const c of consumeMap.get(act.source_activity_id) ?? []) {
-          let qty = 0
-          if (c.expr) {
-            try { qty = evalFormulaExpr(c.expr, vars) } catch { qty = 0 }
-          }
-          if (!(qty > 0)) continue
-          const existing = totals.get(c.material_id)
-          if (existing) { existing.qty += qty }
-          else { totals.set(c.material_id, { material_id: c.material_id, code: c.code, name: c.mat_name, qty, unit: c.unit }) }
-        }
-      }
-      byWo.set(wo.id, [...totals.values()])
+    for (const r of rows) {
+      const list = byWo.get(r.work_order_id) ?? []
+      list.push({ material_id: r.material_id, code: r.material.default_code, name: r.material.name, qty: Number(r.qty_planned), unit: r.unit })
+      byWo.set(r.work_order_id, list)
     }
-
     return byWo
   }
 
@@ -376,9 +326,12 @@ export class ManufacturingOrderService {
       }
     }
 
+    // Whole units only (2026-09-21) — matches WorkOrderAutoCreateService
+    // .recomputeConsume()'s rounding, so this summary agrees with the WO
+    // detail page's own Consume card.
     return [...totals.values()]
       .sort((a, b) => b.qty - a.qty)
-      .map(r => ({ ...r, qty: Math.round(r.qty * 100) / 100 }))
+      .map(r => ({ ...r, qty: Math.round(r.qty) }))
   }
 
   // ── Consume Summary keyed per Work Order — same computation as
@@ -389,12 +342,13 @@ export class ManufacturingOrderService {
     await this.requireMo(moId)
     const byWo = await this.computeConsumeByWorkOrder(moId)
 
+    // Whole units only (2026-09-21) — same as getConsumeSummary above.
     const rounded = new Map<number, { material_id: number; code: string; name: string; qty: number; unit: string | null }[]>()
     for (const [woId, items] of byWo) {
       rounded.set(
         woId,
         items
-          .map(r => ({ ...r, qty: Math.round(r.qty * 100) / 100 }))
+          .map(r => ({ ...r, qty: Math.round(r.qty) }))
           .sort((a, b) => b.qty - a.qty),
       )
     }
@@ -402,7 +356,14 @@ export class ManufacturingOrderService {
   }
 
   // ── Assemblies tab: lines + total + remaining + allocation breakdown ────────
-  async getAssemblies(id: number) {
+  // `operationId`, when given, adds `wo_remaining` per line — qty of this
+  // mark still unplanned for THAT operation within THIS mo, after sibling
+  // work orders of the same operation. Mirrors WoAutoCreateService's private
+  // computeMarkBudget() (inlined here, not imported, to avoid a cross-module
+  // dependency for one read-only query) — kept in sync manually if that
+  // logic changes. Distinct from the always-present `remaining` field above,
+  // which is the mark's cross-MO allocation remainder, not operation-scoped.
+  async getAssemblies(id: number, operationId?: number) {
     await this.requireMo(id)
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: { mo_id: id },
@@ -419,6 +380,18 @@ export class ManufacturingOrderService {
         const breakdown = await this.alloc.allocationBreakdown(line.bom_assembly_id)
         const total = Number(line.bom_assembly.qty ?? 0)
         const allocated = breakdown.reduce((s, b) => s + b.qty, 0)
+        let wo_remaining: number | null = null
+        if (operationId !== undefined) {
+          const committed = await this.prisma.work_order_mark.aggregate({
+            where: {
+              bom_assembly_id: line.bom_assembly_id,
+              removed_at: null,
+              work_order: { mo_id: id, source_routing_op_id: operationId },
+            },
+            _sum: { qty_planned: true },
+          })
+          wo_remaining = Math.max(0, Number(line.qty) - Number(committed._sum.qty_planned ?? 0))
+        }
         return {
           id: line.id,
           line_seq: line.line_seq,
@@ -432,6 +405,7 @@ export class ManufacturingOrderService {
           total,
           allocated,
           remaining: total - allocated,
+          wo_remaining,
           allocation_breakdown: breakdown, // [{ mo_code, qty }]
         }
       }),
@@ -579,7 +553,8 @@ export class ManufacturingOrderService {
           primary_mark_prefix_code: dto.primary_mark_prefix_code,
           routing_template_id: dto.routing_template_id,
           status,
-          due_date: dto.due_date ? new Date(dto.due_date) : null,
+          plan_start: dto.plan_start ? new Date(dto.plan_start) : null,
+          plan_finish: dto.plan_finish ? new Date(dto.plan_finish) : null,
           create_uid: userId,
           write_uid: userId,
           assembly_lines: {
@@ -602,8 +577,8 @@ export class ManufacturingOrderService {
             changed_by: userName,
           },
         })
-        // T-WO.03: auto-create execution-layer WOs on confirm (Save + Confirm path).
-        await this.woAutoCreate.createForMo(tx, created.id, userName)
+        // Multi-mark redesign (2026-09-17): WO creation is no longer automatic on
+        // confirm — see createWorkOrder() / POST /mo/:id/work-orders below.
       }
       return created
     })
@@ -640,8 +615,17 @@ export class ManufacturingOrderService {
         where: { id },
         data: {
           ...(dto.routing_template_id ? { routing_template_id: dto.routing_template_id } : {}),
-          ...(dto.due_date !== undefined
-            ? { due_date: dto.due_date ? new Date(dto.due_date) : null }
+          ...(dto.plan_start !== undefined
+            ? { plan_start: dto.plan_start ? new Date(dto.plan_start) : null }
+            : {}),
+          ...(dto.plan_finish !== undefined
+            ? { plan_finish: dto.plan_finish ? new Date(dto.plan_finish) : null }
+            : {}),
+          ...(dto.actual_start !== undefined
+            ? { actual_start: dto.actual_start ? new Date(dto.actual_start) : null }
+            : {}),
+          ...(dto.actual_finish !== undefined
+            ? { actual_finish: dto.actual_finish ? new Date(dto.actual_finish) : null }
             : {}),
           write_uid: userId,
         },
@@ -672,7 +656,15 @@ export class ManufacturingOrderService {
     await this.prisma.$transaction(async (tx) => {
       await tx.manufacturing_order.update({
         where: { id },
-        data: { status: dto.to_status, write_uid: userId },
+        data: {
+          status: dto.to_status,
+          write_uid: userId,
+          // A manual Start click must record actual_start too (2026-09-23) —
+          // before this, Actual Start on the Overview page went unpopulated.
+          // Starting the MO is manual-only (2026-09-25 revert): creating a WO
+          // no longer auto-starts the MO — the user must click Start.
+          ...(dto.to_status === 'IN_PROGRESS' ? { actual_start: new Date() } : {}),
+        },
       })
       await tx.mo_status_history.create({
         data: {
@@ -683,10 +675,8 @@ export class ManufacturingOrderService {
           changed_by: userName,
         },
       })
-      // T-WO.03: auto-create execution-layer WOs when an existing DRAFT is confirmed.
-      if (dto.to_status === 'CONFIRMED') {
-        await this.woAutoCreate.createForMo(tx, id, userName)
-      }
+      // Multi-mark redesign (2026-09-17): confirming a DRAFT no longer
+      // auto-creates WOs — see createWorkOrder() / POST /mo/:id/work-orders below.
     })
 
     await this.mail.log({
@@ -715,6 +705,95 @@ export class ManufacturingOrderService {
     )
   }
 
+  // ── Create WO / add marks (multi-mark redesign, 2026-09-17) ─────────────────
+  // Manual replacement for the old auto-create-on-confirm flow: find-or-create
+  // the WO for (this MO, operation_id), then add a work_order_mark row for each
+  // assembly_line_id not already on it. See WorkOrderAutoCreateService.createOrAddMarks().
+  async createWorkOrder(moId: number, dto: CreateWoDto, userName: string, userId: number) {
+    await this.requireMo(moId)
+    // Internal teams cap headcount at their own active-operator count — the
+    // frontend auto-fills and clamps this, but re-check server-side since
+    // that's just UX, not enforcement (2026-09-25). External teams have no
+    // roster to check against, so no cap.
+    const team = await this.prisma.team.findUnique({ where: { id: dto.team_id }, select: { team_type: true } })
+    if (team?.team_type === 'internal') {
+      const activeCount = await this.prisma.operator.count({ where: { team_id: dto.team_id, active: true } })
+      if (dto.team_headcount > activeCount) {
+        throw new BadRequestException(
+          `Headcount (${dto.team_headcount}) exceeds this internal team's active operator count (${activeCount}).`,
+        )
+      }
+    }
+    const marks = dto.marks.map((m) => ({ assembly_line_id: m.assembly_line_id, qty: m.qty }))
+    return this.prisma.$transaction(async (tx) => {
+      const result = await this.woAutoCreate.createOrAddMarks(
+        tx, moId, dto.operation_id, marks, userName, dto.assigned_to,
+        dto.plan_start ? new Date(dto.plan_start) : undefined,
+        dto.plan_finish ? new Date(dto.plan_finish) : undefined,
+        dto.team_id,
+        dto.team_headcount,
+      )
+
+      // Optional overrides on top of recomputeParts()/recomputeConsume()'s auto
+      // suggestions — the single-page form previews those suggestions before
+      // Create is ever pressed, so the one submit carries any edits the user
+      // already made to them (2026-09-17 single-page revision).
+      // Parts get the same real-total budget check as PATCH /wo/:id/parts
+      // (2026-09-18, qty-based 2026-09-21) — consume has no such cap, parts do.
+      for (const p of dto.parts ?? []) {
+        const { total, committed } = await this.woAutoCreate.computePartBudget(tx, moId, p.bom_assembly_part_id, result.work_order_id)
+        if (p.qty > total - committed) {
+          throw new BadRequestException(
+            `qty ${p.qty} for part ${p.bom_assembly_part_id} exceeds the remaining budget (${Math.max(0, total - committed).toFixed(3)} pcs left of ${total.toFixed(3)} pcs total for this MO)`,
+          )
+        }
+      }
+      for (const p of dto.parts ?? []) {
+        const bap = await tx.bom_assembly_part.findUniqueOrThrow({
+          where: { id: p.bom_assembly_part_id },
+          select: { part: { select: { weight_kg: true } } },
+        })
+        await tx.work_order_part.update({
+          where: { work_order_id_bom_assembly_part_id: { work_order_id: result.work_order_id, bom_assembly_part_id: p.bom_assembly_part_id } },
+          data: {
+            qty: new Prisma.Decimal(p.qty),
+            weight_kg: new Prisma.Decimal(p.qty * Number(bap.part.weight_kg ?? 0)),
+            updated_by: userName,
+          },
+        })
+      }
+      for (const c of dto.consume ?? []) {
+        // upsert, not update (2026-09-22 fix) — a material with no formula
+        // (see previewMarksImpact's qty: null case) never gets a row from
+        // recomputeConsume() above, since that only creates rows for
+        // materials with a positive COMPUTED qty. The Consume picker now
+        // lets the user type an actual for exactly those materials too, so
+        // this must be able to create the row, not just update one that may
+        // not exist (was: unconditional .update() → P2025 → 500, caught in
+        // manual testing).
+        await tx.work_order_consume.upsert({
+          where: { work_order_id_material_id: { work_order_id: result.work_order_id, material_id: c.material_id } },
+          create: {
+            work_order_id: result.work_order_id,
+            material_id: c.material_id,
+            qty_planned: 0,
+            qty_actual: c.qty_actual,
+            unit: null,
+            created_by: userName,
+          },
+          update: { qty_actual: c.qty_actual, updated_by: userName },
+        })
+      }
+      return result
+    })
+  }
+
+  /** POST /mo/:id/work-orders/preview — read-only, see WorkOrderAutoCreateService.previewMarksImpact(). */
+  async previewWorkOrder(moId: number, dto: PreviewWoDto) {
+    await this.requireMo(moId)
+    const marks = dto.marks.map((m) => ({ assembly_line_id: m.assembly_line_id, qty: m.qty }))
+    return this.woAutoCreate.previewMarksImpact(this.prisma, moId, dto.operation_id, marks)
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   private async requireMo(id: number) {

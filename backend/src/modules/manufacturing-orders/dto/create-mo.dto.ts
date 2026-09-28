@@ -33,9 +33,14 @@ export class CreateMoDto {
   @IsPositive()
   routing_template_id: number
 
+  // Planned production window — replaces the old single due_date (2026-09-22).
   @IsOptional()
   @IsISO8601()
-  due_date?: string
+  plan_start?: string
+
+  @IsOptional()
+  @IsISO8601()
+  plan_finish?: string
 
   @IsArray()
   @ArrayMinSize(1)
