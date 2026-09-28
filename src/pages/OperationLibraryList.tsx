@@ -7,10 +7,12 @@ import { apiClient } from '../api/client'
 import { PaginationBar } from '../components/PaginationBar'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { usePermission } from '../hooks/usePermission'
+import { FAB_ICON_COMPONENTS } from '../lib/fabIcons'
 
 interface OpTemplateListItem {
   id: number; op_code: string; name: string; status: string
   time_mode: string
+  icon: string | null
   workcenter: { code: string; name: string } | null
   op_type: { label: string; color: string } | null
   _count: { activities: number }
@@ -143,6 +145,18 @@ export default function OperationLibraryList() {
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 3, height: 32, borderRadius: 2, background: t.op_type?.color ?? '#9E9E9E', flexShrink: 0 }} />
+                {t.icon && FAB_ICON_COMPONENTS[t.icon] && (() => {
+                  const Icon = FAB_ICON_COMPONENTS[t.icon]
+                  return (
+                    <span style={{
+                      width: 22, height: 22, borderRadius: 5, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: t.op_type ? `${t.op_type.color}18` : '#F5F5F5',
+                    }}>
+                      <Icon size={13} color={t.op_type?.color ?? '#555'} />
+                    </span>
+                  )
+                })()}
                 <span style={{ fontSize: 12, fontWeight: 700, color: '#1F1F1F', fontFamily: 'monospace' }}>{t.op_code}</span>
               </div>
               <div>
