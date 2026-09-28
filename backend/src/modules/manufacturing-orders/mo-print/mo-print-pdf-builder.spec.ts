@@ -113,6 +113,8 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
       drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
     }],
     assignedTo: null,
+    teamHeadcount: 1,
+    icon: null,
     planStart: null,
     planEnd: null,
     ...overrides,

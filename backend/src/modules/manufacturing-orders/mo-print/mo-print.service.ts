@@ -41,6 +41,13 @@ export interface MoPrintWorkOrderRow {
   // which station it runs on. Null for a WO with no routing-op link
   // (2026-09-16).
   operationLabel: string | null
+  // Lucide icon key from the linked operation_template.icon (2026-09-29) —
+  // drawn at the QR center + appended to the watermark in place of the
+  // generic circle+check (see drawGenericIcon's caller in
+  // mo-print-pdf-builder.ts). Null falls back to the generic mark — most
+  // routing ops predate this field, and a WO with no routing-op link at all
+  // has nothing to resolve it from either.
+  icon: string | null
   // Per-activity time breakdown feeding into wo.setup_time_min/
   // expected_duration_min (same computeActivityDuration() the real WO was
   // created with — see that util's header comment) — printed on the
@@ -84,10 +91,19 @@ export interface MoPrintWorkOrderRow {
   // a WO with plan_start/plan_finish set was still printing blank here).
   // Still null (blank, hand-fill) when neither exists.
   assignedTo: string | null
+  // How many people from the team are actually working this WO — internal
+  // teams auto-count from active operators (editable), external teams enter
+  // it manually at Create WO time (see CreateWoDto.team_headcount). Printed
+  // next to Team on the traveler so the floor knows the planned crew size
+  // (2026-09-25).
+  teamHeadcount: number
   planStart: Date | null
   planEnd: Date | null
 }
 
+// Local dev's own .env now sets this to the real Vercel deploy (2026-09-28:
+// "ทำให้ qr code scan แล้วเปิด link นี้ที") so a phone scanning a printed
+// traveler's QR actually opens something instead of localhost.
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:5173'
 
 export interface MoPrintConsumeItem {
@@ -356,7 +372,7 @@ export class MoPrintService {
     const routingOpRows = routingOpIds.length > 0
       ? await this.prisma.mrp_routing_workcenter.findMany({
           where: { id: { in: routingOpIds } },
-          select: { id: true, op_code: true, name: true },
+          select: { id: true, op_code: true, name: true, operation_template: { select: { icon: true } } },
         })
       : []
     const routingOpMap = new Map(routingOpRows.map(op => [op.id, op]))
@@ -432,11 +448,15 @@ export class MoPrintService {
         operationLabel: wo.source_routing_op_id != null && routingOpMap.has(wo.source_routing_op_id)
           ? `${routingOpMap.get(wo.source_routing_op_id)!.op_code} — ${routingOpMap.get(wo.source_routing_op_id)!.name}`
           : null,
+        icon: wo.source_routing_op_id != null
+          ? routingOpMap.get(wo.source_routing_op_id)?.operation_template?.icon ?? null
+          : null,
         activities: breakdown,
         woUrl: `${FRONTEND_BASE_URL}/order/wo/${wo.id}`,
         consume: consumeByWo.get(wo.id) ?? [],
         marks,
         assignedTo: wo.subcontractor?.name ?? wo.assigned_to ?? null,
+        teamHeadcount: wo.team_headcount,
         planStart: starts.length > 0 ? new Date(Math.min(...starts)) : wo.plan_start,
         planEnd: ends.length > 0 ? new Date(Math.max(...ends)) : wo.plan_finish,
       })
@@ -544,3 +564,4 @@ export class MoPrintService {
     return [...fromWos, ...plannedOnly].sort((a, b) => a.sequence - b.sequence)
   }
 }
+

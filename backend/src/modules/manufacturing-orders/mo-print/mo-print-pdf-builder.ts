@@ -6,10 +6,11 @@ import * as path from 'path'
 // `.default`), which fails pdf-lib's registerFontkit() with a misleading
 // "no fontkit instance was found" — confirmed via the compiled output.
 import * as fontkit from '@pdf-lib/fontkit'
-import { PageSizes, PDFDocument, PDFFont, PDFPage, rgb, type RGB } from 'pdf-lib'
+import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
 import { capList, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes } from './mo-print-format'
-import { generateWoQrPng } from './mo-print-qr'
+import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
+import { drawFabIcon } from './mo-print-icons'
 
 // pdf-lib's built-in StandardFonts only encode WinAnsi (Latin-1) and throw
 // on the first non-Latin character — project/zone names in this app are
@@ -45,6 +46,7 @@ const SECTION_BAND_HEIGHT = 18
 // in the dev DB with zero regressions (2026-09-15).
 const FONT_FEATURES = { ccmp: false }
 const BLACK = rgb(0, 0, 0)
+const WHITE = rgb(1, 1, 1)
 const GRAY = rgb(0.45, 0.45, 0.45)
 
 interface Fonts {
@@ -162,9 +164,9 @@ const MO_RIGHT_COL_WIDTH = CONTENT_WIDTH - MO_COL_GAP - MO_LEFT_COL_WIDTH
 const ROUTING_ROW_HEIGHT = 30
 const MO_ASSEMBLY_ROW_HEIGHT = 18
 
-async function buildManifestPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPacketPlan): Promise<void> {
+async function buildManifestPage(doc: PDFDocument, fonts: Fonts, logoImg: PDFImage, plan: MoPrintPacketPlan): Promise<void> {
   const page = addPrintPage(doc)
-  const columnsTop = PAGE_HEIGHT - MARGIN - (await drawMoHeader(doc, page, fonts)) - 20
+  const columnsTop = PAGE_HEIGHT - MARGIN - drawMoHeader(page, fonts, logoImg) - 20
 
   let y = columnsTop
   y -= drawSectionBand(page, fonts, MARGIN, y, MO_LEFT_COL_WIDTH, 'MO Info')
@@ -227,15 +229,14 @@ async function buildManifestPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
 // Company logo + name lockup on the left (same lockup as the app's own
 // Topbar — logo, then "SSI BUILDING TECH" / "POWER KEYCHAIN" stacked to its
 // right), document title right-aligned on the same row. Returns its height.
-async function drawMoHeader(doc: PDFDocument, page: PDFPage, fonts: Fonts): Promise<number> {
+function drawMoHeader(page: PDFPage, fonts: Fonts, logoImg: PDFImage): number {
   const top = PAGE_HEIGHT - MARGIN
-  const logoPng = await doc.embedPng(fs.readFileSync(LOGO_PATH))
   const logoHeight = 34
-  const logoWidth = logoHeight * (logoPng.width / logoPng.height)
+  const logoWidth = logoHeight * (logoImg.width / logoImg.height)
   const logoY = top - logoHeight
   const textX = MARGIN + logoWidth + 10
 
-  page.drawImage(logoPng, { x: MARGIN, y: logoY, width: logoWidth, height: logoHeight })
+  page.drawImage(logoImg, { x: MARGIN, y: logoY, width: logoWidth, height: logoHeight })
   page.drawText('SSI BUILDING TECH', { x: textX, y: logoY + logoHeight / 2 + 4, size: 10, font: fonts.bold, color: BLACK })
   page.drawText('POWER KEYCHAIN', { x: textX, y: logoY + logoHeight / 2 - 9, size: 8, font: fonts.regular, color: GRAY })
 
@@ -571,19 +572,64 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
         { label: 'Zone', value: row.subZoneName ? `${row.zoneLabel} / ${row.subZoneName}` : row.zoneLabel },
       ],
     },
-    { height: 40, cells: [{ label: 'Team', value: row.assignedTo ?? '—' }] },
+    // Headcount added next to Team (2026-09-25: "อยากเพิ่มมาอีก 1 ช่องคือ
+    // ใส่จำนวนคนในทีมที่ใช้ทำใน wo นี้") — same crew-size value set on
+    // Create WO (auto-counted for internal teams, manual for external).
+    { height: 40, cells: [{ label: 'Team', value: row.assignedTo ?? '—' }, { label: 'Headcount', value: String(row.teamHeadcount) }] },
   ])
 
   const qrBoxX = x + gridWidth + qrGap
   page.drawRectangle({ x: qrBoxX, y: top - gridHeight, width: qrColWidth, height: gridHeight, borderColor: BLACK, borderWidth: 0.75 })
   const qrPng = await doc.embedPng(await generateWoQrPng(row.woUrl))
   const qrSize = Math.min(qrColWidth, gridHeight) - 4 * 2
-  page.drawImage(qrPng, {
-    x: qrBoxX + (qrColWidth - qrSize) / 2,
-    y: top - gridHeight + (gridHeight - qrSize) / 2,
-    width: qrSize,
-    height: qrSize,
+  const qrX = qrBoxX + (qrColWidth - qrSize) / 2
+  const qrY = top - gridHeight + (gridHeight - qrSize) / 2
+  page.drawImage(qrPng, { x: qrX, y: qrY, width: qrSize, height: qrSize })
+  // Snug frame right around the code itself (2026-09-28: "ใส่กรอบให้ qr code
+  // ด้วย") — distinct from the loose outer cell border above, which sits a
+  // few points further out with blank padding in between.
+  page.drawRectangle({ x: qrX, y: qrY, width: qrSize, height: qrSize, borderColor: BLACK, borderWidth: 1.5 })
+
+  // Center icon over the code (2026-09-25: "อยากรู้ว่า qr-code ที่ gen มา
+  // จะสามารถแนบ icon ไว้ตรงกลางได้ไหม" → tried the company logo first, then
+  // "ไม่เอา icon บริษัท ลองเป็นแค่ icon ธรรมดาก่อน" — a plain generic mark
+  // instead of the branded logo) — kept to ~22% of the code's area, well
+  // under the ~30% budget errorCorrectionLevel 'H' buys in generateWoQrPng.
+  // Backing plate went white → black → removed entirely (QR modules showing
+  // straight through, red icon on top) → back to a plate (2026-09-28: "เอา
+  // กรอบใส่แบบเดิม...ทำให้เป็นพื้นหลังสีขาวและมีกรอบสีดำหนาๆ...ให้ icon เป็น
+  // สีขาว") — white fill, thick black border. Tried a white icon per that
+  // request too, but white-on-white is invisible (confirmed by rendering
+  // it); switched to black on the user's follow-up. Snapped to whole
+  // QR modules so the plate's edges land on module boundaries (2026-09-28:
+  // "ทำให้ผิว qrcode กลืนเข้าไปในกรอบได้ไหม") rather than slicing across them
+  // at an arbitrary offset. Uses the operation's own picked icon when it has
+  // one (2026-09-29: "จะเอาไปใช้ตอน print mo wo ตรง qr code และ water mark"),
+  // else falls back to the same plain circle+check as before.
+  const qrCx = qrX + qrSize / 2
+  const qrCy = qrY + qrSize / 2
+  const iconSize = qrSize * 0.22
+
+  const qrGridUnits = getWoQrModuleCount(row.woUrl) + 2
+  const qrModuleSize = qrSize / qrGridUnits
+  let backingModules = Math.round((iconSize + 8) / qrModuleSize)
+  if ((backingModules - qrGridUnits) % 2 !== 0) backingModules += 1
+  const backing = backingModules * qrModuleSize
+  // Two concentric rings, not one thick border (2026-09-28: "ทำให้กรอบเป็น
+  // สองชั้นด้วย") — outer ring right at the plate's edge, inner ring inset
+  // by a module-sized gap so the white shows through between them.
+  page.drawRectangle({
+    x: qrCx - backing / 2, y: qrCy - backing / 2, width: backing, height: backing,
+    color: WHITE, borderColor: BLACK, borderWidth: qrModuleSize * 0.6,
   })
+  const innerBacking = backing - qrModuleSize * 2.2
+  page.drawRectangle({
+    x: qrCx - innerBacking / 2, y: qrCy - innerBacking / 2, width: innerBacking, height: innerBacking,
+    borderColor: BLACK, borderWidth: qrModuleSize * 0.7,
+  })
+  const drewOpIcon = drawFabIcon(page, row.icon, { cx: qrCx, cy: qrCy, size: iconSize, color: BLACK, opacity: 1 })
+  if (!drewOpIcon) drawGenericIcon(page, qrCx, qrCy, iconSize, BLACK, 1)
+
   return gridHeight
 }
 
@@ -597,7 +643,7 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
 // the actual height drawn (band + table) so the caller can pull Production
 // Time/Activities up snug against Consume's real bottom edge.
 function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): number {
-  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Consume')
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Consumable')
   const signWidth = 140
   // Fixed at 6 rows (2026-09-21) — was fill-the-slot via fitTableRows; the
   // sign boxes to the right are sized off tableHeight below, so they shrink
@@ -605,7 +651,7 @@ function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x:
   // same trade-off already accepted for the QC table's 3-round cap.
   const capacity = 6
   const rowHeight = CONSUME_ROW_HEIGHT
-  const cols = layoutColumns([['Code', 100], ['Material', 300], ['Qty', 70], ['Unit', 50], ['Actual', 90]], x, width - signWidth)
+  const cols = layoutColumns([['Code', 100], ['Name', 300], ['Qty', 70], ['Unit', 50], ['Actual', 90]], x, width - signWidth)
   const tableHeight = drawCappedTable(page, fonts, cols, top - bandHeight, rowHeight, capacity, row.consume.map(item => ({
     values: [item.code, item.name, fmt0(item.qty), item.unit ?? '—', ''],
   })))
@@ -678,9 +724,12 @@ function drawActivities(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x
   const totalRows = Math.max(2, Math.floor((bodyTop - MARGIN) / CONSUME_ROW_HEIGHT))
   const capacity = totalRows - 1
   const rowHeight = (bodyTop - MARGIN) / totalRows
-  const cols = layoutColumns([['Activity', 380], ['Type', 80], ['Planned Min', 130], ['Actual', 130]], x, width)
+  // Note column (2026-09-28: "เพิ่ม note เข้ามาด้วยจะได้บันทึกว่าทำไมถึงใช้
+  // เวลาเกินที่กำหนดไว้หรือเวลาน้อยกว่ากำหนด") — blank, hand-filled explaining
+  // why Actual came in over/under Planned Min for that activity.
+  const cols = layoutColumns([['Activity', 330], ['Type', 70], ['Planned Min', 110], ['Actual', 110], ['Note', 150]], x, width)
   drawCappedTable(page, fonts, cols, bodyTop, rowHeight, capacity, row.activities.map(act => ({
-    values: [act.name, act.kind, act.unresolved ? 'unresolved' : fmt0(act.minutes), ''],
+    values: [act.name, act.kind, act.unresolved ? 'unresolved' : fmt0(act.minutes), '', ''],
     color: act.unresolved ? rgb(0.78, 0.13, 0.16) : undefined,
   })))
 }
@@ -941,25 +990,71 @@ async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, row: MoPrintWork
 // distinction until 2026-09-23, when drawing pages (buildDrawingPage) started
 // varying in size to match each embedded drawing's own dimensions; using the
 // constants here would then center the watermark on the WRONG box.
-function drawWatermark(page: PDFPage, fonts: Fonts, lines: string[]): void {
+//
+// `iconKey` (2026-09-25, extended 2026-09-29) appends a mark right after
+// the text instead of stacking it behind — first tried the company logo
+// centered behind the text, but the user pointed at that result and said
+// "ต้องเอาต่อท้ายตัวเลข" (it has to go AFTER the number), then "ไม่เอา icon
+// บริษัท ลองเป็นแค่ icon ธรรมดาก่อน" (not the company logo — try a plain
+// icon first), and finally "จะเอาไปใช้ตอน print mo wo ตรง qr code และ water
+// mark" — the plain circle+check became a per-operation fallback: `iconKey`
+// omitted (undefined) means MO-section pages, no icon at all; `null` or a
+// curated lucide key means a WO page, which always shows SOME icon — the
+// operation's own (drawFabIcon) when it has one, else the generic mark. The
+// icon and text are sized/positioned as one lockup — text left-aligned,
+// icon immediately to its right — then that whole combined width is
+// centered on the page, same as the text-only block was before.
+// drawMoWatermark never passes anything here, so MO-section pages are
+// byte-for-byte unchanged.
+function drawWatermark(page: PDFPage, fonts: Fonts, lines: string[], iconKey?: string | null): void {
   const pageWidth = page.getWidth()
   const pageHeight = page.getHeight()
   const widestAt1pt = Math.max(...lines.map(line => fonts.bold.widthOfTextAtSize(line, 1)))
   const size = Math.min(160, (pageWidth * 0.7) / widestAt1pt)
   const lineGap = size * 1.1
+  const widestLineWidth = Math.max(...lines.map(line => fonts.bold.widthOfTextAtSize(line, size)))
+  const color = rgb(0.85, 0.1, 0.1)
+  const opacity = 0.08
+
+  const withIcon = iconKey !== undefined
+  const iconGap = withIcon ? size * 0.3 : 0
+  const iconSize = withIcon ? size * 0.9 : 0
+  const startX = (pageWidth - (widestLineWidth + iconGap + iconSize)) / 2
+
   lines.forEach((line, i) => {
     page.drawText(line, {
-      x: (pageWidth - fonts.bold.widthOfTextAtSize(line, size)) / 2,
+      x: startX,
       // Centers the block vertically (0.35 ≈ half a cap height); a single
       // line collapses to just pageHeight/2 - size*0.35 since lineGap*0.5
       // is then the whole offset for i=0.
       y: pageHeight / 2 + lineGap * ((lines.length - 1) / 2 - i) - size * 0.35,
       size,
       font: fonts.bold,
-      color: rgb(0.85, 0.1, 0.1),
-      opacity: 0.08,
+      color,
+      opacity,
     })
   })
+
+  if (withIcon) {
+    const iconCx = startX + widestLineWidth + iconGap + iconSize / 2
+    const drew = drawFabIcon(page, iconKey, { cx: iconCx, cy: pageHeight / 2, size: iconSize, color, opacity })
+    if (!drew) drawGenericIcon(page, iconCx, pageHeight / 2, iconSize, color, opacity)
+  }
+}
+
+// Plain, non-branded mark: a circle with a checkmark, built entirely from
+// pdf-lib's own vector primitives (drawCircle + drawLine) — no image asset,
+// so it can sit at any size/color/opacity without an aspect-ratio to
+// preserve (2026-09-25: "ไม่เอา icon บริษัท ลองเป็นแค่ icon ธรรมดาก่อน").
+function drawGenericIcon(page: PDFPage, cx: number, cy: number, size: number, color: RGB, opacity: number): void {
+  const r = size / 2
+  page.drawCircle({ x: cx, y: cy, size: r, borderWidth: size * 0.06, borderColor: color, opacity, borderOpacity: opacity })
+  const thickness = size * 0.09
+  const a = { x: cx - r * 0.45, y: cy - r * 0.02 }
+  const b = { x: cx - r * 0.08, y: cy - r * 0.42 }
+  const c = { x: cx + r * 0.5, y: cy + r * 0.32 }
+  page.drawLine({ start: a, end: b, thickness, color, opacity })
+  page.drawLine({ start: b, end: c, thickness, color, opacity })
 }
 
 // `markCode` (optional) adds a second line below the WO code — omitted on
@@ -969,8 +1064,16 @@ function drawWatermark(page: PDFPage, fonts: Fonts, lines: string[]): void {
 // 2026-09-22 for the drawing page specifically, once that became one page
 // per mark instead of one per WO — multiple sheets sharing the same WO
 // code watermark would otherwise be indistinguishable from each other.
+// Logo appended after the code (2026-09-25: "ลายน้ำ ต่อท้าย wo ก็ต้องเป็น
+// icon เดียวกันกับที่แสดงบน qr code ด้วยนะ") — additive, not a replacement
+// (user picked "add alongside" over "replace the text" when asked), and
+// scoped to WO pages only — drawMoWatermark (manifest/MO-section pages)
+// stays text-only. Further narrowed 2026-09-28 ("ตรง drawing ไม่ต้องใส่
+// ใส่แค่ตรงลายน้ำของ wo พอ") to the WO Details page (and its own
+// continuation pages) only — a markCode means this is a per-mark shop
+// drawing page (buildDrawingPage), which now stays icon-free.
 function drawWoWatermark(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, markCode?: string): void {
-  drawWatermark(page, fonts, markCode ? [row.wo.wo_code, markCode] : [row.wo.wo_code])
+  drawWatermark(page, fonts, markCode ? [row.wo.wo_code, markCode] : [row.wo.wo_code], markCode ? undefined : row.icon)
 }
 
 // MO code, one line — every page belonging to the MO section (manifest,
@@ -1004,9 +1107,13 @@ export async function buildMoPrintPdf(
     regular: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Regular.ttf')), { features: FONT_FEATURES }),
     bold: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Bold.ttf')), { features: FONT_FEATURES }),
   }
+  // Only the manifest header lockup uses the real company logo — the QR
+  // center icon and WO watermark use a plain vector mark instead
+  // (drawGenericIcon), per the user's 2026-09-25 "ไม่เอา icon บริษัท".
+  const logoImg = await doc.embedPng(fs.readFileSync(LOGO_PATH))
 
   if (includeManifest) {
-    await buildManifestPage(doc, fonts, plan)
+    await buildManifestPage(doc, fonts, logoImg, plan)
   }
 
   for (const row of plan.rows) {
@@ -1017,6 +1124,30 @@ export async function buildMoPrintPdf(
       await buildDrawingPage(doc, fonts, row, mark, drawingDoc)
     }
   }
+
+  // "N / total" in every page's top-right corner (2026-09-28: "มุมขวาบน
+  // หัวกระดาษาต้องทำเป็นลำดับให้ด้วย...1-10/10 ประมาณนี้") — done as one
+  // final pass over the finished doc rather than counted while building,
+  // since the total page count (continuation pages, per-mark drawing pages)
+  // isn't known until every section above has actually been laid out. Every
+  // standard page (addPrintPage) has a blank MARGIN-BORDER_INSET strip along
+  // the true top edge with nothing else drawn in it; a shop drawing page
+  // (buildDrawingPage) has no such guaranteed blank area since it's the
+  // embedded drawing full-bleed, so this sits tight in the true corner there
+  // the same way that page's own WO+mark label already does at the bottom.
+  const allPages = doc.getPages()
+  allPages.forEach((page, i) => {
+    const label = `${i + 1} / ${allPages.length}`
+    const labelSize = 9
+    const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
+    page.drawText(label, {
+      x: page.getWidth() - 10 - labelWidth,
+      y: page.getHeight() - 14,
+      size: labelSize,
+      font: fonts.bold,
+      color: BLACK,
+    })
+  })
 
   return doc.save()
 }
