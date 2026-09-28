@@ -57,6 +57,10 @@ export interface MoAssemblyRow {
   total: number
   allocated: number
   remaining: number
+  // Only present when fetched with an operation_id — qty of this mark still
+  // unplanned for THAT operation within this MO, after sibling work orders
+  // of the same operation. Distinct from `remaining` above (cross-MO).
+  wo_remaining: number | null
   allocation_breakdown: { mo_code: string; qty: number }[]
 }
 
@@ -237,6 +241,8 @@ export interface CreateWoPayload {
   team_id?: number
   plan_start?: string
   plan_finish?: string
+  // How many people from `team_id` are on this WO — required (2026-09-25).
+  team_headcount: number
   marks: { assembly_line_id: number; qty: number }[]
   // Optional overrides on top of the auto-computed suggestions the preview
   // already showed — only entries the user actually edited need to be sent
@@ -324,8 +330,8 @@ export async function getMo(id: number): Promise<MoDetail> {
   return (await apiClient.get(`/mo/${id}`)).data
 }
 
-export async function getMoAssemblies(id: number): Promise<MoAssemblyRow[]> {
-  return (await apiClient.get(`/mo/${id}/assemblies`)).data
+export async function getMoAssemblies(id: number, operationId?: number): Promise<MoAssemblyRow[]> {
+  return (await apiClient.get(`/mo/${id}/assemblies`, { params: operationId ? { operation_id: operationId } : undefined })).data
 }
 
 export async function getMoParts(id: number): Promise<MoPartRow[]> {

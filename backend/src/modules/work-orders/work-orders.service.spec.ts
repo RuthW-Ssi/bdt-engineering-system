@@ -777,15 +777,23 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
 
     await svc.cancel(1, { reason: 'x', mark_disposition: [{ bom_assembly_id: 100, qty_qc_passed: 2, qty_rework: 1 }] } as any, 'tester')
 
-    expect(prisma.work_order_mark.update).toHaveBeenCalledTimes(1)
-    const [[call]] = prisma.work_order_mark.update.mock.calls
-    expect(call.where).toEqual({ id: 1 })
-    expect(Number(call.data.qty_qc_passed)).toBe(2)
-    expect(Number(call.data.qty_rework)).toBe(1)
-    expect(call.data.qty_renew).toBeUndefined()
+    // 1 QC-breakdown write (mark 1) + 2 budget-release writes (2026-09-25 —
+    // cancel now releases every non-removed mark, mark 1 and mark 2 both).
+    expect(prisma.work_order_mark.update).toHaveBeenCalledTimes(3)
+    const [qcCall] = prisma.work_order_mark.update.mock.calls
+    expect(qcCall[0].where).toEqual({ id: 1 })
+    expect(Number(qcCall[0].data.qty_qc_passed)).toBe(2)
+    expect(Number(qcCall[0].data.qty_rework)).toBe(1)
+    expect(qcCall[0].data.qty_renew).toBeUndefined()
+    const releaseCalls = prisma.work_order_mark.update.mock.calls.slice(1)
+    expect(releaseCalls.map((c: any) => c[0].where)).toEqual(expect.arrayContaining([{ id: 1 }, { id: 2 }]))
+    for (const [call] of releaseCalls) {
+      expect(call.data.removed_at).toBeInstanceOf(Date)
+      expect(call.data.removed_by).toBe('tester')
+    }
   })
 
-  it('a removed mark with qty_done > 0 is excluded from the reusable requirement (already accounted for on removal)', async () => {
+  it('releases a removed mark\'s budget once (not twice) and still releases the other non-removed mark', async () => {
     const wo = makeWo({
       marks: [
         { id: 1, bom_assembly_id: 100, qty_done: 5, removed_at: new Date() },
@@ -797,7 +805,15 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await expect(svc.cancel(1, { reason: 'x' } as any, 'tester')).resolves.toEqual({ id: 1 })
-    expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
+
+    // Only mark 2 releases (2026-09-25) — mark 1 was already removed earlier
+    // (and its qty_done already accounted for then), so cancel must not
+    // touch it a second time.
+    expect(prisma.work_order_mark.update).toHaveBeenCalledTimes(1)
+    expect(prisma.work_order_mark.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { removed_at: expect.any(Date), removed_by: 'tester', removed_reason: 'x' },
+    })
   })
 })
 
@@ -848,7 +864,7 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
                 sequence: 1,
                 status: w.status,
                 source_routing_op_id: 1,
-                marks: w.marks.filter((m) => !m.removed_at).map((m) => ({ qty_done: m.qty_done })),
+                marks: w.marks.filter((m) => !m.removed_at).map((m) => ({ id: m.id, qty_done: m.qty_done })),
               })),
           ),
         ),
@@ -877,6 +893,16 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
     expect(prisma.work_order.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 2 }, data: expect.objectContaining({ status: 'CANCELLED' }) }))
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
       data: { work_order_id: 2, event_type: 'CANCEL', notes: 'Cascade-cancelled: sibling of WO-00000001', recorded_by: 'tester' },
+    })
+    // Budget-release (2026-09-25): both the primary's own mark (id 1) and
+    // the cascade-cancelled sibling's mark (id 2) must free their budget.
+    expect(prisma.work_order_mark.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { removed_at: expect.any(Date), removed_by: 'tester', removed_reason: 'abandoning mark' },
+    })
+    expect(prisma.work_order_mark.update).toHaveBeenCalledWith({
+      where: { id: 2 },
+      data: { removed_at: expect.any(Date), removed_by: 'tester', removed_reason: 'Cascade-cancelled: sibling of WO-00000001' },
     })
   })
 

@@ -157,6 +157,14 @@ export class MachinesController {
     return this.svc.updateTeam(id, dto)
   }
 
+  @Delete('teams/:id')
+  @RequiresPermission('machines', 'delete')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete team — 409 if still referenced by an operator or work order' })
+  deleteTeam(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.deleteTeam(id)
+  }
+
   @Get(':id')
   @RequiresPermission('machines', 'view')
   @ApiOperation({ summary: 'Machine detail + quick stats + mock jobs' })

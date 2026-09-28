@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer } from 'lucide-react'
 import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
 import { useWos } from '../hooks/useWo'
-import { useTeams } from '../hooks/useLaborSkills'
+import { useTeams, useLaborSkills } from '../hooks/useLaborSkills'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { fetchMoPrintPacketBlob, type MoStatus, type RoutingOp, type MoAssemblyRow } from '../api/mo'
@@ -568,12 +568,7 @@ function WorkOrdersTab({ moId, operations }: { moId: number; operations: Routing
               {wos.length > 0 && <span style={{ fontWeight: 400, color: '#999' }}>({wos.length} WO{wos.length === 1 ? '' : 's'})</span>}
               <div style={{ flex: 1 }} />
               {canWrite && (
-                <button
-                  onClick={() => setPicker({ operationId: op.id, operationLabel: op.name })}
-                  style={{ height: 24, padding: '0 10px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}
-                >
-                  + Create Work Order
-                </button>
+                <CreateWorkOrderButton moId={moId} operationId={op.id} onClick={() => setPicker({ operationId: op.id, operationLabel: op.name })} />
               )}
             </div>
             {wos.length > 0 ? wos.map((wo) => (
@@ -614,6 +609,23 @@ function WorkOrdersTab({ moId, operations }: { moId: number; operations: Routing
   )
 }
 
+// Hides "+ Create Work Order" once every mark is fully committed for this
+// operation (wo_remaining === 0 on all of them) — nothing left to plan, so
+// opening the picker would only show disabled rows (2026-09-25).
+function CreateWorkOrderButton({ moId, operationId, onClick }: { moId: number; operationId: number; onClick: () => void }) {
+  const { data: lines } = useMoAssemblies(moId, operationId)
+  const fullyCommitted = !!lines?.length && lines.every(l => l.wo_remaining === 0)
+  if (fullyCommitted) return null
+  return (
+    <button
+      onClick={onClick}
+      style={{ height: 24, padding: '0 10px', fontSize: 11, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}
+    >
+      + Create Work Order
+    </button>
+  )
+}
+
 // Multi-mark redesign (2026-09-17) — the only way a WO gets created now.
 // ALWAYS creates a brand-new WO: every assembly line on the MO is a
 // candidate, even ones already on a SIBLING WO of the same operation
@@ -648,7 +660,7 @@ function WoMarkPickerModal({
   operationLabel: string
   onClose: () => void
 }) {
-  const { data: lines, isLoading: loadingLines } = useMoAssemblies(moId)
+  const { data: lines, isLoading: loadingLines } = useMoAssemblies(moId, operationId)
   const createWo = useCreateWorkOrder(moId)
   // Map of assembly_line_id -> qty for this work order. Presence in the map = selected.
   // qty defaults to the line's full planned qty but is editable and capped at it — a WO
@@ -661,6 +673,38 @@ function WoMarkPickerModal({
   // field in ResourceList.tsx.
   const [teamId, setTeamId] = useState('')
   const { data: teams = [] } = useTeams()
+  const { data: operators = [] } = useLaborSkills()
+  // How many people from the picked team are on this WO (2026-09-25) —
+  // internal: auto-counted from active operators on that team, still
+  // editable (may not use the whole team); external: no operators to count,
+  // entered manually. Re-derived from scratch on every team change, not
+  // merged with a prior manual edit — switching teams mid-pick is rare
+  // enough that "start fresh" beats guessing whether an old number still
+  // makes sense for the new team.
+  const [headcount, setHeadcount] = useState('')
+  const selectedTeam = teams.find(t => String(t.id) === teamId)
+  // Internal teams can't plan more people than are actually active on the
+  // roster; external teams have no roster to cap against (2026-09-25).
+  const headcountMax = selectedTeam?.team_type === 'internal'
+    ? operators.filter(o => o.active && o.team?.id === selectedTeam.id).length
+    : undefined
+  function selectTeam(id: string) {
+    setTeamId(id)
+    const team = teams.find(t => String(t.id) === id)
+    if (team?.team_type === 'internal') {
+      const activeCount = operators.filter(o => o.active && o.team?.id === team.id).length
+      setHeadcount(String(activeCount))
+    } else {
+      setHeadcount('')
+    }
+  }
+  function onHeadcountChange(raw: string) {
+    if (raw === '') { setHeadcount(''); return }
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return
+    const clamped = headcountMax !== undefined ? Math.min(Math.max(n, 1), headcountMax) : Math.max(n, 1)
+    setHeadcount(String(clamped))
+  }
   // Planned production window (2026-09-22) — date+time, same "only on actual
   // creation" rule as teamId above. Plan Finish went through two reversals
   // the same week: first made auto-calculated from Plan Start + the
@@ -684,9 +728,10 @@ function WoMarkPickerModal({
   const consumes = preview?.consume ?? []
 
   function toggle(line: MoAssemblyRow) {
+    if (line.wo_remaining === 0) return // fully committed to a sibling WO of this operation
     setSelected((prev) => {
       const next = new Map(prev)
-      next.has(line.id) ? next.delete(line.id) : next.set(line.id, line.qty)
+      next.has(line.id) ? next.delete(line.id) : next.set(line.id, Math.min(line.qty, line.wo_remaining ?? line.qty))
       return next
     })
   }
@@ -700,9 +745,15 @@ function WoMarkPickerModal({
     })
   }
 
+  const missingRequired = !selected.size || !teamId || !planStart || !planFinish || !headcount || Number(headcount) < 1
+
   async function submit() {
     if (!selected.size) return
     setError(null)
+    if (!teamId || !planStart || !planFinish || !headcount || Number(headcount) < 1) {
+      setError('Team, Headcount, Plan Start, and Plan Finish are all required.')
+      return
+    }
     try {
       const consume = [...consumeEdits]
         .map(([material_id, raw]) => ({ material_id, qty_actual: Number(raw) }))
@@ -711,13 +762,14 @@ function WoMarkPickerModal({
         operation_id: operationId,
         marks: marksForPreview,
         consume,
-        ...(teamId ? { team_id: Number(teamId) } : {}),
+        team_id: Number(teamId),
+        team_headcount: Number(headcount),
         // datetime-local's value has no timezone — new Date(...) reads it in
         // the browser's own local time (the shop floor's), so .toISOString()
         // converts it to an unambiguous UTC instant before it leaves the
         // client (same pattern as ReportRepairModal/LogPmModal).
-        ...(planStart ? { plan_start: new Date(planStart).toISOString() } : {}),
-        ...(planFinish ? { plan_finish: new Date(planFinish).toISOString() } : {}),
+        plan_start: new Date(planStart).toISOString(),
+        plan_finish: new Date(planFinish).toISOString(),
       })
       onClose()
     } catch (err) {
@@ -737,24 +789,40 @@ function WoMarkPickerModal({
         </p>
 
         <div style={{ marginBottom: 4 }}>
-            <div style={sectionLabel}>Team — who is this work order issued to</div>
+            <div style={sectionLabel}>Team — who is this work order issued to <span style={{ color: '#C8202A' }}>*</span></div>
             <select
-              value={teamId} onChange={(e) => setTeamId(e.target.value)}
-              style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, marginBottom: 10, boxSizing: 'border-box', background: '#fff' }}
+              value={teamId} onChange={(e) => selectTeam(e.target.value)}
+              style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, marginBottom: 6, boxSizing: 'border-box', background: '#fff' }}
             >
-              <option value="">— Internal / no team —</option>
-              {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              <option value="">— Select team —</option>
+              {teams.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.team_type === 'internal' ? 'Internal' : 'External'})</option>)}
             </select>
+            {teamId && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={sectionLabel}>Headcount <span style={{ color: '#C8202A' }}>*</span></div>
+                <input
+                  type="number" min={1} max={headcountMax} value={headcount}
+                  onChange={(e) => onHeadcountChange(e.target.value)}
+                  style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
+                  placeholder={selectedTeam?.team_type === 'internal' ? 'Auto-counted from active operators — editable' : 'Enter headcount'}
+                />
+                {selectedTeam?.team_type === 'internal' && (
+                  <div style={{ fontSize: 11, color: '#999', marginTop: 3 }}>
+                    {headcountMax} active operator(s) on this team — max {headcountMax}
+                  </div>
+                )}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
               <div style={{ flex: 1 }}>
-                <div style={sectionLabel}>Plan Start</div>
+                <div style={sectionLabel}>Plan Start <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
                   type="datetime-local" value={planStart} onChange={(e) => setPlanStart(e.target.value)}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={sectionLabel}>Plan Finish</div>
+                <div style={sectionLabel}>Plan Finish <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
                   type="datetime-local" value={planFinish} onChange={(e) => setPlanFinish(e.target.value)}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
@@ -770,26 +838,34 @@ function WoMarkPickerModal({
             ) : !available.length ? (
               <div style={{ padding: 20, color: '#AAA', fontSize: 13 }}>No assemblies on this MO.</div>
             ) : (
-              available.map((l) => (
-                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid #F4F4F4' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', flex: 1, minWidth: 0 }}>
-                    <input type="checkbox" checked={selected.has(l.id)} onChange={() => toggle(l)} style={{ width: 15, height: 15, accentColor: '#C8202A', flexShrink: 0 }} />
+              available.map((l) => {
+                const fullyCommitted = l.wo_remaining === 0
+                const maxQty = l.wo_remaining ?? l.qty
+                return (
+                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid #F4F4F4', opacity: fullyCommitted ? 0.5 : 1 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: fullyCommitted ? 'default' : 'pointer', flex: 1, minWidth: 0 }}>
+                    <input type="checkbox" checked={selected.has(l.id)} disabled={fullyCommitted} onChange={() => toggle(l)} style={{ width: 15, height: 15, accentColor: '#C8202A', flexShrink: 0 }} />
                     <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{l.assembly_mark}</span>
                     {l.name && <span style={{ fontSize: 12, color: '#999', flexShrink: 0 }}>{l.name}</span>}
-                    <span style={{ marginLeft: 'auto', fontSize: 11, color: '#888', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[l.project, l.zone, l.sub_zone].filter(Boolean).join(' · ')}</span>
+                    {fullyCommitted ? (
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#AAA', flexShrink: 0 }}>Fully committed to another WO</span>
+                    ) : (
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#888', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[l.project, l.zone, l.sub_zone].filter(Boolean).join(' · ')}</span>
+                    )}
                   </label>
                   {selected.has(l.id) && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
                       <input
-                        type="number" min={1} max={l.qty} value={selected.get(l.id)}
-                        onChange={(e) => setQty(l.id, l.qty, e.target.value)}
+                        type="number" min={1} max={maxQty} value={selected.get(l.id)}
+                        onChange={(e) => setQty(l.id, maxQty, e.target.value)}
                         style={{ width: 52, padding: '3px 6px', fontSize: 13, border: '1px solid #DDD', borderRadius: 4, textAlign: 'right' }}
                       />
-                      <span style={{ fontSize: 11, color: '#AAA' }}>/ {l.qty}</span>
+                      <span style={{ fontSize: 11, color: '#AAA' }}>/ {maxQty}</span>
                     </div>
                   )}
                 </div>
-              ))
+                )
+              })
             )}
           </div>
 
@@ -846,8 +922,8 @@ function WoMarkPickerModal({
           <button onClick={onClose} style={{ padding: '7px 16px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>Cancel</button>
           <button
             onClick={submit}
-            disabled={!selected.size || createWo.isPending}
-            style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: selected.size ? '#C8202A' : '#C2C2C2', color: '#fff', cursor: selected.size ? 'pointer' : 'not-allowed' }}
+            disabled={missingRequired || createWo.isPending}
+            style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: !missingRequired ? '#C8202A' : '#C2C2C2', color: '#fff', cursor: !missingRequired ? 'pointer' : 'not-allowed' }}
           >
             {createWo.isPending ? 'Saving…' : `Create (${selected.size})`}
           </button>

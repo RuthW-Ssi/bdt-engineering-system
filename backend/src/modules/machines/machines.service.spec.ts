@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common'
+import { ConflictException, NotFoundException } from '@nestjs/common'
 import { MachinesService } from './machines.service'
 
 // Operator status + Team (2026-09-22) — user: "เพิ่ม column team และเพิ่ม
@@ -154,13 +154,13 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
   })
 
   it('creates a team as active by default', async () => {
-    const create = jest.fn().mockResolvedValue({ id: 2, code: 'TEAM-B', name: 'Team B', active: true })
+    const create = jest.fn().mockResolvedValue({ id: 2, code: 'TEAM-B', name: 'Team B', team_type: 'internal', active: true })
     const prisma: any = { team: { create } }
     const svc = new MachinesService(prisma, {} as any)
 
-    await svc.createTeam({ code: 'TEAM-B', name: 'Team B' })
+    await svc.createTeam({ code: 'TEAM-B', name: 'Team B', team_type: 'internal' })
 
-    expect(create).toHaveBeenCalledWith({ data: { code: 'TEAM-B', name: 'Team B', active: true } })
+    expect(create).toHaveBeenCalledWith({ data: { code: 'TEAM-B', name: 'Team B', team_type: 'internal', active: true } })
   })
 
   it('throws NotFoundException updating a missing team', async () => {
@@ -179,5 +179,37 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
     await svc.updateTeam(3, { active: false })
 
     expect(update).toHaveBeenCalledWith({ where: { id: 3 }, data: { active: false } })
+  })
+
+  it('throws NotFoundException deleting a missing team', async () => {
+    const prisma: any = { team: { findUnique: jest.fn().mockResolvedValue(null) } }
+    const svc = new MachinesService(prisma, {} as any)
+
+    await expect(svc.deleteTeam(99)).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('blocks deleting a team still referenced by an operator or work order', async () => {
+    const prisma: any = {
+      team: { findUnique: jest.fn().mockResolvedValue({ id: 4 }), delete: jest.fn() },
+      operator: { count: jest.fn().mockResolvedValue(2) },
+      work_order: { count: jest.fn().mockResolvedValue(1) },
+    }
+    const svc = new MachinesService(prisma, {} as any)
+
+    await expect(svc.deleteTeam(4)).rejects.toBeInstanceOf(ConflictException)
+    expect(prisma.team.delete).not.toHaveBeenCalled()
+  })
+
+  it('deletes a team with no references', async () => {
+    const prisma: any = {
+      team: { findUnique: jest.fn().mockResolvedValue({ id: 5 }), delete: jest.fn().mockResolvedValue(undefined) },
+      operator: { count: jest.fn().mockResolvedValue(0) },
+      work_order: { count: jest.fn().mockResolvedValue(0) },
+    }
+    const svc = new MachinesService(prisma, {} as any)
+
+    await svc.deleteTeam(5)
+
+    expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 5 } })
   })
 })

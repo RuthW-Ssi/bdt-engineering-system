@@ -183,7 +183,7 @@ export class MachinesService {
   }
 
   async createTeam(dto: CreateTeamDto) {
-    return this.prisma.team.create({ data: { code: dto.code, name: dto.name, active: true } })
+    return this.prisma.team.create({ data: { code: dto.code, name: dto.name, team_type: dto.team_type, active: true } })
   }
 
   async updateTeam(id: number, dto: UpdateTeamDto) {
@@ -193,8 +193,27 @@ export class MachinesService {
       where: { id },
       data: { ...(dto.code !== undefined && { code: dto.code }),
               ...(dto.name !== undefined && { name: dto.name }),
+              ...(dto.team_type !== undefined && { team_type: dto.team_type }),
               ...(dto.active !== undefined && { active: dto.active }) },
     })
+  }
+
+  // Both refs are nullable but default to Postgres RESTRICT (no onDelete set)
+  // — block with a clear message instead of surfacing a raw FK-violation 500.
+  async deleteTeam(id: number) {
+    const exists = await this.prisma.team.findUnique({ where: { id } })
+    if (!exists) throw new NotFoundException(`Team #${id} not found`)
+    const [operatorCount, workOrderCount] = await Promise.all([
+      this.prisma.operator.count({ where: { team_id: id } }),
+      this.prisma.work_order.count({ where: { subcontractor_id: id } }),
+    ])
+    if (operatorCount > 0 || workOrderCount > 0) {
+      const parts: string[] = []
+      if (operatorCount > 0) parts.push(`${operatorCount} operator(s)`)
+      if (workOrderCount > 0) parts.push(`${workOrderCount} work order(s)`)
+      throw new ConflictException(`Cannot delete team — still referenced by ${parts.join(' and ')}. Reassign them first.`)
+    }
+    await this.prisma.team.delete({ where: { id } })
   }
 
   async findOne(id: number) {

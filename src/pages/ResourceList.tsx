@@ -12,10 +12,10 @@ import { useLaborSkills, useTeams } from '../hooks/useLaborSkills'
 import { MachineStatusPill } from '../components/machines/MachineStatusPill'
 import { DaysSincePmBadge } from '../components/machines/DaysSincePmBadge'
 import { createResource, updateResource } from '../api/machines'
-import { createOperator, updateOperator, getSkills, createTeam, updateTeam } from '../api/laborSkills'
+import { createOperator, updateOperator, getSkills, createTeam, updateTeam, deleteTeam, TEAM_TYPES } from '../api/laborSkills'
 import { consumeFormulasApi, FORMULA_CATEGORY_LABELS, type ConsumeFormula } from '../api/consumeFormulas'
 import type { EquipmentStatus, Machine } from '../api/machines'
-import type { Operator, Team } from '../api/laborSkills'
+import type { Operator, Team, TeamType } from '../api/laborSkills'
 import { usePermission } from '../hooks/usePermission'
 
 type Tab = 'machine' | 'tool' | 'operator' | 'formula'
@@ -77,6 +77,14 @@ export function ResourceList() {
       qc.invalidateQueries({ queryKey: ['consume-formulas'] })
     },
     onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete resource — please try again'); console.error(e) },
+  })
+  const teamDeleteMutation = useMutation({
+    mutationFn: (id: number) => deleteTeam(id),
+    onSuccess: () => {
+      toast.success('Team deleted')
+      qc.invalidateQueries({ queryKey: ['teams'] })
+    },
+    onError: (e: any) => { toast.error(e?.response?.data?.message ?? 'Failed to delete team — please try again'); console.error(e) },
   })
 
   const machineQuery = useMachines({ type: 'machine', name: nameSearch || undefined, status: statusFilter || undefined })
@@ -323,8 +331,11 @@ export function ResourceList() {
             {isTeamSubTab && (
               <TeamTable
                 rows={teamRows.slice(sliceStart, sliceEnd)}
+                operators={laborQuery.data ?? []}
                 onEdit={row => setTeamModal({ open: true, row })}
+                onDelete={async row => { const ok = await confirm({ title: `Delete "${row.name}"?`, variant: 'danger', confirmLabel: 'Delete' }); if (ok) teamDeleteMutation.mutate(row.id) }}
                 canEdit={canUpdate}
+                canDelete={canDelete}
               />
             )}
             {activeTab === 'tool' && (
@@ -450,24 +461,46 @@ function LaborTable({ operators, onEdit, canEdit }: {
 }
 
 // ── Team Table ────────────────────────────────────────────────────────────────
-function TeamTable({ rows, onEdit, canEdit }: { rows: Team[]; onEdit: (row: Team) => void; canEdit: boolean }) {
+function TeamTable({ rows, operators, onEdit, onDelete, canEdit, canDelete }: { rows: Team[]; operators: Operator[]; onEdit: (row: Team) => void; onDelete: (row: Team) => void; canEdit: boolean; canDelete: boolean }) {
   if (!rows.length) return <EmptyState label="No teams found" />
   return (
     <>
-      <ColHeader cols={['Code', 'Name', '']} widths="180px 1fr 60px" />
-      {rows.map(r => (
+      <ColHeader cols={['Code', 'Name', 'Type', 'Operators', '']} widths="180px 1fr 100px 110px 130px" />
+      {rows.map(r => {
+        const members = operators.filter(o => o.team?.id === r.id)
+        const activeCount = members.filter(o => o.active).length
+        return (
         <div key={r.id} style={rowCardStyle}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 2px 8px rgba(0,0,0,0.07)' }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = 'none' }}>
-          <div style={gridStyle('180px 1fr 60px')}>
+          <div style={gridStyle('180px 1fr 100px 110px 130px')}>
             <Cell><span style={monoStyle}>{r.code}</span></Cell>
             <Cell><span style={{ fontWeight: 600, fontSize: 13, color: '#1F1F1F' }}>{r.name}</span></Cell>
             <Cell>
-              {canEdit && <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>}
+              <span style={{
+                fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 999,
+                background: r.team_type === 'internal' ? '#F0FDF4' : '#FFF7ED',
+                color: r.team_type === 'internal' ? '#16A34A' : '#C2410C',
+                border: `1px solid ${r.team_type === 'internal' ? '#BBF7D0' : '#FED7AA'}`,
+              }}>
+                {r.team_type === 'internal' ? 'Internal' : 'External'}
+              </span>
+            </Cell>
+            <Cell>
+              <span style={{ fontSize: 13, color: activeCount ? '#1F1F1F' : '#C2C2C2' }}>
+                {activeCount || '—'}
+              </span>
+            </Cell>
+            <Cell>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {canEdit && <button onClick={() => onEdit(r)} style={editBtnStyle}>Edit</button>}
+                {canDelete && <button onClick={() => onDelete(r)} style={{ ...editBtnStyle, color: '#C8202A', borderColor: '#FBBEBE' }}>Delete</button>}
+              </div>
             </Cell>
           </div>
         </div>
-      ))}
+        )
+      })}
     </>
   )
 }
@@ -695,6 +728,7 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
             <select value={form.nationality} onChange={e => set('nationality', e.target.value)} style={inputStyle}>
               <option value="TH">TH — Thai</option>
               <option value="MM">MM — Myanmar</option>
+              <option value="LA">LA — Laos</option>
             </select>
           </FormField>
           <FormField label="Position">
@@ -708,7 +742,7 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
           <FormField label="Team">
             <select value={form.team_id} onChange={e => set('team_id', e.target.value)} style={inputStyle}>
               <option value="">— No team —</option>
-              {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              {teams.filter(t => t.team_type === 'internal').map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
           </FormField>
           {isEdit && (
@@ -776,13 +810,13 @@ function TeamModal({ row, onClose }: { row?: Team; onClose: () => void }) {
   const qc = useQueryClient()
   const isEdit = !!row
 
-  const [form, setForm] = useState({ code: row?.code ?? '', name: row?.name ?? '' })
+  const [form, setForm] = useState({ code: row?.code ?? '', name: row?.name ?? '', team_type: row?.team_type ?? ('' as TeamType | '') })
   const set = (field: 'code' | 'name', val: string) => setForm(f => ({ ...f, [field]: val }))
 
   const mutation = useMutation({
     mutationFn: () => isEdit && row
-      ? updateTeam(row.id, { code: form.code || undefined, name: form.name || undefined })
-      : createTeam({ code: form.code, name: form.name }),
+      ? updateTeam(row.id, { code: form.code || undefined, name: form.name || undefined, team_type: (form.team_type as TeamType) || undefined })
+      : createTeam({ code: form.code, name: form.name, team_type: form.team_type as TeamType }),
     onSuccess: () => {
       toast.success(`Team ${isEdit ? 'updated' : 'created'}`)
       qc.invalidateQueries({ queryKey: ['teams'] })
@@ -803,9 +837,15 @@ function TeamModal({ row, onClose }: { row?: Team; onClose: () => void }) {
             <input value={form.name} onChange={e => set('name', e.target.value)}
               placeholder="Team name..." style={inputStyle} />
           </FormField>
+          <FormField label="Type *">
+            <select value={form.team_type} onChange={e => setForm(f => ({ ...f, team_type: e.target.value as TeamType | '' }))} style={inputStyle}>
+              <option value="">— Select type —</option>
+              {TEAM_TYPES.map(t => <option key={t} value={t}>{t === 'internal' ? 'Internal' : 'External'}</option>)}
+            </select>
+          </FormField>
         </div>
         {mutation.isError && <ErrMsg />}
-        <ModalFooter onClose={onClose} onSave={() => mutation.mutate()} saving={mutation.isPending} disabled={!form.code.trim() || !form.name.trim()} />
+        <ModalFooter onClose={onClose} onSave={() => mutation.mutate()} saving={mutation.isPending} disabled={!form.code.trim() || !form.name.trim() || !form.team_type} />
       </div>
     </ModalOverlay>
   )

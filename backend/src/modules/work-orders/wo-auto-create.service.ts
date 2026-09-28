@@ -45,6 +45,7 @@ export class WorkOrderAutoCreateService {
     planStart?: Date,
     planFinish?: Date,
     teamId?: number,
+    teamHeadcount?: number,
   ): Promise<{ work_order_id: number; wo_code: string; marks_added: number }> {
     const mo = await tx.manufacturing_order.findUnique({
       where: { id: moId },
@@ -107,6 +108,7 @@ export class WorkOrderAutoCreateService {
         // (2026-09-22, once the Team CRUD existed to back a real dropdown).
         assigned_to: assignedTo ?? null,
         subcontractor_id: teamId ?? null,
+        team_headcount: teamHeadcount ?? 1,
         plan_start: planStart ?? null,
         plan_finish: planFinish ?? null,
         created_by: userName,

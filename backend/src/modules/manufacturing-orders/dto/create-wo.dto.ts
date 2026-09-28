@@ -75,22 +75,28 @@ export class CreateWoDto {
   assigned_to?: string
 
   // Structured "which team is this WO issued to" (2026-09-22) — FK to the
-  // `team` table (Machine & Resources → Operator → Team).
-  @IsOptional()
+  // `team` table (Machine & Resources → Operator → Team). Required
+  // (2026-09-25 — user: "ต้องให้ team และ plan start finish ต้องกรอกตลอด").
   @IsInt()
   @IsPositive()
-  team_id?: number
+  team_id: number
 
   // Planned production window — date+time, since a WO's schedule is
   // meaningful to the minute. Field names match manufacturing_order's
-  // plan_start/plan_finish exactly (2026-09-22).
-  @IsOptional()
+  // plan_start/plan_finish exactly (2026-09-22). Required (2026-09-25).
   @IsISO8601()
-  plan_start?: string
+  plan_start: string
 
-  @IsOptional()
   @IsISO8601()
-  plan_finish?: string
+  plan_finish: string
+
+  // How many people from `team` are on this WO — internal: auto-counted
+  // from active operators on the team (frontend), still editable, capped at
+  // the team's active-operator count; external: entered manually (no
+  // operators to count, no cap). Required, min 1 (2026-09-25).
+  @IsInt()
+  @Min(1)
+  team_headcount: number
 
   @IsArray()
   @ArrayMinSize(1)

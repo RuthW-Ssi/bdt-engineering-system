@@ -29,8 +29,12 @@ export function useMo(id: number) {
   return useQuery({ queryKey: ['mo', 'detail', id], queryFn: () => getMo(id), enabled: !!id })
 }
 
-export function useMoAssemblies(id: number) {
-  return useQuery({ queryKey: ['mo', 'assemblies', id], queryFn: () => getMoAssemblies(id), enabled: !!id })
+export function useMoAssemblies(id: number, operationId?: number) {
+  return useQuery({
+    queryKey: ['mo', 'assemblies', id, operationId],
+    queryFn: () => getMoAssemblies(id, operationId),
+    enabled: !!id,
+  })
 }
 
 export function useMoHistory(id: number) {
@@ -76,7 +80,21 @@ export function useCreateWorkOrder(moId: number) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: CreateWoPayload) => createMoWorkOrder(moId, payload),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['wo', 'list'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wo', 'list'] })
+      // wo_remaining per line (added 2026-09-25) lives in this query — a new
+      // WO can commit marks for any operation on this MO, so invalidate every
+      // operationId variant, not just the one just created against (key
+      // matching is by prefix: ['mo', 'assemblies', moId] matches all of them).
+      qc.invalidateQueries({ queryKey: ['mo', 'assemblies', moId] })
+      // Creating a WO changes planned consume totals on the MO Overview tab
+      // too — without these it still shows the old totals until refresh
+      // (found via UX audit, 2026-09-25). Starting the MO itself is
+      // manual-only (Start button) — createWorkOrder() never touches MO
+      // status, so no separate status-related invalidation is needed here.
+      qc.invalidateQueries({ queryKey: ['mo', 'detail', moId] })
+      qc.invalidateQueries({ queryKey: ['mo', 'consume-summary', moId] })
+    },
   })
 }
 

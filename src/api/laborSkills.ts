@@ -74,10 +74,14 @@ export async function updateOperator(id: number, payload: UpdateOperatorPayload)
   return res.data
 }
 
+export const TEAM_TYPES = ['internal', 'external'] as const
+export type TeamType = (typeof TEAM_TYPES)[number]
+
 export interface Team {
   id: number
   code: string
   name: string
+  team_type: TeamType
   active: boolean
 }
 
@@ -89,11 +93,13 @@ export async function getTeams(): Promise<Team[]> {
 export interface CreateTeamPayload {
   code: string
   name: string
+  team_type: TeamType
 }
 
 export interface UpdateTeamPayload {
   code?: string
   name?: string
+  team_type?: TeamType
   active?: boolean
 }
 
@@ -105,4 +111,8 @@ export async function createTeam(payload: CreateTeamPayload): Promise<Team> {
 export async function updateTeam(id: number, payload: UpdateTeamPayload): Promise<Team> {
   const res = await apiClient.patch(`/machines/teams/${id}`, payload)
   return res.data
+}
+
+export async function deleteTeam(id: number): Promise<void> {
+  await apiClient.delete(`/machines/teams/${id}`)
 }

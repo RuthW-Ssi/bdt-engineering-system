@@ -8,7 +8,7 @@ import { usePermission } from '../hooks/usePermission'
 import { apiClient } from '../api/client'
 import { consumeFormulasApi, type ConsumeFormula } from '../api/consumeFormulas'
 import { routingFormulaParamsApi, type RoutingFormulaParam } from '../api/routingFormulas'
-import { ACTIVITY_KINDS, type ActivityKind } from '../api/activities'
+import { ACTIVITY_KINDS, type ActivityKind, type OperationTypeDto } from '../api/activities'
 
 interface ConsumableEntry {
   id: number
@@ -33,6 +33,7 @@ interface LaborEntry {
 interface FormValues {
   name: string
   kind: ActivityKind
+  operation_type_id: number | ''
   duration_min: number
   per_minute: number | ''
   formula_code: string
@@ -370,13 +371,18 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
 
   const { data: formulas = [] } = useQuery({ queryKey: ['consume-formulas'], queryFn: consumeFormulasApi.list, staleTime: 10 * 60 * 1000 })
   const { data: routingFormulas = [] } = useQuery<RoutingFormulaParam[]>({ queryKey: ['routing-formula-params'], queryFn: routingFormulaParamsApi.list, staleTime: 10 * 60 * 1000 })
+  const { data: opTypes = [] } = useQuery<OperationTypeDto[]>({
+    queryKey: ['op-types'],
+    queryFn: async () => { const { data } = await apiClient.get('/op-types'); return Array.isArray(data) ? data : [] },
+    staleTime: 10 * 60 * 1000,
+  })
 
   const { data: existing, isLoading: isLoadingExisting } = useActivity(activityId)
   const createMutation = useCreateActivity()
   const updateMutation = useUpdateActivity(activityId ?? 0)
 
   const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<FormValues>({
-    defaultValues: { name: '', kind: 'run', duration_min: 0, per_minute: '', formula_code: '', ratio: '', ratio_unit: '', per_time: '' },
+    defaultValues: { name: '', kind: 'run', operation_type_id: '', duration_min: 0, per_minute: '', formula_code: '', ratio: '', ratio_unit: '', per_time: '' },
   })
   const watchedFormulaCode = watch('formula_code')
   const watchedRatio       = watch('ratio')
@@ -387,6 +393,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
       reset({
         name: existing.name,
         kind: existing.kind ?? 'run',
+        operation_type_id: existing.operation_type_id ?? '',
         duration_min: Number(existing.duration_min),
         per_minute: existing.per_minute != null ? Number(existing.per_minute) : '',
         formula_code: existing.formula_code ?? '',
@@ -404,6 +411,7 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
     const payload = {
       name: values.name,
       kind: values.kind,
+      operation_type_id: values.operation_type_id !== '' ? Number(values.operation_type_id) : null,
       duration_min: Number(values.duration_min),
       per_minute:   values.per_minute !== '' ? Number(values.per_minute) : undefined,
       formula_code: values.formula_code || undefined,
@@ -477,6 +485,15 @@ export function ActivityBuilderModal({ activityId, onClose, onSaved }: Props) {
                   <label htmlFor="activity-kind" style={labelStyle}>Kind</label>
                   <select id="activity-kind" {...register('kind')} style={{ ...inputStyle, fontSize: 12 }}>
                     {ACTIVITY_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <label htmlFor="activity-op-type" style={labelStyle}>
+                    Operation Type <span style={{ color: '#9E9E9E', fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(narrows which Operation this shows up under — leave "All" if it applies everywhere)</span>
+                  </label>
+                  <select id="activity-op-type" {...register('operation_type_id')} style={{ ...inputStyle, fontSize: 12 }}>
+                    <option value="">All</option>
+                    {opTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.label}</option>)}
                   </select>
                 </div>
                 <div>

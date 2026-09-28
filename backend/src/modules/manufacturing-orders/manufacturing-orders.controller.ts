@@ -67,8 +67,9 @@ export class ManufacturingOrderController {
   @Get(':id/assemblies')
   @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'Assembly lines + total/remaining + allocation breakdown' })
-  getAssemblies(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.getAssemblies(id)
+  @ApiQuery({ name: 'operation_id', required: false, description: 'When given, each line also gets wo_remaining — qty still unplanned for this operation, after sibling work orders of the same operation' })
+  getAssemblies(@Param('id', ParseIntPipe) id: number, @Query('operation_id') operation_id?: string) {
+    return this.svc.getAssemblies(id, operation_id ? Number(operation_id) : undefined)
   }
 
   @Get(':id/parts')

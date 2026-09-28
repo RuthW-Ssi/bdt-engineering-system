@@ -713,7 +713,27 @@ export class WorkOrdersService {
       // production, so sibling WOs sharing >=1 mark with zero output anywhere
       // are meaningless — auto-cancel them in the same transaction. Siblings
       // with real output are left untouched — see loadCancelSiblings().
+      //
+      // Computed BEFORE the mark-release loop below (not just after the DB
+      // writes above) even though `wo.marks` is a plain pre-fetched snapshot
+      // that a later work_order_mark.update() can't retroactively mutate in
+      // real Prisma — deliberately not relying on that: keep every read that
+      // depends on marks' pre-cancel state ahead of any write that changes it.
       const { to_cancel } = await this.loadCancelSiblings(tx, wo.mo_id, wo.marks, id)
+
+      // Release every non-removed mark's budget back to the operation, same
+      // as removeMark() below — otherwise a cancelled WO's marks stay
+      // "committed" forever and computeMarkBudget() never frees them for a
+      // replacement WO (2026-09-25 — found via UX audit, user: "ปลด mark
+      // คืนงบด้วย").
+      const cancelNow = new Date()
+      for (const m of nonRemoved) {
+        await tx.work_order_mark.update({
+          where: { id: m.id },
+          data: { removed_at: cancelNow, removed_by: userName, removed_reason: dto.reason },
+        })
+      }
+
       for (const sibling of to_cancel) {
         // Defensive: to_cancel is filtered to status !== 'CANCELLED' with no
         // output, and cancel.from covers every non-DONE/non-CANCELLED status —
@@ -736,6 +756,15 @@ export class WorkOrdersService {
             recorded_by: userName,
           },
         })
+        // Same budget-release as the primary WO above — these siblings have
+        // zero output (that's why to_cancel included them), so every mark
+        // frees cleanly.
+        for (const m of sibling.marks) {
+          await tx.work_order_mark.update({
+            where: { id: m.id },
+            data: { removed_at: cancelNow, removed_by: userName, removed_reason: `Cascade-cancelled: sibling of ${wo.wo_code}` },
+          })
+        }
       }
     })
 
@@ -1074,7 +1103,7 @@ export class WorkOrdersService {
         sequence: true,
         status: true,
         source_routing_op_id: true,
-        marks: { where: { removed_at: null }, select: { qty_done: true } },
+        marks: { where: { removed_at: null }, select: { id: true, qty_done: true } },
       },
     })
 

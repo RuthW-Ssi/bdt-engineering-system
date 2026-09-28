@@ -591,6 +591,7 @@ model mrp_op_type {
 
   routing_ops         mrp_routing_workcenter[]
   operation_templates operation_template[]
+  activities          activity[]
 }
 
 // ── 🟨 Work Center (Odoo mrp.workcenter + ISA-95/Siemens enrichment) ──
@@ -1141,6 +1142,11 @@ model operation_template {
   name          String          @db.VarChar(100)
   op_type_id    Int?
   op_type       mrp_op_type?    @relation(fields: [op_type_id], references: [id])
+  // Lucide icon key (e.g. "flame", "paint-roller") picked at create time in
+  // OperationBuilder — printed on the WO traveler's QR center + watermark
+  // (2026-09-29), see src/lib/fabIcons.ts on the frontend for the curated
+  // set and mo-print-pdf-builder.ts's icon renderer on the backend.
+  icon          String?         @db.VarChar(40)
   workcenter_id Int?
   workcenter    mrp_workcenter? @relation(fields: [workcenter_id], references: [id])
   method        String?         @db.VarChar(20)
@@ -1293,6 +1299,8 @@ model activity {
   ratio_unit                    String?                        @db.VarChar(20)
   per_time                      Decimal?                       @db.Decimal(10, 4)
   kind                          String                         @default("run") @db.Text
+  operation_type_id             Int?
+  operation_type                mrp_op_type?                   @relation(fields: [operation_type_id], references: [id])
   create_uid                    Int
   create_user                   res_users                      @relation("activity_create_user", fields: [create_uid], references: [id])
   create_date                   DateTime                       @default(now()) @db.Timestamptz
@@ -1565,6 +1573,7 @@ model work_order {
   is_pinned             Boolean   @default(false)
   operator_mode         String    @default("internal") @db.Text
   subcontractor_id      Int?
+  team_headcount        Int       // required (2026-09-25) — internal: auto-counted from active operators on the team, editable; external: entered manually
 
   manufacturing_order manufacturing_order  @relation(fields: [mo_id], references: [id], onDelete: Cascade)
   mrp_workcenter      mrp_workcenter       @relation("wo_workcenter", fields: [work_center_id], references: [id])
@@ -1886,6 +1895,7 @@ model team {
   id          Int          @id @default(autoincrement())
   code        String       @unique @db.Text
   name        String       @db.Text
+  team_type   String       @db.VarChar(20) // 'internal' | 'external' — required at creation (2026-09-25)
   skills      String[]     @default([])
   active      Boolean      @default(true)
   created_at  DateTime?    @default(now()) @db.Timestamptz

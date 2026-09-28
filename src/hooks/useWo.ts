@@ -102,6 +102,12 @@ function useWoInvalidate(id: number) {
     qc.invalidateQueries({ queryKey: ['wo', 'cancel-siblings', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'bim-match', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'list'] })
+    // Any WO transition can change wo_remaining (marks committed/released,
+    // e.g. remove-mark clears removed_at) — this hook has no moId in scope,
+    // so invalidate every cached MO's assemblies rather than plumb moId
+    // through every call site (2026-09-25, found via UX audit: stale
+    // "+ Create Work Order" buttons/pickers after WO actions elsewhere).
+    qc.invalidateQueries({ queryKey: ['mo', 'assemblies'] })
   }
 }
 

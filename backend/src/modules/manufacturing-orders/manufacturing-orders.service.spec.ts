@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
 
 // Scoped to findOne()'s stale_assembly_warnings (WO BOM-Version Hold, Sprint 20 · Task 5).
@@ -220,6 +220,9 @@ describe('ManufacturingOrderService.createWorkOrder — consume override', () =>
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, mo_code: 'MO-0001' }) },
+      // No team_id in these DTOs — team lookup must resolve null (skips the
+      // internal-team headcount cap check) rather than crash (2026-09-25).
+      team: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(tx)),
     }
     const woAutoCreate = {
@@ -242,24 +245,70 @@ describe('ManufacturingOrderService.createWorkOrder — consume override', () =>
     })
   })
 
-  it('passes team_id through to createOrAddMarks', async () => {
+  it('passes team_id and team_headcount through to createOrAddMarks', async () => {
     const { svc, woAutoCreate } = makeService()
-    const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }], team_id: 7 } as any
+    const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }], team_id: 7, team_headcount: 5 } as any
 
     await svc.createWorkOrder(1, dto, 'tester', 1)
 
     expect(woAutoCreate.createOrAddMarks).toHaveBeenCalledWith(
-      expect.anything(), 1, 1, [{ assembly_line_id: 1, qty: 1 }], 'tester', undefined, undefined, undefined, 7,
+      expect.anything(), 1, 1, [{ assembly_line_id: 1, qty: 1 }], 'tester', undefined, undefined, undefined, 7, 5,
     )
   })
 })
 
-// 2026-09-23 — user: "ถ้ากดสร้าง wo แรกเมื่อไหร่ mo จะกลายเป็น start ทันที
-// และบันทึก actual start ใน mo ทันทีแม้ผู้ใช้จะไม่กดปุ่ม start" — explicitly
-// asked for, not a bug: creating the first WO for a CONFIRMED MO should also
-// auto-transition that MO to IN_PROGRESS + set actual_start, without the user
-// separately clicking the MO's own Start button.
-describe('ManufacturingOrderService.createWorkOrder — auto-starts the MO', () => {
+// Internal-team headcount cap (2026-09-25) — the frontend auto-fills and
+// clamps team_headcount to the team's active-operator count for internal
+// teams, but this is server-side enforcement of the same rule, not just UX.
+// External teams have no operator roster to check against, so no cap.
+describe('ManufacturingOrderService.createWorkOrder — internal team headcount cap', () => {
+  function makeService(team: { team_type: string } | null, activeOperatorCount: number) {
+    const tx = { work_order_consume: { upsert: jest.fn().mockResolvedValue({}) } }
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, mo_code: 'MO-0001', status: 'IN_PROGRESS' }) },
+      team: { findUnique: jest.fn().mockResolvedValue(team) },
+      operator: { count: jest.fn().mockResolvedValue(activeOperatorCount) },
+      $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(tx)),
+    }
+    const woAutoCreate = {
+      createOrAddMarks: jest.fn().mockResolvedValue({ work_order_id: 900, wo_code: 'WO-00000900', created: true, marks_added: 1, marks_skipped: 0 }),
+    }
+    const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, woAutoCreate as any, {} as any)
+    return { svc, prisma, woAutoCreate }
+  }
+
+  it('rejects a headcount above the internal team\'s active operator count', async () => {
+    const { svc } = makeService({ team_type: 'internal' }, 3)
+    const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }], team_id: 7, team_headcount: 4 } as any
+
+    await expect(svc.createWorkOrder(1, dto, 'tester', 1)).rejects.toThrow(BadRequestException)
+  })
+
+  it('allows a headcount at or under the internal team\'s active operator count', async () => {
+    const { svc, woAutoCreate } = makeService({ team_type: 'internal' }, 3)
+    const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }], team_id: 7, team_headcount: 3 } as any
+
+    await svc.createWorkOrder(1, dto, 'tester', 1)
+
+    expect(woAutoCreate.createOrAddMarks).toHaveBeenCalled()
+  })
+
+  it('does not cap an external team, even above its (irrelevant) operator count', async () => {
+    const { svc, prisma, woAutoCreate } = makeService({ team_type: 'external' }, 0)
+    const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }], team_id: 7, team_headcount: 20 } as any
+
+    await svc.createWorkOrder(1, dto, 'tester', 1)
+
+    expect(prisma.operator.count).not.toHaveBeenCalled()
+    expect(woAutoCreate.createOrAddMarks).toHaveBeenCalled()
+  })
+})
+
+// 2026-09-25 — reverted the 2026-09-23 auto-start behavior: user asked for
+// starting the MO to go back to manual-only (Start button), so creating a WO
+// must never touch the MO's own status/actual_start, regardless of the MO's
+// status at create time.
+describe('ManufacturingOrderService.createWorkOrder — never auto-starts the MO', () => {
   function makeService(moStatus: string) {
     const tx = {
       work_order_consume: { upsert: jest.fn().mockResolvedValue({}) },
@@ -268,6 +317,7 @@ describe('ManufacturingOrderService.createWorkOrder — auto-starts the MO', () 
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, mo_code: 'MO-0001', status: moStatus }) },
+      team: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(tx)),
     }
     const woAutoCreate = {
@@ -277,49 +327,20 @@ describe('ManufacturingOrderService.createWorkOrder — auto-starts the MO', () 
     return { svc, tx }
   }
 
-  it('CONFIRMED MO: creating a WO sets status IN_PROGRESS + actual_start + a status-history row, even though nobody clicked Start', async () => {
-    const { svc, tx } = makeService('CONFIRMED')
+  it.each(['CONFIRMED', 'IN_PROGRESS', 'DRAFT'])('%s MO: creating a WO leaves MO status/actual_start untouched — only the Start button does that', async (moStatus) => {
+    const { svc, tx } = makeService(moStatus)
     const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }] } as any
-
-    await svc.createWorkOrder(1, dto, 'tester', 42)
-
-    expect(tx.manufacturing_order.update).toHaveBeenCalledWith({
-      where: { id: 1 },
-      data: { status: 'IN_PROGRESS', actual_start: expect.any(Date), write_uid: 42 },
-    })
-    expect(tx.mo_status_history.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        mo_id: 1, from_status: 'CONFIRMED', to_status: 'IN_PROGRESS', changed_by: 'tester',
-        reason: expect.stringContaining('WO-00000900'),
-      }),
-    })
-  })
-
-  it('MO already IN_PROGRESS (2nd+ WO on the same MO): does not touch MO status/actual_start again', async () => {
-    const { svc, tx } = makeService('IN_PROGRESS')
-    const dto = { operation_id: 2, marks: [{ assembly_line_id: 5, qty: 1 }] } as any
 
     await svc.createWorkOrder(1, dto, 'tester', 42)
 
     expect(tx.manufacturing_order.update).not.toHaveBeenCalled()
     expect(tx.mo_status_history.create).not.toHaveBeenCalled()
   })
-
-  it('DRAFT MO (defensive — should not normally happen): does not skip straight to IN_PROGRESS', async () => {
-    const { svc, tx } = makeService('DRAFT')
-    const dto = { operation_id: 1, marks: [{ assembly_line_id: 1, qty: 1 }] } as any
-
-    await svc.createWorkOrder(1, dto, 'tester', 42)
-
-    expect(tx.manufacturing_order.update).not.toHaveBeenCalled()
-  })
 })
 
-// 2026-09-23 — same fix as the auto-start tests above, but for the MANUAL
-// Start button path: a click that transitions CONFIRMED → IN_PROGRESS must
-// leave the MO in the identical state createWorkOrder()'s auto-start does,
-// or "started via the button" and "started via creating a WO" would quietly
-// mean different things (one with actual_start recorded, one without).
+// 2026-09-23 — manual Start button path: a click that transitions
+// CONFIRMED → IN_PROGRESS must also set actual_start (this is now the ONLY
+// way an MO starts, per the 2026-09-25 revert above).
 describe('ManufacturingOrderService.changeStatus — actual_start', () => {
   function makeService(fromStatus: string) {
     const tx = { manufacturing_order: { update: jest.fn().mockResolvedValue({}) }, mo_status_history: { create: jest.fn().mockResolvedValue({}) } }

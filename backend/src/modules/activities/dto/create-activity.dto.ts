@@ -70,6 +70,12 @@ export class CreateActivityDto {
   @IsIn(ACTIVITY_KINDS)
   kind?: ActivityKind
 
+  @ApiPropertyOptional({ description: 'mrp_op_type.id this activity belongs to — omit/null means it applies to every operation type', example: 3 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  operation_type_id?: number | null
+
   @ApiProperty({ description: 'Duration in minutes (≥ 0)', example: 5.5 })
   @IsNumber()
   @Min(0)

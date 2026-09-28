@@ -356,7 +356,14 @@ export class ManufacturingOrderService {
   }
 
   // ── Assemblies tab: lines + total + remaining + allocation breakdown ────────
-  async getAssemblies(id: number) {
+  // `operationId`, when given, adds `wo_remaining` per line — qty of this
+  // mark still unplanned for THAT operation within THIS mo, after sibling
+  // work orders of the same operation. Mirrors WoAutoCreateService's private
+  // computeMarkBudget() (inlined here, not imported, to avoid a cross-module
+  // dependency for one read-only query) — kept in sync manually if that
+  // logic changes. Distinct from the always-present `remaining` field above,
+  // which is the mark's cross-MO allocation remainder, not operation-scoped.
+  async getAssemblies(id: number, operationId?: number) {
     await this.requireMo(id)
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: { mo_id: id },
@@ -373,6 +380,18 @@ export class ManufacturingOrderService {
         const breakdown = await this.alloc.allocationBreakdown(line.bom_assembly_id)
         const total = Number(line.bom_assembly.qty ?? 0)
         const allocated = breakdown.reduce((s, b) => s + b.qty, 0)
+        let wo_remaining: number | null = null
+        if (operationId !== undefined) {
+          const committed = await this.prisma.work_order_mark.aggregate({
+            where: {
+              bom_assembly_id: line.bom_assembly_id,
+              removed_at: null,
+              work_order: { mo_id: id, source_routing_op_id: operationId },
+            },
+            _sum: { qty_planned: true },
+          })
+          wo_remaining = Math.max(0, Number(line.qty) - Number(committed._sum.qty_planned ?? 0))
+        }
         return {
           id: line.id,
           line_seq: line.line_seq,
@@ -386,6 +405,7 @@ export class ManufacturingOrderService {
           total,
           allocated,
           remaining: total - allocated,
+          wo_remaining,
           allocation_breakdown: breakdown, // [{ mo_code, qty }]
         }
       }),
@@ -640,10 +660,9 @@ export class ManufacturingOrderService {
           status: dto.to_status,
           write_uid: userId,
           // A manual Start click must record actual_start too (2026-09-23) —
-          // same "the MO started" state createWorkOrder()'s auto-start above
-          // writes when the first WO is created instead. Before this, Actual
-          // Start on the Overview page went unpopulated no matter how an MO
-          // was started — status alone was never the whole picture.
+          // before this, Actual Start on the Overview page went unpopulated.
+          // Starting the MO is manual-only (2026-09-25 revert): creating a WO
+          // no longer auto-starts the MO — the user must click Start.
           ...(dto.to_status === 'IN_PROGRESS' ? { actual_start: new Date() } : {}),
         },
       })
@@ -691,7 +710,20 @@ export class ManufacturingOrderService {
   // the WO for (this MO, operation_id), then add a work_order_mark row for each
   // assembly_line_id not already on it. See WorkOrderAutoCreateService.createOrAddMarks().
   async createWorkOrder(moId: number, dto: CreateWoDto, userName: string, userId: number) {
-    const mo = await this.requireMo(moId)
+    await this.requireMo(moId)
+    // Internal teams cap headcount at their own active-operator count — the
+    // frontend auto-fills and clamps this, but re-check server-side since
+    // that's just UX, not enforcement (2026-09-25). External teams have no
+    // roster to check against, so no cap.
+    const team = await this.prisma.team.findUnique({ where: { id: dto.team_id }, select: { team_type: true } })
+    if (team?.team_type === 'internal') {
+      const activeCount = await this.prisma.operator.count({ where: { team_id: dto.team_id, active: true } })
+      if (dto.team_headcount > activeCount) {
+        throw new BadRequestException(
+          `Headcount (${dto.team_headcount}) exceeds this internal team's active operator count (${activeCount}).`,
+        )
+      }
+    }
     const marks = dto.marks.map((m) => ({ assembly_line_id: m.assembly_line_id, qty: m.qty }))
     return this.prisma.$transaction(async (tx) => {
       const result = await this.woAutoCreate.createOrAddMarks(
@@ -699,36 +731,8 @@ export class ManufacturingOrderService {
         dto.plan_start ? new Date(dto.plan_start) : undefined,
         dto.plan_finish ? new Date(dto.plan_finish) : undefined,
         dto.team_id,
+        dto.team_headcount,
       )
-
-      // Auto-start the MO the moment its first WO is created (2026-09-23) —
-      // user: "ถ้ากดสร้าง wo แรกเมื่อไหร่ mo จะกลายเป็น start ทันทีและบันทึก
-      // actual start ใน mo ทันทีแม้ผู้ใช้จะไม่กดปุ่ม start". Gated on the MO's
-      // status captured BEFORE this transaction: CONFIRMED is the only status
-      // IN_PROGRESS is reachable from (see ALLOWED_TRANSITIONS), so once this
-      // fires once the MO is IN_PROGRESS and every later WO created for it
-      // (2nd, 3rd, ... — including on other operations) finds mo.status
-      // already IN_PROGRESS and skips this — functionally "only the first
-      // WO", without needing a separate work_order-count query. Sets BOTH
-      // status and actual_start together, the same pair a manual Start click
-      // now sets (see changeStatus() below) — the two triggers must leave the
-      // MO in identical state, or "auto-started" and "manually started" would
-      // silently mean different things.
-      if (mo.status === 'CONFIRMED') {
-        await tx.manufacturing_order.update({
-          where: { id: moId },
-          data: { status: 'IN_PROGRESS', actual_start: new Date(), write_uid: userId },
-        })
-        await tx.mo_status_history.create({
-          data: {
-            mo_id: moId,
-            from_status: 'CONFIRMED',
-            to_status: 'IN_PROGRESS',
-            reason: `Auto-started: first work order (${result.wo_code}) created`,
-            changed_by: userName,
-          },
-        })
-      }
 
       // Optional overrides on top of recomputeParts()/recomputeConsume()'s auto
       // suggestions — the single-page form previews those suggestions before
