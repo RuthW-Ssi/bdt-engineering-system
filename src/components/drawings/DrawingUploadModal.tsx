@@ -2,40 +2,31 @@ import { useState } from 'react'
 import { X, Upload, Loader2, FileText } from 'lucide-react'
 import { FileDropzone } from '../bom/FileDropzone'
 
-type FileType = 'dwg' | 'pdf'
-
-const DRAWING_FORMATS: Record<FileType, string[]> = { dwg: ['.dwg'], pdf: ['.pdf'] }
-const DRAWING_HINT: Record<FileType, string> = { dwg: 'DWG · up to 50 MB each', pdf: 'PDF · up to 50 MB each' }
 const MAX_DRAWING_SIZE = 50_000_000 // 50MB
 const MAX_FILES = 1500 // a project's worth of sheets in one go, not unbounded
 
 interface Props {
   scopeLabel: string
   isUploading: boolean
-  onFilesConfirmed: (files: File[], fileType: FileType) => void
+  onFilesConfirmed: (files: File[]) => void
   onClose: () => void
 }
 
+// .pdf-only as of 2026-09-15 — .dwg upload (and the Autodesk APS 2D-preview
+// pipeline it used to trigger) was removed entirely: every upload was an
+// unconditional billed Model Derivative job with no dedup, and a bug in the
+// push path itself burned real Flex-token budget confirming that cost was
+// real. See wiki/features/drawing.md's "DWG removed entirely" entry. Before
+// 2026-08-26 through 2026-09-15 this modal had a DWG/PDF file-type picker —
+// gone now that there's only one format to pick from.
 export function DrawingUploadModal({ scopeLabel, isUploading, onFilesConfirmed, onClose }: Props) {
-  // DWG (source CAD, needs APS) and PDF (print-ready companion, viewed
-  // directly) are functionally different artifacts with independent version
-  // histories (see useUploadDrawings) — picking one up front, rather than
-  // inferring it per-file after drop, keeps a batch from ever mixing the two
-  // and makes the dropzone's accepted-format restriction unambiguous.
-  const [fileType, setFileType] = useState<FileType>('dwg')
-
   // Staged, not uploaded yet — matches BimUploadModal's pattern: picking
   // files only stages them, the Upload button below is what actually sends
   // them, giving a chance to double-check (or remove and re-pick) first.
   const [stagedFiles, setStagedFiles] = useState<File[]>([])
 
-  const handleTypeChange = (next: FileType) => {
-    setFileType(next)
-    setStagedFiles([]) // switching type mid-stage would otherwise mix DWG + PDF in one batch
-  }
-
   const handleConfirm = () => {
-    if (stagedFiles.length > 0) onFilesConfirmed(stagedFiles, fileType)
+    if (stagedFiles.length > 0) onFilesConfirmed(stagedFiles)
   }
 
   const removeFile = (index: number) => {
@@ -64,19 +55,6 @@ export function DrawingUploadModal({ scopeLabel, isUploading, onFilesConfirmed, 
           {scopeLabel}
         </div>
 
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, fontWeight: 600, color: '#555' }}>
-          File type
-          <select
-            value={fileType}
-            onChange={e => handleTypeChange(e.target.value as FileType)}
-            disabled={isUploading}
-            style={{ height: 32, padding: '0 8px', fontSize: 13, borderRadius: 6, border: '1px solid #E0E0E0', background: 'white', fontWeight: 400, color: '#1F1F1F' }}
-          >
-            <option value="dwg">DWG</option>
-            <option value="pdf">PDF</option>
-          </select>
-        </label>
-
         {stagedFiles.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 200, overflowY: 'auto' }}>
             {stagedFiles.map((file, i) => (
@@ -100,9 +78,9 @@ export function DrawingUploadModal({ scopeLabel, isUploading, onFilesConfirmed, 
           <FileDropzone
             maxFiles={MAX_FILES}
             currentCount={stagedFiles.length}
-            acceptedFormats={DRAWING_FORMATS[fileType]}
+            acceptedFormats={['.pdf']}
             maxSizeBytes={MAX_DRAWING_SIZE}
-            hint={DRAWING_HINT[fileType]}
+            hint="PDF · up to 50 MB each"
             onFilesAdded={accepted => setStagedFiles(files => [...files, ...accepted])}
             disabled={isUploading}
           />

@@ -1,15 +1,18 @@
 import { Module } from '@nestjs/common'
 import { MailModule } from '../mail/mail.module'
 import { WorkOrdersModule } from '../work-orders/work-orders.module'
+import { DrawingsModule } from '../drawings/drawings.module'
+import { FileStorageModule } from '../file-storage/file-storage.module'
 import { ManufacturingOrderController } from './manufacturing-orders.controller'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
 import { MoCodeGenerator } from './mo-code.generator'
 import { MoAllocationService } from './mo-allocation.service'
+import { MoPrintService } from './mo-print/mo-print.service'
 
 @Module({
-  imports: [MailModule, WorkOrdersModule],
+  imports: [MailModule, WorkOrdersModule, DrawingsModule, FileStorageModule],
   controllers: [ManufacturingOrderController],
-  providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService],
+  providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService, MoPrintService],
   exports: [ManufacturingOrderService, MoAllocationService],
 })
 export class ManufacturingOrdersModule {}

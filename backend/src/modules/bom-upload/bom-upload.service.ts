@@ -8,7 +8,6 @@ import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
-import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcFile } from './nc-parser'
@@ -84,7 +83,6 @@ export class BomUploadService {
     private readonly parser: XlsxParserService,
     private readonly matching: BomMatchingService,
     private readonly diffService: BomDiffService,
-    private readonly workOrders: WorkOrdersService,
   ) {}
 
   // ─── Upload ──────────────────────────────────────────────────
@@ -130,6 +128,29 @@ export class BomUploadService {
       if (missing.length > 0) {
         throw new BadRequestException(
           `Missing NC files for part marks: ${missing.join(', ')}`,
+        )
+      }
+    }
+
+    // 4b. Validate: every assembly mark that won't end up MATCHED_STANDARD
+    // (including one demoted post-commit by enforceStandardIntegrity because
+    // one of its own parts isn't itself standard — see findMissingMarkPrefixes'
+    // own header comment) must have its prefix already registered in Product
+    // Library — fail fast (before any DB write or file save) rather than
+    // silently creating a custom product + orphan mark_prefix_master row for
+    // an unknown prefix.
+    const asmListForPrefixCheck = parsed.get('ASSEMBLY_LIST')
+    if (asmListForPrefixCheck?.assemblies.length) {
+      const asmPartListForPrefixCheck = parsed.get('ASSEMBLY_PART_LIST')
+      const missingPrefixes = await this.matching.findMissingMarkPrefixes(
+        this.prisma,
+        asmListForPrefixCheck.assemblies,
+        rawPartList?.parts ?? [],
+        asmPartListForPrefixCheck?.assemblyParts ?? [],
+      )
+      if (missingPrefixes.length > 0) {
+        throw new BadRequestException(
+          `Unknown mark prefix(es) — create these in Engineer Products (Product Library) first: ${missingPrefixes.join(', ')}`,
         )
       }
     }
@@ -401,31 +422,12 @@ export class BomUploadService {
       // without this, every BOM re-upload silently wipes what users entered.
       await this.carryForwardProgress(dispatchId, projectId, zoneId, subZoneId, assemblyIdByMark)
 
-      // WO BOM-Version Hold (T02): flip any WO whose snapshotted assembly this
-      // upload changed (removed/spec-changed/qty-decreased) to ON_HOLD. Runs
-      // post-commit, mirroring matching/autoCreateCustomProducts/paint carry-forward above.
-      // Best-effort by design: work_order is a different aggregate than this BOM
-      // upload, and the per-WO write inside applyBomChangeHolds() already isolates
-      // itself — but two reads it performs (the dispatch lookup, and
-      // bomVersionStatus() per candidate) are NOT caught there. If either throws
-      // (e.g. a transient DB error), it must not propagate into this method's
-      // outer try/catch, whose catch deletes the just-saved files and rethrows —
-      // that would erase an already-committed upload over an unrelated WO-side
-      // failure. Swallow here, log loudly, and fall back to a zero summary.
-      let holdResult: { held_wo_ids: number[] } = { held_wo_ids: [] }
-      try {
-        holdResult = await this.workOrders.applyBomChangeHolds(dispatchId)
-      } catch (err) {
-        this.logger.error(
-          `applyBomChangeHolds failed for dispatch ${dispatchId} — upload already committed, continuing with hold_summary={held_wo_count:0}`,
-          err instanceof Error ? err.stack : err,
-        )
-      }
-
-      return {
-        ...(await this.findOne(dispatchId)),
-        hold_summary: { held_wo_count: holdResult.held_wo_ids.length, held_wo_ids: holdResult.held_wo_ids },
-      }
+      // WO BOM-Version Hold (T02) used to auto-flip an affected WO to ON_HOLD
+      // here, post-commit. Multi-mark redesign (2026-09-17): hold is manual only
+      // now (factory admin/manager action via POST /wo/:id/hold) — a BOM upload
+      // never touches work_order state any more. See WorkOrdersService for the
+      // per-mark warning/accept/remove-mark flow that replaces the old auto-hold.
+      return this.findOne(dispatchId)
     } catch (err) {
       // Rollback: delete saved files
       for (const { key } of savedKeys) {

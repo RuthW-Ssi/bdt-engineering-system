@@ -17,6 +17,7 @@ type FakeAssembly = {
   status: string
   dispatch_id: number
   product?: { mark_prefix: string | null } | null
+  dispatch?: { project_id: number; zone_id: number }
 }
 
 function makePrisma(assemblies: FakeAssembly[], prefixes: { code: string; category: string; active: boolean }[]) {
@@ -25,10 +26,16 @@ function makePrisma(assemblies: FakeAssembly[], prefixes: { code: string; catego
       findMany: jest.fn().mockResolvedValue(prefixes),
     },
     bom_assembly: {
-      // Mirrors real Prisma's status filtering so the test proves the where
-      // clause actually does the scoping (not just that counts look right).
+      // Mirrors real Prisma's status + nested dispatch filtering so the test
+      // proves the where clause actually does the scoping (not just that
+      // counts look right).
       findMany: jest.fn(({ where }: any) =>
-        Promise.resolve(assemblies.filter((a) => a.status === where.status)),
+        Promise.resolve(assemblies.filter((a) => {
+          if (a.status !== where.status) return false
+          if (where.dispatch?.project_id != null && a.dispatch?.project_id !== where.dispatch.project_id) return false
+          if (where.dispatch?.zone_id != null && a.dispatch?.zone_id !== where.dispatch.zone_id) return false
+          return true
+        })),
       ),
     },
   }
@@ -96,5 +103,41 @@ describe('MarkPrefixService.withPendingCount', () => {
     // counts every ACTIVE row regardless of dispatch: 16 Main + 1 Acc = 17.
     expect(result).toEqual([expect.objectContaining({ code: 'RF', pending_bom_count: 17 })])
     expect(alloc.latestDispatchMap).not.toHaveBeenCalled()
+  })
+
+  it('scopes counts to project_id/zone_id when given, excluding assemblies from other projects/zones (2026-09-22)', async () => {
+    const prefixes = [{ code: 'RF', category: 'C', active: true }]
+    const assemblies: FakeAssembly[] = [
+      { id: 1, assembly_mark: 'TC-RF-001', qty: 5, status: 'ACTIVE', dispatch_id: 10, product: { mark_prefix: 'RF' }, dispatch: { project_id: 1, zone_id: 100 } },
+      { id: 2, assembly_mark: 'TC-RF-002', qty: 5, status: 'ACTIVE', dispatch_id: 11, product: { mark_prefix: 'RF' }, dispatch: { project_id: 2, zone_id: 200 } },
+    ]
+    const prisma = makePrisma(assemblies, prefixes)
+    const alloc = makeAlloc()
+    const svc = new MarkPrefixService(prisma as any, alloc as any)
+
+    const result = await svc.withPendingCount({ project_id: 1, zone_id: 100 })
+
+    expect(prisma.bom_assembly.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: 'ACTIVE', dispatch: { project_id: 1, zone_id: 100 } } }),
+    )
+    expect(result).toEqual([expect.objectContaining({ code: 'RF', pending_bom_count: 1 })])
+  })
+
+  it('omits the dispatch filter entirely when no project_id/zone_id given, matching prior unscoped behavior', async () => {
+    const prefixes = [{ code: 'RF', category: 'C', active: true }]
+    const assemblies: FakeAssembly[] = [
+      { id: 1, assembly_mark: 'TC-RF-001', qty: 5, status: 'ACTIVE', dispatch_id: 10, product: { mark_prefix: 'RF' }, dispatch: { project_id: 1, zone_id: 100 } },
+      { id: 2, assembly_mark: 'TC-RF-002', qty: 5, status: 'ACTIVE', dispatch_id: 11, product: { mark_prefix: 'RF' }, dispatch: { project_id: 2, zone_id: 200 } },
+    ]
+    const prisma = makePrisma(assemblies, prefixes)
+    const alloc = makeAlloc()
+    const svc = new MarkPrefixService(prisma as any, alloc as any)
+
+    const result = await svc.withPendingCount()
+
+    expect(prisma.bom_assembly.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: 'ACTIVE' } }),
+    )
+    expect(result).toEqual([expect.objectContaining({ code: 'RF', pending_bom_count: 2 })])
   })
 })

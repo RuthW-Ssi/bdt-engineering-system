@@ -2,55 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../../prisma/prisma.service'
 import { FormulaService } from './formula.service'
-
-export interface ConsumableInput {
-  resource_id: number
-  qty?: number | null
-  unit?: string | null
-  formula_id?: number | null
-}
-
-export interface LaborInput {
-  skill: string
-  qty: number
-  level?: string | null
-}
-
-export interface CreateOpTemplateActivityDto {
-  name: string
-  measure: string
-  unit?: string
-  per_minute?: number
-  tool_ids?: { id: number; qty: number }[]
-  consumables?: ConsumableInput[]
-  skills?: LaborInput[]
-  sequence?: number
-  source_activity_id?: number | null
-  snapshot_at?: string | null
-}
-
-export interface CreateOperationTemplateDto {
-  op_code: string
-  name: string
-  op_type_id?: number
-  workcenter_id?: number
-  method?: string
-  time_mode?: string
-  duration_min?: number
-  formula_expr?: string
-  activities?: CreateOpTemplateActivityDto[]
-}
-
-export interface UpdateOperationTemplateDto {
-  name?: string
-  op_type_id?: number | null
-  workcenter_id?: number | null
-  method?: string | null
-  time_mode?: string
-  duration_min?: number | null
-  formula_expr?: string | null
-  activities?: CreateOpTemplateActivityDto[]
-}
+import type { CreateOpTemplateActivityDto, CreateOperationTemplateDto, UpdateOperationTemplateDto } from '../dto/operation-template.dto'
 
 const RESOURCE_SELECT = { select: { id: true, code: true, name: true, type: true } } as const
 
@@ -182,6 +134,7 @@ export class OperationTemplateService {
           time_mode:    dto.time_mode     ?? 'formula',
           duration_min: dto.duration_min  ?? null,
           formula_expr: dto.formula_expr  ?? null,
+          icon:         dto.icon          ?? null,
           create_uid: userId,
           write_uid:  userId,
           activities: dto.activities?.length ? {
@@ -248,6 +201,7 @@ export class OperationTemplateService {
           ...(dto.time_mode    !== undefined && { time_mode:    dto.time_mode }),
           ...(dto.duration_min !== undefined && { duration_min: dto.duration_min }),
           ...(dto.formula_expr !== undefined && { formula_expr: dto.formula_expr }),
+          ...(dto.icon         !== undefined && { icon:         dto.icon }),
           write_uid:  userId,
           write_date: new Date(),
         },

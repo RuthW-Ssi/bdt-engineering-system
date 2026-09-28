@@ -39,7 +39,13 @@ export function ProgressDrawingPanel({ zoneId, mark }: Props) {
   const [manualDrawingId, setManualDrawingId] = useState<number | null>(null)
 
   const list = drawingsList ?? []
-  const markMatches = mark == null ? [] : list.filter(d => fileMatchesMark(d.file_name, mark))
+  // .pdf only — .dwg has no in-page preview since the Autodesk APS pipeline's
+  // 2026-09-15 removal (DrawingPreviewPanel would just show its "download to
+  // view" empty state for one). DWG and PDF are independent version
+  // sequences per zone (see wiki/features/drawing.md), so picking "latest
+  // version across both" could pick a higher-numbered .dwg over a real,
+  // viewable lower-numbered .pdf — filtering to .pdf first avoids that.
+  const markMatches = mark == null ? [] : list.filter(d => d.file_name.toLowerCase().endsWith('.pdf') && fileMatchesMark(d.file_name, mark))
   const versions = [...new Set(markMatches.map(d => d.version))].sort((a, b) => b - a)
   const latestVersion = versions[0] ?? null
   const visibleDrawings = latestVersion == null ? [] : markMatches.filter(d => d.version === latestVersion)

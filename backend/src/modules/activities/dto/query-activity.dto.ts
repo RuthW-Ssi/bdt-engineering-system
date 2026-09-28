@@ -15,6 +15,13 @@ export class QueryActivityDto {
   @Min(1)
   material_id?: number
 
+  @ApiPropertyOptional({ description: 'Filter by mrp_op_type.id — matches this type plus activities with no type set (usable everywhere)', example: 3 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  operation_type_id?: number
+
   @ApiPropertyOptional({ description: 'Page number (1-based)', example: 1, default: 1 })
   @IsOptional()
   @Type(() => Number)

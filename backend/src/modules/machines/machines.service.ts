@@ -12,6 +12,8 @@ import { CreateEquipmentResourceDto } from './dto/create-resource.dto'
 import { UpdateEquipmentResourceDto } from './dto/update-resource.dto'
 import { CreateOperatorDto } from './dto/create-operator.dto'
 import { UpdateOperatorDto } from './dto/update-operator.dto'
+import { CreateTeamDto } from './dto/create-team.dto'
+import { UpdateTeamDto } from './dto/update-team.dto'
 import { EquipmentStatus, RepairStatus } from '@prisma/client'
 
 const MOCK_JOBS = [
@@ -114,21 +116,20 @@ export class MachinesService {
     await this.prisma.consume_formula.delete({ where: { id } })
   }
 
+  // Lists every operator, active and inactive alike (2026-09-22) — the
+  // Operator page shows status as a visible/toggleable badge rather than
+  // silently hiding inactive rows the way this used to (where: {active:true}).
   async findAllOperators() {
     return this.prisma.operator.findMany({
-      where: { active: true },
-      select: {
-        id: true, code: true, name: true, nationality: true,
-        position_raw: true, start_raw: true,
-        skills: { select: { skill: { select: { id: true, name: true } }, level: true } },
-      },
+      select: this.operatorSelect,
       orderBy: { id: 'asc' },
     })
   }
 
   private operatorSelect = {
     id: true, code: true, name: true, nationality: true,
-    position_raw: true, start_raw: true,
+    position_raw: true, start_raw: true, active: true,
+    team: { select: { id: true, code: true, name: true } },
     skills: { select: { skill: { select: { id: true, name: true } }, level: true } },
   } as const
 
@@ -136,7 +137,8 @@ export class MachinesService {
     return this.prisma.$transaction(async (tx) => {
       const op = await tx.operator.create({
         data: { code: dto.code, name: dto.name, nationality: dto.nationality ?? null,
-                position_raw: dto.position_raw ?? null, start_raw: dto.start_raw ?? null, active: true },
+                position_raw: dto.position_raw ?? null, start_raw: dto.start_raw ?? null,
+                team_id: dto.team_id ?? null, active: true },
       })
       if (dto.skills?.length) {
         await tx.operator_skill.createMany({
@@ -158,7 +160,9 @@ export class MachinesService {
                 ...(dto.name !== undefined && { name: dto.name }),
                 ...(dto.nationality !== undefined && { nationality: dto.nationality }),
                 ...(dto.position_raw !== undefined && { position_raw: dto.position_raw }),
-                ...(dto.start_raw !== undefined && { start_raw: dto.start_raw }) },
+                ...(dto.start_raw !== undefined && { start_raw: dto.start_raw }),
+                ...(dto.team_id !== undefined && { team_id: dto.team_id }),
+                ...(dto.active !== undefined && { active: dto.active }) },
       })
       if (dto.skills !== undefined) {
         await tx.operator_skill.deleteMany({ where: { operator_id: id } })
@@ -171,6 +175,45 @@ export class MachinesService {
       }
       return tx.operator.findUniqueOrThrow({ where: { id }, select: this.operatorSelect })
     })
+  }
+
+  // ── Team (renamed from subcontractor, 2026-09-22) ───────────────────────────
+  async findAllTeams() {
+    return this.prisma.team.findMany({ orderBy: { id: 'asc' } })
+  }
+
+  async createTeam(dto: CreateTeamDto) {
+    return this.prisma.team.create({ data: { code: dto.code, name: dto.name, team_type: dto.team_type, active: true } })
+  }
+
+  async updateTeam(id: number, dto: UpdateTeamDto) {
+    const exists = await this.prisma.team.findUnique({ where: { id } })
+    if (!exists) throw new NotFoundException(`Team #${id} not found`)
+    return this.prisma.team.update({
+      where: { id },
+      data: { ...(dto.code !== undefined && { code: dto.code }),
+              ...(dto.name !== undefined && { name: dto.name }),
+              ...(dto.team_type !== undefined && { team_type: dto.team_type }),
+              ...(dto.active !== undefined && { active: dto.active }) },
+    })
+  }
+
+  // Both refs are nullable but default to Postgres RESTRICT (no onDelete set)
+  // — block with a clear message instead of surfacing a raw FK-violation 500.
+  async deleteTeam(id: number) {
+    const exists = await this.prisma.team.findUnique({ where: { id } })
+    if (!exists) throw new NotFoundException(`Team #${id} not found`)
+    const [operatorCount, workOrderCount] = await Promise.all([
+      this.prisma.operator.count({ where: { team_id: id } }),
+      this.prisma.work_order.count({ where: { subcontractor_id: id } }),
+    ])
+    if (operatorCount > 0 || workOrderCount > 0) {
+      const parts: string[] = []
+      if (operatorCount > 0) parts.push(`${operatorCount} operator(s)`)
+      if (workOrderCount > 0) parts.push(`${workOrderCount} work order(s)`)
+      throw new ConflictException(`Cannot delete team — still referenced by ${parts.join(' and ')}. Reassign them first.`)
+    }
+    await this.prisma.team.delete({ where: { id } })
   }
 
   async findOne(id: number) {

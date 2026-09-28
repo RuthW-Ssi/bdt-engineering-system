@@ -18,16 +18,20 @@ function extractMarkFromFilename(fileName: string): string {
   return withoutExt.split(' - ')[0].trim()
 }
 
-// Only the latest .dwg version is searched (never an older revision that
+// Only the latest .pdf version is searched (never an older revision that
 // happens to share a mark) — mirrors WoBimMatchService's own
 // orderBy: [{major_version: 'desc'}, {minor_version: 'desc'}] for the 3D
-// model half of this same tab. Exported (pure, no I/O) for unit testing,
-// same pattern as DrawingList.tsx's filterDrawingsByType.
-export function findLatestDwgForMark(drawings: Drawing[], mark: string): Drawing | null {
-  const dwgs = drawings.filter(d => d.file_name.toLowerCase().endsWith('.dwg'))
-  if (dwgs.length === 0) return null
-  const latestVersion = Math.max(...dwgs.map(d => d.version))
-  const matches = dwgs.filter(d => d.version === latestVersion && extractMarkFromFilename(d.file_name).toLowerCase() === mark.toLowerCase())
+// model half of this same tab. .pdf, not .dwg — the Autodesk APS 2D-preview
+// pipeline was removed 2026-09-15 (see wiki/features/drawing.md), so a
+// matched .dwg here would render nothing but a "no in-page preview" empty
+// state; .pdf is the only format DrawingPreviewPanel can actually show.
+// Exported (pure, no I/O) for unit testing, same pattern as
+// DrawingList.tsx's filterDrawingsByType.
+export function findLatestPdfForMark(drawings: Drawing[], mark: string): Drawing | null {
+  const pdfs = drawings.filter(d => d.file_name.toLowerCase().endsWith('.pdf'))
+  if (pdfs.length === 0) return null
+  const latestVersion = Math.max(...pdfs.map(d => d.version))
+  const matches = pdfs.filter(d => d.version === latestVersion && extractMarkFromFilename(d.file_name).toLowerCase() === mark.toLowerCase())
   if (matches.length === 0) return null
   return matches.reduce((newest, d) => (new Date(d.create_date) > new Date(newest.create_date) ? d : newest))
 }
@@ -64,19 +68,44 @@ function EmptyBox({ icon, message }: { icon: ReactNode; message: string }) {
   )
 }
 
-// Sprint 28 · F-WO Visual Tab — isolated 3D view of the single assembly this
-// WO is for, side by side with its shop drawing (2026-09-14: swapped the old
+// One selectable mark for the tab-strip below — WoDetail builds this from
+// each non-removed work_order_mark, preferring the mark's own snapshot
+// dispatch (falls back to the live bom_assembly's dispatch), same precedence
+// the old single-mark WoDetail used for its one implicit mark.
+export interface WoVisualMark {
+  bomAssemblyId: number
+  mark: string
+  zoneId: number | null
+  subZoneId: number | null
+}
+
+// Sprint 28 · F-WO Visual Tab — isolated 3D view of a single assembly mark on
+// this WO, side by side with its shop drawing (2026-09-14: swapped the old
 // "coming soon" mockup — formerly WoDrawingPlaceholder.tsx, now deleted —
-// for the real Drawing feature via findLatestDwgForMark below). Reuses
-// BimViewport/useBimViewerToken unchanged, same as BimViewer.tsx and
-// ProjectProgress.tsx.
-export function WoVisualTab({ woId, mark, zoneId, subZoneId }: { woId: number; mark: string; zoneId: number | null; subZoneId: number | null }) {
-  const { data: bimMatch, isLoading: matchLoading, isError: matchError } = useWoBimMatch(woId)
+// for the real Drawing feature via findLatestPdfForMark below, was
+// findLatestDwgForMark until the DWG-APS preview pipeline's 2026-09-15
+// removal). Reuses BimViewport/useBimViewerToken unchanged, same as
+// BimViewer.tsx and ProjectProgress.tsx.
+//
+// Multi-mark redesign (2026-09-17): a WO can now carry many marks, so this
+// takes the full list and adds its own mark-selector tab-strip (defaulting
+// to the first) instead of a single scalar mark — threaded into both the
+// drawing-pane lookup (findLatestPdfForMark) and the BIM-match hook
+// (useWoBimMatch's optional bomAssemblyId).
+export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark[] }) {
+  const [selectedId, setSelectedId] = useState<number | null>(marks[0]?.bomAssemblyId ?? null)
+  // Guards against a stale selection after a mark is removed/accepted to a
+  // new bom_assembly_id elsewhere — falls back to the first mark rather than
+  // rendering a dead tab.
+  const active = marks.find(m => m.bomAssemblyId === selectedId) ?? marks[0] ?? null
+
+  const { data: bimMatch, isLoading: matchLoading, isError: matchError } = useWoBimMatch(woId, active?.bomAssemblyId)
   const modelId = bimMatch?.status === 'ok' ? bimMatch.model_id : null
   const { data: viewerToken } = useBimViewerToken(modelId)
   const viewportRef = useRef<BimViewportHandle>(null)
-  const { data: zoneDrawings = [] } = useZoneDrawings(zoneId ?? undefined, subZoneId ?? null)
-  const drawing = zoneId != null ? findLatestDwgForMark(zoneDrawings, mark) : null
+  const { data: zoneDrawings = [] } = useZoneDrawings(active?.zoneId ?? undefined, active?.subZoneId ?? null)
+  const drawing = active && active.zoneId != null ? findLatestPdfForMark(zoneDrawings, active.mark) : null
+  const mark = active?.mark ?? ''
   // 'default' = whatever fitToView already framed (no orientation button
   // pressed yet) — not the same as neither button being "active" once the
   // user has toggled once, but there's no way to read the camera's current
@@ -164,25 +193,55 @@ export function WoVisualTab({ woId, mark, zoneId, subZoneId }: { woId: number; m
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-full">
+    <div className="flex flex-col gap-3 h-full">
+      {/* Mark selector — only when there's more than one non-removed mark to
+          pick from (multi-mark redesign, 2026-09-17); a single-mark WO looks
+          exactly like it always did, no empty tab-strip taking up space. */}
+      {marks.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0 }}>
+          {marks.map(m => {
+            const isActive = m.bomAssemblyId === active?.bomAssemblyId
+            return (
+              <button
+                key={m.bomAssemblyId}
+                onClick={() => setSelectedId(m.bomAssemblyId)}
+                style={{
+                  height: 28, padding: '0 12px', fontSize: 12, fontWeight: 600, borderRadius: 999, cursor: 'pointer',
+                  border: '1px solid ' + (isActive ? '#C8202A' : '#D8D8D8'),
+                  background: isActive ? '#FCEBEB' : '#fff',
+                  color: isActive ? '#C8202A' : '#666',
+                }}
+              >
+                {m.mark}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {!active ? (
+        <EmptyBox icon={<CuboidIcon size={28} />} message="No marks on this work order." />
+      ) : (
+      <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
       {/*
-        `h-full` here + `flex-[1.6]`/`flex-1` on the panes below (not a
-        vh-based clamp()) — this row sits directly inside WoDetail's Body
-        container, which is `flex: 1` inside a fixed `calc(100vh - 56px)`
-        column, so it has a genuinely DEFINITE height to inherit. The panes
-        then fill exactly whatever space is actually left below the tab bar
-        at every window size, instead of guessing a vh percentage that under-
-        or over-shoots depending on how tall the banners above happen to be
-        that day (a clamp() max like the previous 480px is exactly what left
-        a visible gap below both panes on anything taller than a small
-        laptop screen). `flex-[1.6]`/`flex-1` (no `lg:` prefix) is
-        intentional — the `flex` shorthand sizes along whichever axis is the
-        main axis, so the SAME classes split 61.5/38.5 in both row (desktop)
-        and stacked (narrow) layouts. `min-h-*` is only a floor for very
+        `flex-1 min-h-0` here + `flex-1` on both panes below (not a vh-based
+        clamp()) — this row sits directly inside WoDetail's Body container,
+        which is `flex: 1` inside a fixed `calc(100vh - 56px)` column, so its
+        parent has a genuinely DEFINITE height to inherit. The panes then
+        fill exactly whatever space is actually left below the tab bar (and
+        the mark-selector strip above, when shown) at every window size,
+        instead of guessing a vh percentage that under- or over-shoots
+        depending on how tall the banners above happen to be that day (a
+        clamp() max like the old 480px is exactly what left a visible gap
+        below both panes on anything taller than a small laptop screen).
+        Equal `flex-1`/`flex-1` (no `lg:` prefix) is intentional — the `flex`
+        shorthand sizes along whichever axis is the main axis, so the SAME
+        classes split 50/50 in both row (desktop) and stacked (narrow)
+        layouts. Tried 61.5/38.5 favoring Drawing (2026-09-15) — too cramped
+        for the 3D pane, reverted to even. `min-h-*` is only a floor for very
         short viewports — Body's own `overflowY: auto` takes over if that
         floor can't be met.
       */}
-      <div className="flex-[1.6] min-h-[240px] min-w-0" style={{ position: 'relative', borderRadius: 12, overflow: 'hidden' }}>
+      <div className="flex-1 min-h-[240px] min-w-0" style={{ position: 'relative', borderRadius: 12, overflow: 'hidden' }}>
         {left}
         {viewerActive && (
           <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 2, display: 'flex', gap: 2, background: 'rgba(31,31,31,.85)', borderRadius: 10, padding: 6 }}>
@@ -216,6 +275,8 @@ export function WoVisualTab({ woId, mark, zoneId, subZoneId }: { woId: number; m
           <EmptyBox icon={<FileText size={28} />} message={`No drawing uploaded for mark "${mark}" yet.`} />
         )}
       </div>
+      </div>
+      )}
     </div>
   )
 }

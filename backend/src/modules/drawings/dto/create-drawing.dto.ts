@@ -26,8 +26,14 @@ export class CreateDrawingDto {
   })
   file_key: string
 
+  // .pdf-only as of 2026-09-15 — .dwg upload (and the Autodesk APS 2D-preview
+  // push it used to trigger) was removed entirely, not just hidden from the
+  // upload modal's dropzone; this is the server-side backstop so a direct
+  // API call can't slip one past that UI restriction. See
+  // wiki/features/drawing.md's "DWG removed entirely" entry.
   @ApiProperty({ example: 'plan-A.pdf' })
   @IsString()
+  @Matches(/\.pdf$/i, { message: 'file_name must end in .pdf — .dwg upload was removed 2026-09-15' })
   file_name: string
 
   @ApiPropertyOptional({ example: 'application/pdf' })

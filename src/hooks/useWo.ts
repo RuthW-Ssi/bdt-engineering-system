@@ -8,7 +8,15 @@ import {
   getWoEvents,
   getWos,
   getWoSchedule,
+  removeWoMark,
+  updateWoConsume,
+  updateWoParts,
+  woCancel,
+  woDone,
   woTransition,
+  type ConsumeActualInput,
+  type PartWithdrawnInput,
+  type RemoveMarkInput,
   type WoAction,
 } from '../api/wo'
 
@@ -16,7 +24,7 @@ export function useWos(params?: Parameters<typeof getWos>[0]) {
   return useQuery({
     queryKey: ['wo', 'list', params],
     queryFn: () => getWos(params),
-    refetchOnMount: 'always', // auto-create on MO confirm happens elsewhere — always fetch fresh (F-MO P27)
+    refetchOnMount: 'always', // WO creation happens elsewhere (F-MO P27) — always fetch fresh
   })
 }
 
@@ -66,13 +74,16 @@ export function useWoSchedule(id: number) {
   })
 }
 
-// Visual tab (Sprint 28) — polls while the project's BIM model is still
-// translating, same idiom as useBimStatus, so the tab self-heals once
-// translation finishes without a manual reload.
-export function useWoBimMatch(id: number) {
+// Visual tab (Sprint 28, multi-mark selector 2026-09-17) — polls while the
+// project's BIM model is still translating, same idiom as useBimStatus, so
+// the tab self-heals once translation finishes without a manual reload.
+// `bomAssemblyId` selects which mark's match to resolve — part of the query
+// key so switching the mark-selector tab refetches instead of reusing a
+// cached match for a different mark.
+export function useWoBimMatch(id: number, bomAssemblyId?: number) {
   return useQuery({
-    queryKey: ['wo', 'bim-match', id],
-    queryFn: () => getWoBimMatch(id),
+    queryKey: ['wo', 'bim-match', id, bomAssemblyId ?? null],
+    queryFn: () => getWoBimMatch(id, bomAssemblyId),
     enabled: !!id,
     refetchInterval: query => {
       const d = query.state.data
@@ -89,10 +100,20 @@ function useWoInvalidate(id: number) {
     qc.invalidateQueries({ queryKey: ['wo', 'events', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'bom-version', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'cancel-siblings', id] })
+    qc.invalidateQueries({ queryKey: ['wo', 'bim-match', id] })
     qc.invalidateQueries({ queryKey: ['wo', 'list'] })
+    // Any WO transition can change wo_remaining (marks committed/released,
+    // e.g. remove-mark clears removed_at) — this hook has no moId in scope,
+    // so invalidate every cached MO's assemblies rather than plumb moId
+    // through every call site (2026-09-25, found via UX audit: stale
+    // "+ Create Work Order" buttons/pickers after WO actions elsewhere).
+    qc.invalidateQueries({ queryKey: ['mo', 'assemblies'] })
   }
 }
 
+// Simple transitions — release / start / pause / hold / resume. resume is
+// dual-purpose server-side (PAUSED→IN_PROGRESS or ON_HOLD→unhold) but the
+// same call either way from here.
 export function useWoTransition(id: number) {
   const invalidate = useWoInvalidate(id)
   return useMutation({
@@ -102,10 +123,59 @@ export function useWoTransition(id: number) {
   })
 }
 
+// Done — body.marks[] must cover every non-removed mark on the WO (built by
+// the caller from the Marks table's current values).
+export function useWoDone(id: number) {
+  const invalidate = useWoInvalidate(id)
+  return useMutation({
+    mutationFn: (body: Parameters<typeof woDone>[1]) => woDone(id, body),
+    onSuccess: invalidate,
+  })
+}
+
+// Cancel (whole WO) — body.mark_reusable[] covers every non-removed mark
+// with qty_done > 0.
+export function useWoCancel(id: number) {
+  const invalidate = useWoInvalidate(id)
+  return useMutation({
+    mutationFn: (body: Parameters<typeof woCancel>[1]) => woCancel(id, body),
+    onSuccess: invalidate,
+  })
+}
+
+// Remove ONE mark from the WO (multi-mark redesign, NEW) — cascades to
+// sibling WOs server-side, so the same invalidation set as any other action.
+export function useRemoveWoMark(id: number) {
+  const invalidate = useWoInvalidate(id)
+  return useMutation({
+    mutationFn: (body: RemoveMarkInput) => removeWoMark(id, body),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdateWoConsume(id: number) {
+  const invalidate = useWoInvalidate(id)
+  return useMutation({
+    mutationFn: (consume: ConsumeActualInput[]) => updateWoConsume(id, { consume }),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUpdateWoParts(id: number) {
+  const invalidate = useWoInvalidate(id)
+  return useMutation({
+    mutationFn: (parts: PartWithdrawnInput[]) => updateWoParts(id, { parts }),
+    onSuccess: invalidate,
+  })
+}
+
+// Accept a newer BOM version for ONE mark (now scoped per-mark, with an
+// optional apply_to_other_wos — the sibling WOs it touches are covered by
+// the 'wo','list' + 'wo','detail' invalidation above, same as before).
 export function useAcceptNewVersion(id: number) {
   const invalidate = useWoInvalidate(id)
   return useMutation({
-    mutationFn: (body?: Parameters<typeof acceptNewVersion>[1]) => acceptNewVersion(id, body),
+    mutationFn: (body: Parameters<typeof acceptNewVersion>[1]) => acceptNewVersion(id, body),
     onSuccess: invalidate,
   })
 }

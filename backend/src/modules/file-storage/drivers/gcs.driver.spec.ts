@@ -10,12 +10,13 @@ import { GcsFileStorageDriver } from './gcs.driver'
 
 const ORIGINAL_ENV = { ...process.env }
 
-function makeFileStub(overrides: Partial<Record<'getSignedUrl' | 'getMetadata' | 'delete' | 'save', jest.Mock>> = {}) {
+function makeFileStub(overrides: Partial<Record<'getSignedUrl' | 'getMetadata' | 'delete' | 'save' | 'download', jest.Mock>> = {}) {
   return {
     getSignedUrl: overrides.getSignedUrl ?? jest.fn().mockResolvedValue(['https://signed.example/url']),
     getMetadata: overrides.getMetadata ?? jest.fn().mockResolvedValue([{ size: '42', contentType: 'application/pdf' }]),
     delete: overrides.delete ?? jest.fn().mockResolvedValue(undefined),
     save: overrides.save ?? jest.fn().mockResolvedValue(undefined),
+    download: overrides.download ?? jest.fn().mockResolvedValue([Buffer.from('object bytes')]),
   }
 }
 
@@ -80,6 +81,18 @@ describe('GcsFileStorageDriver', () => {
     await driver.delete('drawings/0X220/v1/plan.pdf')
 
     expect(file.delete).toHaveBeenCalledWith({ ignoreNotFound: true })
+  })
+
+  it('getObject: downloads the object bytes for the exact key', async () => {
+    const file = makeFileStub()
+    mockFile.mockReturnValue(file)
+    const driver = new GcsFileStorageDriver()
+
+    const buf = await driver.getObject('drawings/0X220/v1/plan.pdf')
+
+    expect(mockFile).toHaveBeenCalledWith('drawings/0X220/v1/plan.pdf')
+    expect(file.download).toHaveBeenCalled()
+    expect(buf.toString()).toBe('object bytes')
   })
 
   it('putObject: saves the buffer non-resumable, at the exact key, with the given content type', async () => {

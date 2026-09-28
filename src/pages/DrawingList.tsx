@@ -14,8 +14,10 @@ const filterSelectStyle = { height: 32, padding: '0 8px', fontSize: 13, borderRa
 
 type FileType = 'dwg' | 'pdf'
 
-// DWG and PDF are independent artifact streams (see useUploadDrawings) with
-// their own version history — browsing one never shows the other's files.
+// .pdf-only since 2026-09-15's DWG removal — DrawingList always calls this
+// with 'pdf' now (the browse-side DWG/PDF toggle this fed was removed the
+// same day; 'dwg' support stays on the type signature only because the
+// function itself is otherwise still a correct, generic, tested filter).
 export function filterDrawingsByType(drawings: Drawing[], fileType: FileType): Drawing[] {
   const suffix = `.${fileType}`
   return drawings.filter(d => d.file_name.toLowerCase().endsWith(suffix))
@@ -59,14 +61,10 @@ export function DrawingList() {
   })
   const deleteDrawingMutation = useDeleteDrawing(numericZoneId, numericSubZoneId)
 
-  // Browse-side type filter — independent of whatever type the upload modal
-  // has picked. Resets on zone/sub-zone switch since a leftover pick from a
-  // previous zone is a stale filter, not a deliberate choice for the new one.
-  const [fileType, setFileType] = useState<FileType>('dwg')
-  useEffect(() => {
-    setFileType('dwg')
-  }, [numericZoneId, numericSubZoneId])
-  const drawingsList = filterDrawingsByType(drawingsListRaw, fileType)
+  // PDF only — no browse-side type toggle anymore. Legacy pre-2026-09-15
+  // .dwg files stay in storage/DB (not deleted) but are no longer browsable
+  // through this page at all, at the user's explicit request.
+  const drawingsList = filterDrawingsByType(drawingsListRaw, 'pdf')
 
   // Versioning is sparse — each version is "what was added in that upload
   // action", not a full snapshot (see wiki: features/file-storage-gcs-backup-plan.md).
@@ -177,17 +175,6 @@ export function DrawingList() {
           <option value="">{subZones.length === 0 && zoneId ? '(no sub-zones)' : '(No sub-zone)'}</option>
           {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
         </select>
-        {zoneId && (
-          <select
-            aria-label="File type"
-            value={fileType}
-            onChange={e => setFileType(e.target.value as FileType)}
-            style={{ ...filterSelectStyle, minWidth: 100 }}
-          >
-            <option value="dwg">DWG</option>
-            <option value="pdf">PDF</option>
-          </select>
-        )}
         {versions.length > 0 && (
           <select
             value={selectedVersion ?? ''}
@@ -224,7 +211,7 @@ export function DrawingList() {
         {zoneId && !drawingsLoading && !drawingsError && drawingsList.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
             <FileText size={32} style={{ opacity: 0.3 }} />
-            <div style={{ fontSize: 13 }}>No {fileType.toUpperCase()} files uploaded for {selectedZone?.code ?? 'this zone'} yet</div>
+            <div style={{ fontSize: 13 }}>No PDF files uploaded for {selectedZone?.code ?? 'this zone'} yet</div>
             <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-1.5 rounded-md text-white"
@@ -282,7 +269,7 @@ export function DrawingList() {
         <DrawingUploadModal
           scopeLabel={scopeLabel}
           isUploading={uploadDrawingsMutation.isPending}
-          onFilesConfirmed={(files, type) => uploadDrawingsMutation.mutate({ files, fileType: type }, { onSuccess: () => setShowUploadModal(false) })}
+          onFilesConfirmed={files => uploadDrawingsMutation.mutate(files, { onSuccess: () => setShowUploadModal(false) })}
           onClose={() => setShowUploadModal(false)}
         />
       )}

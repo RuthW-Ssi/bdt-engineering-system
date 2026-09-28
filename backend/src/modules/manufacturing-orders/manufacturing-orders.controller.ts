@@ -8,8 +8,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common'
+import type { Response } from 'express'
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { MoStatus } from '@prisma/client'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
@@ -18,16 +20,21 @@ import { RequiresPermission } from '../../common/decorators/permission.decorator
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
+import { MoPrintService } from './mo-print/mo-print.service'
 import { CreateMoDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 
 @ApiTags('Manufacturing Orders')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('mo')
 export class ManufacturingOrderController {
-  constructor(private readonly svc: ManufacturingOrderService) {}
+  constructor(
+    private readonly svc: ManufacturingOrderService,
+    private readonly moPrint: MoPrintService,
+  ) {}
 
   @Get()
   @RequiresPermission('orders', 'view')
@@ -60,8 +67,9 @@ export class ManufacturingOrderController {
   @Get(':id/assemblies')
   @RequiresPermission('orders', 'view')
   @ApiOperation({ summary: 'Assembly lines + total/remaining + allocation breakdown' })
-  getAssemblies(@Param('id', ParseIntPipe) id: number) {
-    return this.svc.getAssemblies(id)
+  @ApiQuery({ name: 'operation_id', required: false, description: 'When given, each line also gets wo_remaining — qty still unplanned for this operation, after sibling work orders of the same operation' })
+  getAssemblies(@Param('id', ParseIntPipe) id: number, @Query('operation_id') operation_id?: string) {
+    return this.svc.getAssemblies(id, operation_id ? Number(operation_id) : undefined)
   }
 
   @Get(':id/parts')
@@ -121,4 +129,66 @@ export class ManufacturingOrderController {
     return this.svc.cancel(id, user.sub, user.login)
   }
 
+  // Multi-mark redesign (2026-09-17): WO creation is now fully manual — this
+  // replaces the old auto-create-on-confirm flow. Find-or-creates the WO for
+  // (this MO, operation_id), then adds a work_order_mark row for each assembly
+  // line not already on it (idempotent — already-present ones are reported as
+  // skipped, never duplicated).
+  @Post(':id/work-orders')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Create/add-marks: find-or-create the WO for (this MO, operation_id) + attach assembly lines as marks' })
+  createWorkOrder(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateWoDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.createWorkOrder(id, dto, user.login, user.sub)
+  }
+
+  // Single-page form revision (2026-09-17): read-only preview of what
+  // createWorkOrder would compute for Parts/Consume, for the CURRENT
+  // mark+qty selection — called live as the user picks marks, before Create
+  // is ever pressed. No DB writes.
+  @Post(':id/work-orders/preview')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'Preview Parts + Consume for a candidate (operation, marks) selection — no writes' })
+  previewWorkOrder(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: PreviewWoDto,
+  ) {
+    return this.svc.previewWorkOrder(id, dto)
+  }
+
+  // Plain @Res() (no passthrough) — Nest's passthrough mode still JSON-
+  // serializes whatever the handler returns (a raw Buffer becomes
+  // {"type":"Buffer","data":[...]}, confirmed live against a real request),
+  // so the binary body must be sent manually. Exceptions thrown inside
+  // buildPdf() (NotFoundException, the missing-drawing ConflictException)
+  // are still caught by Nest's normal exception filters regardless — only
+  // the success path bypasses Nest's own response handling here.
+  @Get(':id/print-packet')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'Print packet — optional MO overview page + one signable traveler per selected WO + embedded shop drawings (409 if any selected WO is missing a PDF drawing, or nothing at all is selected)' })
+  @ApiQuery({ name: 'wo_ids', required: false, description: 'Comma-separated WO ids to include as travelers (2026-09-21 selective print). Omitted = every non-cancelled WO.' })
+  @ApiQuery({ name: 'include_manifest', required: false, description: '"false" to omit the MO overview page — e.g. printing just some WO travelers, or (with wo_ids empty) just the MO overview alone. Omitted/anything else = included (prior behavior).' })
+  async printPacket(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('wo_ids') woIdsRaw: string | undefined,
+    @Query('include_manifest') includeManifestRaw: string | undefined,
+    @Res() res: Response,
+  ) {
+    // `!== undefined` (not a truthy check) — the frontend's picker sends
+    // `wo_ids=` (empty string) on purpose when the user deselects every WO
+    // ("just the MO"), and that must parse to `[]` (explicit: zero WOs), not
+    // fall through to `undefined` (implicit: every WO — the no-filter
+    // default when the param is omitted entirely). A truthy check on '' would
+    // wrongly collapse those two very different requests into one.
+    const woIds = woIdsRaw !== undefined
+      ? woIdsRaw.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n))
+      : undefined
+    const includeManifest = includeManifestRaw !== 'false'
+    const bytes = await this.moPrint.buildPdf(id, woIds, includeManifest)
+    res.set({ 'Content-Type': 'application/pdf' })
+    res.send(Buffer.from(bytes))
+  }
 }

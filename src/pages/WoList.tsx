@@ -12,8 +12,22 @@ const STATUSES: (WoStatus | 'ALL')[] = [
   'ALL', 'NOT_STARTED', 'RELEASED', 'IN_PROGRESS', 'PAUSED', 'ON_HOLD', 'DONE', 'CANCELLED',
 ]
 
+// plan_finish is a real instant (timestamptz, date+time) — shown here as
+// just the date for a compact list column, in the browser's own local time
+// (not forced UTC) so the calendar day matches what the shop floor actually
+// picked, not its UTC-shifted equivalent.
 function fmtDay(d: string | null) {
-  return d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—'
+  return d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'
+}
+
+// "A1" for one mark, "A1 +4" for five — multi-mark redesign (2026-09-17):
+// `assembly_mark` (singular) is gone, replaced by `assembly_marks`. Mirrors
+// the formatWoCodes truncation idiom already used on the MO print packet's
+// Routing checklist (backend/.../mo-print/mo-print-format.ts) — same visual
+// shape, kept as its own frontend copy rather than importing backend code.
+export function formatMarks(marks: string[]): string {
+  if (marks.length === 0) return '—'
+  return marks.length === 1 ? marks[0] : `${marks[0]} +${marks.length - 1}`
 }
 
 const GRID = '150px 110px 50px 1.2fr 130px 1fr 110px 70px'
@@ -96,7 +110,7 @@ export function WoList() {
       {/* Table */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: GRID, background: '#F5F5F5', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888', position: 'sticky', top: 0, zIndex: 1 }}>
-          {['WO Code', 'MO', 'Seq', 'Work Center', 'Status', 'Assigned', 'Target End', 'BOM'].map((h) => (
+          {['WO Code', 'MO', 'Seq', 'Work Center', 'Status', 'Assigned', 'Plan Finish', 'BOM'].map((h) => (
             <div key={h} style={{ padding: '9px 12px' }}>{h}</div>
           ))}
         </div>
@@ -118,11 +132,13 @@ export function WoList() {
               <div style={{ padding: '10px 12px', color: '#999' }}>{String(w.sequence).padStart(3, '0')}</div>
               <div style={{ padding: '10px 12px' }}>
                 <div style={{ fontWeight: 600, color: '#333' }}>{w.work_center.code}</div>
-                <div style={{ fontSize: 11, color: '#999' }}>{w.assembly_mark}</div>
+                <div style={{ fontSize: 11, color: '#999' }} title={w.assembly_marks.join(', ')}>
+                  {formatMarks(w.assembly_marks)}{w.mark_count > 1 ? ` (${w.mark_count})` : ''}
+                </div>
               </div>
               <div style={{ padding: '10px 12px' }}><WoStatusPill status={w.status} /></div>
-              <div style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{w.assigned_to || '—'}</div>
-              <div style={{ padding: '10px 12px', fontSize: 12, color: '#555' }}>{fmtDay(w.target_end_at)}</div>
+              <div style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{w.subcontractor?.name ?? w.assigned_to ?? '—'}</div>
+              <div style={{ padding: '10px 12px', fontSize: 12, color: '#555' }}>{fmtDay(w.plan_finish)}</div>
               <div style={{ padding: '10px 12px' }}>
                 {w.is_outdated ? (
                   <span title="Newer BOM version available" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#C62828', fontSize: 11, fontWeight: 700 }}>

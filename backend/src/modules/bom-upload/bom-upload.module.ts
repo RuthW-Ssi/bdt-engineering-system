@@ -9,10 +9,9 @@ import { PaintConfigService } from './paint-config.service'
 import { FileStorageModule } from '../file-storage/file-storage.module'
 import { ProductDerivationModule } from '../product-derivation/product-derivation.module'
 import { ProductsModule } from '../products/products.module'
-import { WorkOrdersModule } from '../work-orders/work-orders.module'
 
 @Module({
-  imports: [FileStorageModule, ProductDerivationModule, ProductsModule, WorkOrdersModule],
+  imports: [FileStorageModule, ProductDerivationModule, ProductsModule],
   controllers: [BomUploadController],
   providers: [BomUploadService, BomDiffService, BomDiffBimMatchService, BomMatchingService, XlsxParserService, PaintConfigService],
   exports: [BomDiffService],

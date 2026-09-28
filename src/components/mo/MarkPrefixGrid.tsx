@@ -18,11 +18,15 @@ const catMeta = (c: string) => CATEGORY_META[c] ?? { label: c, color: '#555555' 
 export function MarkPrefixGrid({
   value,
   onChange,
+  projectId,
+  zoneId,
 }: {
   value: string | null
   onChange: (code: string) => void
+  projectId?: number | null
+  zoneId?: number | null
 }) {
-  const { data, isLoading } = useMarkPrefixesWithCount()
+  const { data, isLoading } = useMarkPrefixesWithCount(projectId, zoneId)
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Set<string>>(new Set())
 

@@ -1,9 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import {
-  getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing,
-  getDrawingApsStatus, getDrawingApsViewerToken, fetchDrawingBlob,
-} from '../api/drawings'
+import { getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing, fetchDrawingBlob } from '../api/drawings'
 
 export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | null) {
   return useQuery({
@@ -45,16 +42,15 @@ interface UploadDrawingsScope {
 // abort the others. One upload action = one version of THIS zone(+sub-zone)'s
 // drawing set — the next version is fetched once here, not once per file
 // (mirrors how BIM's upload computes nextMajor/nextMinor once per upload,
-// not per file). Version numbering is scoped per zone(+sub-zone) AND per
-// file type (.dwg vs .pdf are independent artifact streams — see
-// getLatestDrawingVersion) — uploading to Zone A never bumps Zone B's
-// counter, and uploading a PDF batch never bumps the DWG counter either.
+// not per file). Version numbering is scoped per zone(+sub-zone) — uploading
+// to Zone A never bumps Zone B's counter. Upload is .pdf-only since
+// 2026-09-15's DWG removal (see DrawingUploadModal.tsx).
 export function useUploadDrawings(scope: UploadDrawingsScope) {
   const { projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode } = scope
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ files, fileType }: { files: File[]; fileType: 'dwg' | 'pdf' }) => {
-      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId, fileType)
+    mutationFn: async (files: File[]) => {
+      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId)
       const nextVersion = (latest ?? 0) + 1
       const fileNames = dedupeFileNames(files)
       const results = await Promise.allSettled(
@@ -89,37 +85,9 @@ export function useDeleteDrawing(zoneId: number | undefined, subZoneId: number |
   })
 }
 
-// Polls while the .dwg's APS 2D-preview translation is still running; stops
-// once complete/failed so we don't keep hitting Autodesk's manifest endpoint
-// after we already have an answer. Mirrors useBimStatus. Keeps polling on
-// `null` too (not just 'processing') — right after upload, the fire-and-
-// forget push may not have flipped the row to 'processing' yet, and a
-// null-stops-polling condition would strand the UI on "Generating
-// preview..." forever instead of picking the transition up shortly after.
-export function useDrawingApsStatus(id: number | null) {
-  return useQuery({
-    queryKey: ['drawings', 'aps-status', id],
-    queryFn: () => getDrawingApsStatus(id!),
-    enabled: id != null,
-    refetchInterval: query => {
-      const status = query.state.data?.status
-      return status === 'complete' || status === 'failed' ? false : 2500
-    },
-    meta: { skipGlobalErrorToast: true },
-  })
-}
-
-export function useDrawingApsViewerToken(id: number | null) {
-  return useQuery({
-    queryKey: ['drawings', 'aps-viewer-token', id],
-    queryFn: () => getDrawingApsViewerToken(id!),
-    enabled: id != null,
-    staleTime: 50 * 60 * 1000, // APS 2-legged tokens are valid ~1h
-  })
-}
-
-// PDF preview needs no APS translation (unlike .dwg) — just an authenticated
-// blob turned into an object URL an <iframe> can render directly. staleTime
+// PDF preview needs no APS translation (unlike the now-removed .dwg preview
+// path) — just an authenticated blob turned into an object URL an <iframe>
+// can render directly. staleTime
 // Infinity: a given file_key's bytes never change (a new upload gets a new
 // key under a new version folder), so the cached URL is reused rather than
 // refetched every time this fileKey is selected again (e.g. switching the

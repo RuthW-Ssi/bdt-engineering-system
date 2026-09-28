@@ -22,15 +22,34 @@ interface ActivityToolDto {
   qty: number
 }
 
+export interface OperationTypeDto {
+  id: number
+  key: string
+  label: string
+  color: string
+}
+
+export const ACTIVITY_KINDS = ['run', 'setup', 'move', 'inspect'] as const
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number]
+
 export interface ActivityDto {
   id: number
   activity_code: string
   name: string
+  kind: ActivityKind
+  operation_type_id: number | null
+  operation_type: OperationTypeDto | null
   machine: ActivityMachineDto | null
   consumes: ActivityConsumeDto[]
   skills: ActivityLaborDto[]
   tools?: ActivityToolDto[]
   duration_min: string
+  // Prisma Decimal columns arrive as strings
+  per_minute: string | null
+  formula_code: string | null
+  ratio: string | null
+  ratio_unit: string | null
+  per_time: string | null
   create_uid: number
   create_date: string
   write_uid: number
@@ -40,7 +59,14 @@ export interface ActivityDto {
 export interface CreateActivityPayload {
   name: string
   machine_id?: number
+  kind?: ActivityKind
+  operation_type_id?: number | null
   duration_min: number
+  per_minute?: number
+  formula_code?: string
+  ratio?: number
+  ratio_unit?: string
+  per_time?: number
   consumes?: { material_id: number; formula_id?: number }[]
   labors?: { skill: string; qty: number; level?: string }[]
   tools?: { resource_id: number; qty: number }[]
@@ -55,7 +81,7 @@ export interface PaginatedActivities {
 }
 
 export const activitiesApi = {
-  list(params?: { q?: string; machine_id?: number; material_id?: number; page?: number; limit?: number }): Promise<PaginatedActivities> {
+  list(params?: { q?: string; machine_id?: number; material_id?: number; operation_type_id?: number; page?: number; limit?: number }): Promise<PaginatedActivities> {
     return apiClient.get('/activities', { params }).then((r) => r.data)
   },
 

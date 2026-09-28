@@ -12,22 +12,17 @@ export interface Drawing {
   mime_type: string | null
   uploaded_by_id: number
   create_date: string
-  // Populated asynchronously after the primary GCS upload completes — see
-  // DrawingApsService. null until the APS preview push has started.
-  aps_urn: string | null
-  aps_translation_status: 'processing' | 'complete' | 'failed' | null
-  aps_translation_error: string | null
 }
 
 export async function getDrawingsByZone(zoneId: number, subZoneId: number | null): Promise<Drawing[]> {
   return (await apiClient.get('/drawings', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
-// DWG and PDF are independent artifact streams (source CAD vs. a print-ready
-// companion) — each has its own version sequence per zone(+sub-zone), so the
-// lookup is scoped by fileType too.
-export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null, fileType: 'dwg' | 'pdf'): Promise<{ version: number | null }> {
-  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined, file_type: fileType } })).data
+// Always .pdf-only (upload was DWG/PDF-dual until 2026-09-15's DWG removal)
+// — the backend still internally scopes this to .pdf so a legacy .dwg row's
+// version number can never leak into a new upload's counter.
+export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null): Promise<{ version: number | null }> {
+  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
 export interface UploadDrawingInput {
@@ -70,27 +65,6 @@ export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, 
 
 export async function deleteDrawing(id: number): Promise<void> {
   await apiClient.delete(`/drawings/${id}`)
-}
-
-export interface DrawingApsStatusResult {
-  id: number
-  status: string | null
-  error: string | null
-}
-
-// Polled by useDrawingApsStatus while a .dwg's APS 2D-preview translation
-// is still running.
-export async function getDrawingApsStatus(id: number): Promise<DrawingApsStatusResult> {
-  return (await apiClient.get(`/drawings/${id}/aps-status`)).data
-}
-
-export interface DrawingApsViewerToken {
-  urn: string | null
-  access_token: string
-}
-
-export async function getDrawingApsViewerToken(id: number): Promise<DrawingApsViewerToken> {
-  return (await apiClient.get(`/drawings/${id}/aps-viewer-token`)).data
 }
 
 // GET /file-storage/download is JWT-guarded — a bare <a href>/<iframe src>

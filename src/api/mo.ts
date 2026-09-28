@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios'
 import { apiClient } from './client'
 
 // ── Enums (mirror Prisma) ─────────────────────────────────────────────────────
@@ -13,7 +14,8 @@ export interface MoListItem {
   id: number
   mo_code: string
   status: MoStatus
-  due_date: string | null
+  plan_start: string | null
+  plan_finish: string | null
   mark_prefix: MarkPrefix
   routing_template: { id: number; code: string; name: string }
   assembly_count: number
@@ -30,7 +32,7 @@ interface RoutingOpActivity {
 }
 
 // Routing op snapshot (read live from routing_template · replaces mo_operation)
-interface RoutingOp {
+export interface RoutingOp {
   id: number
   sequence: number
   op_code: string
@@ -55,6 +57,10 @@ export interface MoAssemblyRow {
   total: number
   allocated: number
   remaining: number
+  // Only present when fetched with an operation_id — qty of this mark still
+  // unplanned for THAT operation within this MO, after sibling work orders
+  // of the same operation. Distinct from `remaining` above (cross-MO).
+  wo_remaining: number | null
   allocation_breakdown: { mo_code: string; qty: number }[]
 }
 
@@ -79,6 +85,8 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   routing_template: { id: number; code: string; name: string; operations: RoutingOp[] }
   routing_template_id: number
   primary_mark_prefix_code: string
+  actual_start: string | null
+  actual_finish: string | null
   assembly_lines: MoAssemblyLine[]
   projects_involved: { id: number; project_code: string; name: string }[]
   zones_involved: { id: number; label: string }[]
@@ -101,7 +109,10 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
 export interface CreateMoPayload {
   primary_mark_prefix_code: string
   routing_template_id: number
-  due_date?: string
+  plan_start?: string
+  plan_finish?: string
+  actual_start?: string
+  actual_finish?: string
   assembly_lines: { bom_assembly_id: number; qty: number }[]
   confirm?: boolean
 }
@@ -217,6 +228,93 @@ export interface MoPartRow {
   mo_breakdown: { mo_code: string; qty: number }[]
 }
 
+// Multi-mark redesign (2026-09-17): the ONLY way a WO gets created now —
+// ALWAYS a brand-new WO for (this MO, operation_id). An operation can have
+// several WOs at once (2026-09-23, e.g. split across teams), but there is no
+// way to add marks to an already-created WO — "สร้าง wo แล้วไม่ควรเพิ่ม mark
+// ทีหลังได้" (a WO's mark set is fixed at creation, same as its team/plan
+// dates — need more marks for the same operation? Create another WO).
+export interface CreateWoPayload {
+  operation_id: number
+  // Structured "which team is this WO issued to" (2026-09-22) — the Create WO
+  // form's Team dropdown, FK to the `team` table.
+  team_id?: number
+  plan_start?: string
+  plan_finish?: string
+  // How many people from `team_id` are on this WO — required (2026-09-25).
+  team_headcount: number
+  marks: { assembly_line_id: number; qty: number }[]
+  // Optional overrides on top of the auto-computed suggestions the preview
+  // already showed — only entries the user actually edited need to be sent
+  // (2026-09-17 single-page form: everything submits together in one call).
+  parts?: { bom_assembly_part_id: number; qty: number }[]
+  consume?: { material_id: number; qty_actual: number }[]
+}
+
+export interface CreateWoResult {
+  work_order_id: number
+  wo_code: string
+  marks_added: number
+}
+
+// ── Preview (2026-09-17) — same selection shape as CreateWoPayload's marks,
+// no writes. Called live as the user picks marks, before Create is pressed.
+export interface PreviewWoPayload {
+  operation_id: number
+  marks: { assembly_line_id: number; qty: number }[]
+}
+
+export interface PreviewWoPart {
+  bom_assembly_part_id: number
+  assembly_mark: string
+  part_mark: string
+  profile: string | null
+  grade: string | null
+  // Pieces (2026-09-21) — parts are discrete physical items withdrawn by
+  // count, not weighed out by hand. `qty` is the suggested default, already
+  // capped by `max_qty`.
+  qty: number
+  // Real physical cap (2026-09-18, qty-based 2026-09-21) — sum of qty for
+  // this part across every WO of this MO must never exceed the mark's true
+  // total (unlike consume, which may legitimately go over its plan). Already
+  // applied to `qty` above; surfaced separately so the UI can show/enforce
+  // it as the input's max.
+  max_qty: number
+  // Weight per single piece — lets the UI show a live "= X kg" readout next
+  // to the qty input without a network round-trip as the user edits qty.
+  unit_weight_kg: number
+  // qty × unit_weight_kg for the suggested qty above — informational only,
+  // never independently edited or capped.
+  weight_kg: number
+}
+
+export interface PreviewWoConsume {
+  material_id: number
+  code: string
+  name: string
+  // null when this material is linked to the operation in the Activity
+  // Library with no formula to compute a quantity from — still shown (not
+  // dropped) so this list doesn't disagree with the MO overview's Routing
+  // card, which lists it as a plain reference regardless of formula.
+  qty: number | null
+  unit: string | null
+}
+
+export interface PreviewWoResult {
+  parts: PreviewWoPart[]
+  consume: PreviewWoConsume[]
+  // What the new WO's own duration fields would be set to for this exact
+  // (operation, marks) selection — same math recomputeDuration() runs once
+  // the WO actually exists. Powers Plan Finish's auto-calculation in the
+  // Create WO form (2026-09-23): Plan Start + these two, no manual entry.
+  expected_duration_min: number
+  setup_time_min: number
+}
+
+export async function previewMoWorkOrder(id: number, payload: PreviewWoPayload): Promise<PreviewWoResult> {
+  return (await apiClient.post(`/mo/${id}/work-orders/preview`, payload)).data
+}
+
 // ── MO CRUD ───────────────────────────────────────────────────────────────────
 export async function getMos(params?: {
   status?: MoStatus
@@ -232,8 +330,8 @@ export async function getMo(id: number): Promise<MoDetail> {
   return (await apiClient.get(`/mo/${id}`)).data
 }
 
-export async function getMoAssemblies(id: number): Promise<MoAssemblyRow[]> {
-  return (await apiClient.get(`/mo/${id}/assemblies`)).data
+export async function getMoAssemblies(id: number, operationId?: number): Promise<MoAssemblyRow[]> {
+  return (await apiClient.get(`/mo/${id}/assemblies`, { params: operationId ? { operation_id: operationId } : undefined })).data
 }
 
 export async function getMoParts(id: number): Promise<MoPartRow[]> {
@@ -263,9 +361,13 @@ export async function changeMoStatus(
   return (await apiClient.patch(`/mo/${id}/status`, body)).data
 }
 
+export async function createMoWorkOrder(id: number, payload: CreateWoPayload): Promise<CreateWoResult> {
+  return (await apiClient.post(`/mo/${id}/work-orders`, payload)).data
+}
+
 // ── Form-support endpoints ────────────────────────────────────────────────────
-export async function getMarkPrefixesWithCount(): Promise<MarkPrefixWithCount[]> {
-  return (await apiClient.get('/mark-prefixes/with-pending-count')).data
+export async function getMarkPrefixesWithCount(params?: { project_id?: number; zone_id?: number }): Promise<MarkPrefixWithCount[]> {
+  return (await apiClient.get('/mark-prefixes/with-pending-count', { params })).data
 }
 
 export async function getBomAssembliesByPrefix(params: {
@@ -282,4 +384,38 @@ export async function getRoutingSuggestions(mark_prefix_id: string): Promise<Rou
 
 export async function getRoutingTemplateDetail(id: number): Promise<RoutingTemplateDetail> {
   return (await apiClient.get(`/routing-templates/${id}`)).data
+}
+
+// GET /mo/:id/print-packet is JWT-guarded, so it's fetched as an
+// authenticated blob (same reason as fetchDrawingBlob in api/drawings.ts).
+// `responseType: 'blob'` means axios never JSON-parses an ERROR body either
+// (the 409 "missing drawing" payload arrives as a Blob, not the plain
+// object getErrorMessage.ts expects) — read it back to JSON here so that
+// helper still surfaces the real message instead of falling back to a
+// generic one.
+// `woIds` (2026-09-21) — selective print: which WO travelers to include.
+// Omitted means every non-cancelled WO (backward-compatible default).
+// `includeManifest` — whether the MO overview page is included too; omitted
+// means included (backward-compatible default). At least one of the two
+// must end up non-empty/true — the backend 409s otherwise.
+export async function fetchMoPrintPacketBlob(id: number, woIds?: number[], includeManifest?: boolean): Promise<Blob> {
+  try {
+    return (await apiClient.get(`/mo/${id}/print-packet`, {
+      responseType: 'blob',
+      params: {
+        ...(woIds ? { wo_ids: woIds.join(',') } : {}),
+        ...(includeManifest === false ? { include_manifest: 'false' } : {}),
+      },
+    })).data as Blob
+  } catch (err) {
+    if (isAxiosError(err) && err.response?.data instanceof Blob) {
+      const text = await err.response.data.text()
+      try {
+        err.response.data = JSON.parse(text)
+      } catch {
+        // not JSON — leave the blob in place, getErrorMessage falls back
+      }
+    }
+    throw err
+  }
 }

@@ -12,6 +12,8 @@ import { ReorderOperationsDto } from '../dto/reorder-operations.dto'
 import { UpdateOperationDto } from '../dto/update-operation.dto'
 import { UpsertTemplateSnapshotDto } from '../dto/upsert-template-snapshot.dto'
 
+// Sentinel stored in routing_template.applies_to_product_type meaning "matches every mark prefix"
+const MARK_PREFIX_ALL = 'ALL'
 
 @Injectable()
 export class RoutingService {
@@ -119,9 +121,10 @@ export class RoutingService {
     }
 
     const templates = await this._fetchTemplates({ active: true })
-    // primary signal in current data: template targets this mark prefix directly
+    // primary signal in current data: template targets this mark prefix directly,
+    // or is marked as applying to every mark prefix via the MARK_PREFIX_ALL sentinel
     for (const t of templates) {
-      if (t.applies_to_product_type === markPrefix) push(t.id)
+      if (t.applies_to_product_type === markPrefix || t.applies_to_product_type === MARK_PREFIX_ALL) push(t.id)
     }
 
     const byId = new Map(templates.map((t) => [t.id, t]))
