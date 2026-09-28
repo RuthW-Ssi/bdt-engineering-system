@@ -9,6 +9,7 @@ import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { fetchMoPrintPacketBlob, type MoStatus, type RoutingOp, type MoAssemblyRow } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import DaysRemainingBadge from '../components/DaysRemainingBadge'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -384,7 +385,7 @@ function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
         <Row k="Routing Template" v={mo.routing_template?.name} />
         <Row k="Status" v={<MoStatusPill status={mo.status} />} />
         <Row k="Plan Start" v={fmtDate(mo.plan_start)} />
-        <Row k="Plan Finish" v={fmtDate(mo.plan_finish)} />
+        <Row k="Plan Finish" v={<>{fmtDate(mo.plan_finish)} <DaysRemainingBadge planFinish={mo.plan_finish} /></>} />
         <Row k="Actual Start" v={fmtDate(mo.actual_start)} />
         <Row k="Actual Finish" v={fmtDate(mo.actual_finish)} />
       </Card>
@@ -575,7 +576,7 @@ function WorkOrdersTab({ moId, operations }: { moId: number; operations: Routing
               <div
                 key={wo.id}
                 onClick={() => navigate(`/order/wo/${wo.id}`)}
-                style={{ display: 'grid', gridTemplateColumns: '150px 1fr 130px 120px 110px 110px 70px', borderTop: '1px solid #EEE', fontSize: 13, alignItems: 'center', cursor: 'pointer' }}
+                style={{ display: 'grid', gridTemplateColumns: '150px 1fr 130px 120px 110px 110px 150px 70px', borderTop: '1px solid #EEE', fontSize: 13, alignItems: 'center', cursor: 'pointer' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#FAFAFA')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
               >
@@ -588,6 +589,10 @@ function WorkOrdersTab({ moId, operations }: { moId: number; operations: Routing
                 <div style={{ padding: '10px 14px', fontSize: 12, color: '#666', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={wo.subcontractor?.name ?? wo.assigned_to ?? undefined}>{wo.subcontractor?.name ?? wo.assigned_to ?? '—'}</div>
                 <div style={{ padding: '10px 14px' }}><WoStatusPill status={wo.status} /></div>
                 <div style={{ padding: '10px 14px', fontSize: 12, color: '#666' }}>{wo.qty_done_total} / {wo.qty_planned_total}</div>
+                <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 12, color: '#666' }}>{fmtDate(wo.plan_finish)}</span>
+                  <DaysRemainingBadge planFinish={wo.plan_finish} />
+                </div>
                 <div style={{ padding: '10px 14px' }}>{wo.is_outdated ? <span title="BOM outdated" style={{ color: '#C62828', fontSize: 11, fontWeight: 700 }}>⚠</span> : ''}</div>
               </div>
             )) : (
