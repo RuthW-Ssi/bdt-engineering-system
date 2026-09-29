@@ -42,6 +42,19 @@ interface FormActivity {
   formula_code: string | null
 }
 
+// Library-linked activity consumables are read-only — MO/WO/routing read
+// them from the source activity — so they are never re-saved. That includes
+// op_materials: for a library activity those are copied from its consumes
+// (`materials` ids), and writing them to op_act_material (FK →
+// equipment_resource) 500'd the whole publish (2026-09-29).
+export function consumablesPayload(a: Pick<FormActivity, 'source_activity_id' | 'consumables' | 'op_materials'>) {
+  if (a.source_activity_id) return []
+  return [
+    ...a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null })),
+    ...a.op_materials.map(m => ({ resource_id: m.material_id, formula_id: m.formula_id ?? null })),
+  ]
+}
+
 interface EquipmentResource { id: number; code: string; name: string; type: string; rate: number | null; rate_unit: string | null }
 
 interface FormState {
@@ -243,11 +256,7 @@ export default function OperationBuilder() {
       name: a.name, measure: a.measure, unit: a.unit || null,
       per_minute: a.per_minute ? Number(a.per_minute) : null,
       tool_ids: a.tools,
-      consumables: [
-        // Library-linked activity consumables are read-only (from source_activity.consumes) — never re-save them
-        ...(a.source_activity_id ? [] : a.consumables.map(c => ({ resource_id: c.resource_id, qty: c.qty ? Number(c.qty) : null, unit: c.unit || null }))),
-        ...a.op_materials.map(m => ({ resource_id: m.material_id, formula_id: m.formula_id ?? null })),
-      ],
+      consumables: consumablesPayload(a),
       skills: a.labors.map(l => ({ skill: l.skill, qty: l.qty, level: l.level ?? undefined })),
       sequence: (i + 1) * 10,
       source_activity_id: a.source_activity_id ?? null,
