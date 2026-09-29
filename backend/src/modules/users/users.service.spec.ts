@@ -40,7 +40,7 @@ describe('UsersService.create', () => {
     expect(prisma.user_module_permission.createMany).not.toHaveBeenCalled()
   })
 
-  it('a department with no pre-assigned template (BTE/BPD/BSC/BCD all start empty) gets no rows, not a crash', async () => {
+  it('a department with no pre-assigned template (BTE/BDP/BSC/BCD all start empty) gets no rows, not a crash', async () => {
     const prisma = makePrisma()
     const svc = new UsersService(prisma)
     await svc.create({ login: 'newdept', name: 'New Dept', password: 'ChangeMe2026!', role: 'BTE' })
