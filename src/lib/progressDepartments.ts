@@ -19,4 +19,4 @@ export function editableSections(role: string | null | undefined): Set<ProgressS
 
 // Shown next to a locked section's header (followed by a red "*" —
 // 2026-09-29: the 🔒 icon was replaced by a trailing red asterisk).
-export const lockedNote = (key: ProgressSectionKey) => `แก้ได้เฉพาะแผนก ${SECTION_DEPARTMENT[key]}`
+export const lockedNote = (key: ProgressSectionKey) => `Editable by ${SECTION_DEPARTMENT[key]} only`
