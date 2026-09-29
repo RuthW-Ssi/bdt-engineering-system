@@ -21,6 +21,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
 import { MoPrintService } from './mo-print/mo-print.service'
+import { parsePrintLang } from './mo-print/mo-print-labels'
 import { CreateMoDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
@@ -171,10 +172,12 @@ export class ManufacturingOrderController {
   @ApiOperation({ summary: 'Print packet — optional MO overview page + one signable traveler per selected WO + embedded shop drawings (409 if any selected WO is missing a PDF drawing, or nothing at all is selected)' })
   @ApiQuery({ name: 'wo_ids', required: false, description: 'Comma-separated WO ids to include as travelers (2026-09-21 selective print). Omitted = every non-cancelled WO.' })
   @ApiQuery({ name: 'include_manifest', required: false, description: '"false" to omit the MO overview page — e.g. printing just some WO travelers, or (with wo_ids empty) just the MO overview alone. Omitted/anything else = included (prior behavior).' })
+  @ApiQuery({ name: 'lang', required: false, enum: ['en', 'th'], description: 'Language of the printed form labels. Omitted/anything else = en (prior behavior).' })
   async printPacket(
     @Param('id', ParseIntPipe) id: number,
     @Query('wo_ids') woIdsRaw: string | undefined,
     @Query('include_manifest') includeManifestRaw: string | undefined,
+    @Query('lang') langRaw: string | undefined,
     @Res() res: Response,
   ) {
     // `!== undefined` (not a truthy check) — the frontend's picker sends
@@ -187,7 +190,7 @@ export class ManufacturingOrderController {
       ? woIdsRaw.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n))
       : undefined
     const includeManifest = includeManifestRaw !== 'false'
-    const bytes = await this.moPrint.buildPdf(id, woIds, includeManifest)
+    const bytes = await this.moPrint.buildPdf(id, woIds, includeManifest, parsePrintLang(langRaw))
     res.set({ 'Content-Type': 'application/pdf' })
     res.send(Buffer.from(bytes))
   }
