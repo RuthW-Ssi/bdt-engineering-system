@@ -156,13 +156,13 @@ export const MODULE_LABELS: Record<ModuleKey, string> = {
 // form). `KNOWN_DEPARTMENTS` are just the seed values shown in the dropdown
 // — any other string is a valid department, it just starts with an empty
 // template (admin fills permissions in manually).
-export const KNOWN_DEPARTMENTS = ['BTE', 'BDP', 'BSC', 'BCD'] as const
+export const KNOWN_DEPARTMENTS = ['BTE', 'BDP', 'BSC', 'BCD', 'BTC'] as const
 
 export const ROLE_LABELS: Record<string, string> = {
   admin: 'Admin',
 }
 
-// No pre-assigned module ownership yet for BTE/BDP/BSC/BCD — each starts
+// No pre-assigned module ownership yet for BTE/BDP/BSC/BCD/BTC — each starts
 // with an empty permission template; admin fills them in per user until an
 // ownership convention is established.
 export const ROLE_TEMPLATE: Partial<Record<string, ModuleKey[]>> = {}

@@ -301,12 +301,12 @@ export function ProgressAssemblyTable({
             ))}
           </div>
 
-          <SectionHeader label="Material Payment" section="payment_transport" locked={!canBulk.has('payment_transport')} />
+          <SectionHeader label="Material Payment" section="payment" locked={!canBulk.has('payment')} />
           <div style={{ display: 'flex', marginBottom: 16 }}>
             <FieldGroup label="Status">
               <select
                 value={bulkTouched.has('payment_status') ? bulkDraft.payment_status ?? '' : ''}
-                disabled={!canBulk.has('payment_transport')}
+                disabled={!canBulk.has('payment')}
                 onChange={e => setBulkField('payment_status', e.target.value as PaymentStatus)}
                 style={{ ...dateInput, width: 140, color: bulkTouched.has('payment_status') ? '#1A1A1A' : '#ABABAB' }}
               >
@@ -318,14 +318,14 @@ export function ProgressAssemblyTable({
 
           {/* Transport — load dates + pieces loaded (as a "set full" flag;
               see the comment on the field below for why). */}
-          <SectionHeader label="Transport" section="payment_transport" locked={!canBulk.has('payment_transport')} />
+          <SectionHeader label="Transport" section="transport" locked={!canBulk.has('transport')} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
             {DATE_FIELDS.map(field => (
               <FieldGroup key={field} label={DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
-                  disabled={!canBulk.has('payment_transport')}
+                  disabled={!canBulk.has('transport')}
                   onChange={e => setBulkField(field, e.target.value || null)}
                   style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
@@ -338,7 +338,7 @@ export function ProgressAssemblyTable({
               <input
                 type="number" min={0} placeholder="—"
                 value={bulkTouched.has('loaded_pcs') ? bulkDraft.loaded_pcs ?? '' : ''}
-                disabled={!canBulk.has('payment_transport')}
+                disabled={!canBulk.has('transport')}
                 onChange={e => setBulkField('loaded_pcs', e.target.value === '' ? 0 : Math.max(0, Math.round(Number(e.target.value))))}
                 style={{ ...numInput, color: bulkTouched.has('loaded_pcs') ? '#1A1A1A' : '#ABABAB' }}
               />
