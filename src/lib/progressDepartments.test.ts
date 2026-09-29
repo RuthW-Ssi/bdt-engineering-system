@@ -7,6 +7,7 @@ describe('editableSections', () => {
     ['bsc', ['payment_transport']],
     [' BCD ', ['erection']],
     ['admin', ['fabrication', 'payment_transport', 'erection']],
+    ['Admin', []],
     ['BTE', []],
     [undefined, []],
   ])('%p → %p', (role, expected) => {

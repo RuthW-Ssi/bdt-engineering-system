@@ -21,8 +21,12 @@ export type ProgressSectionKey = (typeof PROGRESS_SECTIONS)[number]['key']
 const norm = (role: string | null | undefined) => (role ?? '').trim().toUpperCase()
 
 export function editableSections(role: string | null | undefined): ProgressSectionKey[] {
+  // Admin is the exact literal 'admin' — same test as the permission guard
+  // (permission-map.ts / admin.guard.ts), so 'Admin' or 'admin ' is NOT
+  // admin here either (security F-002, 2026-09-29). Department names are
+  // matched leniently (trim + case) since they're free text.
+  if (role === 'admin') return PROGRESS_SECTIONS.map(s => s.key)
   const r = norm(role)
-  if (r === 'ADMIN') return PROGRESS_SECTIONS.map(s => s.key)
   return PROGRESS_SECTIONS.filter(s => s.department === r).map(s => s.key)
 }
 

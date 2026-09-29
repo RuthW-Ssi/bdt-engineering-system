@@ -73,7 +73,7 @@ function Section({ title, s, locked }: { title: string; s: ProgressSectionKey; l
   return (
     <div className={section}>
       {title}
-      {locked && <span className="ml-2 text-[11px] font-medium normal-case tracking-normal text-chrome-400">{lockedNote(s)}</span>}
+      {locked && <span className="ml-2 text-[11px] font-medium normal-case tracking-normal text-chrome-400">{lockedNote(s)} <span className="text-ssi-600">*</span></span>}
     </div>
   )
 }

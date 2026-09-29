@@ -31,7 +31,7 @@ export function SectionHeader({ label, locked, section }: { label: string; locke
   return (
     <div style={{ ...groupHeader, display: 'flex', alignItems: 'baseline', gap: 10, color: locked ? '#ABABAB' : groupHeader.color }}>
       {label}
-      {locked && <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#8E8E8E' }}>{lockedNote(section)}</span>}
+      {locked && <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#8E8E8E' }}>{lockedNote(section)} <span style={{ color: '#C8202A' }}>*</span></span>}
     </div>
   )
 }

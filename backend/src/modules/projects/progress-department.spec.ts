@@ -16,6 +16,8 @@ describe('editableSections', () => {
     ['BCD', ['erection']],
     [' bdp ', ['fabrication']],
     ['admin', ['fabrication', 'payment_transport', 'erection']],
+    ['Admin', []],
+    ['admin ', []],
     ['BTE', []],
     ['engineer', []],
     ['', []],
