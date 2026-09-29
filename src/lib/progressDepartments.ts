@@ -2,12 +2,14 @@
 // only — the backend enforces the same map (backend/src/modules/projects/
 // progress-department.ts); keep the two in sync. Department = user.role;
 // "admin" edits everything, any other department is view-only.
-export type ProgressSectionKey = 'fabrication' | 'payment_transport' | 'erection'
+export type ProgressSectionKey = 'fabrication' | 'payment' | 'transport' | 'erection'
 
 export const SECTION_DEPARTMENT: Record<ProgressSectionKey, string> = {
   fabrication: 'BDP',
-  payment_transport: 'BSC',
-  erection: 'BCD',
+  // Remapped 2026-09-29 (user correction) — same as the backend map.
+  payment: 'BCD',
+  transport: 'BSC',
+  erection: 'BTC',
 }
 
 export function editableSections(role: string | null | undefined): Set<ProgressSectionKey> {

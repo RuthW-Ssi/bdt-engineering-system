@@ -10,9 +10,14 @@ import { FAB_STAGES } from './progress-shared'
 export const PROGRESS_SECTIONS = [
   { key: 'fabrication', label: 'Fabrication', department: 'BDP',
     fields: [...FAB_STAGES, 'fab_plan_finish_date', 'fab_actual_finish_date'] as string[] },
-  { key: 'payment_transport', label: 'Material Payment / Transport', department: 'BSC',
-    fields: ['payment_status', 'plan_load_date', 'actual_load_date', 'loaded_pcs'] },
-  { key: 'erection', label: 'Erection', department: 'BCD',
+  // Remapped 2026-09-29 (user correction): Payment and Transport are owned
+  // by different departments; Erection is BTC — matches the legacy tracking
+  // sheet's owners (progress-excel.ts).
+  { key: 'payment', label: 'Material Payment', department: 'BCD',
+    fields: ['payment_status'] },
+  { key: 'transport', label: 'Transport', department: 'BSC',
+    fields: ['plan_load_date', 'actual_load_date', 'loaded_pcs'] },
+  { key: 'erection', label: 'Erection', department: 'BTC',
     fields: ['erection_plan_finish_date', 'erection_actual_finish_date', 'erected_pcs'] },
 ] as const
 

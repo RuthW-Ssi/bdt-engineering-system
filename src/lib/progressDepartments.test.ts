@@ -4,9 +4,10 @@ import { editableSections, lockedNote } from './progressDepartments'
 describe('editableSections', () => {
   it.each([
     ['BDP', ['fabrication']],
-    ['bsc', ['payment_transport']],
-    [' BCD ', ['erection']],
-    ['admin', ['fabrication', 'payment_transport', 'erection']],
+    ['bsc', ['transport']],
+    [' BCD ', ['payment']],
+    ['BTC', ['erection']],
+    ['admin', ['fabrication', 'payment', 'transport', 'erection']],
     ['Admin', []],
     ['BTE', []],
     [undefined, []],
@@ -17,6 +18,6 @@ describe('editableSections', () => {
 
 describe('lockedNote', () => {
   it('names the owning department', () => {
-    expect(lockedNote('erection')).toContain('BCD')
+    expect(lockedNote('erection')).toContain('BTC')
   })
 })
