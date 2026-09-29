@@ -123,7 +123,7 @@ export class ProjectsController {
     @Query('force') force: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.historySvc.rollback(code, batchId, user.sub, force === 'true')
+    return this.historySvc.rollback(code, batchId, user.sub, force === 'true', user.role)
   }
 
   @Get(':project_code/progress/assemblies/deleted')
@@ -155,7 +155,7 @@ export class ProjectsController {
     @Body() dto: BulkUpdateAssemblyProgressDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.progressSvc.bulkUpdateAssemblyProgress(code, dto, user.sub)
+    return this.progressSvc.bulkUpdateAssemblyProgress(code, dto, user.sub, user.role)
   }
 
   @Patch(':project_code/progress/assemblies/:assembly_id')
@@ -167,7 +167,7 @@ export class ProjectsController {
     @Body() dto: UpdateAssemblyProgressDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.progressSvc.updateAssemblyProgress(code, assemblyId, dto, user.sub)
+    return this.progressSvc.updateAssemblyProgress(code, assemblyId, dto, user.sub, user.role)
   }
 
   @Delete(':project_code/progress/assemblies/:assembly_id')

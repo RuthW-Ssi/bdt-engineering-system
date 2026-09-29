@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
 import { ProgressHistoryService } from './progress-history.service'
 import { ProgressChangeLogService } from './progress-change-log.service'
 
@@ -113,7 +113,7 @@ describe('ProgressHistoryService.rollback', () => {
       },
     })
     const svc = makeService(prisma)
-    await expect(svc.rollback('0X220', 1, 7, false)).rejects.toThrow(BadRequestException)
+    await expect(svc.rollback('0X220', 1, 7, false, 'admin')).rejects.toThrow(BadRequestException)
   })
 
   it('reports conflicts and writes nothing when a field was touched again by a later batch', async () => {
@@ -127,10 +127,23 @@ describe('ProgressHistoryService.rollback', () => {
       },
     })
     const svc = makeService(prisma)
-    const result = await svc.rollback('0X220', 1, 7, false)
+    const result = await svc.rollback('0X220', 1, 7, false, 'admin')
 
     expect(result.conflicts).toEqual([{ mark: '#80', field: 'cut', changedBy: 'Someone Else', changedAt: D2 }])
     expect(result.newBatchId).toBeNull()
+    expect(prisma.bom_assembly_progress.upsert).not.toHaveBeenCalled()
+  })
+
+  // 2026-09-29 — a rollback is an edit too: it must respect department sections.
+  it('rejects a rollback that would revert a section the user\'s department does not own', async () => {
+    const prisma = makePrisma({
+      progress_change_batch: { findFirst: jest.fn().mockResolvedValueOnce(targetBatch).mockResolvedValueOnce(null) },
+      progress_change_entry: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn() },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ id: 80, qty: 4 }]) },
+      bom_assembly_progress: { findUnique: jest.fn().mockResolvedValue({ cut: 80 }), upsert: jest.fn().mockResolvedValue({}) },
+    })
+    const svc = makeService(prisma)
+    await expect(svc.rollback('0X220', 1, 7, true, 'BCD')).rejects.toThrow(ForbiddenException)
     expect(prisma.bom_assembly_progress.upsert).not.toHaveBeenCalled()
   })
 
@@ -145,7 +158,7 @@ describe('ProgressHistoryService.rollback', () => {
       bom_assembly_progress: { findUnique: jest.fn().mockResolvedValue({ cut: 80 }), upsert: jest.fn().mockResolvedValue({}) },
     })
     const svc = makeService(prisma)
-    const result = await svc.rollback('0X220', 1, 7, true)
+    const result = await svc.rollback('0X220', 1, 7, true, 'admin')
 
     expect(result.conflicts).toEqual([])
     expect(prisma.bom_assembly_progress.upsert).toHaveBeenCalledWith(
@@ -164,7 +177,7 @@ describe('ProgressHistoryService.rollback', () => {
       bom_assembly_progress: { findUnique: jest.fn().mockResolvedValue({ cut: 80 }), upsert: jest.fn().mockResolvedValue({}) },
     })
     const svc = makeService(prisma)
-    const result = await svc.rollback('0X220', 1, 7, false)
+    const result = await svc.rollback('0X220', 1, 7, false, 'admin')
     expect(result.conflicts).toEqual([])
     expect(result.newBatchId).toBe(99)
   })
@@ -182,7 +195,7 @@ describe('ProgressHistoryService.rollback', () => {
       bom_assembly_progress: { findUnique: jest.fn().mockResolvedValue({ cut: 3 }), upsert: jest.fn().mockResolvedValue({}) },
     })
     const svc = makeService(prisma)
-    const result = await svc.rollback('0X220', 1, 7, false)
+    const result = await svc.rollback('0X220', 1, 7, false, 'admin')
     expect(result.newBatchId).toBe(99)
     expect(prisma.progress_change_entry.createMany).not.toHaveBeenCalled() // no entries, but...
     expect(prisma.progress_change_batch.create).toHaveBeenCalled() // ...the batch itself still exists
@@ -193,7 +206,7 @@ describe('ProgressHistoryService.rollback', () => {
       progress_change_batch: { findFirst: jest.fn().mockResolvedValueOnce({ ...targetBatch, entries: [] }).mockResolvedValueOnce(null) },
     })
     const svc = makeService(prisma)
-    const result = await svc.rollback('0X220', 1, 7, false)
+    const result = await svc.rollback('0X220', 1, 7, false, 'admin')
     expect(result).toEqual({ conflicts: [], newBatchId: null })
   })
 })

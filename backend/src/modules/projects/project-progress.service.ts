@@ -4,6 +4,7 @@ import { stripContractPrefix } from '../bom-upload/xlsx-parser.service'
 import { ProgressChangeLogService, type DiffEntry } from './progress-change-log.service'
 import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
 import type { FabStage, PaymentStatus } from './progress-shared'
+import { assertDepartmentCanEdit } from './progress-department'
 
 // Re-exported for backward compatibility — every other call site in this
 // module (spec file, bom-upload carry-forward) still imports these from
@@ -129,7 +130,9 @@ export class ProjectProgressService {
     return project
   }
 
-  async updateAssemblyProgress(projectCode: string, assemblyId: number, dto: UpdateAssemblyProgressDto, userId: number) {
+  // `role` = the caller's department (JWT role) — each progress section is
+  // editable by one department only, see progress-department.ts.
+  async updateAssemblyProgress(projectCode: string, assemblyId: number, dto: UpdateAssemblyProgressDto, userId: number, role: string) {
     // Scope check through the dispatch's project — a valid assembly id from a
     // DIFFERENT project must 404, not silently write across projects. qty is
     // selected here too so pcs clamping needs no extra round-trip.
@@ -161,6 +164,7 @@ export class ProjectProgressService {
     const row = await this.prisma.$transaction(async tx => {
       const current = await tx.bom_assembly_progress.findUnique({ where: { assembly_id: assemblyId } })
       const diff = this.changeLog.computeDiff(current, fields)
+      assertDepartmentCanEdit(role, diff.map(d => d.field))
       const upserted = await tx.bom_assembly_progress.upsert({
         where: { assembly_id: assemblyId },
         create: { assembly_id: assemblyId, ...buildProgressCreateDefaults(fields, userId) },
@@ -264,7 +268,7 @@ export class ProjectProgressService {
   // project are touched — a stray/foreign id is silently skipped rather than
   // 404ing the whole batch, since the caller can't attribute one bad id in a
   // batch of N without more plumbing than this is worth.
-  async bulkUpdateAssemblyProgress(projectCode: string, dto: BulkUpdateAssemblyProgressDto, userId: number) {
+  async bulkUpdateAssemblyProgress(projectCode: string, dto: BulkUpdateAssemblyProgressDto, userId: number, role: string) {
     const project = await this.findProjectOrThrow(projectCode)
     const owned = await this.prisma.bom_assembly.findMany({
       where: { id: { in: dto.assembly_ids }, dispatch: { project_id: project.id } },
@@ -299,7 +303,11 @@ export class ProjectProgressService {
           loaded_pcs: dto.loaded_pcs === undefined ? undefined : clampPcs(dto.loaded_pcs, q),
           erected_pcs: dto.erected_pcs === undefined ? undefined : clampPcs(dto.erected_pcs, q),
         }
-        diffRows.push({ assemblyId: id, diff: this.changeLog.computeDiff(progress, fields) })
+        const diff = this.changeLog.computeDiff(progress, fields)
+        // Throwing here rolls back the whole transaction — one forbidden
+        // row rejects the entire bulk apply, nothing half-written.
+        assertDepartmentCanEdit(role, diff.map(d => d.field))
+        diffRows.push({ assemblyId: id, diff })
         // Every targeted row is still upserted regardless of diff (unchanged
         // behavior — write_uid/write_date always bump on Apply, same as
         // before) — only the LOGGING below is diff-gated, not the write.
