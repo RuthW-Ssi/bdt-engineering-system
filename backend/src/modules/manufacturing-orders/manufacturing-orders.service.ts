@@ -664,6 +664,9 @@ export class ManufacturingOrderService {
           // Starting the MO is manual-only (2026-09-25 revert): creating a WO
           // no longer auto-starts the MO — the user must click Start.
           ...(dto.to_status === 'IN_PROGRESS' ? { actual_start: new Date() } : {}),
+          // Same for Complete → Actual Finish (2026-09-29: it stayed "—"
+          // after Done). Cancel is not a finish, so it records nothing.
+          ...(dto.to_status === 'DONE' ? { actual_finish: new Date() } : {}),
         },
       })
       await tx.mo_status_history.create({

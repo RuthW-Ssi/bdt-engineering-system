@@ -369,15 +369,28 @@ describe('ManufacturingOrderService.changeStatus — actual_start', () => {
     })
   })
 
-  it('IN_PROGRESS → DONE (Complete button): does NOT set actual_start (only the CONFIRMED→IN_PROGRESS transition does)', async () => {
+  // 2026-09-29 — Complete used to leave Actual Finish blank on the MO
+  // Overview (found while writing the Production user manual); it now
+  // records actual_finish, and still never touches actual_start.
+  it('IN_PROGRESS → DONE (Complete button): sets actual_finish, not actual_start', async () => {
     const { svc, tx } = makeService('IN_PROGRESS')
 
     await svc.changeStatus(1, { to_status: 'DONE', reason: 'Manual complete' } as any, 42, 'tester')
 
     expect(tx.manufacturing_order.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { status: 'DONE', write_uid: 42 },
+      data: { status: 'DONE', write_uid: 42, actual_finish: expect.any(Date) },
     })
+  })
+
+  it('IN_PROGRESS → CANCELLED: records no finish date (cancelled is not finished)', async () => {
+    const { svc, tx } = makeService('IN_PROGRESS')
+
+    await svc.changeStatus(1, { to_status: 'CANCELLED', reason: 'Manual cancel' } as any, 42, 'tester')
+
+    expect(tx.manufacturing_order.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.not.objectContaining({ actual_finish: expect.anything() }),
+    }))
   })
 
   // 2026-09-23 — user: "mo ต้องมี ปุ่ม complete แล้วก็ cancel ด้วย" (an
