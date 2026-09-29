@@ -14,5 +14,5 @@
 
 ## Follow-ups (not blocking)
 - LA badge renders blue like MM (colour logic: TH green, else blue).
-- Frontend options and backend constant are kept in sync by comment only.
+- Frontend options and backend constant kept in sync by comment only.
 - `OPERATOR_NATIONALITIES` could be `as const` / frozen.
