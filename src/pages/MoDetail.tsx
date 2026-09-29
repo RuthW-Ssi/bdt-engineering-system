@@ -6,7 +6,7 @@ import { useWos } from '../hooks/useWo'
 import { useTeams, useLaborSkills } from '../hooks/useLaborSkills'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
-import { fetchMoPrintPacketBlob, type MoStatus, type RoutingOp, type MoAssemblyRow } from '../api/mo'
+import { fetchMoPrintPacketBlob, type PrintLang, type MoStatus, type RoutingOp, type MoAssemblyRow } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
@@ -70,11 +70,11 @@ export function MoDetail() {
   // AND whether the MO overview page itself is included (independent
   // toggles — "just the MO", "just some WOs", or both are all valid), then
   // the modal's own Print button calls this with the choice.
-  async function handlePrint(woIds: number[], includeManifest: boolean) {
+  async function handlePrint(woIds: number[], includeManifest: boolean, lang: PrintLang) {
     setPrinting(true)
     setPrintError(null)
     try {
-      const blob = await fetchMoPrintPacketBlob(moId, woIds, includeManifest)
+      const blob = await fetchMoPrintPacketBlob(moId, woIds, includeManifest, lang)
       const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
       window.open(url, '_blank')
       setPrintPickerOpen(false)
@@ -211,7 +211,7 @@ function PrintSelectModal({
   printing: boolean
   error: string | null
   onClose: () => void
-  onPrint: (woIds: number[], includeManifest: boolean) => void
+  onPrint: (woIds: number[], includeManifest: boolean, lang: PrintLang) => void
 }) {
   const { data, isLoading } = useWos({ mo_id: moId })
   const wos = (data ?? []).filter(w => w.status !== 'CANCELLED')
@@ -223,6 +223,9 @@ function PrintSelectModal({
   // "nothing at all" is blocked.
   const [includeManifest, setIncludeManifest] = useState(true)
   const nothingSelected = !includeManifest && effectiveSelected.size === 0
+  // Form language (2026-09-29) — picked per print, not remembered: the same
+  // MO may go to the floor in Thai and to a client/consultant in English.
+  const [lang, setLang] = useState<PrintLang>('en')
 
   function toggle(id: number) {
     setSelected((prev) => {
@@ -238,6 +241,20 @@ function PrintSelectModal({
       <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Print — select what to include</h2>
         <p style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>Pick the MO overview page and/or which work order travelers to print.</p>
+
+        <div className="flex items-center gap-3" style={{ marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Language</span>
+          <div className="flex" style={{ border: '1px solid #C2C2C2', borderRadius: 4, overflow: 'hidden' }}>
+            {([['th', 'ไทย'], ['en', 'English']] as const).map(([value, label]) => (
+              <button
+                key={value} type="button" onClick={() => setLang(value)} aria-pressed={lang === value}
+                style={{ padding: '4px 14px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: lang === value ? '#C8202A' : '#fff', color: lang === value ? '#fff' : '#555' }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #EEE', borderRadius: 6, minHeight: 60 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderBottom: '1px solid #F4F4F4', cursor: 'pointer', background: '#FAFAFA' }}>
@@ -278,7 +295,7 @@ function PrintSelectModal({
         <div className="flex justify-end gap-2" style={{ marginTop: 16 }}>
           <button onClick={onClose} style={{ padding: '7px 16px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>Cancel</button>
           <button
-            onClick={() => onPrint([...effectiveSelected], includeManifest)}
+            onClick={() => onPrint([...effectiveSelected], includeManifest, lang)}
             disabled={printing || nothingSelected}
             className="flex items-center gap-1.5"
             style={{ padding: '7px 16px', fontSize: 13, fontWeight: 600, borderRadius: 4, border: 'none', background: '#C8202A', color: '#fff', cursor: printing || nothingSelected ? 'default' : 'pointer', opacity: printing || nothingSelected ? 0.6 : 1 }}
