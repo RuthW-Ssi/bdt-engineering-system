@@ -4,6 +4,8 @@ import {
   dateInput, numInput, toInputDate, STAGE_LABEL, DATE_FIELDS, DATE_LABEL, FAB_DATE_FIELDS, FAB_DATE_LABEL,
   ERECTION_DATE_FIELDS, ERECTION_DATE_LABEL, PCS_LABEL, EDIT_FIELDS, clampPct, clampPcs, groupHeader,
 } from './progressEditShared'
+import { useAuth } from '../../context/AuthContext'
+import { editableSections, lockedNote, type ProgressSectionKey } from '../../lib/progressDepartments'
 
 // Components only in this file (react-refresh/only-export-components wants
 // a components-only file for Fast Refresh — the constants/helpers these use
@@ -19,6 +21,17 @@ export function PctInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
       <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: '#ABABAB', pointerEvents: 'none' }}>
         %
       </span>
+    </div>
+  )
+}
+
+// Section title; a section the user's department doesn't own shows a lock
+// note instead of being hidden, so everyone still sees the whole picture.
+export function SectionHeader({ label, locked, section }: { label: string; locked: boolean; section: ProgressSectionKey }) {
+  return (
+    <div style={{ ...groupHeader, display: 'flex', alignItems: 'baseline', gap: 10, color: locked ? '#ABABAB' : groupHeader.color }}>
+      {label}
+      {locked && <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#8E8E8E' }}>{lockedNote(section)} <span style={{ color: '#C8202A' }}>*</span></span>}
     </div>
   )
 }
@@ -49,18 +62,23 @@ export function ProgressEditFields({
   onCancel: () => void
 }) {
   const qty = Math.max(1, Math.round(row.qty ?? 1))
+  // Each section is editable by one department only (2026-09-29) — the
+  // backend enforces it; this just locks the inputs so it's obvious why.
+  const { user } = useAuth()
+  const can = editableSections(user?.role)
+  const off = (section: ProgressSectionKey) => saving || !can.has(section)
   const dirty = EDIT_FIELDS.some(f => draft[f] !== row[f])
 
   return (
     <>
       {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
-      <div style={groupHeader}>Fabrication</div>
+      <SectionHeader label="Fabrication" section="fabrication" locked={!can.has('fabrication')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
         {FAB_STAGES.map(stage => (
           <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
             <PctInput
               value={draft[stage] ?? 0}
-              disabled={saving}
+              disabled={off('fabrication')}
               onChange={e => onChange(d => ({ ...d, [stage]: e.target.value === '' ? 0 : clampPct(Number(e.target.value)) }))}
             />
           </FieldGroup>
@@ -72,7 +90,7 @@ export function ProgressEditFields({
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={saving}
+              disabled={off('fabrication')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
@@ -81,12 +99,12 @@ export function ProgressEditFields({
       </div>
 
       {/* Material Payment — parallel to Fab/Transport/Erection, 3-state status */}
-      <div style={groupHeader}>Material Payment</div>
+      <SectionHeader label="Material Payment" section="payment_transport" locked={!can.has('payment_transport')} />
       <div style={{ display: 'flex', marginBottom: 16 }}>
         <FieldGroup label="Status">
           <select
             value={draft.payment_status ?? 'Not Disbursed'}
-            disabled={saving}
+            disabled={off('payment_transport')}
             onChange={e => onChange(d => ({ ...d, payment_status: e.target.value as PaymentStatus }))}
             style={{ ...dateInput, width: 200 }}
           >
@@ -96,14 +114,14 @@ export function ProgressEditFields({
       </div>
 
       {/* Transport — load dates + pieces loaded */}
-      <div style={groupHeader}>Transport</div>
+      <SectionHeader label="Transport" section="payment_transport" locked={!can.has('payment_transport')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
         {DATE_FIELDS.map(field => (
           <FieldGroup key={field} label={DATE_LABEL[field]}>
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={saving}
+              disabled={off('payment_transport')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
@@ -113,7 +131,7 @@ export function ProgressEditFields({
           <input
             type="number" min={0} max={qty}
             value={draft.loaded_pcs ?? 0}
-            disabled={saving}
+            disabled={off('payment_transport')}
             onChange={e => onChange(d => ({ ...d, loaded_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), row.qty) }))}
             style={numInput}
           />
@@ -121,14 +139,14 @@ export function ProgressEditFields({
       </div>
 
       {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual→count order), then pieces erected (full = done) */}
-      <div style={groupHeader}>Erection</div>
+      <SectionHeader label="Erection" section="erection" locked={!can.has('erection')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
         {ERECTION_DATE_FIELDS.map(field => (
           <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={saving}
+              disabled={off('erection')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
@@ -138,7 +156,7 @@ export function ProgressEditFields({
           <input
             type="number" min={0} max={qty}
             value={draft.erected_pcs ?? 0}
-            disabled={saving}
+            disabled={off('erection')}
             onChange={e => onChange(d => ({ ...d, erected_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), row.qty) }))}
             style={numInput}
           />
@@ -146,7 +164,7 @@ export function ProgressEditFields({
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
-        <button
+        {can.size > 0 && <button
           onClick={onSave}
           disabled={saving || !dirty}
           style={{
@@ -156,7 +174,7 @@ export function ProgressEditFields({
           }}
         >
           Save
-        </button>
+        </button>}
         <button
           onClick={onCancel}
           disabled={saving}

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Bell, ChevronDown, Check, User, Settings, Keyboard, LogOut, Menu } from 'lucide-react'
+import { Search, Bell, ChevronDown, Check, KeyRound, LogOut, Menu } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
+import { ChangePasswordDialog } from './ChangePasswordDialog'
 
 interface Props {
   onMobileMenuToggle: () => void
@@ -10,8 +11,26 @@ interface Props {
 export function Topbar({ onMobileMenuToggle }: Props) {
   const [bellOpen, setBellOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
+  const [pwOpen, setPwOpen] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
+  const bellRef = useRef<HTMLDivElement>(null)
+  const userRef = useRef<HTMLDivElement>(null)
+
+  // Close an open dropdown on a click anywhere outside it, or on Escape
+  // (2026-09-29 — both used to close only via their own toggle button).
+  useEffect(() => {
+    if (!bellOpen && !userOpen) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (bellOpen && !bellRef.current?.contains(t)) setBellOpen(false)
+      if (userOpen && !userRef.current?.contains(t)) setUserOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setBellOpen(false); setUserOpen(false) } }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+  }, [bellOpen, userOpen])
 
   function handleLogout() {
     logout()
@@ -50,7 +69,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
         </button>
 
         {/* Bell */}
-        <div className="relative">
+        <div className="relative" ref={bellRef}>
           <button
             onClick={() => { setBellOpen(o => !o); setUserOpen(false) }}
             className="relative flex items-center justify-center w-9 h-9 rounded-full text-chrome-600 hover:bg-chrome-50"
@@ -94,7 +113,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
         </div>
 
         {/* User */}
-        <div className="relative">
+        <div className="relative" ref={userRef}>
           <button
             onClick={() => { setUserOpen(o => !o); setBellOpen(false) }}
             className="flex items-center gap-2 rounded-md hover:bg-chrome-50 transition-colors"
@@ -114,18 +133,11 @@ export function Topbar({ onMobileMenuToggle }: Props) {
                 <div className="text-chrome-400" style={{ fontSize: 11 }}>{user?.login}</div>
                 <span className="inline-block mt-2 rounded-full" style={{ background: '#E6F1FB', color: '#185FA5', padding: '1px 8px', fontSize: 11, fontWeight: 500 }}>{user?.role}</span>
               </div>
-              <button className="w-full flex items-center gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
-                <User size={14} className="text-chrome-400" /><span className="text-chrome-900">Profile</span>
-              </button>
-              <button className="w-full flex items-center gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
-                <Settings size={14} className="text-chrome-400" /><span className="text-chrome-900">Settings</span>
-              </button>
-              <button className="w-full flex items-center justify-between gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
-                <span className="flex items-center gap-2.5">
-                  <Keyboard size={14} className="text-chrome-400" />
-                  <span className="text-chrome-900">Keyboard shortcuts</span>
-                </span>
-                <kbd className="bg-chrome-50 border border-chrome-100 rounded-sm font-mono" style={{ padding: '0 5px', fontSize: 11, color: '#555' }}>?</kbd>
+              <button
+                onClick={() => { setUserOpen(false); setPwOpen(true) }}
+                className="w-full flex items-center gap-2.5 rounded-md hover:bg-chrome-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}
+              >
+                <KeyRound size={14} className="text-chrome-400" /><span className="text-chrome-900">Change password</span>
               </button>
               <div className="h-px bg-chrome-100 my-1" />
               <button onClick={handleLogout} className="w-full flex items-center gap-2.5 rounded-md hover:bg-ssi-50 text-left" style={{ padding: '8px 12px', fontSize: 13 }}>
@@ -136,6 +148,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
           )}
         </div>
       </div>
+      {pwOpen && <ChangePasswordDialog onClose={() => setPwOpen(false)} />}
     </header>
   )
 }
