@@ -124,15 +124,24 @@ export class ProjectProgressService {
     this.changeLog = changeLog ?? new ProgressChangeLogService(prisma)
   }
 
+  // The caller's department for the progress-section check, read LIVE from
+  // res_users — not the JWT role, which only refreshes at login (2026-09-29,
+  // security F-001: a department change must take effect immediately).
+  // Inactive / missing user → null, which owns no section.
+  async departmentOf(userId: number): Promise<string | null> {
+    const u = await this.prisma.res_users.findUnique({ where: { id: userId }, select: { role: true, active: true } })
+    return u?.active ? u.role : null
+  }
+
   private async findProjectOrThrow(projectCode: string) {
     const project = await this.prisma.project.findUnique({ where: { project_code: projectCode } })
     if (!project) throw new NotFoundException(`Project ${projectCode} not found`)
     return project
   }
 
-  // `role` = the caller's department (JWT role) — each progress section is
-  // editable by one department only, see progress-department.ts.
-  async updateAssemblyProgress(projectCode: string, assemblyId: number, dto: UpdateAssemblyProgressDto, userId: number, role: string) {
+  // `role` = the caller's department (from departmentOf, i.e. live DB) — each
+  // progress section is editable by one department only, see progress-department.ts.
+  async updateAssemblyProgress(projectCode: string, assemblyId: number, dto: UpdateAssemblyProgressDto, userId: number, role: string | null) {
     // Scope check through the dispatch's project — a valid assembly id from a
     // DIFFERENT project must 404, not silently write across projects. qty is
     // selected here too so pcs clamping needs no extra round-trip.
@@ -268,7 +277,7 @@ export class ProjectProgressService {
   // project are touched — a stray/foreign id is silently skipped rather than
   // 404ing the whole batch, since the caller can't attribute one bad id in a
   // batch of N without more plumbing than this is worth.
-  async bulkUpdateAssemblyProgress(projectCode: string, dto: BulkUpdateAssemblyProgressDto, userId: number, role: string) {
+  async bulkUpdateAssemblyProgress(projectCode: string, dto: BulkUpdateAssemblyProgressDto, userId: number, role: string | null) {
     const project = await this.findProjectOrThrow(projectCode)
     const owned = await this.prisma.bom_assembly.findMany({
       where: { id: { in: dto.assembly_ids }, dispatch: { project_id: project.id } },

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { apiClient } from '../../api/client'
@@ -13,6 +13,14 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   const [serverError, setServerError] = useState<string | null>(null)
   const clientError = passwordFormError(form)
   const canSave = clientError === null && !saving
+
+  // Escape closes; a backdrop click deliberately does NOT (QA 2026-09-29 —
+  // it silently threw away what was typed).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const set = (k: keyof PasswordForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm(f => ({ ...f, [k]: e.target.value }))
@@ -47,8 +55,8 @@ export function ChangePasswordDialog({ onClose }: { onClose: () => void }) {
   const message = serverError ?? (clientError || null)
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }} onMouseDown={onClose}>
-      <div onMouseDown={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 380 }}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
+      <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 380 }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Change password</h2>
         {field('Current password', 'current', 'current-password')}
         {field('New password', 'next', 'new-password')}

@@ -134,6 +134,17 @@ describe('ProgressHistoryService.rollback', () => {
     expect(prisma.bom_assembly_progress.upsert).not.toHaveBeenCalled()
   })
 
+  it('rejects up front (before the conflict prompt) when the batch touches a section the department does not own', async () => {
+    const findMany = jest.fn()
+    const prisma = makePrisma({
+      progress_change_batch: { findFirst: jest.fn().mockResolvedValueOnce(targetBatch).mockResolvedValueOnce(null) },
+      progress_change_entry: { findMany, createMany: jest.fn() },
+    })
+    const svc = makeService(prisma)
+    await expect(svc.rollback('0X220', 1, 7, false, 'BCD')).rejects.toThrow(ForbiddenException)
+    expect(findMany).not.toHaveBeenCalled() // conflict detection never ran
+  })
+
   // 2026-09-29 — a rollback is an edit too: it must respect department sections.
   it('rejects a rollback that would revert a section the user\'s department does not own', async () => {
     const prisma = makePrisma({

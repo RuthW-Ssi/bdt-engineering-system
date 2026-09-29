@@ -80,7 +80,7 @@ export class ProgressHistoryService {
   // apply the old values back, creating a new "rollback" batch (itself
   // subject to the exact same logic — rolling back a rollback needs no
   // special-cased "undo of undo" path).
-  async rollback(projectCode: string, batchId: number, userId: number, force: boolean, role: string): Promise<{ conflicts: HistoryConflict[]; newBatchId: number | null }> {
+  async rollback(projectCode: string, batchId: number, userId: number, force: boolean, role: string | null): Promise<{ conflicts: HistoryConflict[]; newBatchId: number | null }> {
     const project = await this.findProjectOrThrow(projectCode)
     const batch = await this.prisma.progress_change_batch.findFirst({
       where: { id: batchId, project_id: project.id },
@@ -91,6 +91,11 @@ export class ProgressHistoryService {
     const alreadyRolledBack = await this.prisma.progress_change_batch.findFirst({ where: { rolled_back_batch_id: batchId } })
     if (alreadyRolledBack) throw new BadRequestException('This batch has already been rolled back.')
     if (!batch.entries.length) return { conflicts: [], newBatchId: null }
+
+    // Department check up front too (QA 2026-09-29): otherwise a user is
+    // shown the "force?" conflict prompt only to get a 403 after confirming.
+    // The authoritative diff-based check still runs per assembly below.
+    assertDepartmentCanEdit(role, batch.entries.map(e => e.field))
 
     if (!force) {
       const conflicts = await this.detectConflicts(batch.id, batch.create_date, batch.entries)

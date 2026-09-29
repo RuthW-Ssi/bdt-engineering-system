@@ -1128,3 +1128,18 @@ describe('getProjectPositions', () => {
     })
   })
 })
+
+// 2026-09-29 — department is read live from res_users (security F-001),
+// not the JWT role, so a department change applies immediately.
+describe('departmentOf', () => {
+  it('returns the live role of an active user', async () => {
+    const prisma = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue({ role: 'BSC', active: true }) } })
+    expect(await new ProjectProgressService(prisma).departmentOf(5)).toBe('BSC')
+  })
+  it('returns null for an inactive or missing user (owns no section)', async () => {
+    const inactive = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue({ role: 'admin', active: false }) } })
+    expect(await new ProjectProgressService(inactive).departmentOf(5)).toBeNull()
+    const missing = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue(null) } })
+    expect(await new ProjectProgressService(missing).departmentOf(5)).toBeNull()
+  })
+})

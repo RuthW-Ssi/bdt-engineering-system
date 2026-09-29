@@ -117,13 +117,13 @@ export class ProjectsController {
   @Post(':project_code/progress/history/:batch_id/rollback')
   @RequiresPermission('project-tracking', 'update')
   @ApiOperation({ summary: 'Revert a batch\'s changes. Without ?force=true, detects and returns conflicts (fields touched again since) instead of writing.' })
-  rollbackProgressBatch(
+  async rollbackProgressBatch(
     @Param('project_code') code: string,
     @Param('batch_id', ParseIntPipe) batchId: number,
     @Query('force') force: string | undefined,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.historySvc.rollback(code, batchId, user.sub, force === 'true', user.role)
+    return this.historySvc.rollback(code, batchId, user.sub, force === 'true', await this.progressSvc.departmentOf(user.sub))
   }
 
   @Get(':project_code/progress/assemblies/deleted')
@@ -150,24 +150,24 @@ export class ProjectsController {
   @Patch(':project_code/progress/assemblies/bulk')
   @RequiresPermission('project-tracking', 'update')
   @ApiOperation({ summary: 'Apply the same progress fields to many assemblies at once (bulk row selection); loaded_pcs/erected_pcs clamp independently to each row\'s own qty' })
-  bulkUpdateAssemblyProgress(
+  async bulkUpdateAssemblyProgress(
     @Param('project_code') code: string,
     @Body() dto: BulkUpdateAssemblyProgressDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.progressSvc.bulkUpdateAssemblyProgress(code, dto, user.sub, user.role)
+    return this.progressSvc.bulkUpdateAssemblyProgress(code, dto, user.sub, await this.progressSvc.departmentOf(user.sub))
   }
 
   @Patch(':project_code/progress/assemblies/:assembly_id')
   @RequiresPermission('project-tracking', 'update')
   @ApiOperation({ summary: 'Upsert manual phase-progress fields (10 fab stage %, transport dates/pcs, erected pcs) for one assembly' })
-  updateAssemblyProgress(
+  async updateAssemblyProgress(
     @Param('project_code') code: string,
     @Param('assembly_id', ParseIntPipe) assemblyId: number,
     @Body() dto: UpdateAssemblyProgressDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.progressSvc.updateAssemblyProgress(code, assemblyId, dto, user.sub, user.role)
+    return this.progressSvc.updateAssemblyProgress(code, assemblyId, dto, user.sub, await this.progressSvc.departmentOf(user.sub))
   }
 
   @Delete(':project_code/progress/assemblies/:assembly_id')
