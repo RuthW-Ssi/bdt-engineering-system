@@ -174,7 +174,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
           </div>
         </div>
 
-        <Section title="Transport" s="payment_transport" locked={canUpdate && !depts.has('payment_transport')} />
+        <Section title="Transport" s="transport" locked={canUpdate && !depts.has('transport')} />
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="min-w-0">
@@ -183,7 +183,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
                 label="Plan Load"
                 value={toInputDate(draft.plan_load_date ?? null)}
                 onChange={v => set('plan_load_date', v)}
-                disabled={!can('payment_transport')}
+                disabled={!can('transport')}
               />
             </div>
             <div className="min-w-0">
@@ -192,25 +192,25 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
                 label="Actual Load"
                 value={toInputDate(draft.actual_load_date ?? null)}
                 onChange={v => set('actual_load_date', v)}
-                disabled={!can('payment_transport')}
+                disabled={!can('transport')}
               />
             </div>
           </div>
           <div className="min-w-0">
             <label className={label}>Loaded (pcs, max {qty})</label>
-            <input type="number" min={0} max={qty} inputMode="numeric" disabled={!can('payment_transport')}
+            <input type="number" min={0} max={qty} inputMode="numeric" disabled={!can('transport')}
               value={draft.loaded_pcs ?? 0}
               onChange={e => set('loaded_pcs', clampPcs(Number(e.target.value), qty))}
               className={`${input} disabled:bg-chrome-50 disabled:text-chrome-400`} />
           </div>
         </div>
 
-        <Section title="Material Payment" s="payment_transport" locked={canUpdate && !depts.has('payment_transport')} />
+        <Section title="Material Payment" s="payment" locked={canUpdate && !depts.has('payment')} />
         <div className="flex flex-col gap-3">
           <div className="min-w-0">
             <label className={label}>Status</label>
             <select
-              disabled={!can('payment_transport')}
+              disabled={!can('payment')}
               value={draft.payment_status ?? 'Not Disbursed'}
               onChange={e => set('payment_status', e.target.value as PaymentStatus)}
               className={`${input} disabled:bg-chrome-50 disabled:text-chrome-400`}

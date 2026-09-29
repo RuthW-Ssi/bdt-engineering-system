@@ -99,12 +99,12 @@ export function ProgressEditFields({
       </div>
 
       {/* Material Payment — parallel to Fab/Transport/Erection, 3-state status */}
-      <SectionHeader label="Material Payment" section="payment_transport" locked={!can.has('payment_transport')} />
+      <SectionHeader label="Material Payment" section="payment" locked={!can.has('payment')} />
       <div style={{ display: 'flex', marginBottom: 16 }}>
         <FieldGroup label="Status">
           <select
             value={draft.payment_status ?? 'Not Disbursed'}
-            disabled={off('payment_transport')}
+            disabled={off('payment')}
             onChange={e => onChange(d => ({ ...d, payment_status: e.target.value as PaymentStatus }))}
             style={{ ...dateInput, width: 200 }}
           >
@@ -114,14 +114,14 @@ export function ProgressEditFields({
       </div>
 
       {/* Transport — load dates + pieces loaded */}
-      <SectionHeader label="Transport" section="payment_transport" locked={!can.has('payment_transport')} />
+      <SectionHeader label="Transport" section="transport" locked={!can.has('transport')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
         {DATE_FIELDS.map(field => (
           <FieldGroup key={field} label={DATE_LABEL[field]}>
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={off('payment_transport')}
+              disabled={off('transport')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
@@ -131,7 +131,7 @@ export function ProgressEditFields({
           <input
             type="number" min={0} max={qty}
             value={draft.loaded_pcs ?? 0}
-            disabled={off('payment_transport')}
+            disabled={off('transport')}
             onChange={e => onChange(d => ({ ...d, loaded_pcs: e.target.value === '' ? 0 : clampPcs(Number(e.target.value), row.qty) }))}
             style={numInput}
           />

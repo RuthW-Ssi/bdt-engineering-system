@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsIn, IsBoolean, IsInt, IsPositive, MaxLength, IsArray, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
-import { SkillEntryDto } from './create-operator.dto'
+import { SkillEntryDto, OPERATOR_NATIONALITIES } from './create-operator.dto'
 
 export class UpdateOperatorDto {
   @IsOptional()
@@ -14,7 +14,7 @@ export class UpdateOperatorDto {
   name?: string
 
   @IsOptional()
-  @IsIn(['TH', 'MM'])
+  @IsIn(OPERATOR_NATIONALITIES)
   nationality?: string
 
   @IsOptional()
