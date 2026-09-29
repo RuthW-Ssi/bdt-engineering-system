@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, UseGuards, HttpCode, HttpStatus } from '@n
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger'
 import { AuthService, JwtPayload } from './auth.service'
 import { LoginDto } from './dto/login.dto'
+import { ChangePasswordDto } from './dto/change-password.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 
@@ -23,6 +24,15 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user profile' })
   me(@CurrentUser() user: JwtPayload) {
     return this.svc.getProfile(user.sub)
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Change the logged-in user\'s own password (current password required)' })
+  changePassword(@CurrentUser() user: JwtPayload, @Body() dto: ChangePasswordDto) {
+    return this.svc.changePassword(user.sub, dto)
   }
 
   @Post('logout')

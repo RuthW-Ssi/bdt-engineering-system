@@ -1,3 +1,5 @@
+import { getErrorMessage } from '../lib/getErrorMessage'
+import { toast } from 'sonner'
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, ChevronRight, ChevronDown, ChevronUp, Loader2, RotateCcw } from 'lucide-react'
@@ -129,6 +131,8 @@ export function ProjectProgressHistory() {
         if (result.conflicts.length) setConflictState({ batchId, conflicts: result.conflicts })
         else setConflictState(null)
       },
+      // e.g. the department 403 ("แผนก … ไม่มีสิทธิ์แก้ไขส่วน …") — was silent.
+      onError: err => toast.error(getErrorMessage(err, 'Rollback failed. Please try again.')),
     })
   }
 

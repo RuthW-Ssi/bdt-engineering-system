@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { ProjectProgressService, computeFabPct, computeStatus, computePhases, effectiveQty, STAGE_WEIGHTS, FAB_STAGES } from './project-progress.service'
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -485,7 +485,7 @@ describe('updateAssemblyProgress', () => {
   it('404s when the assembly belongs to a different project', async () => {
     const prisma = makePrisma({ bom_assembly: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn() } })
     const svc = new ProjectProgressService(prisma)
-    await expect(svc.updateAssemblyProgress('0X220', 999, { cut: 50 }, 1)).rejects.toThrow(NotFoundException)
+    await expect(svc.updateAssemblyProgress('0X220', 999, { cut: 50 }, 1, 'admin')).rejects.toThrow(NotFoundException)
   })
 
   it('partial update — omitted fields stay undefined in the update clause', async () => {
@@ -495,7 +495,7 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { cut: 50 }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { cut: 50 }, 1, 'admin')
 
     const args = upsert.mock.calls[0][0]
     expect(args.update.cut).toBe(50)
@@ -511,7 +511,7 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { weld1: 5000, primer: -5, fireproof: 50.4 }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { weld1: 5000, primer: -5, fireproof: 50.4 }, 1, 'admin')
 
     const args = upsert.mock.calls[0][0]
     expect(args.update.weld1).toBe(100)
@@ -526,7 +526,7 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { loaded_pcs: 99 }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { loaded_pcs: 99 }, 1, 'admin')
     expect(upsert.mock.calls[0][0].update.loaded_pcs).toBe(4)
   })
 
@@ -537,7 +537,7 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { plan_load_date: '2026-07-01', actual_load_date: null }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { plan_load_date: '2026-07-01', actual_load_date: null }, 1, 'admin')
 
     const args = upsert.mock.calls[0][0]
     expect(args.update.plan_load_date).toEqual(new Date('2026-07-01'))
@@ -551,7 +551,7 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { payment_status: 'Paid' }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { payment_status: 'Paid' }, 1, 'admin')
     expect(upsert.mock.calls[0][0].update.payment_status).toBe('Paid')
   })
 
@@ -562,10 +562,10 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { erection_actual_finish_date: '2026-08-01' }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { erection_actual_finish_date: '2026-08-01' }, 1, 'admin')
     expect(upsert.mock.calls[0][0].update.erection_actual_finish_date).toEqual(new Date('2026-08-01'))
 
-    await svc.updateAssemblyProgress('0X220', 1, { erection_actual_finish_date: null }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { erection_actual_finish_date: null }, 1, 'admin')
     expect(upsert.mock.calls[1][0].update.erection_actual_finish_date).toBeNull()
   })
 
@@ -576,11 +576,11 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { fab_plan_finish_date: '2026-07-15', fab_actual_finish_date: '2026-07-20' }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { fab_plan_finish_date: '2026-07-15', fab_actual_finish_date: '2026-07-20' }, 1, 'admin')
     expect(upsert.mock.calls[0][0].update.fab_plan_finish_date).toEqual(new Date('2026-07-15'))
     expect(upsert.mock.calls[0][0].update.fab_actual_finish_date).toEqual(new Date('2026-07-20'))
 
-    await svc.updateAssemblyProgress('0X220', 1, { fab_plan_finish_date: null, fab_actual_finish_date: null }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { fab_plan_finish_date: null, fab_actual_finish_date: null }, 1, 'admin')
     expect(upsert.mock.calls[1][0].update.fab_plan_finish_date).toBeNull()
     expect(upsert.mock.calls[1][0].update.fab_actual_finish_date).toBeNull()
   })
@@ -592,10 +592,10 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await svc.updateAssemblyProgress('0X220', 1, { erection_plan_finish_date: '2026-08-10' }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { erection_plan_finish_date: '2026-08-10' }, 1, 'admin')
     expect(upsert.mock.calls[0][0].update.erection_plan_finish_date).toEqual(new Date('2026-08-10'))
 
-    await svc.updateAssemblyProgress('0X220', 1, { erection_plan_finish_date: null }, 1)
+    await svc.updateAssemblyProgress('0X220', 1, { erection_plan_finish_date: null }, 1, 'admin')
     expect(upsert.mock.calls[1][0].update.erection_plan_finish_date).toBeNull()
   })
 
@@ -608,7 +608,7 @@ describe('updateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    const result = await svc.updateAssemblyProgress('0X220', 1, { cut: 100 }, 1)
+    const result = await svc.updateAssemblyProgress('0X220', 1, { cut: 100 }, 1, 'admin')
     expect(result).toMatchObject({
       fab_pct: 10, load_pct: 50, erect_pct: 0, payment_pct: 100,
       status: 'load', shade: 'light',
@@ -731,6 +731,7 @@ describe('bulkUpdateAssemblyProgress', () => {
         erection_plan_finish_date: '2026-07-25', erection_actual_finish_date: '2026-08-01',
       },
       1,
+      'admin',
     )
 
     expect(result).toEqual({ updated: 2 })
@@ -758,7 +759,7 @@ describe('bulkUpdateAssemblyProgress', () => {
     const svc = new ProjectProgressService(prisma)
     // One shared value (10) applied to rows with different qty: row 1 (qty 4)
     // clamps down to its own max; row 2 (qty 16) is under its max, unchanged.
-    await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], loaded_pcs: 10 }, 1)
+    await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], loaded_pcs: 10 }, 1, 'admin')
 
     const byId = new Map(upsert.mock.calls.map((c: any[]) => [c[0].where.assembly_id, c[0].update.loaded_pcs]))
     expect(byId.get(1)).toBe(4)
@@ -774,14 +775,78 @@ describe('bulkUpdateAssemblyProgress', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 999], qc_final: 100 }, 1)
+    const result = await svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 999], qc_final: 100 }, 1, 'admin')
     expect(result).toEqual({ updated: 1 })
 
     const prismaEmpty = makePrisma({
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
     })
     const svc2 = new ProjectProgressService(prismaEmpty)
-    expect(await svc2.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [999], qc_final: 100 }, 1)).toEqual({ updated: 0 })
+    expect(await svc2.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [999], qc_final: 100 }, 1, 'admin')).toEqual({ updated: 0 })
+  })
+})
+
+// 2026-09-29 — department-scoped sections: BDP = Fabrication, BSC = Material
+// Payment/Transport, BCD = Erection, admin = all, anyone else = view-only.
+describe('progress edits — department sections', () => {
+  const makeSingle = (current: Record<string, unknown> | null = null) => {
+    const upsert = jest.fn().mockResolvedValue({ ...EMPTY, assembly_id: 1, write_uid: 1, write_date: D })
+    const prisma = makePrisma({
+      bom_assembly: { findFirst: jest.fn().mockResolvedValue({ id: 1, qty: 4, dispatch: { project_id: 1 } }), findMany: jest.fn() },
+      bom_assembly_progress: { upsert, findUnique: jest.fn().mockResolvedValue(current) },
+    })
+    return { svc: new ProjectProgressService(prisma), upsert }
+  }
+
+  it.each([
+    ['BDP', { cut: 50 }],
+    ['BSC', { payment_status: 'Paid', loaded_pcs: 2 }],
+    ['BCD', { erected_pcs: 1, erection_actual_finish_date: '2026-08-01' }],
+  ])('%s can edit its own section', async (role, dto) => {
+    const { svc, upsert } = makeSingle()
+    await svc.updateAssemblyProgress('0X220', 1, dto as any, 1, role)
+    expect(upsert).toHaveBeenCalled()
+  })
+
+  it('BDP editing Erection is rejected and nothing is written', async () => {
+    const { svc, upsert } = makeSingle()
+    await expect(svc.updateAssemblyProgress('0X220', 1, { cut: 50, erected_pcs: 1 }, 1, 'BDP')).rejects.toThrow(ForbiddenException)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('a department with no section (BTE) cannot edit anything', async () => {
+    const { svc, upsert } = makeSingle()
+    await expect(svc.updateAssemblyProgress('0X220', 1, { cut: 50 }, 1, 'BTE')).rejects.toThrow(ForbiddenException)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('a field resent with its current value is not an edit (BDP resending erected_pcs unchanged is allowed)', async () => {
+    const { svc, upsert } = makeSingle({ ...EMPTY, erected_pcs: 3 })
+    await svc.updateAssemblyProgress('0X220', 1, { cut: 50, erected_pcs: 3 }, 1, 'BDP')
+    expect(upsert).toHaveBeenCalled()
+  })
+
+  it('bulk: one forbidden field rejects the whole batch, no row written', async () => {
+    const upsert = jest.fn().mockResolvedValue({})
+    const prisma = makePrisma({
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ id: 1, qty: 4, progress: null }, { id: 2, qty: 4, progress: null }]), findFirst: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await expect(svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1, 2], cut: 100, payment_status: 'Paid' }, 1, 'BDP'))
+      .rejects.toThrow(ForbiddenException)
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('bulk: own section only passes', async () => {
+    const upsert = jest.fn().mockResolvedValue({})
+    const prisma = makePrisma({
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ id: 1, qty: 4, progress: null }]), findFirst: jest.fn() },
+      bom_assembly_progress: { upsert },
+    })
+    const svc = new ProjectProgressService(prisma)
+    await expect(svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1], loaded_pcs: 2, payment_status: 'Paid' }, 1, 'BSC'))
+      .resolves.toEqual({ updated: 1 })
   })
 })
 
@@ -1061,5 +1126,20 @@ describe('getProjectPositions', () => {
       model_id: null, model_version: null, groups: [],
       unmatched: [expect.objectContaining({ mark: 'TC-FB1', count: 16 })],
     })
+  })
+})
+
+// 2026-09-29 — department is read live from res_users (security F-001),
+// not the JWT role, so a department change applies immediately.
+describe('departmentOf', () => {
+  it('returns the live role of an active user', async () => {
+    const prisma = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue({ role: 'BSC', active: true }) } })
+    expect(await new ProjectProgressService(prisma).departmentOf(5)).toBe('BSC')
+  })
+  it('returns null for an inactive or missing user (owns no section)', async () => {
+    const inactive = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue({ role: 'admin', active: false }) } })
+    expect(await new ProjectProgressService(inactive).departmentOf(5)).toBeNull()
+    const missing = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue(null) } })
+    expect(await new ProjectProgressService(missing).departmentOf(5)).toBeNull()
   })
 })
