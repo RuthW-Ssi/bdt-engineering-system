@@ -1,6 +1,10 @@
 import { IsString, IsOptional, IsIn, MaxLength, IsArray, ValidateNested, IsInt, IsPositive, Min } from 'class-validator'
 import { Type } from 'class-transformer'
 
+// Must match the Add/Edit Operator form's options (ResourceList.tsx).
+// LA added 2026-09-29 — the form offered it but saving failed.
+export const OPERATOR_NATIONALITIES = ['TH', 'MM', 'LA']
+
 export class SkillEntryDto {
   @IsInt()
   @Min(1)
@@ -22,7 +26,7 @@ export class CreateOperatorDto {
   name: string
 
   @IsOptional()
-  @IsIn(['TH', 'MM'])
+  @IsIn(OPERATOR_NATIONALITIES)
   nationality?: string
 
   @IsOptional()

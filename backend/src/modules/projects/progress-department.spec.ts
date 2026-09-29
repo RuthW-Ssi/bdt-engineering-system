@@ -12,10 +12,11 @@ describe('PROGRESS_SECTIONS', () => {
 describe('editableSections', () => {
   it.each([
     ['BDP', ['fabrication']],
-    ['BSC', ['payment_transport']],
-    ['BCD', ['erection']],
+    ['BCD', ['payment']],
+    ['BSC', ['transport']],
+    ['BTC', ['erection']],
     [' bdp ', ['fabrication']],
-    ['admin', ['fabrication', 'payment_transport', 'erection']],
+    ['admin', ['fabrication', 'payment', 'transport', 'erection']],
     ['Admin', []],
     ['admin ', []],
     ['BTE', []],
@@ -29,8 +30,9 @@ describe('editableSections', () => {
 describe('assertDepartmentCanEdit', () => {
   it('allows a department to change its own section', () => {
     expect(() => assertDepartmentCanEdit('BDP', ['cut', 'fab_actual_finish_date'])).not.toThrow()
-    expect(() => assertDepartmentCanEdit('BSC', ['payment_status', 'loaded_pcs'])).not.toThrow()
-    expect(() => assertDepartmentCanEdit('BCD', ['erected_pcs', 'erection_plan_finish_date'])).not.toThrow()
+    expect(() => assertDepartmentCanEdit('BCD', ['payment_status'])).not.toThrow()
+    expect(() => assertDepartmentCanEdit('BSC', ['loaded_pcs', 'actual_load_date'])).not.toThrow()
+    expect(() => assertDepartmentCanEdit('BTC', ['erected_pcs', 'erection_plan_finish_date'])).not.toThrow()
   })
 
   it('allows admin to change everything', () => {
@@ -44,6 +46,11 @@ describe('assertDepartmentCanEdit', () => {
   it('rejects a change outside the department\'s section, naming the section', () => {
     expect(() => assertDepartmentCanEdit('BDP', ['cut', 'erected_pcs'])).toThrow(ForbiddenException)
     expect(() => assertDepartmentCanEdit('BDP', ['cut', 'erected_pcs'])).toThrow(/Erection/)
+  })
+
+  it('Payment and Transport are separate owners (BSC cannot set payment, BCD cannot set loads)', () => {
+    expect(() => assertDepartmentCanEdit('BSC', ['payment_status'])).toThrow(/Material Payment/)
+    expect(() => assertDepartmentCanEdit('BCD', ['loaded_pcs'])).toThrow(/Transport/)
   })
 
   it('rejects any change from a department that owns no section', () => {

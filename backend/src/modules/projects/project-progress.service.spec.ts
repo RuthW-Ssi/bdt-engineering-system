@@ -800,8 +800,9 @@ describe('progress edits — department sections', () => {
 
   it.each([
     ['BDP', { cut: 50 }],
-    ['BSC', { payment_status: 'Paid', loaded_pcs: 2 }],
-    ['BCD', { erected_pcs: 1, erection_actual_finish_date: '2026-08-01' }],
+    ['BCD', { payment_status: 'Paid' }],
+    ['BSC', { loaded_pcs: 2, actual_load_date: '2026-07-01' }],
+    ['BTC', { erected_pcs: 1, erection_actual_finish_date: '2026-08-01' }],
   ])('%s can edit its own section', async (role, dto) => {
     const { svc, upsert } = makeSingle()
     await svc.updateAssemblyProgress('0X220', 1, dto as any, 1, role)
@@ -845,7 +846,7 @@ describe('progress edits — department sections', () => {
       bom_assembly_progress: { upsert },
     })
     const svc = new ProjectProgressService(prisma)
-    await expect(svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1], loaded_pcs: 2, payment_status: 'Paid' }, 1, 'BSC'))
+    await expect(svc.bulkUpdateAssemblyProgress('0X220', { assembly_ids: [1], loaded_pcs: 2, plan_load_date: '2026-07-01' }, 1, 'BSC'))
       .resolves.toEqual({ updated: 1 })
   })
 })
