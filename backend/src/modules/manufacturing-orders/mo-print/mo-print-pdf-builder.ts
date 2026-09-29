@@ -11,6 +11,7 @@ import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } f
 import { capList, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
+import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
 
 // pdf-lib's built-in StandardFonts only encode WinAnsi (Latin-1) and throw
 // on the first non-Latin character — project/zone names in this app are
@@ -33,18 +34,23 @@ const [PAGE_HEIGHT, PAGE_WIDTH] = PageSizes.A3
 const MARGIN = 40
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2
 const BORDER_INSET = 20
-const SECTION_BAND_HEIGHT = 18
+// Band/header heights leave room for Thai marks above and below the line
+// (2026-09-29: 18/14 were "แน่นเกินไป" — "สิ้"/"ที่" touched the rules once
+// the labels went Thai). Text is centered vertically in both.
+const SECTION_BAND_HEIGHT = 24
 
-// pdf-lib's CustomFontEmbedder pre-computes the embedded font's /W (glyph
-// width) table from each Unicode codepoint's *default* glyph only — it
-// never sees a contextual GSUB alternate (e.g. Sarabun's small-variant tone
-// mark used after a tall vowel, as in "เชื่อม"). With no /DW fallback set,
-// that glyph silently gets the PDF-spec default width of 1000 units instead
-// of its real (0) width, rendering as a wide visible gap. Disabling the
-// font's 'ccmp' feature makes fontkit select the plain (correctly-widthed)
-// glyph instead — confirmed against every Thai material/zone/project name
-// in the dev DB with zero regressions (2026-09-15).
-const FONT_FEATURES = { ccmp: false }
+// Embedded with `subset: true` and the font's own shaping features ON
+// (2026-09-29). The non-subset CustomFontEmbedder builds its /W (glyph
+// width) table only from each codepoint's *default* glyph, so any contextual
+// GSUB alternate Sarabun's 'ccmp' picks (e.g. the raised tone mark over an
+// upper vowel, as in "เชื่อม") got no /W entry, fell back to the PDF-default
+// 1000-unit width and rendered as a wide gap. The first fix (2026-09-15)
+// turned 'ccmp' off, which removed the gap but left every tone mark sitting
+// ON its upper vowel ("วันที่" read as "วันที", "เริ่ม" as "เริม") — caught
+// once the form's own labels went Thai ("สระไม่ครบ... เป็นเอกสารงานผลิตซึ่งไม่
+// ควร"). The subset embedder records every glyph layout() actually returns,
+// alternates included, so /W is complete and ccmp can stay on.
+const FONT_OPTIONS = { subset: true }
 const BLACK = rgb(0, 0, 0)
 const WHITE = rgb(1, 1, 1)
 const GRAY = rgb(0.45, 0.45, 0.45)
@@ -62,7 +68,7 @@ interface Fonts {
 function drawSectionBand(page: PDFPage, fonts: Fonts, x: number, y: number, width: number, title: string): number {
   const height = SECTION_BAND_HEIGHT
   page.drawRectangle({ x, y: y - height, width, height, color: rgb(0.85, 0.85, 0.85), borderColor: BLACK, borderWidth: 0.75 })
-  page.drawText(title, { x: x + 8, y: y - 13, size: 11, font: fonts.bold, color: BLACK })
+  page.drawText(title, { x: x + 8, y: y - height / 2 - 11 * 0.35, size: 11, font: fonts.bold, color: BLACK })
   return height
 }
 
@@ -164,22 +170,22 @@ const MO_RIGHT_COL_WIDTH = CONTENT_WIDTH - MO_COL_GAP - MO_LEFT_COL_WIDTH
 const ROUTING_ROW_HEIGHT = 30
 const MO_ASSEMBLY_ROW_HEIGHT = 18
 
-async function buildManifestPage(doc: PDFDocument, fonts: Fonts, logoImg: PDFImage, plan: MoPrintPacketPlan): Promise<void> {
+async function buildManifestPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels, logoImg: PDFImage, plan: MoPrintPacketPlan): Promise<void> {
   const page = addPrintPage(doc)
-  const columnsTop = PAGE_HEIGHT - MARGIN - drawMoHeader(page, fonts, logoImg) - 20
+  const columnsTop = PAGE_HEIGHT - MARGIN - drawMoHeader(page, fonts, L, logoImg) - 20
 
   let y = columnsTop
-  y -= drawSectionBand(page, fonts, MARGIN, y, MO_LEFT_COL_WIDTH, 'MO Info')
+  y -= drawSectionBand(page, fonts, MARGIN, y, MO_LEFT_COL_WIDTH, L.moInfo)
   // Project/Zone live on each WO's traveler and in the Assembly List — a
   // single MO can span several projects/zones (one per assembly's dispatch).
   y -= drawFormGrid(page, fonts, MARGIN, y, MO_LEFT_COL_WIDTH, [
     {
       height: 30,
       cells: [
-        { label: 'Manufacturing Order', value: plan.mo.mo_code },
+        { label: L.manufacturingOrder, value: plan.mo.mo_code },
         // Static plant identifier, not the MO's workflow status — this
         // system only prints packets for the BIF factory (2026-09-16).
-        { label: 'Manufacturing Factory', value: 'BIF' },
+        { label: L.manufacturingFactory, value: 'BIF' },
       ],
     },
     {
@@ -190,15 +196,15 @@ async function buildManifestPage(doc: PDFDocument, fonts: Fonts, logoImg: PDFIma
       // Same value/format as each WO traveler's own Project/Zone cells.
       height: 30,
       cells: [
-        { label: 'Project', value: plan.mo.projectCode && plan.mo.projectName ? `${plan.mo.projectCode} — ${plan.mo.projectName}` : '—' },
-        { label: 'Zone', value: plan.mo.subZoneName ? `${plan.mo.zoneLabel} / ${plan.mo.subZoneName}` : plan.mo.zoneLabel ?? '—' },
+        { label: L.project, value: plan.mo.projectCode && plan.mo.projectName ? `${plan.mo.projectCode} — ${plan.mo.projectName}` : '—' },
+        { label: L.zone, value: plan.mo.subZoneName ? `${plan.mo.zoneLabel} / ${plan.mo.subZoneName}` : plan.mo.zoneLabel ?? '—' },
       ],
     },
     {
       // Below Project/Zone (2026-09-22: "เอา mark prfix ลงมาอยู่ใต้ project zone").
       height: 30,
       cells: [
-        { label: 'Mark Prefix', value: plan.mo.primary_mark_prefix_code },
+        { label: L.markPrefix, value: plan.mo.primary_mark_prefix_code },
       ],
     },
     {
@@ -206,30 +212,30 @@ async function buildManifestPage(doc: PDFDocument, fonts: Fonts, logoImg: PDFIma
       cells: [
         // Date+time — plan_start/plan_finish are timestamptz, same as
         // actual_start/actual_finish below (2026-09-22).
-        { label: 'Plan Start', value: plan.mo.plan_start ? formatPlanDateTime(plan.mo.plan_start) : '—' },
-        { label: 'Plan Finish', value: plan.mo.plan_finish ? formatPlanDateTime(plan.mo.plan_finish) : '—' },
+        { label: L.planStart, value: plan.mo.plan_start ? formatPlanDateTime(plan.mo.plan_start) : '—' },
+        { label: L.planFinish, value: plan.mo.plan_finish ? formatPlanDateTime(plan.mo.plan_finish) : '—' },
       ],
     },
     {
       height: 30,
       cells: [
-        { label: 'Actual Start', value: plan.mo.actual_start ? formatPlanDateTime(plan.mo.actual_start) : '—' },
-        { label: 'Actual Finish', value: plan.mo.actual_finish ? formatPlanDateTime(plan.mo.actual_finish) : '—' },
+        { label: L.actualStart, value: plan.mo.actual_start ? formatPlanDateTime(plan.mo.actual_start) : '—' },
+        { label: L.actualFinish, value: plan.mo.actual_finish ? formatPlanDateTime(plan.mo.actual_finish) : '—' },
       ],
     },
   ])
-  drawRoutingChecklist(page, fonts, plan, MARGIN, y - 12, MO_LEFT_COL_WIDTH)
+  drawRoutingChecklist(page, fonts, L, plan, MARGIN, y - 12, MO_LEFT_COL_WIDTH)
 
-  drawMoAssemblyList(doc, page, fonts, plan, MARGIN + MO_LEFT_COL_WIDTH + MO_COL_GAP, columnsTop)
+  drawMoAssemblyList(doc, page, fonts, L, plan, MARGIN + MO_LEFT_COL_WIDTH + MO_COL_GAP, columnsTop)
   drawMoWatermark(page, fonts, plan)
 
-  buildAssemblyPartsPages(doc, fonts, plan)
+  buildAssemblyPartsPages(doc, fonts, L, plan)
 }
 
 // Company logo + name lockup on the left (same lockup as the app's own
 // Topbar — logo, then "SSI BUILDING TECH" / "POWER KEYCHAIN" stacked to its
 // right), document title right-aligned on the same row. Returns its height.
-function drawMoHeader(page: PDFPage, fonts: Fonts, logoImg: PDFImage): number {
+function drawMoHeader(page: PDFPage, fonts: Fonts, L: PrintLabels, logoImg: PDFImage): number {
   const top = PAGE_HEIGHT - MARGIN
   const logoHeight = 34
   const logoWidth = logoHeight * (logoImg.width / logoImg.height)
@@ -240,7 +246,7 @@ function drawMoHeader(page: PDFPage, fonts: Fonts, logoImg: PDFImage): number {
   page.drawText('SSI BUILDING TECH', { x: textX, y: logoY + logoHeight / 2 + 4, size: 10, font: fonts.bold, color: BLACK })
   page.drawText('POWER KEYCHAIN', { x: textX, y: logoY + logoHeight / 2 - 9, size: 8, font: fonts.regular, color: GRAY })
 
-  const title = 'Manufacturing Order'
+  const title = L.manufacturingOrder
   const titleSize = 16
   const titleWidth = fonts.bold.widthOfTextAtSize(title, titleSize)
   page.drawText(title, { x: PAGE_WIDTH - MARGIN - titleWidth, y: logoY + logoHeight / 2 - titleSize / 2 + 3, size: titleSize, font: fonts.bold, color: BLACK })
@@ -269,15 +275,15 @@ function drawTickBox(page: PDFPage, col: TableColumn, rowTop: number, rowHeight:
 // traveler pages; this checklist is meant to summarize the MO's whole
 // routing plan regardless of that, so it needs its own unfiltered source —
 // see MoPrintService.getRoutingOps).
-function drawRoutingChecklist(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan, x: number, top: number, width: number): void {
-  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Routing')
+function drawRoutingChecklist(page: PDFPage, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan, x: number, top: number, width: number): void {
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, L.routing)
   const cols = layoutColumns([
-    ['Seq', 30], ['Operation', 160], ['Work Center', 100], ['WO', 95],
+    [L.seq, 30], [L.operation, 160], [L.workCenter, 100], [L.wo, 95],
     // Tick-box columns carry no label of their own — the group label
     // (Release / Done) is enough (2026-09-16 feedback).
-    ['', 30], ['Date', 70], ['', 30], ['Date', 70],
+    ['', 30], [L.date, 70], ['', 30], [L.date, 70],
   ], x, width)
-  const groups: ColumnGroup[] = [{ label: 'Release', first: 4, last: 5 }, { label: 'Done', first: 6, last: 7 }]
+  const groups: ColumnGroup[] = [{ label: L.release, first: 4, last: 5 }, { label: L.done, first: 6, last: 7 }]
   const headerTop = top - bandHeight
   const bodyTop = headerTop - HEADER_ROW_HEIGHT * 2
   const ops = plan.routingOps
@@ -298,12 +304,12 @@ function drawRoutingChecklist(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPl
 // the MO page.
 // Project/Zone dropped (2026-09-22, moved to MO Info) — their freed width
 // went to Mark/Name, the two columns most likely to need it.
-const MO_ASSEMBLY_COLUMNS: [label: string, weight: number][] = [
-  ['No.', 24], ['Mark', 140], ['Name', 180],
-  ['Width (mm)', 55], ['Length (mm)', 55], ['Height (mm)', 55], ['Weight (kg)', 60], ['Qty', 40],
+const moAssemblyColumns = (L: PrintLabels): [label: string, weight: number][] => [
+  [L.no, 24], [L.mark, 140], [L.name, 180],
+  [L.widthMm, 55], [L.lengthMm, 55], [L.heightMm, 55], [L.weightKg, 60], [L.qty, 40],
 ]
 
-function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan, x: number, top: number): void {
+function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan, x: number, top: number): void {
   const markValues = (mark: MoPrintPacketPlan['marks'][number]) => [
     String(mark.seq),
     mark.assemblyMark,
@@ -317,7 +323,7 @@ function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan:
   // Draws one page's worth of the list; returns how many marks it placed.
   const drawChunk = (target: PDFPage, chunkX: number, chunkTop: number, width: number, title: string, marks: MoPrintPacketPlan['marks']) => {
     const bandHeight = drawSectionBand(target, fonts, chunkX, chunkTop, width, title)
-    const cols = layoutColumns(MO_ASSEMBLY_COLUMNS, chunkX, width)
+    const cols = layoutColumns(moAssemblyColumns(L), chunkX, width)
     const headerTop = chunkTop - bandHeight
     const bodyTop = headerTop - HEADER_ROW_HEIGHT * 2
     const capacity = Math.floor((bodyTop - MARGIN) / MO_ASSEMBLY_ROW_HEIGHT)
@@ -329,10 +335,10 @@ function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan:
   }
 
   let remaining = plan.marks
-  remaining = remaining.slice(drawChunk(page, x, top, MO_RIGHT_COL_WIDTH, 'Assembly List', remaining))
+  remaining = remaining.slice(drawChunk(page, x, top, MO_RIGHT_COL_WIDTH, L.assemblyList, remaining))
   while (remaining.length > 0) {
     const contPage = addPrintPage(doc)
-    remaining = remaining.slice(drawChunk(contPage, MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, 'Assembly List (cont.)', remaining))
+    remaining = remaining.slice(drawChunk(contPage, MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, `${L.assemblyList} ${L.cont}`, remaining))
     drawMoWatermark(contPage, fonts, plan)
   }
 }
@@ -345,13 +351,13 @@ function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan:
 // By/Qty) with no shared place to note the round's own date/time or who
 // signed off on it overall. "1st/2nd/3rd" reuses the same round labels as
 // the table below instead of a separate "ครั้งที่ N" numbering.
-function drawWithdrawalLog(page: PDFPage, fonts: Fonts, x: number, top: number, width: number): number {
-  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Withdrawal Log')
-  const cols = layoutColumns([['Round', 60], ['Date/Time', 150], ['Requested By', 220], ['Store Controller', 220]], x, width)
-  const tableHeight = drawCappedTable(page, fonts, cols, top - bandHeight, CONSUME_ROW_HEIGHT, 3, [
-    { values: ['1st'] },
-    { values: ['2nd'] },
-    { values: ['3rd'] },
+function drawWithdrawalLog(page: PDFPage, fonts: Fonts, L: PrintLabels, x: number, top: number, width: number): number {
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, L.withdrawalLog)
+  const cols = layoutColumns([[L.round, 60], [L.dateTime, 150], [L.requestedBy, 220], [L.storeController, 220]], x, width)
+  const tableHeight = drawCappedTable(page, fonts, L, cols, top - bandHeight, CONSUME_ROW_HEIGHT, 3, [
+    { values: [L.round1] },
+    { values: [L.round2] },
+    { values: [L.round3] },
   ])
   return bandHeight + tableHeight
 }
@@ -368,12 +374,12 @@ function drawWithdrawalLog(page: PDFPage, fonts: Fonts, x: number, top: number, 
 // repeating the column header and — mid-group — the assembly's row. The
 // Withdrawal Log (2026-09-22) sits above it on that same first page only —
 // continuation pages go straight into "Assembly Part List (cont.)".
-function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPacketPlan): void {
+function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan): void {
   if (plan.assemblyParts.length === 0) return
   let currentPage = addPrintPage(doc)
   let y = PAGE_HEIGHT - MARGIN
-  y -= drawWithdrawalLog(currentPage, fonts, MARGIN, y, CONTENT_WIDTH) + TRAVELER_SECTION_GAP
-  y -= drawSectionBand(currentPage, fonts, MARGIN, y, CONTENT_WIDTH, 'Assembly Part List')
+  y -= drawWithdrawalLog(currentPage, fonts, L, MARGIN, y, CONTENT_WIDTH) + TRAVELER_SECTION_GAP
+  y -= drawSectionBand(currentPage, fonts, MARGIN, y, CONTENT_WIDTH, L.assemblyPartList)
 
   // One plain column per round now, not a "By" + "Qty" pair under a "Nth
   // Withdrawal" group label (2026-09-22: "column by ก็เอาออกด้วยสิ 1st
@@ -383,9 +389,9 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
   // groups list for that, same as it takes for an ordinary ungrouped
   // column elsewhere.
   const cols = layoutColumns([
-    ['Part Mark', 130], ['Profile', 110], ['Grade', 70], ['Qty', 55], ['Weight (kg)', 70],
-    ['1st', 90], ['2nd', 90], ['3rd', 90],
-    ['Note', 140],
+    [L.partMark, 130], [L.profile, 110], [L.grade, 70], [L.qty, 55], [L.weightKg, 70],
+    [L.round1, 90], [L.round2, 90], [L.round3, 90],
+    [L.note, 140],
   ])
   const groupHeight = 18
   const partHeight = 16
@@ -404,8 +410,8 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
   // No column dividers across a group row — its label spans the table.
   const drawGroupRow = (group: MoPrintPacketPlan['assemblyParts'][number], continued: boolean) => {
     currentPage.drawRectangle({ x: MARGIN, y: y - groupHeight, width: CONTENT_WIDTH, height: groupHeight, color: rgb(0.95, 0.95, 0.95) })
-    const label = [group.assemblyMark, group.name, `Assembly Qty ${fmt2(group.qty)}`].filter(Boolean).join('   ·   ')
-    currentPage.drawText(continued ? `${label}   (cont.)` : label, { x: MARGIN + 4, y: y - 13, size: 9, font: fonts.bold, color: BLACK })
+    const label = [group.assemblyMark, group.name, L.assemblyQty(fmt2(group.qty))].filter(Boolean).join('   ·   ')
+    currentPage.drawText(continued ? `${label}   ${L.cont}` : label, { x: MARGIN + 4, y: y - 13, size: 9, font: fonts.bold, color: BLACK })
     y -= groupHeight
     drawRule()
   }
@@ -438,7 +444,7 @@ function buildAssemblyPartsPages(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
       // fill-in field; it doesn't need a number printed in it first).
       const values = part
         ? [part.part_mark, part.profile ?? '—', part.grade ?? '—', fmt2(part.qty), part.weight_kg != null ? fmt2(part.weight_kg) : '—']
-        : ['No parts']
+        : [L.noParts]
       values.forEach((value, i) => {
         if (!value) return
         const inset = i === 0 ? partIndent : 3
@@ -488,7 +494,7 @@ const PRODUCTION_ROW_HEIGHT = 34
 // drawActivities) and may stretch them slightly taller to fill it exactly.
 const CONSUME_ROW_HEIGHT = 24
 
-async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPacketPlan, row: MoPrintWorkOrderRow): Promise<void> {
+async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan, row: MoPrintWorkOrderRow): Promise<void> {
   const page = addPrintPage(doc)
   const top = PAGE_HEIGHT - MARGIN
   const leftX = MARGIN
@@ -496,23 +502,23 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
 
   // Left column, top-down.
   let y = top
-  y -= drawSectionBand(page, fonts, leftX, y, colWidth, 'Work Order Details')
-  y -= (await drawWoDetails(doc, page, fonts, plan, row, leftX, y, colWidth)) + TRAVELER_SECTION_GAP
+  y -= drawSectionBand(page, fonts, leftX, y, colWidth, L.workOrderDetails)
+  y -= (await drawWoDetails(doc, page, fonts, L, plan, row, leftX, y, colWidth)) + TRAVELER_SECTION_GAP
   const productionHeight = SECTION_BAND_HEIGHT + PRODUCTION_ROW_HEIGHT * 2
 
   // Production Time/Activities pulled up snug against Consume's actual
   // (fixed) height (2026-09-21) — Consume no longer fills a pre-computed
   // slot.
-  const consumeHeight = drawWoConsume(page, fonts, row, leftX, y, colWidth)
+  const consumeHeight = drawWoConsume(page, fonts, L, row, leftX, y, colWidth)
   y -= consumeHeight + TRAVELER_SECTION_GAP
-  drawProductionTime(page, fonts, row, leftX, y, colWidth)
+  drawProductionTime(page, fonts, L, row, leftX, y, colWidth)
   y -= productionHeight + TRAVELER_SECTION_GAP
   // Activities fills the rest of the column down to MARGIN (2026-09-22),
   // so its own bottom border lands on the same line as the right column's.
-  drawActivities(page, fonts, row, leftX, y, colWidth)
+  drawActivities(page, fonts, L, row, leftX, y, colWidth)
 
   const rightX = MARGIN + colWidth + TRAVELER_COL_GAP
-  const placed = drawAssemblyAndQcChunk(page, fonts, row.marks, rightX, top, TRAVELER_RIGHT_COL_WIDTH, 'Assembly List & QC')
+  const placed = drawAssemblyAndQcChunk(page, fonts, L, row.marks, rightX, top, TRAVELER_RIGHT_COL_WIDTH, L.assemblyListQc)
 
   // Each column keeps its own complete, independent border (2026-09-22) —
   // no line bridging the gap between them after all ("เส้นนั้นคิดว่าไม่
@@ -529,7 +535,7 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
   let remaining = row.marks.slice(placed)
   while (remaining.length > 0) {
     const contPage = addPrintPage(doc)
-    const n = drawAssemblyAndQcChunk(contPage, fonts, remaining, MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, 'Assembly List & QC (cont.)')
+    const n = drawAssemblyAndQcChunk(contPage, fonts, L, remaining, MARGIN, PAGE_HEIGHT - MARGIN, CONTENT_WIDTH, `${L.assemblyListQc} ${L.cont}`)
     remaining = remaining.slice(n)
     drawWoWatermark(contPage, fonts, row)
   }
@@ -539,7 +545,7 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, plan: MoPrintPa
 // right, sized to the grid's height and centered in it. The QR points at
 // this WO's page in the app — no scan-to-complete flow exists yet (see
 // mo-print-qr.ts). Planned time moved out of here into Production Time.
-async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan, row: MoPrintWorkOrderRow, x: number, top: number, width: number): Promise<number> {
+async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan, row: MoPrintWorkOrderRow, x: number, top: number, width: number): Promise<number> {
   // 110 → 140 (2026-09-21: "ขยาย qr code เพิ่มอีกหน่อย") — the box's own
   // width is still what bounds qrSize below (the grid is taller than it is
   // wide), so growing the box is what actually grows the code, not just
@@ -548,15 +554,15 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
   const qrGap = 10
   const gridWidth = width - qrColWidth - qrGap
   const gridHeight = drawFormGrid(page, fonts, x, top, gridWidth, [
-    { height: 40, cells: [{ label: 'Manufacturing Order', value: plan.mo.mo_code }, { label: 'Work Order', value: row.wo.wo_code }] },
+    { height: 40, cells: [{ label: L.manufacturingOrder, value: plan.mo.mo_code }, { label: L.workOrder, value: row.wo.wo_code }] },
     {
       height: 40,
       cells: [
-        { label: 'Sequence / Work Center', value: `${row.wo.sequence} — ${row.workCenterName}` },
+        { label: L.sequenceWorkCenter, value: `${row.wo.sequence} — ${row.workCenterName}` },
         // The specific routing operation (e.g. "SAW auto weld"), distinct
         // from the work center (the physical station) — resolved
         // server-side from source_routing_op_id.
-        { label: 'Operation', value: row.operationLabel ?? '—' },
+        { label: L.operation, value: row.operationLabel ?? '—' },
       ],
     },
     // Mark/Quantity dropped (2026-09-21) — already shown in the Assembly
@@ -568,14 +574,14 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
     {
       height: 40,
       cells: [
-        { label: 'Project', value: `${row.projectCode} — ${row.projectName}` },
-        { label: 'Zone', value: row.subZoneName ? `${row.zoneLabel} / ${row.subZoneName}` : row.zoneLabel },
+        { label: L.project, value: `${row.projectCode} — ${row.projectName}` },
+        { label: L.zone, value: row.subZoneName ? `${row.zoneLabel} / ${row.subZoneName}` : row.zoneLabel },
       ],
     },
     // Headcount added next to Team (2026-09-25: "อยากเพิ่มมาอีก 1 ช่องคือ
     // ใส่จำนวนคนในทีมที่ใช้ทำใน wo นี้") — same crew-size value set on
     // Create WO (auto-counted for internal teams, manual for external).
-    { height: 40, cells: [{ label: 'Team', value: row.assignedTo ?? '—' }, { label: 'Headcount', value: String(row.teamHeadcount) }] },
+    { height: 40, cells: [{ label: L.team, value: row.assignedTo ?? '—' }, { label: L.headcount, value: String(row.teamHeadcount) }] },
   ])
 
   const qrBoxX = x + gridWidth + qrGap
@@ -642,8 +648,8 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, plan
 // so there's no "last line" of its own to line up with anything. Returns
 // the actual height drawn (band + table) so the caller can pull Production
 // Time/Activities up snug against Consume's real bottom edge.
-function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): number {
-  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Consumable')
+function drawWoConsume(page: PDFPage, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow, x: number, top: number, width: number): number {
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, L.consumable)
   const signWidth = 140
   // Fixed at 6 rows (2026-09-21) — was fill-the-slot via fitTableRows; the
   // sign boxes to the right are sized off tableHeight below, so they shrink
@@ -651,17 +657,17 @@ function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x:
   // same trade-off already accepted for the QC table's 3-round cap.
   const capacity = 6
   const rowHeight = CONSUME_ROW_HEIGHT
-  const cols = layoutColumns([['Code', 100], ['Name', 300], ['Qty', 70], ['Unit', 50], ['Actual', 90]], x, width - signWidth)
-  const tableHeight = drawCappedTable(page, fonts, cols, top - bandHeight, rowHeight, capacity, row.consume.map(item => ({
+  const cols = layoutColumns([[L.code, 100], [L.name, 300], [L.qty, 70], [L.unit, 50], [L.actual, 90]], x, width - signWidth)
+  const tableHeight = drawCappedTable(page, fonts, L, cols, top - bandHeight, rowHeight, capacity, row.consume.map(item => ({
     values: [item.code, item.name, fmt0(item.qty), item.unit ?? '—', ''],
   })))
   // Each sign box is itself split top/bottom (2026-09-21) — signature above,
   // date/time below — rather than one open box per person.
   drawFormGrid(page, fonts, x + width - signWidth, top - bandHeight, signWidth, [
-    { height: tableHeight / 4, cells: [{ label: 'Requested By' }] },
-    { height: tableHeight / 4, cells: [{ label: 'Date/Time' }] },
-    { height: tableHeight / 4, cells: [{ label: 'Responsible' }] },
-    { height: tableHeight / 4, cells: [{ label: 'Date/Time' }] },
+    { height: tableHeight / 4, cells: [{ label: L.requestedBy }] },
+    { height: tableHeight / 4, cells: [{ label: L.dateTime }] },
+    { height: tableHeight / 4, cells: [{ label: L.responsible }] },
+    { height: tableHeight / 4, cells: [{ label: L.dateTime }] },
   ])
   return bandHeight + tableHeight
 }
@@ -670,24 +676,24 @@ function drawWoConsume(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x:
 // from the active production schedule (blank when unscheduled); Plan
 // Duration is the WO's setup + run minutes (the same numbers the WO was
 // created with). The Actual row is blank for hand-fill.
-function drawProductionTime(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): void {
-  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Production Time')
+function drawProductionTime(page: PDFPage, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow, x: number, top: number, width: number): void {
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, L.productionTime)
   const responsibleWidth = 130
   const rowHeight = PRODUCTION_ROW_HEIGHT
   drawFormGrid(page, fonts, x, top - bandHeight, responsibleWidth, [
-    { height: rowHeight * 2, cells: [{ label: 'Responsible', value: row.assignedTo ?? undefined }] },
+    { height: rowHeight * 2, cells: [{ label: L.responsible, value: row.assignedTo ?? undefined }] },
   ])
   const plannedTotal = row.wo.setup_time_min + row.wo.expected_duration_min
   drawFormGrid(page, fonts, x + responsibleWidth, top - bandHeight, width - responsibleWidth, [
     {
       height: rowHeight,
       cells: [
-        { label: 'Plan Start', value: formatPlanDateTime(row.planStart) },
-        { label: 'Plan Finish', value: formatPlanDateTime(row.planEnd) },
-        { label: 'Plan Duration', value: `${fmt0(plannedTotal)} min` },
+        { label: L.planStart, value: formatPlanDateTime(row.planStart) },
+        { label: L.planFinish, value: formatPlanDateTime(row.planEnd) },
+        { label: L.planDuration, value: L.minutes(fmt0(plannedTotal)) },
       ],
     },
-    { height: rowHeight, cells: [{ label: 'Actual Start' }, { label: 'Actual Finish' }, { label: 'Actual Duration' }] },
+    { height: rowHeight, cells: [{ label: L.actualStart }, { label: L.actualFinish }, { label: L.actualDuration }] },
   ])
 }
 
@@ -698,8 +704,8 @@ function drawProductionTime(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRo
 // red rather than shown as an indistinguishable "0 min". Fixed-size table,
 // same as Consume — see the capacity/rowHeight comment below for the
 // trade-off this replaced (used to shrink rows rather than ever cap them).
-function drawActivities(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x: number, top: number, width: number): void {
-  const bandHeight = drawSectionBand(page, fonts, x, top, width, 'Activities')
+function drawActivities(page: PDFPage, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow, x: number, top: number, width: number): void {
+  const bandHeight = drawSectionBand(page, fonts, x, top, width, L.activities)
   const bodyTop = top - bandHeight
   // Capacity computed from the space actually left down to MARGIN, same
   // "fill exactly to the bottom margin" idiom as drawAssemblyAndQcChunk on
@@ -727,9 +733,9 @@ function drawActivities(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, x
   // Note column (2026-09-28: "เพิ่ม note เข้ามาด้วยจะได้บันทึกว่าทำไมถึงใช้
   // เวลาเกินที่กำหนดไว้หรือเวลาน้อยกว่ากำหนด") — blank, hand-filled explaining
   // why Actual came in over/under Planned Min for that activity.
-  const cols = layoutColumns([['Activity', 330], ['Type', 70], ['Planned Min', 110], ['Actual', 110], ['Note', 150]], x, width)
-  drawCappedTable(page, fonts, cols, bodyTop, rowHeight, capacity, row.activities.map(act => ({
-    values: [act.name, act.kind, act.unresolved ? 'unresolved' : fmt0(act.minutes), '', ''],
+  const cols = layoutColumns([[L.activity, 330], [L.type, 70], [L.plannedMin, 110], [L.actual, 110], [L.note, 150]], x, width)
+  drawCappedTable(page, fonts, L, cols, bodyTop, rowHeight, capacity, row.activities.map(act => ({
+    values: [act.name, act.kind, act.unresolved ? L.unresolved : fmt0(act.minutes), '', ''],
     color: act.unresolved ? rgb(0.78, 0.13, 0.16) : undefined,
   })))
 }
@@ -768,7 +774,7 @@ function drawSplitCell(page: PDFPage, fonts: Fonts, col: TableColumn, bodyTop: n
 // placed so the caller can continue with the remainder on another page.
 // Repeated-column-group shape (Result/Signature × 1st/2nd/3rd, one shared
 // Note column) matches the manifest's Assembly Part List withdrawal rounds.
-function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, marks: MoPrintAssemblyMarkRow[], x: number, top: number, width: number, title: string): number {
+function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, L: PrintLabels, marks: MoPrintAssemblyMarkRow[], x: number, top: number, width: number, title: string): number {
   drawSectionBand(page, fonts, x, top, width, title)
   const headerTop = top - SECTION_BAND_HEIGHT
   const bodyTop0 = headerTop - HEADER_ROW_HEIGHT
@@ -777,13 +783,13 @@ function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, marks: MoPrintAssem
   // now the whole identity block, so the QC round columns shift down by
   // one slot (was 4-9, now 3-8; Note was 10, now 9).
   const cols = layoutColumns([
-    ['Mark', 70], ['Name', 60], ['Qty', 30],
-    ['Result', 45], ['Signature', 70],
-    ['Result', 45], ['Signature', 70],
-    ['Result', 45], ['Signature', 70],
-    ['Note', 70],
+    [L.mark, 70], [L.name, 60], [L.qty, 30],
+    [L.result, 45], [L.signature, 70],
+    [L.result, 45], [L.signature, 70],
+    [L.result, 45], [L.signature, 70],
+    [L.note, 70],
   ], x, width)
-  const qcRounds: ColumnGroup[] = ['1st', '2nd', '3rd'].map((nth, i) => ({ label: nth, first: 3 + i * 2, last: 4 + i * 2 }))
+  const qcRounds: ColumnGroup[] = [L.round1, L.round2, L.round3].map((nth, i) => ({ label: nth, first: 3 + i * 2, last: 4 + i * 2 }))
 
   const capacity = Math.max(1, Math.floor((bodyTop0 - MARGIN) / RECORD_ROW_HEIGHT))
   const rowHeight = (bodyTop0 - MARGIN) / capacity
@@ -792,8 +798,8 @@ function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, marks: MoPrintAssem
   const placed = marks.slice(0, capacity)
   placed.forEach((mark, i) => {
     const bodyTop = bodyTop0 - rowHeight * i
-    for (const j of [3, 5, 7]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, 'Passed', 'Not')
-    for (const j of [4, 6, 8]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, 'Signature', 'Date/Time')
+    for (const j of [3, 5, 7]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, L.passed, L.notPassed)
+    for (const j of [4, 6, 8]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, L.signature, L.dateTime)
     const values = [
       mark.assemblyMark,
       mark.name ?? '—',
@@ -813,7 +819,7 @@ function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, marks: MoPrintAssem
   return placed.length
 }
 
-const HEADER_ROW_HEIGHT = 14
+const HEADER_ROW_HEIGHT = 20
 
 interface ColumnGroup { label: string; first: number; last: number }
 
@@ -844,7 +850,8 @@ function drawGroupedHeader(page: PDFPage, fonts: Fonts, cols: TableColumn[], gro
       if (!g || i === g.first) {
         const label = g ? g.label : c.label
         const labelWidth = g ? cols[g.last].x + cols[g.last].w - c.x : c.w
-        page.drawText(label, { x: c.x + 3, y: top - 10, size: fitTextSize(fonts.bold, label, labelWidth - 6, 9), font: fonts.bold, color: BLACK })
+        const size = fitTextSize(fonts.bold, label, labelWidth - 6, 9)
+        page.drawText(label, { x: c.x + 3, y: top - height / 2 - size * 0.35, size, font: fonts.bold, color: BLACK })
       }
       if (i === 0) return
       page.drawLine({ start: { x: c.x, y: top }, end: { x: c.x, y: bottom }, thickness: 0.75, color: BLACK })
@@ -854,8 +861,10 @@ function drawGroupedHeader(page: PDFPage, fonts: Fonts, cols: TableColumn[], gro
   }
 
   cols.forEach((c, i) => {
-    const y = groupOf(i) ? bottom + 4 : bottom + HEADER_ROW_HEIGHT - 3
-    page.drawText(c.label, { x: c.x + 3, y, size: fitTextSize(fonts.bold, c.label, c.w - 6, 9), font: fonts.bold, color: BLACK })
+    const size = fitTextSize(fonts.bold, c.label, c.w - 6, 9)
+    // Grouped: centered in the lower row. Ungrouped: centered across both.
+    const y = (groupOf(i) ? bottom + HEADER_ROW_HEIGHT / 2 : bottom + HEADER_ROW_HEIGHT) - size * 0.35
+    page.drawText(c.label, { x: c.x + 3, y, size, font: fonts.bold, color: BLACK })
     if (i === 0) return
     const g = groupOf(i)
     const lineTop = g && i > g.first ? top - HEADER_ROW_HEIGHT : top
@@ -863,7 +872,7 @@ function drawGroupedHeader(page: PDFPage, fonts: Fonts, cols: TableColumn[], gro
   })
   for (const g of groups) {
     const [a, b] = [cols[g.first], cols[g.last]]
-    page.drawText(g.label, { x: a.x + 3, y: top - 10, size: 9, font: fonts.bold, color: BLACK })
+    page.drawText(g.label, { x: a.x + 3, y: top - HEADER_ROW_HEIGHT / 2 - 9 * 0.35, size: 9, font: fonts.bold, color: BLACK })
     page.drawLine({ start: { x: a.x, y: top - HEADER_ROW_HEIGHT }, end: { x: b.x + b.w, y: top - HEADER_ROW_HEIGHT }, thickness: 0.75, color: BLACK })
   }
   page.drawLine({ start: { x, y: bottom }, end: { x: x + width, y: bottom }, thickness: 0.75, color: BLACK })
@@ -894,7 +903,7 @@ interface CappedTableRow { values: string[]; color?: RGB }
 // (hand-fill space). If there are more rows than fit, the last one
 // becomes a "+N more" pointer to the WO page (the QR) instead of rows
 // silently disappearing. Returns the table's total height.
-function drawCappedTable(page: PDFPage, fonts: Fonts, cols: TableColumn[], top: number, rowHeight: number, capacity: number, rows: CappedTableRow[]): number {
+function drawCappedTable(page: PDFPage, fonts: Fonts, L: PrintLabels, cols: TableColumn[], top: number, rowHeight: number, capacity: number, rows: CappedTableRow[]): number {
   const x = cols[0].x
   const last = cols[cols.length - 1]
   const width = last.x + last.w - x
@@ -914,7 +923,7 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, cols: TableColumn[], top: 
         if (value) page.drawText(value, { x: c.x + 3, y: baseline(y), size: fitTextSize(fonts.regular, value, c.w - 6, textSize), font: fonts.regular, color: r.color ?? BLACK })
       })
     } else if (i === shown.length && hiddenCount > 0) {
-      const more = `+${hiddenCount} more (see QR)`
+      const more = L.moreSeeQr(hiddenCount)
       page.drawText(more, { x: x + 3, y: baseline(y), size: fitTextSize(fonts.bold, more, cols[0].w - 6, textSize), font: fonts.bold, color: BLACK })
     }
     y -= rowHeight
@@ -1099,13 +1108,15 @@ export async function buildMoPrintPdf(
   plan: MoPrintPacketPlan,
   fetchDrawingBytes: (row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow) => Promise<Uint8Array>,
   includeManifest = true,
+  lang: PrintLang = 'en',
 ): Promise<Uint8Array> {
+  const L = PRINT_LABELS[lang]
   const doc = await PDFDocument.create()
   doc.setTitle(formatPrintPacketTitle(plan.mo.mo_code, new Date()))
   doc.registerFontkit(fontkit)
   const fonts: Fonts = {
-    regular: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Regular.ttf')), { features: FONT_FEATURES }),
-    bold: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Bold.ttf')), { features: FONT_FEATURES }),
+    regular: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Regular.ttf')), FONT_OPTIONS),
+    bold: await doc.embedFont(fs.readFileSync(path.join(FONT_DIR, 'Sarabun-Bold.ttf')), FONT_OPTIONS),
   }
   // Only the manifest header lockup uses the real company logo — the QR
   // center icon and WO watermark use a plain vector mark instead
@@ -1113,11 +1124,11 @@ export async function buildMoPrintPdf(
   const logoImg = await doc.embedPng(fs.readFileSync(LOGO_PATH))
 
   if (includeManifest) {
-    await buildManifestPage(doc, fonts, logoImg, plan)
+    await buildManifestPage(doc, fonts, L, logoImg, plan)
   }
 
   for (const row of plan.rows) {
-    await buildTravelerPage(doc, fonts, plan, row)
+    await buildTravelerPage(doc, fonts, L, plan, row)
     for (const mark of row.marks) {
       const drawingBytes = await fetchDrawingBytes(row, mark)
       const drawingDoc = await PDFDocument.load(drawingBytes)

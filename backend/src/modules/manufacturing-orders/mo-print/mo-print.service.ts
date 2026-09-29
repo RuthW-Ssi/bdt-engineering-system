@@ -5,6 +5,7 @@ import { FileStorageService } from '../../file-storage/file-storage.service'
 import { ManufacturingOrderService } from '../manufacturing-orders.service'
 import { computeActivityDuration, type ActivityDurationBreakdownItem } from '../../work-orders/activity-duration.util'
 import { buildMoPrintPdf } from './mo-print-pdf-builder'
+import type { PrintLang } from './mo-print-labels'
 import { findLatestPdfForMark } from './mark-drawing-match'
 import { summarizeOperations, type OperationSummary } from './mo-print-format'
 
@@ -232,7 +233,8 @@ export class MoPrintService {
   // shipped — see FileStorageDriver.getObject's own doc comment.
   // `includeManifest` (2026-09-21) — the MO overview page is its own toggle,
   // independent of `workOrderIds`, so "just the MO" (no WOs) is a valid ask.
-  async buildPdf(moId: number, workOrderIds?: number[], includeManifest = true): Promise<Uint8Array> {
+  // `lang` (2026-09-29) — the form's own labels only; see mo-print-labels.ts.
+  async buildPdf(moId: number, workOrderIds?: number[], includeManifest = true, lang: PrintLang = 'en'): Promise<Uint8Array> {
     const plan = await this.buildPlan(moId, workOrderIds, includeManifest)
     return buildMoPrintPdf(
       plan,
@@ -246,6 +248,7 @@ export class MoPrintService {
         }
       },
       includeManifest,
+      lang,
     )
   }
 

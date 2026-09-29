@@ -398,13 +398,18 @@ export async function getRoutingTemplateDetail(id: number): Promise<RoutingTempl
 // `includeManifest` — whether the MO overview page is included too; omitted
 // means included (backward-compatible default). At least one of the two
 // must end up non-empty/true — the backend 409s otherwise.
-export async function fetchMoPrintPacketBlob(id: number, woIds?: number[], includeManifest?: boolean): Promise<Blob> {
+// `lang` (2026-09-29) — language of the printed form's labels; backend
+// defaults to 'en' when omitted.
+export type PrintLang = 'en' | 'th'
+
+export async function fetchMoPrintPacketBlob(id: number, woIds?: number[], includeManifest?: boolean, lang?: PrintLang): Promise<Blob> {
   try {
     return (await apiClient.get(`/mo/${id}/print-packet`, {
       responseType: 'blob',
       params: {
         ...(woIds ? { wo_ids: woIds.join(',') } : {}),
         ...(includeManifest === false ? { include_manifest: 'false' } : {}),
+        ...(lang ? { lang } : {}),
       },
     })).data as Blob
   } catch (err) {

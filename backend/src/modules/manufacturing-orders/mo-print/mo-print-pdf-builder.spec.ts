@@ -23,20 +23,61 @@ function decodedContentStream(doc: PDFDocument, pageIndex: number): string {
   return Buffer.concat(chunks).toString('latin1')
 }
 
-// Decodes every content-stream byte across the whole document into one
-// uppercase string of raw operator text, and slices each <...> hex-string
-// operand into its individual 4-hex-digit glyph codes. Used to prove a
-// *specific* CID never gets drawn — the ground-truth check for the Thai
-// small-variant-glyph regression below.
-function drawnGlyphCodes(doc: PDFDocument): Set<string> {
-  let all = ''
-  for (let i = 0; i < doc.getPageCount(); i++) all += decodedContentStream(doc, i)
-  const codes = new Set<string>()
-  for (const match of all.matchAll(/<([0-9A-Fa-f]+)>/g)) {
-    const hex = match[1].toUpperCase()
-    for (let j = 0; j < hex.length; j += 4) codes.add(hex.slice(j, j + 4))
+// Every drawn glyph whose CID has no entry in its own font's /W array — the
+// PDF then falls back to a 1000-unit default width, which is exactly the
+// wide-gap bug in Thai text ("เชื่อม"). Walks each page's content stream in
+// order, tracking the current font (`/Name size Tf`) so each `<hex> Tj` is
+// checked against the right font's /W, not a union of all fonts.
+function glyphsWithoutWidth(doc: PDFDocument): string[] {
+  const missing: string[] = []
+  for (let i = 0; i < doc.getPageCount(); i++) {
+    const fonts = doc.getPage(i).node.Resources()?.lookupMaybe(PDFName.of('Font'), PDFDict)
+    const coverage = new Map<string, Set<number>>()
+    const covered = (name: string): Set<number> => {
+      if (!coverage.has(name)) {
+        const set = new Set<number>()
+        const type0 = fonts?.lookupMaybe(PDFName.of(name), PDFDict)
+        const cid = type0?.lookupMaybe(PDFName.of('DescendantFonts'), PDFArray)?.lookup(0, PDFDict)
+        const w = cid?.lookupMaybe(PDFName.of('W'), PDFArray)
+        for (let j = 0; w && j < w.size();) {
+          const first = w.lookup(j, PDFNumber).asNumber()
+          const next = w.lookup(j + 1)
+          if (next instanceof PDFArray) {
+            for (let k = 0; k < next.size(); k++) set.add(first + k)
+            j += 2
+          } else {
+            for (let c = first; c <= (next as PDFNumber).asNumber(); c++) set.add(c)
+            j += 3
+          }
+        }
+        coverage.set(name, set)
+      }
+      return coverage.get(name)!
+    }
+    let font = ''
+    for (const m of decodedContentStream(doc, i).matchAll(/\/([^\s/]+) [\d.]+ Tf|<([0-9A-Fa-f]+)> Tj/g)) {
+      if (m[1]) { font = m[1]; continue }
+      for (let j = 0; j < m[2].length; j += 4) {
+        const code = m[2].slice(j, j + 4)
+        if (!covered(font).has(parseInt(code, 16))) missing.push(`page ${i + 1} ${font} <${code}>`)
+      }
+    }
   }
-  return codes
+  return missing
+}
+
+// True if any embedded font's ToUnicode map carries a Thai codepoint — i.e.
+// Thai text was actually drawn. (Subset fonts renumber glyph ids per
+// document, so comparing raw glyph codes across two PDFs means nothing.)
+function drewThai(doc: PDFDocument): boolean {
+  return doc.context.enumerateIndirectObjects().some(([, obj]) => {
+    if (!(obj instanceof PDFDict) || obj.get(PDFName.of('Subtype'))?.toString() !== '/Type0') return false
+    const toUnicode = doc.context.lookup(obj.get(PDFName.of('ToUnicode')))
+    if (!(toUnicode instanceof PDFRawStream)) return false
+    const raw = Buffer.from(toUnicode.contents)
+    const cmap = (toUnicode.dict.get(PDFName.of('Filter'))?.toString() === '/FlateDecode' ? zlib.inflateSync(raw) : raw).toString('latin1')
+    return /<0E[0-7][0-9A-Fa-f]>/.test(cmap)
+  })
 }
 
 // True if the page's /Resources /XObject dict has at least one entry whose
@@ -207,31 +248,25 @@ describe('buildMoPrintPdf', () => {
     expect(decodedContentStream(merged, 2)).not.toMatch(border)
   })
 
-  // Regression: pdf-lib's CustomFontEmbedder only pre-computes /W (glyph
-  // width) entries from each codepoint's *default* glyph — it never sees
-  // Sarabun's contextual small-variant tone-mark glyph (e.g. CID 0x02E0,
-  // "uni0E48.small", selected via the font's default GSUB 'ccmp' feature
-  // whenever a tone mark follows a tall vowel like sara-ue, as in
-  // "เชื่อม"). With no /DW default-width set on the embedded font, that
-  // missing glyph falls back to the PDF spec's 1000-unit default instead of
-  // its real (0) width — rendering as a wide visible gap. Confirmed via
-  // direct inspection of a generated packet's decompressed content stream
-  // and embedded /W array (2026-09-15). Disabling the 'ccmp' feature makes
-  // fontkit pick the plain (correctly-widthed) glyph instead — verified
-  // against every Thai material/zone/project name in the dev DB with zero
-  // regressions.
-  it('never draws the Sarabun small-variant tone-mark glyph left without a /W entry (root cause of the "เชื่อม"-style visible gap)', async () => {
+  // Regression, two bugs in one (2026-09-15 / 2026-09-29): pdf-lib's
+  // non-subset embedder left Sarabun's contextual tone-mark alternates (GSUB
+  // 'ccmp', e.g. after sara-ue in "เชื่อม") without a /W entry → a wide gap;
+  // the first fix turned 'ccmp' off, which instead dropped every tone mark
+  // onto its upper vowel ("วันที่" → "วันที"). Subset embedding with ccmp on
+  // fixes both — this guards the gap half (every drawn glyph has a width);
+  // the stacking half was verified by rendering.
+  it('gives every drawn glyph a /W width entry, including Thai tone-mark alternates ("เชื่อม", "วันที่", "สั่ง")', async () => {
     const plan = makePlan([makeRow({
       consume: [
         { material_id: 1, code: 'BIF81100052', name: 'ลวดเชื่อม SAW 2.4 mm', qty: 29.94, unit: 'kg' },
+        { material_id: 2, code: 'BIF81100053', name: 'วันที่ เริ่มจริง ใบสั่งผลิต ครั้งที่ น้ำหนัก', qty: 1, unit: 'kg' },
       ],
     })])
 
-    const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
-    const doc = await PDFDocument.load(bytes)
-    const codes = await drawnGlyphCodes(doc)
-
-    expect(codes.has('02E0')).toBe(false)
+    for (const lang of ['en', 'th'] as const) {
+      const doc = await PDFDocument.load(await buildMoPrintPdf(plan, async () => fakePdfBytes(1), true, lang))
+      expect(glyphsWithoutWidth(doc)).toEqual([])
+    }
   })
 
   it('produces just the manifest page when there are no rows', async () => {
@@ -285,6 +320,47 @@ describe('buildMoPrintPdf', () => {
     ])
 
     await expect(buildMoPrintPdf(plan, async () => fakePdfBytes(1))).resolves.toBeInstanceOf(Uint8Array)
+  })
+
+  // Language toggle (2026-09-29) — a plan exercising every labelled section
+  // (manifest + routing + assembly list + part list + traveler with consume
+  // overflow and an unresolved activity), so every label in the dictionary
+  // actually gets drawn.
+  describe('lang (printed form labels)', () => {
+    const fullPlan = () => makePlan([
+      makeRow({
+        consume: Array.from({ length: 10 }, (_, i) => ({ material_id: i, code: `MAT-${i}`, name: `Material ${i}`, qty: 1, unit: 'kg' })),
+        activities: [
+          { name: 'Setup', kind: 'setup', minutes: 15, unresolved: false },
+          { name: 'Undocumented step', kind: 'run', minutes: 0, unresolved: true },
+        ],
+      }),
+    ], {
+      routingOps: [{ sequence: 10, operationLabel: 'SAW auto weld', workCenterName: 'Cutting', woCodes: ['WO-00000739'] }],
+      marks: [{ seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 }],
+      assemblyParts: [{ assemblyMark: 'DBN-A1-CTR1', name: 'COLUMN', qty: 1, parts: [{ part_mark: 'DBN-A1-m1', profile: 'PIPE', grade: 'SS400', qty: 1, weight_kg: 10 }] }],
+    })
+
+    it('renders a Thai packet with the same page layout as the English one', async () => {
+      const en = await PDFDocument.load(await buildMoPrintPdf(fullPlan(), async () => fakePdfBytes(1), true, 'en'))
+      const th = await PDFDocument.load(await buildMoPrintPdf(fullPlan(), async () => fakePdfBytes(1), true, 'th'))
+      expect(th.getPageCount()).toBe(en.getPageCount())
+    })
+
+    it('draws the labels in Thai only when lang is th', async () => {
+      // fullPlan() carries no Thai data, so any Thai drawn comes from labels.
+      expect(drewThai(await PDFDocument.load(await buildMoPrintPdf(fullPlan(), async () => fakePdfBytes(1), true, 'th')))).toBe(true)
+      expect(drewThai(await PDFDocument.load(await buildMoPrintPdf(fullPlan(), async () => fakePdfBytes(1), true, 'en')))).toBe(false)
+    })
+
+    it('defaults to English when lang is omitted', async () => {
+      expect(drewThai(await PDFDocument.load(await buildMoPrintPdf(fullPlan(), async () => fakePdfBytes(1))))).toBe(false)
+    })
+
+    it('gives every glyph of the Thai labels a /W width entry', async () => {
+      const th = await PDFDocument.load(await buildMoPrintPdf(fullPlan(), async () => fakePdfBytes(1), true, 'th'))
+      expect(glyphsWithoutWidth(th)).toEqual([])
+    })
   })
 
   // List Mark — one row per mo_assembly_line (every distinct mark in the
