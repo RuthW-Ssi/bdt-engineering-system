@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail } from 'class-validator'
+import { IsString, IsOptional, IsEmail, Matches, MaxLength } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 export class CreateCustomerDto {
@@ -11,10 +11,16 @@ export class CreateCustomerDto {
   @IsString()
   name: string
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: 'ABC Steel' })
   @IsOptional()
   @IsString()
-  vat?: string
+  @MaxLength(50)
+  short_name?: string
+
+  @ApiPropertyOptional({ example: '0105551234567', description: 'Thai tax ID (13 digits)' })
+  @IsOptional()
+  @Matches(/^\d{13}$/, { message: 'Tax ID must be exactly 13 digits' })
+  tax_id?: string
 
   @ApiPropertyOptional()
   @IsOptional()
