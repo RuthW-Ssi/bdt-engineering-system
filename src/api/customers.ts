@@ -4,7 +4,8 @@ export interface Customer {
   id: number
   ref: string | null
   name: string
-  vat: string | null
+  short_name: string | null
+  tax_id: string | null
   email: string | null
   phone: string | null
   street: string | null
@@ -23,7 +24,8 @@ export interface CustomerListResult {
 export interface CreateCustomerPayload {
   ref?: string
   name: string
-  vat?: string
+  short_name?: string
+  tax_id?: string
   email?: string
   phone?: string
   street?: string
