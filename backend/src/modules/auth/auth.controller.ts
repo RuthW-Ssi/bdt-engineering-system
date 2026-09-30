@@ -5,8 +5,10 @@ import { LoginDto } from './dto/login.dto'
 import { ChangePasswordDto } from './dto/change-password.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 @ApiTags('auth')
+@CustomerAccessible({ selfService: true })
 @Controller('auth')
 export class AuthController {
   constructor(private readonly svc: AuthService) {}

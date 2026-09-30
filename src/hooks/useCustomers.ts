@@ -7,10 +7,11 @@ import {
   type CreateCustomerPayload,
 } from '../api/customers'
 
-export function useCustomers(params?: Parameters<typeof getCustomers>[0]) {
+export function useCustomers(params?: Parameters<typeof getCustomers>[0], enabled = true) {
   return useQuery({
     queryKey: ['customers', params],
     queryFn: () => getCustomers(params),
+    enabled,
   })
 }
 

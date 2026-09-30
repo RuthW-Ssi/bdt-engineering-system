@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import * as bcryptjs from 'bcryptjs'
 import { UsersService } from './users.service'
 
@@ -66,6 +66,8 @@ describe('UsersService.create', () => {
         role: 'BTE',
         level: 'Supervisor',
         job_title: 'Business System Developer',
+        user_type: 'employee',
+        partner_id: null,
       },
       select: expect.any(Object),
     })
@@ -150,5 +152,54 @@ describe('UsersService.resetPassword', () => {
     await svc.resetPassword(1, { password: 'NewPassw0rd!' })
     expect(bcryptjs.hash).toHaveBeenCalledWith('NewPassw0rd!', 12)
     expect(prisma.res_users.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { password: 'HASHED' } })
+  })
+})
+
+describe('UsersService customer users', () => {
+  const base = { login: 'cust', name: 'Cust', password: 'ChangeMe2026!', role: 'admin' }
+
+  it('rejects a customer without a company', async () => {
+    const svc = new UsersService(makePrisma())
+    await expect(svc.create({ ...base, user_type: 'customer' })).rejects.toThrow(BadRequestException)
+  })
+
+  it('rejects a customer linked to a missing company', async () => {
+    const svc = new UsersService(makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue(null) } }))
+    await expect(svc.create({ ...base, user_type: 'customer', partner_id: 99 })).rejects.toThrow(BadRequestException)
+  })
+
+  it('forces role "customer" and view-only grants, ignoring requested role/permissions', async () => {
+    const prisma = makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue({ id: 7 }) } })
+    const svc = new UsersService(prisma)
+    await svc.create({
+      ...base,
+      user_type: 'customer',
+      partner_id: 7,
+      permissions: [{ module: 'boms', can_view: true, can_create: true, can_update: true, can_delete: true }],
+    })
+    const data = prisma.res_users.create.mock.calls[0][0].data
+    expect(data).toMatchObject({ role: 'customer', user_type: 'customer', partner_id: 7 })
+    const rows = prisma.user_module_permission.createMany.mock.calls[0][0].data
+    expect(rows.map((r: { module: string }) => r.module).sort()).toEqual(
+      ['bim', 'project-tracking', 'project-zones', 'projects', 'sub-zones'],
+    )
+    expect(rows.every((r: any) => r.can_view && !r.can_create && !r.can_update && !r.can_delete)).toBe(true)
+  })
+
+  it('switching an employee to customer replaces their grants with the view-only set', async () => {
+    const prisma = makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue({ id: 7 }) } })
+    prisma.res_users.findUnique.mockResolvedValue({ id: 3, user_type: 'employee', partner_id: null })
+    const svc = new UsersService(prisma)
+    await svc.update(3, { user_type: 'customer', partner_id: 7, role: 'admin' })
+    expect(prisma.user_module_permission.deleteMany).toHaveBeenCalledWith({ where: { user_id: 3 } })
+    expect(prisma.res_users.update.mock.calls[0][0].data).toMatchObject({ role: 'customer', user_type: 'customer', partner_id: 7 })
+  })
+
+  it('switching back to employee clears the company link', async () => {
+    const prisma = makePrisma()
+    prisma.res_users.findUnique.mockResolvedValue({ id: 3, user_type: 'customer', partner_id: 7 })
+    const svc = new UsersService(prisma)
+    await svc.update(3, { user_type: 'employee', role: 'BTE' })
+    expect(prisma.res_users.update.mock.calls[0][0].data).toMatchObject({ role: 'BTE', user_type: 'employee', partner_id: null })
   })
 })

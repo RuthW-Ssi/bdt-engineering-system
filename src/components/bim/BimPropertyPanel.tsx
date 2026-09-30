@@ -1,4 +1,5 @@
 import type { BimElement, BimElementProperties } from '../../api/bim'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 
 function Row({ k, v }: { k: string; v: React.ReactNode }) {
   return (
@@ -30,6 +31,8 @@ interface Props {
 }
 
 export function BimPropertyPanel({ element, properties, instanceIndex, instanceCount, onNextInstance }: Props) {
+  // Customers never see weights (weight_kg is stripped server-side anyway).
+  const customer = useIsCustomer()
   if (!element) {
     return (
       <div style={{ padding: 24, textAlign: 'center', color: '#8E8E8E', fontSize: 13 }}>
@@ -80,7 +83,7 @@ export function BimPropertyPanel({ element, properties, instanceIndex, instanceC
 
       <SectionTitle>Quantities</SectionTitle>
       <div style={{ padding: '0 14px 14px' }}>
-        <Row k="Weight" v={element.weight_kg != null ? `${element.weight_kg} kg` : '—'} />
+        {!customer && <Row k="Weight" v={element.weight_kg != null ? `${element.weight_kg} kg` : '—'} />}
         <Row k="Area" v={element.area_m2 != null ? `${element.area_m2} m²` : '—'} />
         <Row k="Length" v={element.length_mm != null ? `${element.length_mm} mm` : '—'} />
         <Row k="Width" v={element.width_mm != null ? `${element.width_mm} mm` : '—'} />
