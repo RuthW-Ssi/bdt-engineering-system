@@ -10,6 +10,7 @@ import {
   useResetUserPassword,
 } from '../hooks/useUsers'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import { useCustomers } from '../hooks/useCustomers'
 import {
   ALL_MODULES,
   ALWAYS_VIEW_MODULES,
@@ -19,6 +20,7 @@ import {
   ROLE_TEMPLATE,
   type ModuleKey,
   type PermissionEntry,
+  type UserType,
 } from '../api/users'
 
 type PermissionAction = 'view' | 'create' | 'update' | 'delete'
@@ -51,6 +53,8 @@ interface CreateForm {
   role: string
   level: string
   job_title: string
+  user_type: UserType
+  partner_id: number | null
   permissions: PermissionEntry[]
 }
 
@@ -61,6 +65,8 @@ const EMPTY_CREATE: CreateForm = {
   role: 'BTE',
   level: '',
   job_title: '',
+  user_type: 'employee',
+  partner_id: null,
   permissions: templateFor('BTE'),
 }
 
@@ -269,6 +275,56 @@ function SaveButton({ onClick, disabled, pending, label = 'Save' }: { onClick: (
   )
 }
 
+// Employee vs Customer. Customers skip department/permissions: the backend
+// forces a fixed view-only grant set and scopes them to the chosen company.
+function UserTypeFields({
+  userType,
+  partnerId,
+  onChange,
+}: {
+  userType: UserType
+  partnerId: number | null
+  onChange: (userType: UserType, partnerId: number | null) => void
+}) {
+  const { data } = useCustomers({ active: 'true', limit: 200 })
+  const customers = data?.items ?? []
+  return (
+    <>
+      <div>
+        <label style={fieldLabelStyle}>Type *</label>
+        <select
+          value={userType}
+          onChange={e => onChange(e.target.value as UserType, e.target.value === 'customer' ? partnerId : null)}
+          className={inputClass}
+          style={inputStyle}
+        >
+          <option value="employee">Employee</option>
+          <option value="customer">Customer</option>
+        </select>
+      </div>
+      {userType === 'customer' && (
+        <div>
+          <label style={fieldLabelStyle}>Company *</label>
+          <select
+            value={partnerId ?? ''}
+            onChange={e => onChange('customer', e.target.value ? Number(e.target.value) : null)}
+            className={inputClass}
+            style={inputStyle}
+          >
+            <option value="">— Select company —</option>
+            {customers.map(c => (
+              <option key={c.id} value={c.id}>{c.short_name ? `${c.short_name} — ${c.name}` : c.name}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 6 }}>
+            View-only: Projects, Zones, Progress (no weights/dates), Drawings and BIM of this company only.
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function CreateUserModal({
   onClose,
   departmentSuggestions,
@@ -282,6 +338,8 @@ function CreateUserModal({
 }) {
   const [form, setForm] = useState<CreateForm>(EMPTY_CREATE)
   const createMut = useCreateUser()
+  const customer = form.user_type === 'customer'
+  const valid = form.login && form.name && form.password.length >= 8 && (customer ? !!form.partner_id : !!form.role)
 
   function handleDepartmentChange(role: string) {
     setForm(f => ({ ...f, role, permissions: templateFor(role) }))
@@ -292,7 +350,7 @@ function CreateUserModal({
   }
 
   async function handleSubmit() {
-    if (!form.login || !form.name || form.password.length < 8 || !form.role) return
+    if (!valid) return
     try {
       await createMut.mutateAsync({
         login: form.login,
@@ -301,7 +359,9 @@ function CreateUserModal({
         role: form.role,
         level: form.level || undefined,
         job_title: form.job_title || undefined,
-        permissions: form.permissions,
+        user_type: form.user_type,
+        partner_id: form.partner_id,
+        permissions: customer ? undefined : form.permissions,
       })
       toast.success('User created')
       onClose()
@@ -310,7 +370,6 @@ function CreateUserModal({
     }
   }
 
-  const valid = form.login && form.name && form.password.length >= 8 && form.role
 
   return (
     <ModalShell
@@ -352,6 +411,12 @@ function CreateUserModal({
           style={inputStyle}
         />
       </div>
+      <UserTypeFields
+        userType={form.user_type}
+        partnerId={form.partner_id}
+        onChange={(user_type, partner_id) => setForm(f => ({ ...f, user_type, partner_id }))}
+      />
+      {!customer && (
       <DropdownWithAdd
         label="Department *"
         value={form.role}
@@ -361,6 +426,7 @@ function CreateUserModal({
         labelFor={v => ROLE_LABELS[v] ?? v}
         inputPlaceholder="e.g. BTE"
       />
+      )}
       <DropdownWithAdd
         label="Level"
         value={form.level}
@@ -377,6 +443,7 @@ function CreateUserModal({
         addLabel="+ Add new job title"
         inputPlaceholder="e.g. Business System Developer"
       />
+      {!customer && (
       <div>
         <label style={fieldLabelStyle}>
           Permissions {form.role !== 'admin' && '(pre-filled from department — adjust as needed)'}
@@ -389,6 +456,7 @@ function CreateUserModal({
           )}
         </div>
       </div>
+      )}
     </ModalShell>
   )
 }
@@ -415,6 +483,7 @@ function EditUserModal({
   const [level, setLevel] = useState<string | null>(null)
   const [jobTitle, setJobTitle] = useState<string | null>(null)
   const [active, setActive] = useState<boolean | null>(null)
+  const [typeEdit, setTypeEdit] = useState<{ user_type: UserType; partner_id: number | null } | null>(null)
   const [permissions, setPermissions] = useState<PermissionEntry[] | null>(null)
 
   const nameVal = name ?? user?.name ?? ''
@@ -422,6 +491,9 @@ function EditUserModal({
   const levelVal = level ?? user?.level ?? ''
   const jobTitleVal = jobTitle ?? user?.job_title ?? ''
   const activeVal = active ?? user?.active ?? true
+  const userTypeVal = typeEdit?.user_type ?? user?.user_type ?? 'employee'
+  const partnerIdVal = typeEdit ? typeEdit.partner_id : user?.partner_id ?? null
+  const customer = userTypeVal === 'customer'
   const permissionsVal = permissions ?? user?.module_permissions ?? []
 
   function handleToggle(module: ModuleKey, action: PermissionAction) {
@@ -434,9 +506,13 @@ function EditUserModal({
     try {
       await updateMut.mutateAsync({
         id: userId,
-        payload: { name: nameVal, role: roleVal, level: levelVal || undefined, job_title: jobTitleVal || undefined, active: activeVal },
+        payload: {
+          name: nameVal, role: roleVal, level: levelVal || undefined, job_title: jobTitleVal || undefined, active: activeVal,
+          user_type: userTypeVal, partner_id: partnerIdVal,
+        },
       })
-      if (roleVal !== 'admin') {
+      // Customer grants are fixed server-side — only employees edit the checklist
+      if (!customer && roleVal !== 'admin') {
         await setPermsMut.mutateAsync({ id: userId, permissions: permissionsVal })
       }
       toast.success('User updated')
@@ -454,7 +530,7 @@ function EditUserModal({
       footer={
         <>
           <CancelButton onClick={onClose} />
-          <SaveButton onClick={handleSubmit} disabled={saving || isLoading} pending={saving} />
+          <SaveButton onClick={handleSubmit} disabled={saving || isLoading || (customer && !partnerIdVal)} pending={saving} />
         </>
       }
     >
@@ -468,6 +544,12 @@ function EditUserModal({
             <label style={fieldLabelStyle}>Name</label>
             <input value={nameVal} onChange={e => setName(e.target.value)} className={inputClass} style={inputStyle} />
           </div>
+          <UserTypeFields
+            userType={userTypeVal}
+            partnerId={partnerIdVal}
+            onChange={(user_type, partner_id) => setTypeEdit({ user_type, partner_id })}
+          />
+          {!customer && (
           <DropdownWithAdd
             label="Department"
             value={roleVal}
@@ -477,6 +559,7 @@ function EditUserModal({
             labelFor={v => ROLE_LABELS[v] ?? v}
             inputPlaceholder="e.g. BTE"
           />
+          )}
           <DropdownWithAdd
             label="Level"
             value={levelVal}
@@ -498,6 +581,7 @@ function EditUserModal({
             Active
           </label>
 
+          {!customer && (
           <div>
             <label style={fieldLabelStyle}>Permissions</label>
             <div style={{ marginTop: 6 }}>
@@ -508,6 +592,7 @@ function EditUserModal({
               )}
             </div>
           </div>
+          )}
         </>
       )}
     </ModalShell>
@@ -678,7 +763,7 @@ export function UsersPage() {
           >
             <div className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F' }}>{u.login}</div>
             <div className="truncate" style={{ fontSize: 13, fontWeight: 500, color: '#1F1F1F' }}>{u.name}</div>
-            <div style={{ fontSize: 13, color: '#555' }}>{ROLE_LABELS[u.role] ?? u.role}</div>
+            <div style={{ fontSize: 13, color: '#555' }}>{u.user_type === 'customer' ? 'Customer' : ROLE_LABELS[u.role] ?? u.role}</div>
             <div style={{ fontSize: 13, color: u.level ? '#555' : '#C2C2C2' }}>{u.level ?? '—'}</div>
             <div className="truncate" style={{ fontSize: 13, color: u.job_title ? '#555' : '#C2C2C2' }}>{u.job_title ?? '—'}</div>
             <div><ActivePill active={u.active} /></div>

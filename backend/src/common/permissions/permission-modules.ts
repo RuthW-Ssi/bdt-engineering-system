@@ -38,3 +38,7 @@ export type ModuleKey = (typeof ALL_MODULES)[number]
 // explicitly wants viewing progress data itself gated, unlike browsing the
 // project/zone/customer records that other features filter by.
 export const ALWAYS_VIEW_MODULES: readonly ModuleKey[] = ['customers', 'projects', 'project-zones', 'sub-zones']
+
+// View-only grants every customer user gets (drawings are ungated). Row-level
+// scoping + default-deny live in customer-scope.interceptor.ts, not here.
+export const CUSTOMER_VIEW_MODULES: readonly ModuleKey[] = ['projects', 'project-zones', 'sub-zones', 'project-tracking', 'bim']

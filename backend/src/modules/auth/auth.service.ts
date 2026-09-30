@@ -34,6 +34,8 @@ export class AuthService {
       name: string
       role: string
       job_title: string | null
+      user_type: string
+      partner_id: number | null
       permissions: Record<string, ModulePermission>
     }
   }> {
@@ -55,7 +57,7 @@ export class AuthService {
     const permissions = await getPermissionMap(this.prisma, user.id, user.role)
     return {
       access_token: this.jwt.sign(payload),
-      user: { id: user.id, login: user.login, name: user.name, role: user.role, job_title: user.job_title, permissions },
+      user: { id: user.id, login: user.login, name: user.name, role: user.role, job_title: user.job_title, user_type: user.user_type, partner_id: user.partner_id, permissions },
     }
   }
 
@@ -83,7 +85,7 @@ export class AuthService {
   async getProfile(userId: number) {
     const user = await this.prisma.res_users.findFirst({
       where: { id: userId, active: true },
-      select: { id: true, login: true, name: true, email: true, role: true, lang: true, tz: true },
+      select: { id: true, login: true, name: true, email: true, role: true, lang: true, tz: true, user_type: true, partner_id: true },
     })
     if (!user) throw new UnauthorizedException('User not found')
     const permissions = await getPermissionMap(this.prisma, user.id, user.role)

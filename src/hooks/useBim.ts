@@ -4,8 +4,8 @@ import {
 } from '../api/bim'
 import type { BimModelFilter, UploadBimModelPayload } from '../api/bim'
 
-export function useBimModels(filter?: BimModelFilter) {
-  return useQuery({ queryKey: ['bim-models', 'list', filter], queryFn: () => listBimModels(filter) })
+export function useBimModels(filter?: BimModelFilter, opts?: { enabled?: boolean }) {
+  return useQuery({ queryKey: ['bim-models', 'list', filter], queryFn: () => listBimModels(filter), enabled: opts?.enabled ?? true })
 }
 
 // Mirrors useBomDispatches' useLatestRevision, scoped by project only — BIM

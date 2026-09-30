@@ -47,6 +47,9 @@ interface Props {
   // 3D panel on the other side of the grid.
   rightPanelView: '3d' | 'drawing'
   onSetRightPanelView: (view: '3d' | 'drawing') => void
+  // Customer accounts: read-only, no weights — hides select/edit/delete,
+  // the Weight column/total and the Deleted section (403 for them).
+  customer: boolean
 }
 
 // iOS-style on/off switch with the two states labeled on either side,
@@ -122,13 +125,13 @@ function ProgressChip({ label, value, color, title }: { label: string; value: st
 export function ProgressAssemblyTable({
   rows, selectedAssemblyId, autoExpandRequest, onViewIn3D, onUpdate, onBulkUpdate, onDelete, saving,
   showDeleted, onToggleShowDeleted, deletedAssemblies, deletedLoading, onRestore, restoring,
-  rightPanelView, onSetRightPanelView,
+  rightPanelView, onSetRightPanelView, customer,
 }: Props) {
-  const canUpdate = usePermission('project-tracking', 'update')
+  const canUpdate = usePermission('project-tracking', 'update') && !customer
   // Delete/restore of a placeholder assembly is gated on its own permission
   // tier, separate from ordinary progress-entry 'update' — see the design
   // note on projects.controller.ts's deletePlaceholderAssembly endpoint.
-  const canDelete = usePermission('project-tracking', 'delete')
+  const canDelete = usePermission('project-tracking', 'delete') && !customer
   const confirm = useConfirm()
   const [search, setSearch] = useState('')
   // Accordion — one row's edit panel open at a time, keeps the list compact
@@ -154,7 +157,7 @@ export function ProgressAssemblyTable({
     if (!autoExpandRequest) return
     const row = rows.find(r => r.assembly_id === autoExpandRequest.assemblyId)
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (row) openEdit(row)
+    if (row && !customer) openEdit(row)
     // Deliberately depends only on the click signal, not `rows`/`openEdit`
     // (recreated every render) — re-running on every unrelated re-render
     // would fight the accordion's own open/close state.
@@ -195,11 +198,13 @@ export function ProgressAssemblyTable({
   // Three separate footer numbers matching the backend rollup exactly:
   // fab weighted by weight_kg, load/erection by pieces (Σ/Σ).
   const totalWeight = rows.reduce((s, r) => s + (r.weight_kg ?? 0), 0)
-  const fabPct = totalWeight > 0
-    ? rows.reduce((s, r) => s + (r.weight_kg ?? 0) * r.fab_pct, 0) / totalWeight
-    : 0
   const effQty = (r: ProgressZoneRow) => Math.max(1, Math.round(r.qty ?? 1))
   const totalQty = rows.reduce((s, r) => s + effQty(r), 0)
+  // Customers get no weight_kg (stripped server-side) — fall back to a
+  // piece-weighted fab average rather than a misleading 0%.
+  const fabPct = totalWeight > 0
+    ? rows.reduce((s, r) => s + (r.weight_kg ?? 0) * r.fab_pct, 0) / totalWeight
+    : customer && totalQty > 0 ? rows.reduce((s, r) => s + effQty(r) * r.fab_pct, 0) / totalQty : 0
   const loadedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.loaded_pcs), 0)
   const erectedPcs = rows.reduce((s, r) => s + Math.min(effQty(r), r.erected_pcs), 0)
 
@@ -207,6 +212,8 @@ export function ProgressAssemblyTable({
   // placeholder rows or all real rows (rows come from a single getZoneRows
   // call), so the first row is a safe representative check.
   const isPlaceholderZone = rows.length > 0 && rows[0].is_placeholder
+  const showWeight = !isPlaceholderZone && !customer
+  const colCount = (customer ? 2 : 4) + (showWeight ? 1 : 0)
 
   const setBulkField = <K extends keyof BulkUpdateAssemblyProgressPayload>(field: K, value: BulkUpdateAssemblyProgressPayload[K]) => {
     setBulkDraft(d => ({ ...d, [field]: value }))
@@ -257,7 +264,7 @@ export function ProgressAssemblyTable({
         </div>
       </div>
 
-      {bulkIds.size > 0 && (
+      {!customer && bulkIds.size > 0 && (
         <div style={{ background: '#FCEBEB', borderBottom: '1px solid #F3C9CB', padding: '12px 14px', flexShrink: 0, overflowY: 'auto', maxHeight: 280 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <span style={{ fontSize: 12.5, fontWeight: 700, color: '#C8202A' }}>{bulkIds.size} selected</span>
@@ -393,7 +400,7 @@ export function ProgressAssemblyTable({
         <table style={{ width: 'calc(100% - 10px)', borderCollapse: 'collapse', fontSize: 12.5 }}>
           <thead>
             <tr>
-              <th style={{ ...th, textAlign: 'center', width: 36 }}>
+              {!customer && <th style={{ ...th, textAlign: 'center', width: 36 }}>
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
@@ -401,11 +408,11 @@ export function ProgressAssemblyTable({
                   title="Select all visible"
                   style={{ width: 15, height: 15, accentColor: '#C8202A', cursor: 'pointer' }}
                 />
-              </th>
+              </th>}
               <th style={th}>Mark</th>
-              {!isPlaceholderZone && <th style={{ ...th, textAlign: 'right' }}>Weight</th>}
+              {showWeight && <th style={{ ...th, textAlign: 'right' }}>Weight</th>}
               <th style={th}>Progress</th>
-              <th style={{ ...th, textAlign: 'center' }}>Edit</th>
+              {!customer && <th style={{ ...th, textAlign: 'center' }}>Edit</th>}
             </tr>
           </thead>
           <tbody>
@@ -428,7 +435,7 @@ export function ProgressAssemblyTable({
                       position: expanded || selectedAssemblyId === r.assembly_id ? 'relative' : undefined,
                     }}
                   >
-                    <td style={{ ...td, textAlign: 'center' }}>
+                    {!customer && <td style={{ ...td, textAlign: 'center' }}>
                       <input
                         type="checkbox"
                         checked={checked}
@@ -441,7 +448,7 @@ export function ProgressAssemblyTable({
                         })}
                         style={{ width: 15, height: 15, accentColor: '#C8202A', cursor: 'pointer' }}
                       />
-                    </td>
+                    </td>}
                     <td style={{ ...td, ...mono, fontWeight: 600 }}>
                       {r.mark}
                       {r.stale && (
@@ -453,7 +460,7 @@ export function ProgressAssemblyTable({
                         </span>
                       )}
                     </td>
-                    {!isPlaceholderZone && (
+                    {showWeight && (
                       <td style={{ ...td, textAlign: 'right', ...mono, color: '#8E8E8E' }}>
                         {r.weight_kg != null ? `${r.weight_kg.toFixed(1)} kg` : '—'}
                       </td>
@@ -481,7 +488,7 @@ export function ProgressAssemblyTable({
                         />
                       </div>
                     </td>
-                    <td style={{ ...td, textAlign: 'center' }}>
+                    {!customer && <td style={{ ...td, textAlign: 'center' }}>
                       <div style={{ display: 'inline-flex', gap: 6 }}>
                       {canUpdate && (
                       <button
@@ -524,11 +531,11 @@ export function ProgressAssemblyTable({
                       </button>
                       )}
                       </div>
-                    </td>
+                    </td>}
                   </tr>
-                  {expanded && (
+                  {expanded && !customer && (
                     <tr style={{ background: '#FAFAFA' }}>
-                      <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
+                      <td colSpan={colCount} style={{ padding: '14px 16px 16px', borderBottom: '1px solid #EDEFF2' }}>
                         <ProgressEditFields
                           row={r}
                           draft={editDraft}
@@ -549,7 +556,7 @@ export function ProgressAssemblyTable({
             })}
             {!visible.length && (
               <tr>
-                <td colSpan={isPlaceholderZone ? 4 : 5} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
+                <td colSpan={colCount} style={{ ...td, textAlign: 'center', color: '#8E8E8E', padding: 24 }}>
                   {rows.length ? 'No marks match the search' : 'No BOM assemblies uploaded for this zone yet'}
                 </td>
               </tr>
@@ -558,8 +565,9 @@ export function ProgressAssemblyTable({
           {rows.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={isPlaceholderZone ? 4 : 5} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
-                  {rows.length} assemblies · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total
+                <td colSpan={colCount} style={{ padding: '10px 12px', fontSize: 11.5, color: '#8E8E8E', borderTop: '1px solid #E0E0E0' }}>
+                  {rows.length} assemblies
+                  {!customer && <> · <b style={{ ...mono, color: '#1A1A1A' }}>{(totalWeight / 1000).toFixed(1)} t</b> total</>}
                   {' · '}fab <b style={{ ...mono, color: '#1A1A1A' }}>{fabPct.toFixed(1)}%</b>
                   {' · '}load <b style={{ ...mono, color: '#1A1A1A' }} title={`${loadedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((loadedPcs / totalQty) * 100) : 0}%</b>
                   {' · '}erect <b style={{ ...mono, color: '#1A1A1A' }} title={`${erectedPcs}/${totalQty} pcs`}>{totalQty > 0 ? Math.round((erectedPcs / totalQty) * 100) : 0}%</b>
@@ -573,7 +581,7 @@ export function ProgressAssemblyTable({
           (deleted_by_user=false) assembly never appears here — the backend
           list endpoint already excludes it, since restoring it would
           recreate a mark colliding with the real BOM data it superseded. */}
-      {isPlaceholderZone && (
+      {isPlaceholderZone && !customer && (
         <div style={{ borderTop: '1px solid #E0E0E0', flexShrink: 0 }}>
           <button
             onClick={onToggleShowDeleted}

@@ -175,6 +175,9 @@ export interface PermissionEntry {
   can_delete: boolean
 }
 
+// customer = external login, view-only, scoped to partner's projects (backend enforced)
+export type UserType = 'employee' | 'customer'
+
 export interface AppUser {
   id: number
   login: string
@@ -183,6 +186,9 @@ export interface AppUser {
   role: string
   level: string | null
   job_title: string | null
+  user_type: UserType
+  partner_id: number | null
+  partner: { id: number; name: string; short_name: string | null } | null
   active: boolean
   create_date: string
 }
@@ -205,6 +211,8 @@ export interface CreateUserPayload {
   role: string
   level?: string
   job_title?: string
+  user_type?: UserType
+  partner_id?: number | null
   permissions?: PermissionEntry[]
 }
 
@@ -213,6 +221,8 @@ export interface UpdateUserPayload {
   role?: string
   level?: string
   job_title?: string
+  user_type?: UserType
+  partner_id?: number | null
   active?: boolean
 }
 

@@ -6,6 +6,7 @@ import { useBimViewerToken } from '../../hooks/useBim'
 import { PHASE_ORDER, PHASE_META, PHASE_PCT_KEY, defaultPhaseColor } from '../progress/statusMeta'
 import { MobileProgressSheet } from './MobileProgressSheet'
 import { MobileDrawingSheet } from './MobileDrawingSheet'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 import type { BimMatchResult, ProgressZoneRow, ProgressRollupTotals, PhaseKey } from '../../api/projectProgress'
 
 // View-only mirror of desktop ProjectProgress.tsx's base (non-isolate) 3D
@@ -39,6 +40,10 @@ interface Props {
 
 export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhaseFilter, overviewTotals, height = 260 }: Props) {
   const { data: viewerToken } = useBimViewerToken(bimMatch?.model_id ?? null)
+  // Customers: view-only — no "Update progress" sheet, and no Autodesk
+  // toolbar (its native Properties panel reads raw IFC data, weights
+  // included, straight from the model — the backend strip can't reach it).
+  const customer = useIsCustomer()
   const [expanded, setExpanded] = useState(false)
   const [showToolbar, setShowToolbar] = useState(false)
   const [selected, setSelected] = useState<{ row: ProgressZoneRow; zone?: string } | null>(null)
@@ -132,7 +137,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
             onSelect={handleSelect}
             statusColorMap={highlightColorMap}
             defaultColor={DIMMED_GRAY}
-            hideToolbar={!showToolbar}
+            hideToolbar={!showToolbar || customer}
           />
 
           {selected && (
@@ -142,6 +147,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
             >
               <span className="font-mono font-semibold text-[12.5px]">{selected.row.mark}</span>
               {selected.zone && <span className="text-[11.5px] text-white/70">· {selected.zone}</span>}
+              {!customer && (
               <button
                 onClick={() => setSheetOpen(true)}
                 aria-label="Update progress"
@@ -149,6 +155,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
               >
                 <SquarePen size={13} />
               </button>
+              )}
               <button
                 onClick={() => setDrawingSheetOpen(true)}
                 aria-label="Show drawing"
@@ -159,6 +166,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
             </div>
           )}
 
+          {!customer && (
           <div
             className="absolute right-10 z-10 flex items-center justify-center w-9 h-9 text-white active:text-chrome-200"
             style={{ top: expanded ? 'calc(env(safe-area-inset-top) + 10px)' : 10, filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.6))' }}
@@ -172,6 +180,7 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
               <SlidersHorizontal size={18} />
             </button>
           </div>
+          )}
           <button
             onClick={() => setExpanded(e => !e)}
             aria-label={expanded ? 'Collapse 3D view' : 'Expand 3D view'}
@@ -223,12 +232,14 @@ export function MobileBimCard({ projectCode, bimMatch, rows, zoneLabel, showPhas
         )}
       </div>
 
+      {!customer && (
       <MobileProgressSheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
         projectCode={projectCode}
         row={selected?.row ?? null}
       />
+      )}
 
       <MobileDrawingSheet
         open={drawingSheetOpen}

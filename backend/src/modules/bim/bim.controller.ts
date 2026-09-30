@@ -12,6 +12,7 @@ import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { JwtPayload } from '../auth/auth.service'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 @ApiTags('bim')
 @ApiBearerAuth()
@@ -21,6 +22,7 @@ export class BimController {
   constructor(private readonly svc: BimService) {}
 
   @Get()
+  @CustomerAccessible()
   @RequiresPermission('bim', 'view')
   @ApiOperation({ summary: 'List uploaded BIM models, optionally scoped to a project' })
   list(@Query() query: QueryBimModelsDto) {
@@ -28,6 +30,7 @@ export class BimController {
   }
 
   @Get('latest-version')
+  @CustomerAccessible()
   @RequiresPermission('bim', 'view')
   @ApiOperation({ summary: 'Latest major.minor version already uploaded for a project — null fields if none yet' })
   getLatestVersion(@Query() query: QueryLatestBimVersionDto) {
@@ -60,6 +63,7 @@ export class BimController {
   }
 
   @Get(':id/status')
+  @CustomerAccessible({ idParam: 'bim_model' })
   @ApiOperation({ summary: 'Check (and advance) translation status — poll this while status is "processing"' })
   getStatus(@Param('id', ParseIntPipe) id: number) {
     return this.svc.checkStatus(id)
@@ -73,6 +77,7 @@ export class BimController {
   }
 
   @Get(':id/elements')
+  @CustomerAccessible({ idParam: 'bim_model' })
   @ApiOperation({ summary: 'List extracted elements (mark/weight/area/L·W·H) for a model — excludes raw properties, see :elementId/properties' })
   getElements(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getElements(id)
@@ -83,12 +88,14 @@ export class BimController {
   // for one model). Fetched on demand for whichever single element the
   // property panel currently has selected.
   @Get(':id/elements/:elementId/properties')
+  @CustomerAccessible({ idParam: 'bim_model' })
   @ApiOperation({ summary: 'Raw property groups for one element — fetched on demand when selected in the property panel' })
   getElementProperties(@Param('id', ParseIntPipe) id: number, @Param('elementId', ParseIntPipe) elementId: number) {
     return this.svc.getElementProperties(id, elementId)
   }
 
   @Get(':id/viewer-token')
+  @CustomerAccessible({ idParam: 'bim_model' })
   @ApiOperation({ summary: 'Short-lived APS token + URN for the Autodesk Viewer SDK to load this model' })
   getViewerToken(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getViewerToken(id)

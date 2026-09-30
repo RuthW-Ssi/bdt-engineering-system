@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString } from 'class-validator'
 import { ApiPropertyOptional } from '@nestjs/swagger'
 
 export class UpdateUserDto {
@@ -21,6 +21,16 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   job_title?: string
+
+  @ApiPropertyOptional({ enum: ['employee', 'customer'], default: 'employee' })
+  @IsOptional()
+  @IsIn(['employee', 'customer'])
+  user_type?: 'employee' | 'customer'
+
+  @ApiPropertyOptional({ description: 'Customer company (res_partner.id) — required when user_type = "customer"' })
+  @IsOptional()
+  @IsInt()
+  partner_id?: number | null
 
   @ApiPropertyOptional()
   @IsOptional()

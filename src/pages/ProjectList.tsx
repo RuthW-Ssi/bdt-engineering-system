@@ -6,6 +6,7 @@ import { useProjects, useCreateProject, useUpdateProject } from '../hooks/usePro
 import { useCustomers } from '../hooks/useCustomers'
 import { useActiveProject } from '../context/ProjectContext'
 import { usePermission } from '../hooks/usePermission'
+import { useIsCustomer } from '../hooks/useIsCustomer'
 import type { CreateProjectPayload } from '../api/projects'
 import type { ProjectDTO } from '../api/types'
 
@@ -44,7 +45,7 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
 }
 
-function ProjectCard({ p, isActive, onClick, onEdit, canEdit }: { p: ProjectDTO; isActive: boolean; onClick: () => void; onEdit: (p: ProjectDTO) => void; canEdit: boolean }) {
+function ProjectCard({ p, isActive, onClick, onEdit, canEdit, showDates }: { p: ProjectDTO; isActive: boolean; onClick: () => void; onEdit: (p: ProjectDTO) => void; canEdit: boolean; showDates: boolean }) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -107,6 +108,7 @@ function ProjectCard({ p, isActive, onClick, onEdit, canEdit }: { p: ProjectDTO;
           <span>products</span>
         </div>
 
+        {showDates && (
         <div className="flex items-center gap-1" style={{ fontSize: 11, color: '#8E8E8E', minWidth: 140 }}>
           <Calendar size={11} />
           {p.start_date && p.target_handover ? (
@@ -119,6 +121,7 @@ function ProjectCard({ p, isActive, onClick, onEdit, canEdit }: { p: ProjectDTO;
             <span style={{ color: '#C2C2C2' }}>No dates set</span>
           )}
         </div>
+        )}
 
         {canEdit && (
           <button
@@ -147,11 +150,14 @@ export function ProjectList() {
   const navigate = useNavigate()
   const { activeProject, setActiveProject } = useActiveProject()
   const { data, isLoading } = useProjects({ q: search || undefined, state: stateFilter || undefined, limit: 100 })
-  const { data: customersData } = useCustomers({ active: 'true', limit: 200 })
+  // Customers: view-only, no dates, and /customers 403s for them — skip the
+  // fetch (else the global query-error toast fires) and all create/edit UI.
+  const customer = useIsCustomer()
+  const { data: customersData } = useCustomers({ active: 'true', limit: 200 }, !customer)
   const createMut = useCreateProject()
   const updateMut = useUpdateProject()
-  const canCreate = usePermission('projects', 'create')
-  const canUpdate = usePermission('projects', 'update')
+  const canCreate = usePermission('projects', 'create') && !customer
+  const canUpdate = usePermission('projects', 'update') && !customer
 
   const items = data?.items ?? []
   const customers = customersData?.items ?? []
@@ -266,13 +272,14 @@ export function ProjectList() {
               onClick={() => { setActiveProject(p); navigate(`/projects/${p.project_code}/progress`) }}
               onEdit={openEditModal}
               canEdit={canUpdate}
+              showDates={!customer}
             />
           ))
         )}
       </div>
 
       {/* Create Modal */}
-      {modalOpen && (
+      {modalOpen && !customer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '28px 32px', width: 460, boxShadow: '0 4px 24px rgba(0,0,0,0.16)' }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20 }}>{editingProjectCode ? 'Edit Project' : 'Create New Project'}</h2>
