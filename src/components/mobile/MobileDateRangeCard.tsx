@@ -1,4 +1,5 @@
 import { Calendar } from 'lucide-react'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 
 // Same format as ProjectList.tsx's fmtDate (desktop) — kept as a local copy,
 // matching this repo's convention of a small per-file duplicate over a
@@ -17,9 +18,13 @@ interface Props {
 // name" + start_date/target_handover) and MobileAssemblyList (zone "code -
 // name" + target_start/end) — same shape, different source fields.
 export function MobileDateRangeCard({ title, start, end }: Props) {
+  // Customers never see dates (stripped server-side) — title only, rather
+  // than a misleading "No dates set".
+  const customer = useIsCustomer()
   return (
     <div className="bg-white border border-chrome-100 rounded-xl p-4">
       <div className="font-semibold text-chrome-900 text-[17px] truncate">{title}</div>
+      {!customer && (
       <div className="flex items-center gap-1.5 text-chrome-400 mt-1" style={{ fontSize: 12 }}>
         <Calendar size={12} className="flex-shrink-0" />
         {start && end ? (
@@ -32,6 +37,7 @@ export function MobileDateRangeCard({ title, start, end }: Props) {
           <span>No dates set</span>
         )}
       </div>
+      )}
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 @ApiTags('sub-zones')
 @ApiBearerAuth()
@@ -19,6 +20,7 @@ export class SubZonesController {
   constructor(private readonly svc: SubZonesService) {}
 
   @Get('zones/:zoneId/sub-zones')
+  @CustomerAccessible()
   @RequiresPermission('sub-zones', 'view')
   @ApiOperation({ summary: 'List sub-zones for a zone' })
   findAll(@Param('zoneId', ParseIntPipe) zoneId: number) {

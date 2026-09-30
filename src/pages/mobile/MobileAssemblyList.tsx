@@ -14,6 +14,7 @@ import { MobileProgressStatCards } from '../../components/mobile/MobileProgressS
 import { MobileDelayFormulaSheet } from '../../components/mobile/MobileDelayFormulaSheet'
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
 import { MobileTabBar } from '../../components/mobile/MobileTabBar'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 import { computeDelayInfo, DELAY_STATUS_COLOR, type DelayStatus } from '../../components/progress/delayStatus'
 
 const STATUS_DOT: Record<string, string> = {
@@ -36,6 +37,9 @@ type Tab = 'overview' | '3d' | 'assembly'
 export function MobileAssemblyList() {
   const { code, zoneId } = useParams<{ code: string; zoneId: string }>()
   const navigate = useNavigate()
+  // Customers: view-only (no progress form, no Deleted/restore — 403), no
+  // dates/schedule/weights — mirrors desktop ProgressAssemblyTable's gating.
+  const customer = useIsCustomer()
   const zoneIdNum = zoneId ? Number(zoneId) : null
   const [tab, setTab] = useState<Tab>('overview')
   const { data, isLoading } = useProgressZoneRows(code, zoneIdNum)
@@ -48,7 +52,7 @@ export function MobileAssemblyList() {
   const { data: zoneBimMatch } = useProgressBimMatch(code, zoneIdNum)
   const zoneRollup = overview?.zones.find(z => z.zone_id === zoneIdNum)
   const zoneDetail = projectZones?.find(z => z.id === zoneIdNum)
-  const zoneDelayInfo = zoneDetail && zoneRollup
+  const zoneDelayInfo = zoneDetail && zoneRollup && !customer
     ? computeDelayInfo(zoneDetail.target_start, zoneDetail.target_end, zoneRollup.fab_pct * 0.5 + zoneRollup.erect_pct * 0.5)
     : null
 
@@ -56,9 +60,9 @@ export function MobileAssemblyList() {
   const isPlaceholderZone = (data?.length ?? 0) > 0 && data![0].is_placeholder
   // Restore is gated on 'delete' (its own tier), not 'update' — see the
   // design note on projects.controller.ts's deletePlaceholderAssembly.
-  const canDelete = usePermission('project-tracking', 'delete')
+  const canDelete = usePermission('project-tracking', 'delete') && !customer
   const [showDeleted, setShowDeleted] = useState(false)
-  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted)
+  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted && !customer)
   const restoreMutation = useRestorePlaceholderAssembly(code)
 
   // h-dvh, not h-screen (100vh) — 100vh overshoots the real visible viewport
@@ -142,11 +146,15 @@ export function MobileAssemblyList() {
           )}
 
           <div className="flex flex-col gap-2">
-            {rows.map(r => (
-              <button
+            {rows.map(r => {
+              // Customers get a plain, non-tappable row — the progress form
+              // route redirects them anyway. Drawings: via the 3D info pill.
+              const Row = customer ? 'div' : 'button'
+              return (
+              <Row
                 key={r.assembly_id}
-                onClick={() => navigate(`/m/projects/${code}/zones/${zoneId}/assemblies/${r.assembly_id}`)}
-                className="flex items-center gap-3 bg-white border border-chrome-100 rounded-xl p-4 text-left active:bg-chrome-50"
+                onClick={customer ? undefined : () => navigate(`/m/projects/${code}/zones/${zoneId}/assemblies/${r.assembly_id}`)}
+                className={`flex items-center gap-3 bg-white border border-chrome-100 rounded-xl p-4 text-left${customer ? '' : ' active:bg-chrome-50'}`}
               >
                 <span
                   className="flex-shrink-0 w-2.5 h-2.5 rounded-full"
@@ -164,9 +172,10 @@ export function MobileAssemblyList() {
                       : `Fab ${Math.round(r.fab_pct)}% · Load ${r.loaded_pcs}/${r.qty ?? 1} · Erect ${r.erected_pcs}/${r.qty ?? 1}`}
                   </div>
                 </div>
-                <ChevronRight size={18} className="text-chrome-200 flex-shrink-0" />
-              </button>
-            ))}
+                {!customer && <ChevronRight size={18} className="text-chrome-200 flex-shrink-0" />}
+              </Row>
+              )
+            })}
           </div>
 
           {/* Deleted-assemblies archive — placeholder zone only. A
@@ -174,7 +183,7 @@ export function MobileAssemblyList() {
               here — the backend list endpoint already excludes it, since
               restoring it would recreate a mark colliding with the real
               BOM data it superseded. */}
-          {isPlaceholderZone && (
+          {isPlaceholderZone && !customer && (
             <div className="bg-white border border-chrome-100 rounded-xl overflow-hidden">
               <button
                 onClick={() => setShowDeleted(v => !v)}

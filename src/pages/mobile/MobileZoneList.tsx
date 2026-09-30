@@ -11,6 +11,7 @@ import { MobileDelaySummary } from '../../components/mobile/MobileDelaySummary'
 import { MobileDelayFormulaSheet } from '../../components/mobile/MobileDelayFormulaSheet'
 import { MobileBimCard } from '../../components/mobile/MobileBimCard'
 import { MobileTabBar } from '../../components/mobile/MobileTabBar'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 import { computeDelayInfo, DELAY_STATUS_COLOR, type DelayInfo } from '../../components/progress/delayStatus'
 import { Info as InfoIcon } from 'lucide-react'
 
@@ -26,6 +27,9 @@ type Tab = 'overview' | '3d' | 'zones' | 'history'
 export function MobileZoneList() {
   const { code } = useParams<{ code: string }>()
   const navigate = useNavigate()
+  // Customers: view-only, no dates/schedule/weights (stripped server-side)
+  // and no History (403) — mirrors desktop ProjectProgress's customer gating.
+  const customer = useIsCustomer()
   const [tab, setTab] = useState<Tab>('overview')
   const { data, isLoading } = useProgressOverview(code)
   const { data: project } = useProject(code)
@@ -64,7 +68,7 @@ export function MobileZoneList() {
             />
           )}
           {total && <MobileProgressStatCards total={total} schedule={data?.schedule_progress} />}
-          {projectZones && <MobileDelaySummary zones={zones} zoneMeta={projectZones} />}
+          {!customer && projectZones && <MobileDelaySummary zones={zones} zoneMeta={projectZones} />}
         </div>
 
         {tab === '3d' && (
@@ -95,7 +99,7 @@ export function MobileZoneList() {
           )}
           {zones.filter(z => !(z.is_placeholder && z.assembly_count === 0)).map(z => {
             const meta = zoneMetaById.get(z.zone_id)
-            const delayInfo = meta ? computeDelayInfo(meta.target_start, meta.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5) : null
+            const delayInfo = meta && !customer ? computeDelayInfo(meta.target_start, meta.target_end, z.fab_pct * 0.5 + z.erect_pct * 0.5) : null
             return (
               <button
                 key={z.zone_id}
@@ -110,7 +114,7 @@ export function MobileZoneList() {
                     {z.zone_label}
                   </div>
                   <div className="text-xs text-chrome-400 font-mono">{z.zone_code} · {z.assembly_count} pcs · Fab {Math.round(z.fab_pct)}%</div>
-                  {meta?.target_start && meta?.target_end && (
+                  {!customer && meta?.target_start && meta?.target_end && (
                     <span
                       onClick={e => {
                         if (!delayInfo) return
@@ -142,7 +146,7 @@ export function MobileZoneList() {
         </div>
       </div>
 
-      {zoneSheetData && (
+      {zoneSheetData && !customer && (
         <MobileDelayFormulaSheet
           open={zoneSheetOpen}
           onClose={() => setZoneSheetOpen(false)}
@@ -159,14 +163,14 @@ export function MobileZoneList() {
           // desktop's project-level History button, just relocated into the
           // tab bar per request. Doesn't update local `tab` state since the
           // page navigates away.
-          if (t === 'history') navigate(`/m/projects/${code}/history`)
+          if (t === 'history') { if (!customer) navigate(`/m/projects/${code}/history`) }
           else setTab(t)
         }}
         tabs={[
           { key: 'overview', label: 'Overview', icon: <LayoutDashboard size={19} /> },
           { key: '3d', label: '3D', icon: <CuboidIcon size={19} /> },
           { key: 'zones', label: 'Zone', icon: <Layers size={19} /> },
-          { key: 'history', label: 'History', icon: <History size={19} /> },
+          ...(customer ? [] : [{ key: 'history' as const, label: 'History', icon: <History size={19} /> }]),
         ]}
       />
     </div>

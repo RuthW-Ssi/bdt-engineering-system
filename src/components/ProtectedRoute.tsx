@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { canViewAny } from '../lib/moduleAccess'
+import { canViewAny, customerCanOpen, CUSTOMER_HOME, CUSTOMER_MOBILE_HOME, isCustomer } from '../lib/moduleAccess'
 import type { ReactNode } from 'react'
 
 export function ProtectedRoute({
@@ -21,6 +21,10 @@ export function ProtectedRoute({
   if (!token) {
     const next = location.pathname + location.search
     return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+  }
+  // Customers: only their allowlisted pages (covers /dashboard, /m/* and every other route)
+  if (isCustomer(user) && !customerCanOpen(location.pathname)) {
+    return <Navigate to={location.pathname.startsWith('/m/') ? CUSTOMER_MOBILE_HOME : CUSTOMER_HOME} replace />
   }
   if (roles && (!user || !roles.includes(user.role))) return <Navigate to="/dashboard" replace />
   if (viewModules && !canViewAny(user, viewModules)) return <Navigate to="/dashboard" replace />

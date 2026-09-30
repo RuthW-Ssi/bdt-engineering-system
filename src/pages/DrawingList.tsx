@@ -7,6 +7,7 @@ import { useSubZones } from '../hooks/useSubZones'
 import { useZoneDrawings, useUploadDrawings, useDeleteDrawing } from '../hooks/useDrawings'
 import { downloadDrawing, type Drawing } from '../api/drawings'
 import { useConfirm } from '../components/ui/ConfirmDialog'
+import { useIsCustomer } from '../hooks/useIsCustomer'
 import { DrawingUploadModal } from '../components/drawings/DrawingUploadModal'
 import { DrawingPreviewPanel } from '../components/drawings/DrawingPreviewPanel'
 
@@ -28,6 +29,8 @@ export function DrawingList() {
   const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const confirm = useConfirm()
+  // Customers: view/download only — no upload/delete, no dates (stripped).
+  const customer = useIsCustomer()
 
   const projectId = activeProject?.id
 
@@ -131,6 +134,7 @@ export function DrawingList() {
           >
             <RefreshCw size={14} />
           </button>
+          {!customer && (
           <button
             onClick={() => setShowUploadModal(true)}
             disabled={!zoneId}
@@ -140,6 +144,7 @@ export function DrawingList() {
           >
             <Upload size={14} />{drawingsList.length === 0 ? 'Upload Drawing' : 'Update'}
           </button>
+          )}
         </div>
       </div>
 
@@ -212,6 +217,7 @@ export function DrawingList() {
           <div className="flex flex-col items-center justify-center gap-3" style={{ padding: 64, color: '#8E8E8E' }}>
             <FileText size={32} style={{ opacity: 0.3 }} />
             <div style={{ fontSize: 13 }}>No PDF files uploaded for {selectedZone?.code ?? 'this zone'} yet</div>
+            {!customer && (
             <button
               onClick={() => setShowUploadModal(true)}
               className="flex items-center gap-1.5 rounded-md text-white"
@@ -219,6 +225,7 @@ export function DrawingList() {
             >
               <Upload size={14} />Upload Drawing
             </button>
+            )}
           </div>
         )}
         {zoneId && !drawingsLoading && !drawingsError && drawingsList.length > 0 && (
@@ -240,7 +247,7 @@ export function DrawingList() {
                   <FileText size={15} style={{ color: '#8E8E8E', flexShrink: 0 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dwg.file_name}</div>
-                    <div style={{ fontSize: 11, color: '#8E8E8E' }}>{new Date(dwg.create_date).toLocaleDateString()}</div>
+                    {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{new Date(dwg.create_date).toLocaleDateString()}</div>}
                   </div>
                   <button
                     onClick={e => { e.stopPropagation(); downloadDrawing(dwg.file_key, dwg.file_name) }}
@@ -248,6 +255,7 @@ export function DrawingList() {
                   >
                     <Download size={14} />
                   </button>
+                  {!customer && (
                   <button
                     onClick={e => { e.stopPropagation(); handleDelete(dwg) }}
                     disabled={deleteDrawingMutation.isPending}
@@ -255,6 +263,7 @@ export function DrawingList() {
                   >
                     <Trash2 size={14} />
                   </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -265,7 +274,7 @@ export function DrawingList() {
         )}
       </div>
 
-      {showUploadModal && zoneId && (
+      {showUploadModal && zoneId && !customer && (
         <DrawingUploadModal
           scopeLabel={scopeLabel}
           isUploading={uploadDrawingsMutation.isPending}

@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator'
+import { IsArray, IsIn, IsInt, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 import { PermissionEntryDto } from './set-permissions.dto'
@@ -33,6 +33,16 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   job_title?: string
+
+  @ApiPropertyOptional({ enum: ['employee', 'customer'], default: 'employee' })
+  @IsOptional()
+  @IsIn(['employee', 'customer'])
+  user_type?: 'employee' | 'customer'
+
+  @ApiPropertyOptional({ description: 'Customer company (res_partner.id) — required when user_type = "customer"' })
+  @IsOptional()
+  @IsInt()
+  partner_id?: number | null
 
   @ApiPropertyOptional({
     type: [PermissionEntryDto],

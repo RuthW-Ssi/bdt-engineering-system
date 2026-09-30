@@ -10,20 +10,22 @@ datasource db {
 
 // ── 🟦 Standard Odoo: res_users (Sprint 6: JWT auth fields) ──
 model res_users {
-  id          Int      @id @default(autoincrement())
-  login       String   @unique @db.VarChar(60)
-  password    String   @default("") @db.VarChar(128) // bcryptjs hash; empty = not yet set
-  name        String   @db.VarChar(120)
-  email       String?  @db.VarChar(120)
-  lang        String?  @default("th_TH") @db.VarChar(10)
-  tz          String?  @default("Asia/Bangkok") @db.VarChar(40)
-  role        String   @default("user") @db.VarChar(20) // "admin" | free-text department — see permission-modules.ts
-  level       String?  @db.VarChar(60) // Sprint 27: free-text org level, e.g. "Supervisor" — descriptive only
-  job_title   String?  @db.VarChar(120) // Sprint 27: free-text job title, e.g. "Business System Developer" — descriptive only
-  partner_id  Int? // FK placeholder → res_partner (Sprint 7)
-  active      Boolean  @default(true)
-  create_date DateTime @default(now()) @db.Timestamptz
-  write_date  DateTime @updatedAt @db.Timestamptz
+  id          Int          @id @default(autoincrement())
+  login       String       @unique @db.VarChar(60)
+  password    String       @default("") @db.VarChar(128) // bcryptjs hash; empty = not yet set
+  name        String       @db.VarChar(120)
+  email       String?      @db.VarChar(120)
+  lang        String?      @default("th_TH") @db.VarChar(10)
+  tz          String?      @default("Asia/Bangkok") @db.VarChar(40)
+  role        String       @default("user") @db.VarChar(20) // "admin" | free-text department — see permission-modules.ts
+  level       String?      @db.VarChar(60) // Sprint 27: free-text org level, e.g. "Supervisor" — descriptive only
+  job_title   String?      @db.VarChar(120) // Sprint 27: free-text job title, e.g. "Business System Developer" — descriptive only
+  user_type   String       @default("employee") @db.VarChar(20) // "employee" | "customer" — customers are scoped to partner's projects, view-only (customer-scope.interceptor.ts)
+  partner_id  Int? // customer company (required when user_type = "customer")
+  partner     res_partner? @relation("PartnerUsers", fields: [partner_id], references: [id])
+  active      Boolean      @default(true)
+  create_date DateTime     @default(now()) @db.Timestamptz
+  write_date  DateTime     @updatedAt @db.Timestamptz
 
   materials_created materials[]    @relation("create_user")
   materials_written materials[]    @relation("write_user")
@@ -283,6 +285,7 @@ model res_partner {
 
   projects      project[]
   mail_messages mail_message[] @relation("PartnerMessages")
+  users         res_users[]    @relation("PartnerUsers")
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1576,7 +1579,7 @@ model work_order {
   is_pinned             Boolean   @default(false)
   operator_mode         String    @default("internal") @db.Text
   subcontractor_id      Int?
-  team_headcount        Int       // required (2026-09-25) — internal: auto-counted from active operators on the team, editable; external: entered manually
+  team_headcount        Int // required (2026-09-25) — internal: auto-counted from active operators on the team, editable; external: entered manually
 
   manufacturing_order manufacturing_order  @relation(fields: [mo_id], references: [id], onDelete: Cascade)
   mrp_workcenter      mrp_workcenter       @relation("wo_workcenter", fields: [work_center_id], references: [id])

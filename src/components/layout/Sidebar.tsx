@@ -7,7 +7,7 @@ import {
   ClipboardList, Scissors, Cuboid, UserCog, FileText,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
-import { canViewAny } from '../../lib/moduleAccess'
+import { canViewAny, customerCanOpen, isCustomer } from '../../lib/moduleAccess'
 
 export interface NavItem {
   label: string
@@ -108,6 +108,7 @@ export function visibleItems(items: NavItem[], user: ReturnType<typeof useAuth>[
       return { ...item, children }
     })
     .filter(item => {
+      if (isCustomer(user)) return !item.children?.length && customerCanOpen(item.path)
       if (item.children) return item.children.length > 0
       return !item.viewModules || canViewAny(user, item.viewModules)
     })

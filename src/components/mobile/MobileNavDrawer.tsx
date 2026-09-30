@@ -3,6 +3,7 @@ import { ChevronRight, LogOut, X } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { ROLE_LABELS } from '../../api/users'
 import { SECTIONS, ADMIN_SECTION, visibleItems, type NavItem } from '../layout/Sidebar'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 
 // Every feature that actually has a mobile-ready screen — desktop nav path
 // -> mobile route. Anything in SECTIONS/ADMIN_SECTION NOT listed here (i.e.
@@ -50,6 +51,9 @@ function UnavailableRow({ item }: { item: FlatUnavailable }) {
 export function MobileNavDrawer({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  // Customers: only the mobile-ready Projects entry — no "Not available on
+  // mobile" list advertising desktop pages.
+  const customer = useIsCustomer()
   const rawSections = user?.role === 'admin' ? [...SECTIONS, ADMIN_SECTION] : SECTIONS
   const sections = rawSections
     .map(section => ({ ...section, items: visibleItems(section.items, user) }))
@@ -134,7 +138,7 @@ export function MobileNavDrawer({ onClose }: { onClose: () => void }) {
           </div>
         ))}
 
-        {unavailable.length > 0 && (
+        {!customer && unavailable.length > 0 && (
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wide text-chrome-400 mb-2 px-1">
               Not Available on Mobile

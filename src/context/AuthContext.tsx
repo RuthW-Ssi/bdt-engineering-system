@@ -14,6 +14,9 @@ export interface AuthUser {
   name: string
   role: string
   job_title: string | null
+  // Missing on sessions cached before 2026-09-30 → treated as employee
+  user_type?: 'employee' | 'customer'
+  partner_id?: number | null
   permissions: Record<string, ModulePermission>
 }
 

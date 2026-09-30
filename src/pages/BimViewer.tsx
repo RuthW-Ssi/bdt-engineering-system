@@ -12,6 +12,7 @@ import {
   useBimModels, useUploadBimModel, useBimStatus, useBimElements, useBimElementProperties, useBimViewerToken, useRetryBimModel, useLatestBimVersion,
 } from '../hooks/useBim'
 import { usePermission } from '../hooks/usePermission'
+import { useIsCustomer } from '../hooks/useIsCustomer'
 import type { BimSelection, BimFocusRequest } from '../components/bim/BimViewport'
 
 const filterSelectStyle = { height: 30, padding: '0 8px', fontSize: 12, borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }
@@ -39,10 +40,13 @@ export function BimViewer() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const toastedRef = useRef<Record<number, string>>({})
 
-  const canCreate = usePermission('bim', 'create')
+  // Customers: view-only — no upload/update/retry anywhere on this page.
+  const customer = useIsCustomer()
+  const canCreate = usePermission('bim', 'create') && !customer
 
   const hasScope = !!activeProject
-  const { data: models, refetch } = useBimModels(hasScope ? { projectId: activeProject!.id } : undefined)
+  // Customers may only list a specific project's models (unscoped list → 403)
+  const { data: models, refetch } = useBimModels(hasScope ? { projectId: activeProject!.id } : undefined, { enabled: hasScope || !customer })
   const uploadMutation = useUploadBimModel()
   const retryMutation = useRetryBimModel()
   const { data: latestVersion } = useLatestBimVersion(activeProject?.id)
@@ -287,7 +291,7 @@ export function BimViewer() {
         )}
       </div>
 
-      {showUploadModal && activeProject && (
+      {showUploadModal && activeProject && !customer && (
         <BimUploadModal
           projectLabel={`${activeProject.project_code} — ${activeProject.name}`}
           latestVersion={latestVersion?.major_version != null ? { major: latestVersion.major_version, minor: latestVersion.minor_version! } : null}
@@ -350,7 +354,8 @@ function ViewerSkeleton() {
 }
 
 function NoModelState({ hasModels, onUpload }: { hasModels: boolean; onUpload: () => void }) {
-  const canCreate = usePermission('bim', 'create')
+  const customer = useIsCustomer()
+  const canCreate = usePermission('bim', 'create') && !customer
   return (
     <div className="flex flex-col items-center justify-center gap-3 flex-1" style={{ color: '#8E8E8E' }}>
       <CuboidIcon size={40} style={{ opacity: 0.2 }} />
@@ -378,7 +383,8 @@ const PROCESSING_STEPS = [
 function ProcessingState({ filename, stage, progress, onRetry, isRetrying }: {
   filename?: string; stage: 'translating' | 'extracting'; progress?: string; onRetry: () => void; isRetrying: boolean
 }) {
-  const canUpdate = usePermission('bim', 'update')
+  const customer = useIsCustomer()
+  const canUpdate = usePermission('bim', 'update') && !customer
   // A crash mid-extraction (server OOM, etc.) can leave a model parked in
   // "extracting" forever — checkStatus() only advances a model OUT of that
   // state, it never re-attempts extraction on its own poll. Surface a manual
@@ -465,8 +471,9 @@ function ProcessingState({ filename, stage, progress, onRetry, isRetrying }: {
 function FailedState({ filename, error, onRetry, onUploadDifferent, isRetrying }: {
   filename?: string; error: string | null; onRetry: () => void; onUploadDifferent: () => void; isRetrying: boolean
 }) {
-  const canCreate = usePermission('bim', 'create')
-  const canUpdate = usePermission('bim', 'update')
+  const customer = useIsCustomer()
+  const canCreate = usePermission('bim', 'create') && !customer
+  const canUpdate = usePermission('bim', 'update') && !customer
   return (
     <div style={{ maxWidth: 560, margin: '60px auto', background: 'white', border: '1px solid #E5E7EB', boxShadow: '0 8px 32px rgba(0,0,0,0.08), 0 2px 8px rgba(0,0,0,0.04)', borderRadius: 14, padding: '48px 32px', textAlign: 'center' }}>
       <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: 14, background: '#FCEBEB', color: '#C8202A', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

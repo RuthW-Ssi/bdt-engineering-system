@@ -3,6 +3,7 @@ import type { ProgressRollupTotals, ScheduleProgress } from '../../api/projectPr
 import { PHASE_META } from '../progress/statusMeta'
 import { ScheduleTabBody } from '../progress/SchedulePlanVsActualCard'
 import { PlanDateBarChart } from '../progress/PlanDateBarChart'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 
 // Takes any ProgressRollupTotals — project-wide `overview.total`
 // (MobileZoneList) or a single zone's rollup out of `overview.zones`
@@ -17,13 +18,18 @@ import { PlanDateBarChart } from '../progress/PlanDateBarChart'
 // Schedule tab only appears when it's present.
 export function MobileProgressStatCards({ total, schedule }: { total: ProgressRollupTotals; schedule?: ScheduleProgress }) {
   const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>(schedule ? 'schedule' : 'fab')
+  // Customers: no weights and no plan-date/schedule charts (both stripped
+  // server-side) — same cards desktop's OverviewPanel hides for them.
+  const customer = useIsCustomer()
   return (
     <>
-      <div className="grid grid-cols-2 gap-3">
+      <div className={customer ? 'grid grid-cols-1 gap-3' : 'grid grid-cols-2 gap-3'}>
+        {!customer && (
         <div className="bg-white border border-chrome-100 rounded-xl p-4">
           <div className="text-[11px] font-bold uppercase tracking-wide text-chrome-400">Total Weight</div>
-          <div className="font-mono text-[22px] font-bold text-chrome-900 mt-1.5">{(total.total_weight_kg / 1000).toFixed(1)} t</div>
+          <div className="font-mono text-[22px] font-bold text-chrome-900 mt-1.5">{((total.total_weight_kg ?? 0) / 1000).toFixed(1)} t</div>
         </div>
+        )}
         <div className="bg-white border border-chrome-100 rounded-xl p-4">
           <div className="text-[11px] font-bold uppercase tracking-wide text-chrome-400">Assemblies</div>
           <div className="font-mono text-[22px] font-bold text-chrome-900 mt-1.5">{total.assembly_count}</div>
@@ -39,6 +45,7 @@ export function MobileProgressStatCards({ total, schedule }: { total: ProgressRo
         </div>
       </div>
 
+      {!customer && (
       <div className="bg-white border border-chrome-100 rounded-xl p-4">
         {/* Fab/Erect used to be percent bars here too, and Pay/Trans sat
             alongside them — both dropped, matching desktop: Payment/
@@ -77,6 +84,7 @@ export function MobileProgressStatCards({ total, schedule }: { total: ProgressRo
           />
         )}
       </div>
+      )}
     </>
   )
 }

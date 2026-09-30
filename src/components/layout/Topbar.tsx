@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Search, Bell, ChevronDown, Check, KeyRound, LogOut, Menu } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { ChangePasswordDialog } from './ChangePasswordDialog'
+import { isCustomer } from '../../lib/moduleAccess'
 
 interface Props {
   onMobileMenuToggle: () => void
@@ -61,6 +62,8 @@ export function Topbar({ onMobileMenuToggle }: Props) {
 
       {/* RIGHT */}
       <div className="flex items-center gap-2">
+        {/* Search + Bell are staff-facing mocks — hidden for customer accounts */}
+        {!isCustomer(user) && (<>
         {/* Search */}
         <button className="hidden md:flex items-center gap-2 bg-chrome-50 border border-chrome-100 rounded-md hover:bg-chrome-100 transition-colors" style={{ padding: '6px 12px', width: 200 }}>
           <Search size={14} className="text-chrome-400" />
@@ -111,6 +114,7 @@ export function Topbar({ onMobileMenuToggle }: Props) {
             </div>
           )}
         </div>
+        </>)}
 
         {/* User */}
         <div className="relative" ref={userRef}>
