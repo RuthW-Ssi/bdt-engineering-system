@@ -6,6 +6,7 @@ import { QueryDrawingDto } from './dto/query-drawing.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 @ApiTags('drawings')
 @ApiBearerAuth()
@@ -21,6 +22,7 @@ export class DrawingsController {
   }
 
   @Get()
+  @CustomerAccessible()
   @ApiOperation({ summary: 'List drawings for a zone (or sub-zone)' })
   findByZone(@Query() query: QueryDrawingDto) {
     return this.svc.findByZone(query.zone_id, query.sub_zone_id ?? null)

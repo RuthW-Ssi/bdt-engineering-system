@@ -3,6 +3,7 @@ import { ChevronLeft, Menu, Bell } from 'lucide-react'
 import { useNavigate, useOutletContext } from 'react-router-dom'
 import type { MobileOutletContext } from './MobileNavShell'
 import { MobileNotificationSheet } from './MobileNotificationSheet'
+import { useIsCustomer } from '../../hooks/useIsCustomer'
 
 interface Props {
   title: string
@@ -24,6 +25,8 @@ export function MobileHeader({ title, subtitle, onBack }: Props) {
   const navigate = useNavigate()
   const { openMenu } = useOutletContext<MobileOutletContext>()
   const [notifOpen, setNotifOpen] = useState(false)
+  // Customers: no bell — its (mock) content is internal staff workflow items.
+  const customer = useIsCustomer()
 
   const handleBack = () => {
     if (typeof onBack === 'function') onBack()
@@ -48,6 +51,7 @@ export function MobileHeader({ title, subtitle, onBack }: Props) {
           </div>
         )}
       </div>
+      {customer ? <span className="flex-shrink-0 -mr-1.5 w-9 h-9" aria-hidden /> : (<>
       <button
         onClick={() => setNotifOpen(true)}
         aria-label="Notifications"
@@ -57,6 +61,7 @@ export function MobileHeader({ title, subtitle, onBack }: Props) {
         <span className="absolute" style={{ top: 7, right: 7, width: 7, height: 7, background: '#C8202A', borderRadius: 999, border: '2px solid white' }} />
       </button>
       <MobileNotificationSheet open={notifOpen} onClose={() => setNotifOpen(false)} />
+      </>)}
     </header>
   )
 }

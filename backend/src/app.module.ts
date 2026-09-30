@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common'
+import { APP_INTERCEPTOR } from '@nestjs/core'
+import { CustomerScopeInterceptor } from './common/customer-scope/customer-scope.interceptor'
 import { ConfigModule } from '@nestjs/config'
 import { validate } from './config/configuration'
 import { PrismaModule } from './prisma/prisma.module'
@@ -83,5 +85,7 @@ import { UsersModule } from './modules/users/users.module'
     // Sprint 27
     UsersModule,
   ],
+  // Customer users: default-deny + project scoping + weight/date stripping
+  providers: [{ provide: APP_INTERCEPTOR, useClass: CustomerScopeInterceptor }],
 })
 export class AppModule {}

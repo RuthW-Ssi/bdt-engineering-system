@@ -21,6 +21,7 @@ import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones, useCreateZone, useUpdateZone } from '../hooks/useProjectZones'
 import { useSubZones, useCreateSubZone, useDeleteSubZone } from '../hooks/useSubZones'
 import { usePermission } from '../hooks/usePermission'
+import { useIsCustomer } from '../hooks/useIsCustomer'
 import type { ProjectZoneDTO } from '../api/types'
 import type { CreateZonePayload } from '../api/project-zones'
 
@@ -39,6 +40,7 @@ function SortableZoneRow({
   canAddSub,
   canDeleteSub,
   canEdit,
+  showDates,
 }: {
   zone: any
   index: number
@@ -53,6 +55,7 @@ function SortableZoneRow({
   canAddSub: boolean
   canDeleteSub: boolean
   canEdit: boolean
+  showDates: boolean
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: zone.id })
 
@@ -99,7 +102,7 @@ function SortableZoneRow({
               {zone.sub_zones.length} sub-zones
             </span>
           )}
-          {!reorderMode && (zone.target_start || zone.target_end) && (
+          {showDates && !reorderMode && (zone.target_start || zone.target_end) && (
             <span style={{ fontSize: 11, background: '#F3F4F6', borderRadius: 4, padding: '2px 7px', color: '#8E8E8E', display: 'flex', alignItems: 'center', gap: 3 }}>
               {zone.target_start && new Date(zone.target_start).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })}
               {zone.target_start && zone.target_end && ' → '}
@@ -140,7 +143,7 @@ function SortableZoneRow({
       {!reorderMode && isActive && (
         <div style={{ borderTop: '1px solid #F0F0F0', padding: '8px 16px 12px 16px' }}>
           {!subZones || subZones.length === 0 ? (
-            <p style={{ fontSize: 12, color: '#8E8E8E', margin: 0 }}>No sub-zones yet — click "Add Sub-zone" to add one</p>
+            <p style={{ fontSize: 12, color: '#8E8E8E', margin: 0 }}>{canAddSub ? 'No sub-zones yet — click "Add Sub-zone" to add one' : 'No sub-zones yet'}</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {subZones.map(sz => (
@@ -149,7 +152,7 @@ function SortableZoneRow({
                     <span style={{ fontWeight: 500 }}>{sz.code ?? '—'}</span>
                     {sz.code && <span style={{ color: '#8E8E8E' }}>·</span>}
                     {sz.name}
-                    {(sz.start_date || sz.due_date) && (
+                    {showDates && (sz.start_date || sz.due_date) && (
                       <span style={{ fontSize: 11, color: '#8E8E8E', background: '#F3F4F6', borderRadius: 4, padding: '1px 6px' }}>
                         {sz.start_date && `${new Date(sz.start_date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}`}
                         {sz.start_date && sz.due_date && ' → '}
@@ -208,10 +211,12 @@ export function ZoneList() {
   const createSubMut = useCreateSubZone(subModal.zoneId ?? 0, projectId ?? undefined)
   const deleteSubMut = useDeleteSubZone(expandedZone ?? 0, projectId ?? undefined)
 
-  const canCreateZone = usePermission('project-zones', 'create')
-  const canUpdateZone = usePermission('project-zones', 'update')
-  const canCreateSub = usePermission('sub-zones', 'create')
-  const canDeleteSub = usePermission('sub-zones', 'delete')
+  // Customers: view-only, no dates (stripped server-side anyway).
+  const customer = useIsCustomer()
+  const canCreateZone = usePermission('project-zones', 'create') && !customer
+  const canUpdateZone = usePermission('project-zones', 'update') && !customer
+  const canCreateSub = usePermission('sub-zones', 'create') && !customer
+  const canDeleteSub = usePermission('sub-zones', 'delete') && !customer
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -421,6 +426,7 @@ export function ZoneList() {
                     canAddSub={canCreateSub}
                     canDeleteSub={canDeleteSub}
                     canEdit={canUpdateZone}
+                    showDates={!customer}
                   />
                 ))}
               </SortableContext>
@@ -430,7 +436,7 @@ export function ZoneList() {
       </div>
 
       {/* Add Zone Modal */}
-      {zoneModal && (
+      {zoneModal && !customer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '28px 32px', width: 460, boxShadow: '0 4px 24px rgba(0,0,0,0.16)' }}>
             <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{editingZoneId != null ? 'Edit Zone' : 'Add Zone'}</h2>
@@ -500,7 +506,7 @@ export function ZoneList() {
       )}
 
       {/* Sub-zone Modal */}
-      {subModal.open && (
+      {subModal.open && !customer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
           <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 360 }}>
             <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>New Sub-zone</h2>

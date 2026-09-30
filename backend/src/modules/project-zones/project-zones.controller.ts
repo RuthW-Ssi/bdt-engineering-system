@@ -7,6 +7,7 @@ import { CreateZoneDto } from './dto/create-zone.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 @ApiTags('project-zones')
 @ApiBearerAuth()
@@ -16,6 +17,7 @@ export class ProjectZonesController {
   constructor(private readonly svc: ProjectZonesService) {}
 
   @Get()
+  @CustomerAccessible()
   @RequiresPermission('project-zones', 'view')
   @ApiOperation({ summary: 'List zones for a project' })
   findAll(@Param('projectId', ParseIntPipe) projectId: number) {

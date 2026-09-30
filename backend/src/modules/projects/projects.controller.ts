@@ -15,6 +15,7 @@ import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 @ApiTags('projects')
 @ApiBearerAuth()
@@ -36,6 +37,7 @@ export class ProjectsController {
   }
 
   @Get()
+  @CustomerAccessible({ projectList: true })
   @RequiresPermission('projects', 'view')
   @ApiOperation({ summary: 'List projects' })
   findAll(@Query() query: QueryProjectDto) {
@@ -47,6 +49,7 @@ export class ProjectsController {
   // segment counts differ so there is no actual conflict either way.
 
   @Get(':project_code/progress/overview')
+  @CustomerAccessible()
   @RequiresPermission('project-tracking', 'view')
   @ApiOperation({ summary: 'Per-zone weighted progress rollup + project total' })
   getProgressOverview(@Param('project_code') code: string) {
@@ -54,6 +57,7 @@ export class ProjectsController {
   }
 
   @Get(':project_code/progress/zones/:zone_id')
+  @CustomerAccessible()
   @RequiresPermission('project-tracking', 'view')
   @ApiOperation({ summary: 'Per-assembly progress rows for one zone (ACTIVE assemblies, computed pct/status)' })
   getProgressZoneRows(@Param('project_code') code: string, @Param('zone_id', ParseIntPipe) zoneId: number) {
@@ -61,6 +65,7 @@ export class ProjectsController {
   }
 
   @Get(':project_code/progress/zones/:zone_id/bim-match')
+  @CustomerAccessible()
   @RequiresPermission('project-tracking', 'view')
   @ApiOperation({ summary: 'Mark-match map (bom_assembly ↔ bim_element global_ids) for the isolate-by-status 3D view' })
   getProgressBimMatch(@Param('project_code') code: string, @Param('zone_id', ParseIntPipe) zoneId: number) {
@@ -70,6 +75,7 @@ export class ProjectsController {
   // 'rows'/'bim-match' as literal segments here don't collide with
   // '/zones/:zone_id...' above — different path prefix, no ordering concern.
   @Get(':project_code/progress/rows')
+  @CustomerAccessible()
   @RequiresPermission('project-tracking', 'view')
   @ApiOperation({ summary: 'Per-assembly progress rows across every zone of the project (Overview tab isolate-by-status)' })
   getProgressProjectRows(@Param('project_code') code: string) {
@@ -77,6 +83,7 @@ export class ProjectsController {
   }
 
   @Get(':project_code/progress/bim-match')
+  @CustomerAccessible()
   @RequiresPermission('project-tracking', 'view')
   @ApiOperation({ summary: 'Mark-match map across every zone of the project (Overview tab whole-project 3D view)' })
   getProgressProjectBimMatch(@Param('project_code') code: string) {
@@ -84,6 +91,7 @@ export class ProjectsController {
   }
 
   @Get(':project_code/progress/positions')
+  @CustomerAccessible()
   @RequiresPermission('project-tracking', 'view')
   @ApiOperation({ summary: 'Progress grouped by BIM structural position code instead of Zone (Overview tab alternate view)' })
   getProgressPositions(@Param('project_code') code: string) {
@@ -182,6 +190,7 @@ export class ProjectsController {
   }
 
   @Get(':project_code')
+  @CustomerAccessible()
   @RequiresPermission('projects', 'view')
   @ApiOperation({ summary: 'Get project by code' })
   findOne(@Param('project_code') code: string) {

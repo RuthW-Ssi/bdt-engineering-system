@@ -16,6 +16,7 @@ import { computeDelayInfo, delayTooltipParts, DELAY_STATUS_COLOR } from '../comp
 import type { DelayInfo } from '../components/progress/delayStatus'
 import { useProject } from '../hooks/useProjects'
 import { usePermission } from '../hooks/usePermission'
+import { useIsCustomer } from '../hooks/useIsCustomer'
 import {
   useProgressBimMatch, useProgressOverview, useProgressZoneRows, useProgressProjectRows, useProgressProjectBimMatch,
   useProgressPositions, useUpdateAssemblyProgress, useBulkUpdateAssemblyProgress, useDeletePlaceholderAssembly,
@@ -159,6 +160,9 @@ function buildPositionBuckets(positions: PositionsResult | undefined, axis: Posi
 export function ProjectProgress() {
   const { code } = useParams<{ code: string }>()
   const navigate = useNavigate()
+  // Customers: view-only, no weights/dates (backend strips them) — hide the
+  // matching UI and never hit the 403-ing deleted/export/history endpoints.
+  const customer = useIsCustomer()
 
   const { data: project, isLoading: projectLoading } = useProject(code)
   const zones: ProjectZoneDTO[] = useMemo(() => (project as ProjectDetail | undefined)?.zones ?? [], [project])
@@ -219,7 +223,7 @@ export function ProjectProgress() {
   const restoreMutation = useRestorePlaceholderAssembly(code)
   // Lazy — only fetched once the Deleted section is actually expanded.
   const [showDeleted, setShowDeleted] = useState(false)
-  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted)
+  const { data: deletedAssemblies, isLoading: deletedLoading } = useDeletedPlaceholderAssemblies(code, showDeleted && !customer)
 
   // Overview's Zone/Position toggle + which group (if any) is being
   // previewed — lives here (not inside OverviewPanel) because the 3D
@@ -258,7 +262,7 @@ export function ProjectProgress() {
   // toggle already cover the same actions.
   const [overviewEditOpen, setOverviewEditOpen] = useState(false)
   const [overviewDrawingOpen, setOverviewDrawingOpen] = useState(false)
-  const canUpdateProgress = usePermission('project-tracking', 'update')
+  const canUpdateProgress = usePermission('project-tracking', 'update') && !customer
   const selectedOverviewRow = tab === 'overview' ? (activeRows ?? []).find(r => r.assembly_id === selectedAssemblyId) : undefined
 
   const matchByAssembly = useMemo(
@@ -498,7 +502,7 @@ export function ProjectProgress() {
             currently showing (moved out of an overlay on the viewport itself,
             since the Forge viewer's own canvas painted over it). */}
         <div className="flex items-center gap-2">
-          {tab === 'overview' && (project.start_date || project.target_handover) && (
+          {!customer && tab === 'overview' && (project.start_date || project.target_handover) && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F5F5', borderRadius: 999, padding: '5px 12px', fontSize: 12, color: '#8E8E8E' }}>
               <Calendar size={12} /> <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, color: '#1A1A1A' }}>{formatDate(project.start_date)}</b>
               {' → '}
@@ -531,6 +535,7 @@ export function ProjectProgress() {
               E <b style={{ fontSize: 12.5, color: '#1A1A1A' }}>{overview.total.erect_pct}%</b>
             </span>
           )}
+          {!customer && (<>
           <button
             onClick={handleExport}
             disabled={exporting}
@@ -556,6 +561,7 @@ export function ProjectProgress() {
             <History size={13} />
             History
           </button>
+          </>)}
         </div>
       </div>
 
@@ -575,7 +581,7 @@ export function ProjectProgress() {
             <TabButton
               key={z.id}
               label={z.label}
-              sub={rollup ? `${(rollup.total_weight_kg / 1000).toFixed(1)}t` : undefined}
+              sub={rollup && !customer && rollup.total_weight_kg != null ? `${(rollup.total_weight_kg / 1000).toFixed(1)}t` : undefined}
               active={tab === z.id}
               onClick={() => switchTab(z.id)}
             />
@@ -607,6 +613,7 @@ export function ProjectProgress() {
               onToggleGroup={handleGroupToggle}
               positions={positions}
               positionBuckets={positionBuckets}
+              customer={customer}
             />
           ) : (
             <ProgressAssemblyTable
@@ -620,6 +627,7 @@ export function ProjectProgress() {
               showDeleted={showDeleted}
               onToggleShowDeleted={() => setShowDeleted(v => !v)}
               deletedAssemblies={deletedAssemblies}
+              customer={customer}
               deletedLoading={deletedLoading}
               onRestore={handleRestore}
               restoring={restoreMutation.isPending}
@@ -711,6 +719,8 @@ export function ProjectProgress() {
                 <BimViewport
                   urn={viewerToken.urn}
                   accessToken={viewerToken.access_token}
+                  // Autodesk's built-in Properties panel reads raw IFC data (weights) — not reachable by the backend strip
+                  hideToolbar={customer}
                   onSelect={handleViewerSelect}
                   focusRequest={focusRequest}
                   statusColorMap={highlightColorMap}
@@ -771,7 +781,7 @@ export function ProjectProgress() {
         </div>
       </div>
 
-      {overviewEditOpen && selectedOverviewRow && (
+      {overviewEditOpen && selectedOverviewRow && !customer && (
         <ProgressEditModal
           row={selectedOverviewRow}
           saving={updateMutation.isPending}
@@ -819,7 +829,7 @@ function TabButton({ label, sub, active, onClick }: { label: string; sub?: strin
 // instead of 4-wide to fit comfortably.
 function OverviewPanel({
   overview, zones, view, onSetView, positionAxis, onSetPositionAxis,
-  activeGroup, onToggleGroup, positions, positionBuckets,
+  activeGroup, onToggleGroup, positions, positionBuckets, customer,
 }: {
   overview: ReturnType<typeof useProgressOverview>['data']
   zones: ProjectZoneDTO[]
@@ -831,6 +841,7 @@ function OverviewPanel({
   onToggleGroup: (group: NonNullable<ActiveGroup>) => void
   positions: ReturnType<typeof useProgressPositions>['data']
   positionBuckets: PositionBucket[]
+  customer: boolean
 }) {
   const [planTab, setPlanTab] = useState<'fab' | 'erection' | 'schedule'>('schedule')
   if (!overview) {
@@ -870,10 +881,10 @@ function OverviewPanel({
           back into 3. Moved back here after also briefly living as a
           3D-viewport overlay — the overlay collided visually with the
           model itself. */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 12, flexShrink: 0 }}>
-        <StatCard label="Total Weight" value={`${(total.total_weight_kg / 1000).toFixed(1)} t`} />
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${customer ? 2 : 3}, 1fr)`, gap: 12, marginBottom: 12, flexShrink: 0 }}>
+        {!customer && <StatCard label="Total Weight" value={`${((total.total_weight_kg ?? 0) / 1000).toFixed(1)} t`} />}
         <StatCard label="Assemblies" value={total.assembly_count}>
-          {scheduledCount > 0 && (
+          {!customer && scheduledCount > 0 && (
             <div style={{ fontSize: 11, marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
               {overdueCount > 0 && (
                 <span style={{ color: DELAY_STATUS_COLOR.overdue, fontWeight: 600 }}>{overdueCount} {overdueCount === 1 ? 'zone' : 'zones'} overdue</span>
@@ -924,6 +935,7 @@ function OverviewPanel({
           </div>
         </StatCard>
       </div>
+        {!customer && (
         <StatCard label="" value="" accent="#C8202A" style={{ height: 240, marginBottom: 12, padding: '10px 16px 3px', display: 'flex', flexDirection: 'column' }}>
           {/* Schedule/Fab/Erection — Payment progress is already
               visible elsewhere on this page (the isolate-by-status pills
@@ -986,6 +998,7 @@ function OverviewPanel({
             )}
           </div>
         </StatCard>
+        )}
 
       {/* flex:1 — same as the card above, so the two cards split the
           remaining height evenly instead of this one taking whatever's left
@@ -1048,7 +1061,7 @@ function OverviewPanel({
                   <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Zone</th>
                   <th style={{ ...thStyle, textAlign: 'right', position: 'sticky', top: 0, background: 'white' }}>Assemblies</th>
                   <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Progress</th>
-                  <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Date</th>
+                  {!customer && <th style={{ ...thStyle, position: 'sticky', top: 0, background: 'white' }}>Date</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1073,6 +1086,7 @@ function OverviewPanel({
                       <td style={{ ...tdStyle, ...mono, fontSize: 12, color: empty ? '#D5D5D5' : '#1A1A1A', whiteSpace: 'nowrap' }}>
                         F <b>{z.fab_pct.toFixed(0)}%</b> · T <b>{z.load_pct}%</b> · E <b>{z.erect_pct}%</b>
                       </td>
+                      {!customer && (
                       <td style={{ ...tdStyle, ...mono, fontSize: 12, color: delayInfo ? DELAY_STATUS_COLOR[delayInfo.status] : '#ABABAB', whiteSpace: 'nowrap' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           {delayInfo && <DelayDot info={delayInfo} />}
@@ -1081,12 +1095,13 @@ function OverviewPanel({
                           </span>
                         </div>
                       </td>
+                      )}
                     </tr>
                   )
                 })}
                 {!overview.zones.length && (
                   <tr>
-                    <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', color: '#8E8E8E', padding: 28 }}>
+                    <td colSpan={customer ? 3 : 4} style={{ ...tdStyle, textAlign: 'center', color: '#8E8E8E', padding: 28 }}>
                       No zones defined for this project yet
                     </td>
                   </tr>

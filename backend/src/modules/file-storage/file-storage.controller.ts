@@ -10,6 +10,7 @@ import * as path from 'path'
 import * as fs from 'fs'
 import { FileStorageService } from './file-storage.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
+import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
 
 // This endpoint's contentType is stored as GCS object metadata and served
 // back verbatim on download (see GcsFileStorageDriver) — an unvalidated
@@ -55,6 +56,7 @@ export class FileStorageController {
   }
 
   @Get('download')
+  @CustomerAccessible({ drawingFileKey: true })
   @ApiOperation({ summary: 'Download a file — redirects to a signed GCS URL when that driver is active' })
   async download(@Query('key') key: string, @Res() res: Response) {
     if (!key) throw new BadRequestException('key query param is required')
