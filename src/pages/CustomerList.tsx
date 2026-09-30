@@ -54,8 +54,14 @@ function CustomerCard({
             <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 700, color: '#C8202A', background: '#FCEBEB', borderRadius: 4, padding: '1px 6px' }}>{c.ref}</span>
           )}
           <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1A1A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</span>
+          {c.short_name && (
+            <span style={{ fontSize: 12, color: '#8E8E8E', whiteSpace: 'nowrap' }}>({c.short_name})</span>
+          )}
         </div>
         <div className="flex items-center gap-4" style={{ fontSize: 12, color: '#8E8E8E' }}>
+          {c.tax_id && (
+            <span style={{ fontFamily: 'monospace' }}>Tax ID {c.tax_id}</span>
+          )}
           {c.email && (
             <span className="flex items-center gap-1"><Mail size={11} />{c.email}</span>
           )}
@@ -127,7 +133,7 @@ export function CustomerList() {
   }
 
   function openEdit(c: Customer) {
-    setForm({ ref: c.ref ?? undefined, name: c.name, vat: c.vat ?? undefined, email: c.email ?? undefined, phone: c.phone ?? undefined, street: c.street ?? undefined, city: c.city ?? undefined })
+    setForm({ ref: c.ref ?? undefined, name: c.name, short_name: c.short_name ?? undefined, tax_id: c.tax_id ?? undefined, email: c.email ?? undefined, phone: c.phone ?? undefined, street: c.street ?? undefined, city: c.city ?? undefined })
     setModal({ open: true, editing: c })
   }
 
@@ -229,7 +235,8 @@ export function CustomerList() {
               {([
                 ['ref', 'Code (optional)', false],
                 ['name', 'Name *', true],
-                ['vat', 'VAT', false],
+                ['short_name', 'Short Name', false],
+                ['tax_id', 'Tax ID', false],
                 ['email', 'Email', false],
                 ['phone', 'Phone', false],
                 ['city', 'City', false],
@@ -238,7 +245,12 @@ export function CustomerList() {
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>{label}</label>
                   <input
                     value={(form[field] as string) ?? ''}
-                    onChange={e => setForm(f => ({ ...f, [field]: e.target.value || undefined }))}
+                    onChange={e => {
+                      const v = field === 'tax_id' ? e.target.value.replace(/\D/g, '') : e.target.value
+                      setForm(f => ({ ...f, [field]: v || undefined }))
+                    }}
+                    maxLength={field === 'tax_id' ? 13 : field === 'short_name' ? 50 : undefined}
+                    inputMode={field === 'tax_id' ? 'numeric' : undefined}
                     required={required}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
                   />

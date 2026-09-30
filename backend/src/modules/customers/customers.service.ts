@@ -33,6 +33,8 @@ export class CustomersService {
             OR: [
               { name: { contains: query.search, mode: 'insensitive' as const } },
               { ref: { contains: query.search, mode: 'insensitive' as const } },
+              { short_name: { contains: query.search, mode: 'insensitive' as const } },
+              { tax_id: { contains: query.search } },
             ],
           }
         : {}),
