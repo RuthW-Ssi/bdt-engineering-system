@@ -5,7 +5,7 @@ import {
   ERECTION_DATE_FIELDS, ERECTION_DATE_LABEL, PCS_LABEL, EDIT_FIELDS, clampPct, clampPcs, groupHeader,
 } from './progressEditShared'
 import { useAuth } from '../../context/AuthContext'
-import { editableSections, lockedNote, type ProgressSectionKey } from '../../lib/progressDepartments'
+import { editableGroups, lockedNotes, type ProgressGroupKey } from '../../lib/progressDepartments'
 
 // Components only in this file (react-refresh/only-export-components wants
 // a components-only file for Fast Refresh — the constants/helpers these use
@@ -25,13 +25,16 @@ export function PctInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   )
 }
 
-// Section title; a section the user's department doesn't own shows a lock
-// note instead of being hidden, so everyone still sees the whole picture.
-export function SectionHeader({ label, locked, section }: { label: string; locked: boolean; section: ProgressSectionKey }) {
+// Section title plus one note per field group the user's department can't
+// edit (lockedNotes) — locked groups stay visible, just disabled. `dim`
+// greys the title when the section's own work is locked.
+export function SectionHeader({ label, notes, dim }: { label: string; notes: string[]; dim: boolean }) {
   return (
-    <div style={{ ...groupHeader, display: 'flex', alignItems: 'baseline', gap: 10, color: locked ? '#ABABAB' : groupHeader.color }}>
+    <div style={{ ...groupHeader, display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 10, color: dim ? '#ABABAB' : groupHeader.color }}>
       {label}
-      {locked && <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#8E8E8E' }}>{lockedNote(section)} <span style={{ color: '#C8202A' }}>*</span></span>}
+      {notes.map(n => (
+        <span key={n} style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0, textTransform: 'none', color: '#8E8E8E' }}>{n} <span style={{ color: '#C8202A' }}>*</span></span>
+      ))}
     </div>
   )
 }
@@ -62,17 +65,17 @@ export function ProgressEditFields({
   onCancel: () => void
 }) {
   const qty = Math.max(1, Math.round(row.qty ?? 1))
-  // Each section is editable by one department only (2026-09-29) — the
-  // backend enforces it; this just locks the inputs so it's obvious why.
+  // Each field group is editable by specific departments (2026-09-29/30) —
+  // the backend enforces it; this just locks the inputs so it's obvious why.
   const { user } = useAuth()
-  const can = editableSections(user?.role)
-  const off = (section: ProgressSectionKey) => saving || !can.has(section)
+  const can = editableGroups(user?.role)
+  const off = (group: ProgressGroupKey) => saving || !can.has(group)
   const dirty = EDIT_FIELDS.some(f => draft[f] !== row[f])
 
   return (
     <>
       {/* Fabrication — 10 weighted stages (percent each) first, then phase-level Plan/Actual Finish */}
-      <SectionHeader label="Fabrication" section="fabrication" locked={!can.has('fabrication')} />
+      <SectionHeader label="Fabrication" notes={lockedNotes(can, 'fabrication', 'fab_dates')} dim={!can.has('fabrication')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 14px', marginBottom: 12 }}>
         {FAB_STAGES.map(stage => (
           <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
@@ -90,7 +93,7 @@ export function ProgressEditFields({
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={off('fabrication')}
+              disabled={off('fab_dates')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
@@ -99,7 +102,7 @@ export function ProgressEditFields({
       </div>
 
       {/* Material Payment — parallel to Fab/Transport/Erection, 3-state status */}
-      <SectionHeader label="Material Payment" section="payment" locked={!can.has('payment')} />
+      <SectionHeader label="Material Payment" notes={lockedNotes(can, 'payment')} dim={!can.has('payment')} />
       <div style={{ display: 'flex', marginBottom: 16 }}>
         <FieldGroup label="Status">
           <select
@@ -114,14 +117,14 @@ export function ProgressEditFields({
       </div>
 
       {/* Transport — load dates + pieces loaded */}
-      <SectionHeader label="Transport" section="transport" locked={!can.has('transport')} />
+      <SectionHeader label="Transport" notes={lockedNotes(can, 'transport', 'transport_dates')} dim={!can.has('transport')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
         {DATE_FIELDS.map(field => (
           <FieldGroup key={field} label={DATE_LABEL[field]}>
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={off('transport')}
+              disabled={off('transport_dates')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
@@ -139,14 +142,14 @@ export function ProgressEditFields({
       </div>
 
       {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual→count order), then pieces erected (full = done) */}
-      <SectionHeader label="Erection" section="erection" locked={!can.has('erection')} />
+      <SectionHeader label="Erection" notes={lockedNotes(can, 'erection', 'erection_dates')} dim={!can.has('erection')} />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
         {ERECTION_DATE_FIELDS.map(field => (
           <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
             <input
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
-              disabled={off('erection')}
+              disabled={off('erection_dates')}
               onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
             />
