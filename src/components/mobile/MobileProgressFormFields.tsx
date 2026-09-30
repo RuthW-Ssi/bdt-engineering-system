@@ -9,7 +9,7 @@ import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import type { ProgressZoneRow, UpdateAssemblyProgressPayload, FabStage, PaymentStatus } from '../../api/projectProgress'
 import { MobileDateWheelPicker } from './MobileDateWheelPicker'
 import { useAuth } from '../../context/AuthContext'
-import { editableSections, lockedNote, type ProgressSectionKey } from '../../lib/progressDepartments'
+import { editableGroups, lockedNotes, type ProgressGroupKey } from '../../lib/progressDepartments'
 
 const STAGE_LABEL: Record<FabStage, string> = {
   cut: 'Cut', buildup: 'Build-Up', weld1: 'Weld', fitup_drill: 'Fitup/Drill', weld2: 'Weld (2)',
@@ -69,11 +69,11 @@ interface Props {
 
 // Section title; a section the user's department doesn't own shows a lock
 // note (2026-09-29) instead of being hidden.
-function Section({ title, s, locked }: { title: string; s: ProgressSectionKey; locked: boolean }) {
+function Section({ title, notes }: { title: string; notes: string[] }) {
   return (
     <div className={section}>
       {title}
-      {locked && <span className="ml-2 text-[11px] font-medium normal-case tracking-normal text-chrome-400">{lockedNote(s)} <span className="text-ssi-600">*</span></span>}
+      {notes.map(n => <span key={n} className="ml-2 text-[11px] font-medium normal-case tracking-normal text-chrome-400">{n} <span className="text-ssi-600">*</span></span>)}
     </div>
   )
 }
@@ -83,8 +83,10 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
   // Each section is editable by one department only (2026-09-29) — the
   // backend enforces it; locked sections stay visible with a note.
   const { user } = useAuth()
-  const depts = editableSections(user?.role)
-  const can = (s: ProgressSectionKey) => canUpdate && depts.has(s)
+  const depts = editableGroups(user?.role)
+  const can = (g: ProgressGroupKey) => canUpdate && depts.has(g)
+  // Notes only matter to someone who could otherwise edit (canUpdate).
+  const notes = (main: ProgressGroupKey, dates?: ProgressGroupKey) => (canUpdate ? lockedNotes(depts, main, dates) : [])
   // Delete is gated on its own permission tier, separate from ordinary
   // progress-entry 'update' — see the design note on projects.controller.ts's
   // deletePlaceholderAssembly endpoint.
@@ -135,7 +137,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
           </div>
         )}
 
-        <Section title="Fabrication" s="fabrication" locked={canUpdate && !depts.has('fabrication')} />
+        <Section title="Fabrication" notes={notes('fabrication', 'fab_dates')} />
         <div className="grid grid-cols-2 gap-3">
           {FAB_STAGES.map(stage => (
             <div key={stage} className="min-w-0">
@@ -160,7 +162,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
               label="Plan Finish"
               value={toInputDate(draft.fab_plan_finish_date ?? null)}
               onChange={v => set('fab_plan_finish_date', v)}
-              disabled={!can('fabrication')}
+              disabled={!can('fab_dates')}
             />
           </div>
           <div className="min-w-0">
@@ -169,12 +171,12 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
               label="Actual Finish"
               value={toInputDate(draft.fab_actual_finish_date ?? null)}
               onChange={v => set('fab_actual_finish_date', v)}
-              disabled={!can('fabrication')}
+              disabled={!can('fab_dates')}
             />
           </div>
         </div>
 
-        <Section title="Transport" s="transport" locked={canUpdate && !depts.has('transport')} />
+        <Section title="Transport" notes={notes('transport', 'transport_dates')} />
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="min-w-0">
@@ -183,7 +185,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
                 label="Plan Load"
                 value={toInputDate(draft.plan_load_date ?? null)}
                 onChange={v => set('plan_load_date', v)}
-                disabled={!can('transport')}
+                disabled={!can('transport_dates')}
               />
             </div>
             <div className="min-w-0">
@@ -192,7 +194,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
                 label="Actual Load"
                 value={toInputDate(draft.actual_load_date ?? null)}
                 onChange={v => set('actual_load_date', v)}
-                disabled={!can('transport')}
+                disabled={!can('transport_dates')}
               />
             </div>
           </div>
@@ -205,7 +207,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
           </div>
         </div>
 
-        <Section title="Material Payment" s="payment" locked={canUpdate && !depts.has('payment')} />
+        <Section title="Material Payment" notes={notes('payment')} />
         <div className="flex flex-col gap-3">
           <div className="min-w-0">
             <label className={label}>Status</label>
@@ -220,7 +222,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
           </div>
         </div>
 
-        <Section title="Erection" s="erection" locked={canUpdate && !depts.has('erection')} />
+        <Section title="Erection" notes={notes('erection', 'erection_dates')} />
         <div className="flex flex-col gap-3">
           <div className="min-w-0">
             <label className={label}>Erected (pcs, max {qty})</label>
@@ -236,7 +238,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
                 label="Plan Finish"
                 value={toInputDate(draft.erection_plan_finish_date ?? null)}
                 onChange={v => set('erection_plan_finish_date', v)}
-                disabled={!can('erection')}
+                disabled={!can('erection_dates')}
               />
             </div>
             <div className="min-w-0">
@@ -245,7 +247,7 @@ export function MobileProgressFormFields({ code, row, onSaved, variant }: Props)
                 label="Actual Finish"
                 value={toInputDate(draft.erection_actual_finish_date ?? null)}
                 onChange={v => set('erection_actual_finish_date', v)}
-                disabled={!can('erection')}
+                disabled={!can('erection_dates')}
               />
             </div>
           </div>

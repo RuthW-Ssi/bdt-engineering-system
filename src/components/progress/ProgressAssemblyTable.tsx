@@ -7,7 +7,7 @@ import { usePermission } from '../../hooks/usePermission'
 import { useConfirm } from '../ui/ConfirmDialog'
 import { PctInput, FieldGroup, ProgressEditFields, SectionHeader } from './ProgressEditForm'
 import { useAuth } from '../../context/AuthContext'
-import { editableSections } from '../../lib/progressDepartments'
+import { editableGroups, lockedNotes } from '../../lib/progressDepartments'
 import {
   dateInput, numInput, toInputDate, STAGE_LABEL,
   DATE_FIELDS, DATE_LABEL, FAB_DATE_FIELDS, FAB_DATE_LABEL, ERECTION_DATE_FIELDS, ERECTION_DATE_LABEL,
@@ -169,7 +169,7 @@ export function ProgressAssemblyTable({
   // Department-owned sections (2026-09-29) — locked inputs for sections the
   // user's department doesn't own; the backend rejects them anyway.
   const { user } = useAuth()
-  const canBulk = editableSections(user?.role)
+  const canBulk = editableGroups(user?.role)
   const [bulkTouched, setBulkTouched] = useState<Set<keyof BulkUpdateAssemblyProgressPayload>>(new Set())
 
   const q = search.trim().toLowerCase()
@@ -273,7 +273,7 @@ export function ProgressAssemblyTable({
               Material Payment / Transport / Erection, same group headers and
               grid layout) — this used to be one undifferentiated flex-wrap
               of every field, which drifted from that panel's structure. */}
-          <SectionHeader label="Fabrication" section="fabrication" locked={!canBulk.has('fabrication')} />
+          <SectionHeader label="Fabrication" notes={lockedNotes(canBulk, 'fabrication', 'fab_dates')} dim={!canBulk.has('fabrication')} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px 12px', marginBottom: 12 }}>
             {FAB_STAGES.map(stage => (
               <FieldGroup key={stage} label={STAGE_LABEL[stage]}>
@@ -293,7 +293,7 @@ export function ProgressAssemblyTable({
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
-                  disabled={!canBulk.has('fabrication')}
+                  disabled={!canBulk.has('fab_dates')}
                   onChange={e => setBulkField(field, e.target.value || null)}
                   style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
@@ -301,7 +301,7 @@ export function ProgressAssemblyTable({
             ))}
           </div>
 
-          <SectionHeader label="Material Payment" section="payment" locked={!canBulk.has('payment')} />
+          <SectionHeader label="Material Payment" notes={lockedNotes(canBulk, 'payment')} dim={!canBulk.has('payment')} />
           <div style={{ display: 'flex', marginBottom: 16 }}>
             <FieldGroup label="Status">
               <select
@@ -318,14 +318,14 @@ export function ProgressAssemblyTable({
 
           {/* Transport — load dates + pieces loaded (as a "set full" flag;
               see the comment on the field below for why). */}
-          <SectionHeader label="Transport" section="transport" locked={!canBulk.has('transport')} />
+          <SectionHeader label="Transport" notes={lockedNotes(canBulk, 'transport', 'transport_dates')} dim={!canBulk.has('transport')} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px', marginBottom: 16 }}>
             {DATE_FIELDS.map(field => (
               <FieldGroup key={field} label={DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
-                  disabled={!canBulk.has('transport')}
+                  disabled={!canBulk.has('transport_dates')}
                   onChange={e => setBulkField(field, e.target.value || null)}
                   style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
@@ -347,14 +347,14 @@ export function ProgressAssemblyTable({
 
           {/* Erection — Plan/Actual Finish first (Transport's Plan→Actual
               order), then pieces erected (full = done). */}
-          <SectionHeader label="Erection" section="erection" locked={!canBulk.has('erection')} />
+          <SectionHeader label="Erection" notes={lockedNotes(canBulk, 'erection', 'erection_dates')} dim={!canBulk.has('erection')} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px 14px' }}>
             {ERECTION_DATE_FIELDS.map(field => (
               <FieldGroup key={field} label={ERECTION_DATE_LABEL[field]}>
                 <input
                   type="date"
                   value={bulkDraft[field] ? toInputDate(bulkDraft[field] as string) : ''}
-                  disabled={!canBulk.has('erection')}
+                  disabled={!canBulk.has('erection_dates')}
                   onChange={e => setBulkField(field, e.target.value || null)}
                   style={{ ...dateInput, width: '100%', color: bulkTouched.has(field) ? '#1A1A1A' : '#ABABAB' }}
                 />
