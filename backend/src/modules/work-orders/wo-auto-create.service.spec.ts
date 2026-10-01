@@ -96,6 +96,8 @@ function makeTx(overrides: Record<string, unknown> = {}) {
     // separate SELECT-FOR-UPDATE + UPDATE pair — see wo-auto-create.service.ts's
     // createOrAddMarks() comment (2026-09-28, wo_code year-prefix change).
     $queryRaw: jest.fn().mockResolvedValue([{ allocated: 900 }]),
+    // wo_code carries IN/EX from the chosen team's team_type (2026-10-01).
+    team: { findUnique: jest.fn().mockResolvedValue({ team_type: 'internal' }) },
     $executeRaw: jest.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -109,11 +111,12 @@ describe('WorkOrderAutoCreateService.createOrAddMarks', () => {
 
     const result = await svc.createOrAddMarks(tx, 1, 1, [{ assembly_line_id: 1, qty: 1 }], 'tester')
 
-    // wo_code is WO-YYNNNNNN — the year comes from the real wall clock
+    // wo_code is WO-IN|EX-YYNNNNNN — the year comes from the real wall clock
     // (not injectable), so compute the expected prefix the same way the
-    // service does rather than hardcoding a year that goes stale.
+    // service does rather than hardcoding a year that goes stale. No team
+    // given → IN (2026-10-01).
     const year = (new Date().getFullYear() % 100).toString().padStart(2, '0')
-    const expectedCode = `WO-${year}000900`
+    const expectedCode = `WO-IN-${year}000900`
 
     // Always creates fresh, no find-or-create lookup by (mo, operation) at
     // all (2026-09-23: an operation may have several WOs, and there's no
@@ -149,6 +152,24 @@ describe('WorkOrderAutoCreateService.createOrAddMarks', () => {
     expect(tx.work_order.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ subcontractor_id: 7 }) }),
     )
+  })
+
+  // IN/EX tag in wo_code (2026-10-01) — user: "ตอนสร้าง wo ต้องใส่ in หรือ ex
+  // ในwo id เพื่อให้รู้ด้วยว่า wo นี้เป็นงานของ ทีม ภายใน หรือภายนอก". Derived
+  // from the chosen team's team_type; one shared per-year counter for both.
+  it.each([
+    ['internal', 'IN'],
+    ['external', 'EX'],
+  ])('tags wo_code from a %s team as %s, sharing the per-year counter', async (teamType, tag) => {
+    const tx = makeTx({ team: { findUnique: jest.fn().mockResolvedValue({ team_type: teamType }) } })
+    const svc = new WorkOrderAutoCreateService()
+    const year = (new Date().getFullYear() % 100).toString().padStart(2, '0')
+
+    const result = await svc.createOrAddMarks(tx, 1, 1, [{ assembly_line_id: 1, qty: 1 }], 'tester', undefined, undefined, undefined, 7)
+
+    expect(tx.team.findUnique).toHaveBeenCalledWith({ where: { id: 7 }, select: { team_type: true } })
+    expect(result.wo_code).toBe(`WO-${tag}-${year}000900`)
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1)
   })
 
   it('defaults subcontractor_id to null when no team is given', async () => {
