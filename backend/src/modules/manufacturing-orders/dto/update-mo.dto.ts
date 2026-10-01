@@ -29,13 +29,8 @@ export class UpdateMoDto {
   @IsISO8601()
   plan_finish?: string
 
-  @IsOptional()
-  @IsISO8601()
-  actual_start?: string
-
-  @IsOptional()
-  @IsISO8601()
-  actual_finish?: string
+  // actual_start/actual_finish removed (2026-10-01): set only via Complete
+  // (PATCH /mo/:id/status) or PATCH /mo/:id/actual-dates once DONE.
 
   @IsOptional()
   @IsArray()

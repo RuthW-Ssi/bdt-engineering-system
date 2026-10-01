@@ -1483,9 +1483,9 @@ model manufacturing_order {
   // work_order's own plan_start/plan_finish (2026-09-22).
   plan_start               DateTime?          @db.Timestamptz
   plan_finish              DateTime?          @db.Timestamptz
-  // Actual production window — hand-filled once known; not derived from
-  // work_order schedules. Date+time, since actual start/finish are logged
-  // to the minute (2026-09-22).
+  // Actual production window — user-typed at Complete (DONE) and editable
+  // only once DONE; never system-stamped on Start/Complete (2026-10-01). Not
+  // derived from work_order schedules. Date+time, logged to the minute.
   actual_start             DateTime?          @db.Timestamptz
   actual_finish            DateTime?          @db.Timestamptz
   // Audit (parent only; children inherit lifecycle via cascade)
@@ -1547,37 +1547,40 @@ model mo_code_seq {
 // ═══════════════════════════════════════════════════════════════════════════
 
 model work_order {
-  id                    Int       @id @default(autoincrement())
-  wo_code               String    @unique @db.VarChar(20) // WO-26000001 · race-safe via work_order_code_seq (Q18)
+  id                    Int           @id @default(autoincrement())
+  wo_code               String        @unique @db.VarChar(20) // WO-26000001 · race-safe via work_order_code_seq (Q18)
   mo_id                 Int
   source_routing_op_id  Int? // soft ref → mrp_routing_workcenter.id (snapshot immutable; replaces mo_operation_id)
   sequence              Int // copied from mo_operation.sequence
   work_center_id        Int
   expected_duration_min Int
   setup_time_min        Int
-  op_attributes         Json      @default("{}")
-  status                WoStatus  @default(NOT_STARTED)
+  op_attributes         Json          @default("{}")
+  status                WoStatus      @default(NOT_STARTED)
   // Renamed from earliest_start_at/target_end_at/actual_end_at (2026-09-22)
   // to match manufacturing_order's plan_start/plan_finish/actual_start/
   // actual_finish naming exactly — same concepts, was two different names
   // for the same thing depending which screen you were on.
-  plan_start            DateTime? @db.Timestamptz // Q13=C · scheduling anchor on WO (priority dropped)
-  plan_finish           DateTime? @db.Timestamptz
-  // actual_start/actual_finish are system-set on status transition (start/
-  // done), never hand-filled — see WorkOrdersService.transition()/done().
-  actual_start          DateTime? @db.Timestamptz
-  actual_finish         DateTime? @db.Timestamptz
+  plan_start            DateTime?     @db.Timestamptz // Q13=C · scheduling anchor on WO (priority dropped)
+  plan_finish           DateTime?     @db.Timestamptz
+  // actual_start/actual_finish are user-typed at Done (with timeliness) and
+  // editable only once DONE — never system-stamped (2026-10-01). See
+  // WorkOrdersService.done()/updateActuals().
+  actual_start          DateTime?     @db.Timestamptz
+  actual_finish         DateTime?     @db.Timestamptz
+  timeliness            WoTimeliness? // On Plan / Delayed, picked at Done (2026-10-01) · null on pre-2026-10-01 DONE WOs
+  delay_note            String?       @db.Text // required when DELAYED, null when ON_PLAN
   pre_hold_status       WoStatus? // restored + cleared to null on manual Resume
-  assigned_to           String?   @db.VarChar(120)
-  notes                 String?   @db.Text
-  released_at           DateTime? @db.Timestamptz
-  released_by           String?   @db.VarChar(120)
-  created_at            DateTime  @default(now()) @db.Timestamptz
-  updated_at            DateTime  @updatedAt @db.Timestamptz
-  created_by            String    @db.VarChar(120)
-  updated_by            String?   @db.VarChar(120)
-  is_pinned             Boolean   @default(false)
-  operator_mode         String    @default("internal") @db.Text
+  assigned_to           String?       @db.VarChar(120)
+  notes                 String?       @db.Text
+  released_at           DateTime?     @db.Timestamptz
+  released_by           String?       @db.VarChar(120)
+  created_at            DateTime      @default(now()) @db.Timestamptz
+  updated_at            DateTime      @updatedAt @db.Timestamptz
+  created_by            String        @db.VarChar(120)
+  updated_by            String?       @db.VarChar(120)
+  is_pinned             Boolean       @default(false)
+  operator_mode         String        @default("internal") @db.Text
   subcontractor_id      Int?
   team_headcount        Int // required (2026-09-25) — internal: auto-counted from active operators on the team, editable; external: entered manually
 
@@ -1732,6 +1735,11 @@ enum WoStatus {
   ON_HOLD // manual hold by factory admin/manager (multi-mark redesign, 2026-09-17 — no more auto-hold), distinct from operator-initiated PAUSED
   DONE
   CANCELLED
+}
+
+enum WoTimeliness {
+  ON_PLAN
+  DELAYED
 }
 
 enum WoEventType {

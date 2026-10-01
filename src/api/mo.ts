@@ -111,8 +111,6 @@ export interface CreateMoPayload {
   routing_template_id: number
   plan_start?: string
   plan_finish?: string
-  actual_start?: string
-  actual_finish?: string
   assembly_lines: { bom_assembly_id: number; qty: number }[]
   confirm?: boolean
 }
@@ -354,11 +352,22 @@ export async function updateMo(id: number, payload: Partial<CreateMoPayload>): P
   return (await apiClient.patch(`/mo/${id}`, payload)).data
 }
 
+// actual_start/actual_finish (2026-10-01) — typed by the user, only sent with
+// to_status DONE (backend 400s them on any other transition, and no longer
+// auto-fills them on Start).
 export async function changeMoStatus(
   id: number,
-  body: { to_status: MoStatus; reason: string },
+  body: { to_status: MoStatus; reason: string; actual_start?: string; actual_finish?: string },
 ): Promise<MoDetail> {
   return (await apiClient.patch(`/mo/${id}/status`, body)).data
+}
+
+// DONE-only correction of the actual dates (2026-10-01) — 409 otherwise.
+export async function updateMoActualDates(
+  id: number,
+  body: { actual_start: string; actual_finish: string },
+): Promise<MoDetail> {
+  return (await apiClient.patch(`/mo/${id}/actual-dates`, body)).data
 }
 
 export async function createMoWorkOrder(id: number, payload: CreateWoPayload): Promise<CreateWoResult> {
