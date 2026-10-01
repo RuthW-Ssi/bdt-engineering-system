@@ -181,6 +181,38 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
     expect(update).toHaveBeenCalledWith({ where: { id: 3 }, data: { active: false } })
   })
 
+  // WO codes carry IN/EX from team_type at creation (2026-10-01), so the type is
+  // locked once the team has work orders — same rule shape as deleteTeam().
+  it('409s changing team_type once the team has work orders', async () => {
+    const update = jest.fn()
+    const prisma: any = {
+      team: { findUnique: jest.fn().mockResolvedValue({ id: 3, team_type: 'internal' }), update },
+      work_order: { count: jest.fn().mockResolvedValue(2) },
+    }
+    const svc = new MachinesService(prisma, {} as any)
+
+    await expect(svc.updateTeam(3, { team_type: 'external' })).rejects.toBeInstanceOf(ConflictException)
+    expect(prisma.work_order.count).toHaveBeenCalledWith({ where: { subcontractor_id: 3 } })
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('allows changing team_type while the team has no work orders, and re-sending the same type', async () => {
+    const update = jest.fn().mockResolvedValue({})
+    const count = jest.fn().mockResolvedValue(0)
+    const prisma: any = {
+      team: { findUnique: jest.fn().mockResolvedValue({ id: 3, team_type: 'internal' }), update },
+      work_order: { count },
+    }
+    const svc = new MachinesService(prisma, {} as any)
+
+    await svc.updateTeam(3, { team_type: 'external' })
+    expect(update).toHaveBeenCalledWith({ where: { id: 3 }, data: { team_type: 'external' } })
+
+    count.mockResolvedValue(5)
+    await svc.updateTeam(3, { team_type: 'internal', name: 'Renamed' })
+    expect(update).toHaveBeenLastCalledWith({ where: { id: 3 }, data: { name: 'Renamed', team_type: 'internal' } })
+  })
+
   it('throws NotFoundException deleting a missing team', async () => {
     const prisma: any = { team: { findUnique: jest.fn().mockResolvedValue(null) } }
     const svc = new MachinesService(prisma, {} as any)

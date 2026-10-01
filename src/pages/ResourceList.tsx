@@ -822,6 +822,8 @@ function TeamModal({ row, onClose }: { row?: Team; onClose: () => void }) {
       qc.invalidateQueries({ queryKey: ['teams'] })
       onClose()
     },
+    // Surfaces e.g. the 409 "team type locked once it has work orders" (2026-10-01).
+    onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Failed to save team — please try again'),
   })
 
   return (
