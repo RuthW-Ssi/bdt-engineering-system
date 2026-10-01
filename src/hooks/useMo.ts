@@ -15,9 +15,9 @@ import {
   getRoutingTemplateDetail,
   previewMoWorkOrder,
   updateMo,
+  updateMoActualDates,
   type CreateMoPayload,
   type CreateWoPayload,
-  type MoStatus,
   type PreviewWoPayload,
 } from '../api/mo'
 
@@ -68,7 +68,15 @@ export function useUpdateMo(id: number) {
 export function useChangeMoStatus(id: number) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { to_status: MoStatus; reason: string }) => changeMoStatus(id, body),
+    mutationFn: (body: Parameters<typeof changeMoStatus>[1]) => changeMoStatus(id, body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
+  })
+}
+
+export function useUpdateMoActualDates(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: Parameters<typeof updateMoActualDates>[1]) => updateMoActualDates(id, body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
   })
 }

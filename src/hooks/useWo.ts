@@ -14,10 +14,12 @@ import {
   woCancel,
   woDone,
   woTransition,
+  woUpdateActuals,
   type ConsumeActualInput,
   type PartWithdrawnInput,
   type RemoveMarkInput,
   type WoAction,
+  type WoActualsInput,
 } from '../api/wo'
 
 export function useWos(params?: Parameters<typeof getWos>[0]) {
@@ -129,6 +131,15 @@ export function useWoDone(id: number) {
   const invalidate = useWoInvalidate(id)
   return useMutation({
     mutationFn: (body: Parameters<typeof woDone>[1]) => woDone(id, body),
+    onSuccess: invalidate,
+  })
+}
+
+// DONE-only edit of actual dates / timeliness (2026-10-01).
+export function useUpdateWoActuals(id: number) {
+  const invalidate = useWoInvalidate(id)
+  return useMutation({
+    mutationFn: (body: WoActualsInput) => woUpdateActuals(id, body),
     onSuccess: invalidate,
   })
 }

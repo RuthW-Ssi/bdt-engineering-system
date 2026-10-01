@@ -1,5 +1,6 @@
-import { ArrayMinSize, IsArray, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min, MinLength, ValidateNested } from 'class-validator'
+import { ArrayMinSize, IsArray, IsEnum, IsInt, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
+import { WoTimeliness } from '@prisma/client'
 import { MarkQcBreakdownDto } from './mark-qc-breakdown.dto'
 
 /**
@@ -74,11 +75,32 @@ export class WoDoneMarkDto extends MarkQcBreakdownDto {
 }
 
 /**
+ * User-typed actuals (2026-10-01) — body of PATCH /wo/:id/actual-dates and part
+ * of done. Date order/future checks and "delay_note required when DELAYED" are
+ * enforced in WorkOrdersService (exact messages the frontend shows verbatim).
+ */
+export class WoActualsDto {
+  @IsISO8601()
+  actual_start: string
+
+  @IsISO8601()
+  actual_finish: string
+
+  @IsEnum(WoTimeliness)
+  timeliness: WoTimeliness
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  delay_note?: string
+}
+
+/**
  * done — `marks` must cover every non-removed work_order_mark on the WO (enforced
  * in WorkOrdersService.done(), not here — only the WO's current marks are
  * knowable once the service loads them).
  */
-export class WoDoneDto {
+export class WoDoneDto extends WoActualsDto {
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

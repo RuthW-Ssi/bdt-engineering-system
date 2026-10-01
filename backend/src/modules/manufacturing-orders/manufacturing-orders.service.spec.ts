@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common'
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
 
 // Scoped to findOne()'s stale_assembly_warnings (WO BOM-Version Hold, Sprint 20 · Task 5).
@@ -338,10 +338,11 @@ describe('ManufacturingOrderService.createWorkOrder — never auto-starts the MO
   })
 })
 
-// 2026-09-23 — manual Start button path: a click that transitions
-// CONFIRMED → IN_PROGRESS must also set actual_start (this is now the ONLY
-// way an MO starts, per the 2026-09-25 revert above).
-describe('ManufacturingOrderService.changeStatus — actual_start', () => {
+// 2026-10-01 — actual_start/actual_finish are user-typed at Complete, never
+// system-stamped (replaces the 2026-09-23 Start / 2026-09-29 Complete stamps).
+const ACTUALS = { actual_start: '2026-09-30T01:00:00.000Z', actual_finish: '2026-09-30T10:00:00.000Z' }
+
+describe('ManufacturingOrderService.changeStatus — actual dates', () => {
   function makeService(fromStatus: string) {
     const tx = { manufacturing_order: { update: jest.fn().mockResolvedValue({}) }, mo_status_history: { create: jest.fn().mockResolvedValue({}) } }
     const prisma = {
@@ -355,32 +356,62 @@ describe('ManufacturingOrderService.changeStatus — actual_start', () => {
     }
     const mail = { log: jest.fn().mockResolvedValue({}) }
     const svc = new ManufacturingOrderService(prisma as any, mail as any, {} as any, {} as any, {} as any, {} as any)
-    return { svc, tx }
+    return { svc, tx, mail }
   }
 
-  it('CONFIRMED → IN_PROGRESS (Start button): sets actual_start alongside status', async () => {
+  it('CONFIRMED → IN_PROGRESS (Start button): status only, no actual_start', async () => {
     const { svc, tx } = makeService('CONFIRMED')
 
     await svc.changeStatus(1, { to_status: 'IN_PROGRESS', reason: 'Manual start' } as any, 42, 'tester')
 
     expect(tx.manufacturing_order.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { status: 'IN_PROGRESS', write_uid: 42, actual_start: expect.any(Date) },
+      data: { status: 'IN_PROGRESS', write_uid: 42 },
     })
   })
 
-  // 2026-09-29 — Complete used to leave Actual Finish blank on the MO
-  // Overview (found while writing the Production user manual); it now
-  // records actual_finish, and still never touches actual_start.
-  it('IN_PROGRESS → DONE (Complete button): sets actual_finish, not actual_start', async () => {
-    const { svc, tx } = makeService('IN_PROGRESS')
+  it('IN_PROGRESS → DONE (Complete button): writes the user-typed dates and tracks them in the audit log', async () => {
+    const { svc, tx, mail } = makeService('IN_PROGRESS')
 
-    await svc.changeStatus(1, { to_status: 'DONE', reason: 'Manual complete' } as any, 42, 'tester')
+    await svc.changeStatus(1, { to_status: 'DONE', reason: 'Manual complete', ...ACTUALS } as any, 42, 'tester')
 
     expect(tx.manufacturing_order.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { status: 'DONE', write_uid: 42, actual_finish: expect.any(Date) },
+      data: {
+        status: 'DONE',
+        write_uid: 42,
+        actual_start: new Date(ACTUALS.actual_start),
+        actual_finish: new Date(ACTUALS.actual_finish),
+      },
     })
+    expect(mail.log).toHaveBeenCalledWith(expect.objectContaining({
+      tracking: [
+        { field: 'actual_start', old_value: null, new_value: ACTUALS.actual_start },
+        { field: 'actual_finish', old_value: null, new_value: ACTUALS.actual_finish },
+      ],
+    }))
+  })
+
+  it.each([
+    [{}, 'Actual Start and Actual Finish are required'],
+    [{ ...ACTUALS, actual_finish: '2026-09-30T00:59:00.000Z' }, 'Actual Finish must not be before Actual Start'],
+    [{ ...ACTUALS, actual_finish: new Date(Date.now() + 60 * 60 * 1000).toISOString() }, 'Actual Start and Actual Finish must not be in the future'],
+  ])('IN_PROGRESS → DONE with bad dates %j → 400 "%s", nothing written', async (dates, message) => {
+    const { svc, tx } = makeService('IN_PROGRESS')
+
+    await expect(
+      svc.changeStatus(1, { to_status: 'DONE', reason: 'Manual complete', ...dates } as any, 42, 'tester'),
+    ).rejects.toThrow(new BadRequestException(message))
+    expect(tx.manufacturing_order.update).not.toHaveBeenCalled()
+  })
+
+  it('actual dates sent with a non-DONE transition → 400', async () => {
+    const { svc, tx } = makeService('CONFIRMED')
+
+    await expect(
+      svc.changeStatus(1, { to_status: 'IN_PROGRESS', reason: 'Manual start', actual_start: ACTUALS.actual_start } as any, 42, 'tester'),
+    ).rejects.toThrow(new BadRequestException('Actual dates can only be set when completing the MO'))
+    expect(tx.manufacturing_order.update).not.toHaveBeenCalled()
   })
 
   it('IN_PROGRESS → CANCELLED: records no finish date (cancelled is not finished)', async () => {
@@ -412,5 +443,60 @@ describe('ManufacturingOrderService.changeStatus — actual_start', () => {
     await expect(
       svc.changeStatus(1, { to_status: 'CANCELLED', reason: 'too late' } as any, 42, 'tester'),
     ).rejects.toThrow(ConflictException)
+  })
+})
+
+describe('ManufacturingOrderService.updateActualDates', () => {
+  function makeService(mo: Record<string, unknown> | null) {
+    const prisma = {
+      manufacturing_order: {
+        findUnique: jest.fn().mockResolvedValue(mo && { ...makeMo(mo.status as string, []), activity_consume: [], ...mo }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      activity_consume: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const mail = { log: jest.fn().mockResolvedValue({}) }
+    const svc = new ManufacturingOrderService(prisma as any, mail as any, {} as any, {} as any, {} as any, {} as any)
+    return { svc, prisma, mail }
+  }
+  const OLD = { actual_start: new Date('2026-09-29T01:00:00.000Z'), actual_finish: new Date('2026-09-30T10:00:00.000Z') }
+
+  it('404s when the MO does not exist', async () => {
+    const { svc } = makeService(null)
+    await expect(svc.updateActualDates(999, ACTUALS, 42)).rejects.toThrow(NotFoundException)
+  })
+
+  it('409s unless the MO is DONE', async () => {
+    const { svc, prisma } = makeService({ status: 'IN_PROGRESS', ...OLD })
+    await expect(svc.updateActualDates(1, ACTUALS, 42)).rejects.toThrow(
+      new ConflictException('Actual dates can only be edited after the MO is DONE'),
+    )
+    expect(prisma.manufacturing_order.update).not.toHaveBeenCalled()
+  })
+
+  it('writes the new dates and logs an audit row tracking only the changed field', async () => {
+    const { svc, prisma, mail } = makeService({ status: 'DONE', ...OLD })
+
+    await svc.updateActualDates(1, ACTUALS, 42)
+
+    expect(prisma.manufacturing_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { actual_start: new Date(ACTUALS.actual_start), actual_finish: new Date(ACTUALS.actual_finish), write_uid: 42 },
+    })
+    expect(mail.log).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'manufacturing_order',
+      res_id: 1,
+      author_id: 42,
+      message_type: 'audit',
+      tracking: [{ field: 'actual_start', old_value: '2026-09-29T01:00:00.000Z', new_value: ACTUALS.actual_start }],
+    }))
+  })
+
+  it('400s on invalid dates (finish before start), nothing written', async () => {
+    const { svc, prisma } = makeService({ status: 'DONE', ...OLD })
+    await expect(
+      svc.updateActualDates(1, { ...ACTUALS, actual_finish: '2026-09-30T00:00:00.000Z' }, 42),
+    ).rejects.toThrow(new BadRequestException('Actual Finish must not be before Actual Start'))
+    expect(prisma.manufacturing_order.update).not.toHaveBeenCalled()
   })
 })

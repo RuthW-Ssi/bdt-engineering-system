@@ -11,6 +11,7 @@ import { RoutingSuggestion } from '../components/mo/RoutingSuggestion'
 import { StickySaveBar } from '../components/mo/StickySaveBar'
 import type { AssemblyPickerItem } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
+import { toDatetimeLocal } from '../lib/datetimeLocal'
 
 const PANEL: React.CSSProperties = { border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff' }
 const PANEL_SCROLL: React.CSSProperties = { ...PANEL, flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }
@@ -22,16 +23,6 @@ const FIELD_LABEL: React.CSSProperties = {
 const DATE_INPUT: React.CSSProperties = {
   width: '100%', padding: '5px 8px', borderRadius: 6, fontSize: 12, fontWeight: 600,
   color: '#555', background: '#fff', border: '1px solid #D4D4D4',
-}
-
-// Server value is a UTC ISO string; datetime-local inputs read/write in the
-// browser's own local time, so this reads it back with local getters (not
-// getUTC*) to land on the same wall-clock value the user originally picked.
-function toDatetimeLocal(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function ColHead({ n, title, hint }: { n: number; title: string; hint?: string }) {
