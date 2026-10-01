@@ -12,6 +12,9 @@ export type WoStatus =
   | 'DONE'
   | 'CANCELLED'
 
+// User-picked result on Complete (2026-10-01) — null on WOs completed before then.
+export type WoTimeliness = 'ON_PLAN' | 'DELAYED'
+
 type WoEventType = 'START' | 'PAUSE' | 'RESUME' | 'DONE' | 'CANCEL' | 'ACCEPT_VERSION' | 'HOLD' | 'UNHOLD' | 'MARK_REMOVED'
 
 // The "simple" transitions — a bare {reason?/notes?} body, POSTed to
@@ -194,6 +197,8 @@ export interface WoDetail {
   plan_finish: string | null
   actual_start: string | null
   actual_finish: string | null
+  timeliness: WoTimeliness | null
+  delay_note: string | null
   pre_hold_status: WoStatus | null
   assigned_to: string | null
   subcontractor: TeamRef | null
@@ -341,8 +346,22 @@ export interface WoDoneMarkInput extends MarkQcBreakdownInput {
   qty_done: number
 }
 
-export async function woDone(id: number, body: { marks: WoDoneMarkInput[]; notes?: string }): Promise<WoDetail> {
+// Actual dates + timeliness (2026-10-01) — typed by the user on Complete,
+// never auto-filled; delay_note required when DELAYED (backend nulls it on ON_PLAN).
+export interface WoActualsInput {
+  actual_start: string
+  actual_finish: string
+  timeliness: WoTimeliness
+  delay_note?: string
+}
+
+export async function woDone(id: number, body: { marks: WoDoneMarkInput[]; notes?: string } & WoActualsInput): Promise<WoDetail> {
   return (await apiClient.post(`/wo/${id}/done`, body)).data
+}
+
+// DONE-only correction of the actual dates/timeliness (2026-10-01) — 409 otherwise.
+export async function woUpdateActuals(id: number, body: WoActualsInput): Promise<WoDetail> {
+  return (await apiClient.patch(`/wo/${id}/actual-dates`, body)).data
 }
 
 // ── Cancel (whole WO) — per-mark QC breakdown array (multi-mark redesign) ───

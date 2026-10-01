@@ -19,7 +19,7 @@ import { JwtPayload } from '../auth/auth.service'
 import { WorkOrdersService } from './work-orders.service'
 import { ScheduleService } from './schedule.service'
 import { WoBimMatchService } from './wo-bim-match.service'
-import { CancelWoDto, WoDoneDto, WoNoteDto, WoReasonDto } from './dto/wo-transition.dto'
+import { CancelWoDto, WoActualsDto, WoDoneDto, WoNoteDto, WoReasonDto } from './dto/wo-transition.dto'
 import { RemoveMarkDto } from './dto/remove-mark.dto'
 import { AcceptVersionDto } from './dto/accept-version.dto'
 import { UpdateConsumeDto } from './dto/update-consume.dto'
@@ -97,7 +97,7 @@ export class WorkOrdersController {
 
   @Post(':id/start')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'RELEASED → IN_PROGRESS · sets actual_start · event=START' })
+  @ApiOperation({ summary: 'RELEASED → IN_PROGRESS · no longer sets actual_start (user-typed at Done) · seeds qty_not_started · event=START' })
   start(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoNoteDto,
@@ -143,13 +143,24 @@ export class WorkOrdersController {
 
   @Post(':id/done')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'IN_PROGRESS|PAUSED → DONE · body.marks[] must cover every non-removed mark · event=DONE (whole-WO)' })
+  @ApiOperation({ summary: 'IN_PROGRESS|PAUSED → DONE · body.marks[] must cover every non-removed mark · requires user-typed actual_start + actual_finish + timeliness (ON_PLAN|DELAYED; delay_note required when DELAYED) · event=DONE (whole-WO)' })
   done(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoDoneDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.svc.done(id, dto, user.login)
+  }
+
+  @Patch(':id/actual-dates')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Edit actual_start/actual_finish/timeliness/delay_note of a DONE WO (409 otherwise) · audit-logged' })
+  updateActuals(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: WoActualsDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateActuals(id, dto, user.login, user.sub)
   }
 
   @Post(':id/cancel')

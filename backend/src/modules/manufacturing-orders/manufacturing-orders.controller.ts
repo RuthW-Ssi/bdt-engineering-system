@@ -25,6 +25,7 @@ import { parsePrintLang } from './mo-print/mo-print-labels'
 import { CreateMoDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
 import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 
 @ApiTags('Manufacturing Orders')
@@ -114,13 +115,24 @@ export class ManufacturingOrderController {
 
   @Patch(':id/status')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'Change status + reason → history' })
+  @ApiOperation({ summary: 'Change status + reason → history · DONE requires user-typed actual_start + actual_finish (never system-stamped)' })
   changeStatus(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ChangeStatusDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.svc.changeStatus(id, dto, user.sub, user.login)
+  }
+
+  @Patch(':id/actual-dates')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Edit actual_start/actual_finish of a DONE MO (409 otherwise) · audit-logged' })
+  updateActualDates(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateMoActualDatesDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateActualDates(id, dto, user.sub)
   }
 
   @Delete(':id')

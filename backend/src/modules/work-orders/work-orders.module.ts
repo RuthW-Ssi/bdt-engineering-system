@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { MailModule } from '../mail/mail.module'
 import { WorkOrdersController } from './work-orders.controller'
 import { ScheduleController } from './schedule.controller'
 import { WorkOrdersService } from './work-orders.service'
@@ -13,8 +14,10 @@ import { WoBimMatchService } from './wo-bim-match.service'
  * (for the auto-create hook, T-WO.03), so this module must NOT import the MO
  * module — that would create a cycle. WorkOrdersService therefore keeps its own
  * minimal dispatch helpers instead of reusing MoAllocationService.
+ * MailModule (audit log for edit-actuals, 2026-10-01) is a leaf — no cycle.
  */
 @Module({
+  imports: [MailModule],
   controllers: [WorkOrdersController, ScheduleController],
   providers: [WorkOrdersService, ScheduleService, WorkOrderAutoCreateService, WoBimMatchService],
   exports: [WorkOrdersService, WorkOrderAutoCreateService],

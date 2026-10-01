@@ -1,9 +1,11 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { Prisma, WoEventType, WoStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { MailMessageService } from '../mail/mail-message.service'
+import { actualsTracking, parseActualDates } from '../../common/actual-dates'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 import { AcceptVersionDto } from './dto/accept-version.dto'
-import { CancelWoDto, WoDoneDto } from './dto/wo-transition.dto'
+import { CancelWoDto, WoActualsDto, WoDoneDto } from './dto/wo-transition.dto'
 import { RemoveMarkDto } from './dto/remove-mark.dto'
 import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
@@ -138,6 +140,7 @@ export class WorkOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly woAutoCreate: WorkOrderAutoCreateService,
+    private readonly mail: MailMessageService,
   ) {}
 
   // ── List (filter status | mo_id | work_center_id | mark_prefix_code · search wo_code) ──
@@ -474,11 +477,10 @@ export class WorkOrdersService {
 
     const data: Prisma.work_orderUpdateInput = { status: spec.to, updated_by: userName }
     const now = new Date()
+    // 'start' no longer stamps actual_start (2026-10-01) — actuals are user-typed at Done.
     if (action === 'release') {
       data.released_at = now
       data.released_by = userName
-    } else if (action === 'start') {
-      data.actual_start = now
     } else if (action === 'hold') {
       // Manual hold (multi-mark redesign, 2026-09-17) — factory admin/manager
       // action only, never auto-triggered by BOM uploads any more. Captures the
@@ -570,8 +572,8 @@ export class WorkOrdersService {
    * Must cover every non-removed work_order_mark on the WO (400 listing whichever
    * are missing/unknown otherwise). Writes each mark's qty_done + QC breakdown
    * (qty_qc_passed/qty_rework/qty_renew, 2026-09-23), sets the WO status=DONE +
-   * actual_finish, and writes ONE whole-WO DONE event (work_order_mark_id null)
-   * — not one event per mark.
+   * the user-typed actuals/timeliness (2026-10-01, see resolveActuals()), and
+   * writes ONE whole-WO DONE event (work_order_mark_id null) — not one event per mark.
    */
   async done(id: number, dto: WoDoneDto, userName: string) {
     const wo = await this.prisma.work_order.findUnique({
@@ -622,6 +624,7 @@ export class WorkOrdersService {
         `Not Started + In Progress + Done exceeds planned qty for mark(s): ${overPlanned.map((m) => m.bom_assembly_id).join(', ')}`,
       )
     }
+    const actuals = this.resolveActuals(dto)
 
     await this.prisma.$transaction(async (tx) => {
       for (const m of wo.marks) {
@@ -640,7 +643,7 @@ export class WorkOrdersService {
       }
       await tx.work_order.update({
         where: { id },
-        data: { status: 'DONE', actual_finish: new Date(), pre_hold_status: null, updated_by: userName },
+        data: { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName },
       })
       await tx.work_order_event.create({
         data: { work_order_id: id, event_type: 'DONE', notes: dto.notes ?? null, recorded_by: userName },
@@ -648,6 +651,40 @@ export class WorkOrdersService {
     })
 
     return this.findOne(id)
+  }
+
+  // ── Edit actuals — DONE only (2026-10-01) ───────────────────────────────────
+  async updateActuals(id: number, dto: WoActualsDto, userName: string, userId: number) {
+    const wo = await this.requireWo(id)
+    if (wo.status !== 'DONE') {
+      throw new ConflictException('Actual dates can only be edited after the work order is DONE')
+    }
+    const actuals = this.resolveActuals(dto)
+    const tracking = actualsTracking(wo, actuals)
+    if (tracking.length > 0) {
+      await this.prisma.work_order.update({ where: { id }, data: { ...actuals, updated_by: userName } })
+      await this.mail.log({
+        model: 'work_order',
+        res_id: id,
+        author_id: userId,
+        message_type: 'audit',
+        subject: `WO ${wo.wo_code} actual dates edited`,
+        tracking,
+      })
+    }
+    return this.findOne(id)
+  }
+
+  /** Actuals are user-typed, never system-stamped (2026-10-01): delay_note is
+   *  required (trimmed) when DELAYED and always stored null when ON_PLAN. */
+  private resolveActuals(dto: WoActualsDto) {
+    const dates = parseActualDates(dto.actual_start, dto.actual_finish)
+    let delay_note: string | null = null
+    if (dto.timeliness === 'DELAYED') {
+      delay_note = dto.delay_note?.trim() || null
+      if (!delay_note) throw new BadRequestException('A delay reason is required when the work order is Delayed')
+    }
+    return { ...dates, timeliness: dto.timeliness, delay_note }
   }
 
   // ── Cancel — whole WO (multi-mark redesign, 2026-09-17) ──────────────────────

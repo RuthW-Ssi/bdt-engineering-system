@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer } from 'lucide-react'
-import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
+import { toast } from 'sonner'
+import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useUpdateMoActualDates, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
 import { useWos } from '../hooks/useWo'
 import { useTeams, useLaborSkills } from '../hooks/useLaborSkills'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
@@ -10,6 +11,7 @@ import { fetchMoPrintPacketBlob, type PrintLang, type MoStatus, type RoutingOp, 
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
+import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -40,9 +42,14 @@ export function MoDetail() {
   const [printing, setPrinting] = useState(false)
   const [printError, setPrintError] = useState<string | null>(null)
   const [printPickerOpen, setPrintPickerOpen] = useState(false)
+  // Actual dates are typed by the user, never auto-filled (2026-10-01):
+  // 'complete' = IN_PROGRESS → DONE (dates + reason), 'edit' = DONE-only fix.
+  const [datesModal, setDatesModal] = useState<'complete' | 'edit' | null>(null)
+  const [datesError, setDatesError] = useState<string | null>(null)
 
   const { data: mo, isLoading } = useMo(moId)
   const changeStatus = useChangeMoStatus(moId)
+  const updateActualDates = useUpdateMoActualDates(moId)
   const canWrite = usePermission('orders', 'update')
 
   if (isLoading || !mo) {
@@ -54,6 +61,26 @@ export function MoDetail() {
     await changeStatus.mutateAsync({ to_status: reasonModal.to, reason: reason.trim() })
     setReasonModal(null)
     setReason('')
+  }
+
+  function openDatesModal(mode: 'complete' | 'edit') {
+    setDatesError(null)
+    setDatesModal(mode)
+  }
+
+  async function submitDates(v: ActualDatesValue) {
+    setDatesError(null)
+    try {
+      if (datesModal === 'complete') {
+        await changeStatus.mutateAsync({ to_status: 'DONE', reason: v.reason ?? '', actual_start: v.actual_start, actual_finish: v.actual_finish })
+      } else {
+        await updateActualDates.mutateAsync({ actual_start: v.actual_start, actual_finish: v.actual_finish })
+        toast.success('Actual dates updated')
+      }
+      setDatesModal(null)
+    } catch (err) {
+      setDatesError(getErrorMessage(err, datesModal === 'complete' ? 'Failed to complete the MO.' : 'Failed to update the actual dates.'))
+    }
   }
 
   // Opens the merged PDF in a new tab (browser's native viewer, print icon
@@ -115,7 +142,11 @@ export function MoDetail() {
           {canWrite && ACTIONS[mo.status].map(a => (
             <button
               key={a.to}
-              onClick={() => { setReason(''); setReasonModal({ to: a.to, label: a.label }) }}
+              onClick={() => {
+                // Complete collects the actual dates too (2026-10-01) — its own modal.
+                if (a.to === 'DONE') { openDatesModal('complete'); return }
+                setReason(''); setReasonModal({ to: a.to, label: a.label })
+              }}
               style={{
                 height: 34, padding: '0 16px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
                 border: a.danger ? '1px solid #E8A0A0' : 'none',
@@ -153,7 +184,7 @@ export function MoDetail() {
 
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#F7F7F7' }}>
-        {tab === 'Overview' && <OverviewTab mo={mo} />}
+        {tab === 'Overview' && <OverviewTab mo={mo} canWrite={canWrite} onEditActualDates={() => openDatesModal('edit')} />}
         {tab === 'Work Orders' && <WorkOrdersTab moId={moId} operations={mo.routing_template.operations} />}
         {tab === 'Assemblies' && <AssembliesTab moId={moId} />}
         {tab === 'Parts' && <PartsTab moId={moId} />}
@@ -183,6 +214,20 @@ export function MoDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {datesModal && (
+        <ActualDatesModal
+          title={`${datesModal === 'complete' ? 'Complete' : 'Edit Actual Dates'} · ${mo.mo_code}`}
+          subtitle={datesModal === 'complete' ? `${mo.status} → DONE` : undefined}
+          plan={{ start: mo.plan_start, finish: mo.plan_finish }}
+          initial={datesModal === 'edit' ? { actual_start: mo.actual_start, actual_finish: mo.actual_finish } : undefined}
+          withReason={datesModal === 'complete'}
+          pending={changeStatus.isPending || updateActualDates.isPending}
+          error={datesError}
+          onConfirm={submitDates}
+          onClose={() => setDatesModal(null)}
+        />
       )}
 
       {printPickerOpen && (
@@ -390,7 +435,7 @@ function ConsumeSummaryCard({ moId }: { moId: number }) {
   )
 }
 
-function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
+function OverviewTab({ mo, canWrite, onEditActualDates }: { mo: import('../api/mo').MoDetail; canWrite: boolean; onEditActualDates: () => void }) {
   return (
     <>
       <StaleAssemblyWarningsBanner warnings={mo.stale_assembly_warnings} />
@@ -403,7 +448,7 @@ function OverviewTab({ mo }: { mo: import('../api/mo').MoDetail }) {
         <Row k="Status" v={<MoStatusPill status={mo.status} />} />
         <Row k="Plan Start" v={fmtDate(mo.plan_start)} />
         <Row k="Plan Finish" v={<>{fmtDate(mo.plan_finish)} <DaysRemainingBadge planFinish={mo.plan_finish} /></>} />
-        <Row k="Actual Start" v={fmtDate(mo.actual_start)} />
+        <Row k="Actual Start" v={<>{fmtDate(mo.actual_start)}{canWrite && mo.status === 'DONE' && <EditActualDatesButton onClick={onEditActualDates} />}</>} />
         <Row k="Actual Finish" v={fmtDate(mo.actual_finish)} />
       </Card>
 
