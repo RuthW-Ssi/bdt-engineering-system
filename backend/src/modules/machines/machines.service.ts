@@ -189,6 +189,17 @@ export class MachinesService {
   async updateTeam(id: number, dto: UpdateTeamDto) {
     const exists = await this.prisma.team.findUnique({ where: { id } })
     if (!exists) throw new NotFoundException(`Team #${id} not found`)
+    // WO codes carry IN/EX from team_type at creation (2026-10-01), so the type
+    // is locked once any work order uses this team — otherwise its WO-IN/WO-EX
+    // codes would contradict the team.
+    if (dto.team_type !== undefined && dto.team_type !== exists.team_type) {
+      const workOrderCount = await this.prisma.work_order.count({ where: { subcontractor_id: id } })
+      if (workOrderCount > 0) {
+        throw new ConflictException(
+          `Cannot change team type — ${workOrderCount} work order(s) already use this team (their WO codes are tagged IN/EX by team type).`,
+        )
+      }
+    }
     return this.prisma.team.update({
       where: { id },
       data: { ...(dto.code !== undefined && { code: dto.code }),

@@ -1548,7 +1548,7 @@ model mo_code_seq {
 
 model work_order {
   id                    Int           @id @default(autoincrement())
-  wo_code               String        @unique @db.VarChar(20) // WO-26000001 · race-safe via work_order_code_seq (Q18)
+  wo_code               String        @unique @db.VarChar(20) // WO-IN-26000001 / WO-EX-… (IN/EX = team_type, 2026-10-01) · race-safe via work_order_code_seq (Q18)
   mo_id                 Int
   source_routing_op_id  Int? // soft ref → mrp_routing_workcenter.id (snapshot immutable; replaces mo_operation_id)
   sequence              Int // copied from mo_operation.sequence

@@ -82,13 +82,18 @@ export class WorkOrderAutoCreateService {
 
     // wo_code allocation and work_center_id/op_attributes derivation — same
     // as the old createForMo() used, just for one operation instead of every
-    // op on the template at once. Format is WO-YYNNNNNN (2-digit year +
-    // 6-digit per-year counter, e.g. WO-26000001) — changed 2026-09-28 from
-    // the flat WO-NNNNNNNN global counter, mirroring MoCodeGenerator's same
-    // change (see that file's header comment for the full rationale).
-    // work_order_code_seq went from a single row (id=1) to one row per year
-    // (PK `year`); this atomic upsert allocates+increments in one statement
-    // so even the first-ever WO of a new year is race-safe.
+    // op on the template at once. Format is WO-IN|EX-YYNNNNNN (e.g.
+    // WO-IN-26000001): IN/EX from the chosen team's team_type (2026-10-01 —
+    // "ต้องใส่ in หรือ ex ในwo id เพื่อให้รู้ด้วยว่า wo นี้เป็นงานของ ทีม ภายใน
+    // หรือภายนอก"; no team → IN), then 2-digit year + 6-digit per-year counter
+    // shared by IN and EX (2026-09-28, mirroring MoCodeGenerator — see that
+    // file's header comment for the full rationale). work_order_code_seq has
+    // one row per year (PK `year`); this atomic upsert allocates+increments in
+    // one statement so even the first-ever WO of a new year is race-safe.
+    const team = teamId
+      ? await tx.team.findUnique({ where: { id: teamId }, select: { team_type: true } })
+      : null
+    const tag = team?.team_type === 'external' ? 'EX' : 'IN'
     const year = new Date().getFullYear() % 100
     const rows = await tx.$queryRaw<{ allocated: number }[]>`
       INSERT INTO work_order_code_seq (year, next_val) VALUES (${year}, 2)
@@ -96,7 +101,7 @@ export class WorkOrderAutoCreateService {
       RETURNING next_val - 1 AS allocated
     `
     const code = rows[0].allocated
-    const wo_code = `WO-${year.toString().padStart(2, '0')}${code.toString().padStart(6, '0')}`
+    const wo_code = `WO-${tag}-${year.toString().padStart(2, '0')}${code.toString().padStart(6, '0')}`
 
     const wo = await tx.work_order.create({
       data: {
