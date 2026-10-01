@@ -14,7 +14,9 @@ import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { CreateMoDto, MoAssemblyLineInputDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
+import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
 import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
+import { actualsTracking, parseActualDates } from '../../common/actual-dates'
 
 /**
  * P3 status state machine: allowed forward transitions.
@@ -621,12 +623,6 @@ export class ManufacturingOrderService {
           ...(dto.plan_finish !== undefined
             ? { plan_finish: dto.plan_finish ? new Date(dto.plan_finish) : null }
             : {}),
-          ...(dto.actual_start !== undefined
-            ? { actual_start: dto.actual_start ? new Date(dto.actual_start) : null }
-            : {}),
-          ...(dto.actual_finish !== undefined
-            ? { actual_finish: dto.actual_finish ? new Date(dto.actual_finish) : null }
-            : {}),
           write_uid: userId,
         },
       })
@@ -652,22 +648,19 @@ export class ManufacturingOrderService {
   async changeStatus(id: number, dto: ChangeStatusDto, userId: number, userName: string) {
     const mo = await this.requireMo(id)
     this.assertTransition(mo.status, dto.to_status)
+    // Actual dates are user-typed at Complete, never system-stamped on Start
+    // or Complete (2026-10-01, replaces the 09-23/09-29 auto-stamps).
+    let actuals: { actual_start: Date; actual_finish: Date } | undefined
+    if (dto.to_status === 'DONE') {
+      actuals = parseActualDates(dto.actual_start, dto.actual_finish)
+    } else if (dto.actual_start != null || dto.actual_finish != null) {
+      throw new BadRequestException('Actual dates can only be set when completing the MO')
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.manufacturing_order.update({
         where: { id },
-        data: {
-          status: dto.to_status,
-          write_uid: userId,
-          // A manual Start click must record actual_start too (2026-09-23) —
-          // before this, Actual Start on the Overview page went unpopulated.
-          // Starting the MO is manual-only (2026-09-25 revert): creating a WO
-          // no longer auto-starts the MO — the user must click Start.
-          ...(dto.to_status === 'IN_PROGRESS' ? { actual_start: new Date() } : {}),
-          // Same for Complete → Actual Finish (2026-09-29: it stayed "—"
-          // after Done). Cancel is not a finish, so it records nothing.
-          ...(dto.to_status === 'DONE' ? { actual_finish: new Date() } : {}),
-        },
+        data: { status: dto.to_status, write_uid: userId, ...actuals },
       })
       await tx.mo_status_history.create({
         data: {
@@ -688,7 +681,30 @@ export class ManufacturingOrderService {
       author_id: userId,
       message_type: 'audit',
       subject: `MO ${mo.mo_code} status ${mo.status} → ${dto.to_status}`,
+      ...(actuals ? { tracking: actualsTracking(mo, actuals) } : {}),
     })
+    return this.findOne(id)
+  }
+
+  // ── Edit actual dates — DONE only (2026-10-01) ──────────────────────────────
+  async updateActualDates(id: number, dto: UpdateMoActualDatesDto, userId: number) {
+    const mo = await this.requireMo(id)
+    if (mo.status !== 'DONE') {
+      throw new ConflictException('Actual dates can only be edited after the MO is DONE')
+    }
+    const actuals = parseActualDates(dto.actual_start, dto.actual_finish)
+    const tracking = actualsTracking(mo, actuals)
+    if (tracking.length > 0) {
+      await this.prisma.manufacturing_order.update({ where: { id }, data: { ...actuals, write_uid: userId } })
+      await this.mail.log({
+        model: 'manufacturing_order',
+        res_id: id,
+        author_id: userId,
+        message_type: 'audit',
+        subject: `MO ${mo.mo_code} actual dates edited`,
+        tracking,
+      })
+    }
     return this.findOne(id)
   }
 

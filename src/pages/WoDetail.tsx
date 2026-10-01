@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Cpu, Wrench, FlaskConical, Users } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   useWo, useWoEvents, useWoSchedule, useBomVersionStatus,
-  useWoTransition, useWoDone, useWoCancel, useRemoveWoMark, useAcceptNewVersion, useWoCancelSiblings,
+  useWoTransition, useWoDone, useWoCancel, useRemoveWoMark, useAcceptNewVersion, useWoCancelSiblings, useUpdateWoActuals,
 } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { WoMarksTable, clampQty, type MarkEdits } from '../components/wo/WoMarksTable'
@@ -17,6 +18,7 @@ import { siblingQtyDone } from '../api/wo'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
+import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 
 const TABS = ['Overview', 'Schedule', 'Events', 'Visual'] as const
 type Tab = (typeof TABS)[number]
@@ -189,6 +191,11 @@ export function WoDetail() {
   const [markEdits, setMarkEdits] = useState<MarkEdits>({})
   const [doneNotes, setDoneNotes] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
+  // Actual dates + On Plan/Delayed are typed by the user, never auto-filled
+  // (2026-10-01): 'complete' carries the already-validated marks payload so
+  // nothing is sent until the modal's Confirm; 'edit' = DONE-only fix.
+  const [datesModal, setDatesModal] = useState<{ mode: 'complete'; marks: WoDoneMarkInput[] } | { mode: 'edit' } | null>(null)
+  const [datesError, setDatesError] = useState<string | null>(null)
 
   const { data: wo, isLoading } = useWo(woId)
   const { data: bomList } = useBomVersionStatus(woId)
@@ -197,6 +204,7 @@ export function WoDetail() {
   const cancel = useWoCancel(woId)
   const removeMark = useRemoveWoMark(woId)
   const acceptVersion = useAcceptNewVersion(woId)
+  const updateActuals = useUpdateWoActuals(woId)
   const canWrite = usePermission('orders', 'update')
 
   // Cascade-cancel preview (Task 10, Sprint 20) — only fetches while the
@@ -260,13 +268,28 @@ export function WoDetail() {
     const result = buildDoneMarksPayload(wo!.marks, markEdits)
     if ('error' in result) { setActionError(result.error); return }
     setActionError(null)
-    done.mutate(
-      { marks: result.marks, notes: doneNotes.trim() || undefined },
-      {
-        onSuccess: () => { setMarkEdits({}); setDoneNotes('') },
-        onError: err => setActionError(getErrorMessage(err, 'Failed to complete the work order.')),
-      },
-    )
+    setDatesError(null)
+    setDatesModal({ mode: 'complete', marks: result.marks })
+  }
+
+  function submitDates(v: ActualDatesValue) {
+    if (!datesModal) return
+    setDatesError(null)
+    const actuals = { actual_start: v.actual_start, actual_finish: v.actual_finish, timeliness: v.timeliness!, delay_note: v.delay_note }
+    if (datesModal.mode === 'complete') {
+      done.mutate(
+        { marks: datesModal.marks, notes: doneNotes.trim() || undefined, ...actuals },
+        {
+          onSuccess: () => { setDatesModal(null); setMarkEdits({}); setDoneNotes(''); toast.success('Work order completed') },
+          onError: err => setDatesError(getErrorMessage(err, 'Failed to complete the work order.')),
+        },
+      )
+    } else {
+      updateActuals.mutate(actuals, {
+        onSuccess: () => { setDatesModal(null); toast.success('Actual dates updated') },
+        onError: err => setDatesError(getErrorMessage(err, 'Failed to update the actual dates.')),
+      })
+    }
   }
 
   const headerActions = ACTIONS[wo.status]
@@ -348,6 +371,7 @@ export function WoDetail() {
             doneNotes={doneNotes}
             onDoneNotesChange={setDoneNotes}
             onMo={() => navigate(`/mo/${wo.mo_id}`)}
+            onEditActualDates={() => { setDatesError(null); setDatesModal({ mode: 'edit' }) }}
           />
         )}
         {tab === 'Schedule' && <ScheduleTab woId={woId} />}
@@ -362,6 +386,21 @@ export function WoDetail() {
           />
         )}
       </div>
+
+      {datesModal && (
+        <ActualDatesModal
+          title={`${datesModal.mode === 'complete' ? 'Complete' : 'Edit Actual Dates'} · ${wo.wo_code}`}
+          plan={{ start: wo.plan_start, finish: wo.plan_finish }}
+          initial={datesModal.mode === 'edit'
+            ? { actual_start: wo.actual_start, actual_finish: wo.actual_finish, timeliness: wo.timeliness, delay_note: wo.delay_note }
+            : undefined}
+          withTimeliness
+          pending={done.isPending || updateActuals.isPending}
+          error={datesError}
+          onConfirm={submitDates}
+          onClose={() => setDatesModal(null)}
+        />
+      )}
 
       {/* Pause / Hold / Cancel modal — Cancel additionally shows one
           QcBreakdownFields per mark with output, plus the cascade-cancel
@@ -632,7 +671,7 @@ function ConsumeCard({ wo }: { wo: import('../api/wo').WoDetail }) {
 
 function OverviewTab({
   wo, bomList, markEdits, onEditChange, canWrite, onRemove, onAcceptVersion, removePending, acceptPending,
-  doneNotes, onDoneNotesChange, onMo,
+  doneNotes, onDoneNotesChange, onMo, onEditActualDates,
 }: {
   wo: WoDetailT
   bomList: import('../api/wo').BomVersionStatus[]
@@ -646,6 +685,7 @@ function OverviewTab({
   doneNotes: string
   onDoneNotesChange: (v: string) => void
   onMo: () => void
+  onEditActualDates: () => void
 }) {
   const rop = wo.source_routing_op
   const activeMarks = wo.marks.filter(m => !m.removed_at)
@@ -703,8 +743,10 @@ function OverviewTab({
         <Row k="Released" v={wo.released_at ? `${fmtDateTime(wo.released_at)} · ${wo.released_by ?? ''}` : '—'} />
         <Row k="Plan Start" v={fmtDateTime(wo.plan_start)} />
         <Row k="Plan Finish" v={<>{fmtDateTime(wo.plan_finish)} <DaysRemainingBadge planFinish={wo.plan_finish} /></>} />
-        <Row k="Actual Start" v={fmtDateTime(wo.actual_start)} />
+        <Row k="Actual Start" v={<>{fmtDateTime(wo.actual_start)}{canWrite && wo.status === 'DONE' && <EditActualDatesButton onClick={onEditActualDates} />}</>} />
         <Row k="Actual Finish" v={fmtDateTime(wo.actual_finish)} />
+        <Row k="Result" v={wo.timeliness === 'ON_PLAN' ? 'On Plan' : wo.timeliness === 'DELAYED' ? 'Delayed' : '—'} />
+        {wo.timeliness === 'DELAYED' && <Row k="Delay Reason" v={<span style={{ whiteSpace: 'pre-wrap' }}>{wo.delay_note || '—'}</span>} />}
         <Row k="Team" v={wo.subcontractor?.name ?? wo.assigned_to ?? '—'} />
         <Row k="Notes" v={wo.notes || '—'} />
       </Card>

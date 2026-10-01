@@ -6,7 +6,9 @@ import { WorkOrdersService, allowedActionsFrom } from './work-orders.service'
 // array instead of a single flat bom_assembly/qty_done/bom_dispatch_id_snapshot
 // on the WO itself. WorkOrdersService's constructor also gained a second
 // dependency (WorkOrderAutoCreateService, for recomputeDuration()) — every
-// `new WorkOrdersService(prisma)` below passes a mock for it.
+// `new WorkOrdersService(prisma)` below passes a mock for it. The third
+// (MailMessageService, edit-actuals audit, 2026-10-01) is `{} as any` except
+// in the updateActuals tests.
 
 function makeAutoCreate(overrides: Partial<{ recomputeDuration: jest.Mock; recomputeConsume: jest.Mock; recomputeParts: jest.Mock; computePartBudget: jest.Mock }> = {}) {
   return {
@@ -73,7 +75,7 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(mark.bom_assembly) },
     }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     const result = await svc.bomVersionStatus(1)
 
@@ -112,7 +114,7 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
         ),
       },
     }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     const result = await svc.bomVersionStatus(1)
 
@@ -129,7 +131,7 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(null) },
     }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     const result = await svc.bomVersionStatus(1)
 
@@ -138,7 +140,7 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
 
   it('throws NotFoundException when the WO does not exist', async () => {
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(null) } }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.bomVersionStatus(999)).rejects.toThrow(NotFoundException)
   })
@@ -148,7 +150,7 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
 // isSignificantDelta — pure function, unaffected by the multi-mark redesign.
 // ═══════════════════════════════════════════════════════════════════════════
 describe('WorkOrdersService.isSignificantDelta', () => {
-  const svc = new WorkOrdersService({} as any, {} as any)
+  const svc = new WorkOrdersService({} as any, {} as any, {} as any)
 
   it('returns true for REMOVED', () => {
     expect(svc.isSignificantDelta({ delta_types: ['REMOVED'], delta_details: null })).toBe(true)
@@ -237,7 +239,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
       { id: 300, dispatch_id: 30, assembly_mark: 'WH-AC-001', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } },
     ]
     const prisma = makePrisma([row], activeAssemblies)
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -254,7 +256,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
       },
     ]
     const prisma = makePrisma([row], activeAssemblies)
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -279,7 +281,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
       { id: 100, dispatch_id: 10, assembly_mark: 'WH-MA-001', qty: 2, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } },
     ]
     const prisma = makePrisma([row], activeAssemblies)
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -292,7 +294,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
       { id: 200, dispatch_id: 20, assembly_mark: 'WH-MA-001', qty: 2, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } },
     ]
     const prisma = makePrisma([row], activeAssemblies)
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -316,7 +318,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
     )
     const activeAssemblies = rows.map((r) => ({ ...r.marks[0].bom_assembly }))
     const prisma = makePrisma(rows, activeAssemblies)
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -326,7 +328,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
 
   it("returns an empty outdated set (and skips the query entirely) when findAll() returns no rows", async () => {
     const prisma = makePrisma([], [])
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -346,7 +348,7 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
       ],
     })
     const prisma = makePrisma([row], [])
-    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma as any, makeAutoCreate() as any, {} as any)
 
     const result = await svc.findAll({})
 
@@ -390,7 +392,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 8 }
     const prisma = makePrisma(mark, latestAsm)
     const autoCreate = makeAutoCreate()
-    const svc = new WorkOrdersService(prisma, autoCreate as any)
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     const result = await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
@@ -410,7 +412,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const mark = makeMark({ qty_done: 5 })
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 3 }
     const prisma = makePrisma(mark, latestAsm)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toThrow(BadRequestException)
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
@@ -420,7 +422,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const mark = makeMark({ qty_done: 5 })
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 3 }
     const prisma = makePrisma(mark, latestAsm)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100, qty_qc_passed: 10 } as any),
@@ -431,7 +433,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const mark = makeMark({ qty_done: 5 })
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 3 }
     const prisma = makePrisma(mark, latestAsm)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100, qty_qc_passed: 1, qty_renew: 1, note: 'reused 2 offcuts' } as any)
@@ -449,7 +451,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const mark = makeMark({ qty_done: null })
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 5 }
     const prisma = makePrisma(mark, latestAsm)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).resolves.toEqual({ id: 1 })
@@ -458,7 +460,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
   it('409s on REMOVED (no ACTIVE row for the mark anywhere in the group), not the generic "already latest" guard', async () => {
     const mark = makeMark()
     const prisma = makePrisma(mark, null)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toMatchObject({
       message: expect.stringContaining('remove the mark'),
@@ -469,7 +471,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
   it('409s when the mark is already on the latest version', async () => {
     const mark = makeMark()
     const prisma = makePrisma(mark, mark.bom_assembly) // same row → is_outdated false
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toThrow(ConflictException)
   })
@@ -479,14 +481,14 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
       work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, mo_id: 10 }) },
       work_order_mark: { findFirst: jest.fn().mockResolvedValue(null) },
     }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 999 } as any)).rejects.toThrow(NotFoundException)
   })
 
   it('404s when the WO itself does not exist', async () => {
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(null) } }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toThrow(NotFoundException)
   })
@@ -498,7 +500,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const otherMark = { id: 2, work_order_id: 2, bom_assembly_id: 100 }
     prisma.work_order_mark.findMany = jest.fn().mockResolvedValue([otherMark])
     const autoCreate = makeAutoCreate()
-    const svc = new WorkOrdersService(prisma, autoCreate as any)
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100, apply_to_other_wos: true } as any)
@@ -520,7 +522,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const mark = makeMark()
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 8 }
     const prisma = makePrisma(mark, latestAsm)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
@@ -539,6 +541,8 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   function makeWoWithMarks(status: string, marks: { id: number; bom_assembly_id: number; qty_planned?: number }[]) {
     return { id: 1, status, wo_code: 'WO-00000001', marks: marks.map((m) => ({ qty_planned: 1000, ...m })) }
   }
+  // User-typed actuals (2026-10-01) — required on every Done.
+  const ACTUALS = { actual_start: '2026-09-30T01:00:00.000Z', actual_finish: '2026-09-30T10:00:00.000Z', timeliness: 'ON_PLAN' }
 
   function makePrisma(wo: ReturnType<typeof makeWoWithMarks>) {
     const prisma: any = {
@@ -553,7 +557,7 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   it('409s when the WO is not IN_PROGRESS/PAUSED', async () => {
     const wo = makeWoWithMarks('NOT_STARTED', [{ id: 1, bom_assembly_id: 100 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }] } as any, 'tester')).rejects.toThrow(ConflictException)
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
@@ -562,28 +566,28 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   it('400s when a non-removed mark is missing from the request', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }, { id: 2, bom_assembly_id: 200 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
-      svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }] } as any, 'tester'),
-    ).rejects.toThrow(BadRequestException)
+      svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }], ...ACTUALS } as any, 'tester'),
+    ).rejects.toThrow(/Missing completion input/)
     expect(prisma.work_order.update).not.toHaveBeenCalled()
   })
 
   it('400s when the request includes an unknown/removed mark', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
-      svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }, { bom_assembly_id: 999, qty_done: 1 }] } as any, 'tester'),
-    ).rejects.toThrow(BadRequestException)
+      svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }, { bom_assembly_id: 999, qty_done: 1 }], ...ACTUALS } as any, 'tester'),
+    ).rejects.toThrow(/Unknown or removed mark/)
   })
 
   it('writes qty_done + QC breakdown per mark, sets WO DONE, and writes ONE whole-WO DONE event', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }, { id: 2, bom_assembly_id: 200 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     const result = await svc.done(
@@ -594,6 +598,7 @@ describe('WorkOrdersService.done (per-mark array)', () => {
           { bom_assembly_id: 200, qty_done: 3 },
         ],
         notes: 'all done',
+        ...ACTUALS,
       } as any,
       'tester',
     )
@@ -611,7 +616,15 @@ describe('WorkOrdersService.done (per-mark array)', () => {
 
     expect(prisma.work_order.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { status: 'DONE', actual_finish: expect.any(Date), pre_hold_status: null, updated_by: 'tester' },
+      data: {
+        status: 'DONE',
+        actual_start: new Date(ACTUALS.actual_start),
+        actual_finish: new Date(ACTUALS.actual_finish),
+        timeliness: 'ON_PLAN',
+        delay_note: null,
+        pre_hold_status: null,
+        updated_by: 'tester',
+      },
     })
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
       data: { work_order_id: 1, event_type: 'DONE', notes: 'all done', recorded_by: 'tester' },
@@ -622,10 +635,10 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   it('writes qty_not_started/qty_in_progress per mark, same as the QC breakdown fields', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
-    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_not_started: 2, qty_in_progress: 3, qty_done: 5 }] } as any, 'tester')
+    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_not_started: 2, qty_in_progress: 3, qty_done: 5 }], ...ACTUALS } as any, 'tester')
 
     const call = prisma.work_order_mark.update.mock.calls[0][0]
     expect(Number(call.data.qty_not_started)).toBe(2)
@@ -636,10 +649,10 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   it('omits qty_not_started/qty_in_progress (undefined, not 0) when not sent', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
-    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }] } as any, 'tester')
+    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }], ...ACTUALS } as any, 'tester')
 
     const call = prisma.work_order_mark.update.mock.calls[0][0]
     expect(call.data.qty_not_started).toBeUndefined()
@@ -649,27 +662,69 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   it('400s when Not Started + In Progress + Done exceeds the mark\'s planned qty', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 10 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
-      svc.done(1, { marks: [{ bom_assembly_id: 100, qty_not_started: 4, qty_in_progress: 4, qty_done: 4 }] } as any, 'tester'),
-    ).rejects.toThrow(BadRequestException)
+      svc.done(1, { marks: [{ bom_assembly_id: 100, qty_not_started: 4, qty_in_progress: 4, qty_done: 4 }], ...ACTUALS } as any, 'tester'),
+    ).rejects.toThrow(/exceeds planned qty/)
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
   })
 
   it('allows Not Started + In Progress + Done to exactly equal the planned qty', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 10 }])
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
-    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_not_started: 3, qty_in_progress: 3, qty_done: 4 }] } as any, 'tester')
+    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_not_started: 3, qty_in_progress: 3, qty_done: 4 }], ...ACTUALS } as any, 'tester')
     expect(prisma.work_order_mark.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('400s (nothing written) when actuals are missing, finish < start, or in the future', async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+    const cases: [Record<string, unknown>, string][] = [
+      [{ timeliness: 'ON_PLAN' }, 'Actual Start and Actual Finish are required'],
+      [{ ...ACTUALS, actual_finish: '2026-09-30T00:59:00.000Z' }, 'Actual Finish must not be before Actual Start'],
+      [{ ...ACTUALS, actual_finish: future }, 'Actual Start and Actual Finish must not be in the future'],
+    ]
+    for (const [actuals, message] of cases) {
+      const prisma = makePrisma(makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }]))
+      const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+      await expect(
+        svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }], ...actuals } as any, 'tester'),
+      ).rejects.toThrow(new BadRequestException(message))
+      expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
+      expect(prisma.work_order.update).not.toHaveBeenCalled()
+    }
+  })
+
+  it('400s when DELAYED without a (non-blank) delay_note; stores the trimmed note when given', async () => {
+    const prisma = makePrisma(makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }]))
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    const dto = { marks: [{ bom_assembly_id: 100, qty_done: 5 }], ...ACTUALS, timeliness: 'DELAYED' }
+
+    await expect(svc.done(1, { ...dto, delay_note: '   ' } as any, 'tester')).rejects.toThrow(
+      new BadRequestException('A delay reason is required when the work order is Delayed'),
+    )
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+
+    await svc.done(1, { ...dto, delay_note: '  machine down  ' } as any, 'tester')
+    expect(prisma.work_order.update.mock.calls[0][0].data).toMatchObject({ timeliness: 'DELAYED', delay_note: 'machine down' })
+  })
+
+  it('ON_PLAN stores delay_note as null even when one is sent', async () => {
+    const prisma = makePrisma(makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }]))
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.done(1, { marks: [{ bom_assembly_id: 100, qty_done: 5 }], ...ACTUALS, delay_note: 'ignored' } as any, 'tester')
+    expect(prisma.work_order.update.mock.calls[0][0].data).toMatchObject({ timeliness: 'ON_PLAN', delay_note: null })
   })
 
   it('404s when the WO does not exist', async () => {
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(null) } }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.done(999, { marks: [] } as any, 'tester')).rejects.toThrow(NotFoundException)
   })
@@ -712,7 +767,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
   it('409s from a terminal status (DONE)', async () => {
     const wo = makeWo({ status: 'DONE' })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.cancel(1, { reason: 'x' } as any, 'tester')).rejects.toThrow(ConflictException)
   })
@@ -720,7 +775,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
   it('allows cancel from ON_HOLD', async () => {
     const wo = makeWo({ status: 'ON_HOLD' })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await expect(svc.cancel(1, { reason: 'BOM removed this assembly' } as any, 'tester')).resolves.toEqual({ id: 1 })
@@ -733,7 +788,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
   it('400s when a mark with qty_done > 0 has no mark_disposition entry', async () => {
     const wo = makeWo({ marks: [{ id: 1, bom_assembly_id: 100, qty_done: 5, removed_at: null }] })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.cancel(1, { reason: 'x' } as any, 'tester')).rejects.toThrow(BadRequestException)
     expect(prisma.work_order.update).not.toHaveBeenCalled()
@@ -742,7 +797,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
   it('400s when a mark_disposition entry\'s QC breakdown sum exceeds that mark\'s qty_done', async () => {
     const wo = makeWo({ marks: [{ id: 1, bom_assembly_id: 100, qty_done: 5, removed_at: null }] })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.cancel(1, { reason: 'x', mark_disposition: [{ bom_assembly_id: 100, qty_qc_passed: 10 }] } as any, 'tester'),
@@ -752,7 +807,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
   it('cancels with no-output marks — no mark_disposition required, single CANCEL event', async () => {
     const wo = makeWo()
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     const result = await svc.cancel(1, { reason: 'no longer needed' } as any, 'tester')
@@ -772,7 +827,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
       ],
     })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.cancel(1, { reason: 'x', mark_disposition: [{ bom_assembly_id: 100, qty_qc_passed: 2, qty_rework: 1 }] } as any, 'tester')
@@ -801,7 +856,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
       ],
     })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await expect(svc.cancel(1, { reason: 'x' } as any, 'tester')).resolves.toEqual({ id: 1 })
@@ -885,7 +940,7 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
     const primary: FakeWo = { id: 1, mo_id: 10, wo_code: 'WO-00000001', status: 'RELEASED', marks: [{ id: 1, work_order_id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
     const sibling: FakeWo = { id: 2, mo_id: 10, wo_code: 'WO-00000002', status: 'NOT_STARTED', marks: [{ id: 2, work_order_id: 2, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
     const prisma = makeFakePrisma(assemblies, [primary, sibling])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.cancel(1, { reason: 'abandoning mark' } as any, 'tester')
@@ -911,7 +966,7 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
     const primary: FakeWo = { id: 1, mo_id: 10, wo_code: 'WO-00000001', status: 'RELEASED', marks: [{ id: 1, work_order_id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
     const sibling: FakeWo = { id: 2, mo_id: 10, wo_code: 'WO-00000002', status: 'PAUSED', marks: [{ id: 2, work_order_id: 2, bom_assembly_id: 100, qty_done: 4, removed_at: null }] }
     const prisma = makeFakePrisma(assemblies, [primary, sibling])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.cancel(1, { reason: 'abandoning mark' } as any, 'tester')
@@ -925,7 +980,7 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
     const primary: FakeWo = { id: 1, mo_id: 10, wo_code: 'WO-00000001', status: 'RELEASED', marks: [{ id: 1, work_order_id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
     const unrelated: FakeWo = { id: 2, mo_id: 10, wo_code: 'WO-00000002', status: 'NOT_STARTED', marks: [{ id: 2, work_order_id: 2, bom_assembly_id: 200, qty_done: null, removed_at: null }] }
     const prisma = makeFakePrisma(assemblies, [primary, unrelated])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.cancel(1, { reason: 'abandoning mark' } as any, 'tester')
@@ -941,7 +996,7 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
     const primary: FakeWo = { id: 1, mo_id: 10, wo_code: 'WO-00000001', status: 'RELEASED', marks: [{ id: 1, work_order_id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
     const wrongGroup: FakeWo = { id: 2, mo_id: 10, wo_code: 'WO-00000002', status: 'NOT_STARTED', marks: [{ id: 2, work_order_id: 2, bom_assembly_id: 200, qty_done: null, removed_at: null }] }
     const prisma = makeFakePrisma(assemblies, [primary, wrongGroup])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.cancel(1, { reason: 'abandoning mark' } as any, 'tester')
@@ -966,7 +1021,7 @@ describe('WorkOrdersService.cancelSiblings — preview endpoint', () => {
       },
       bom_assembly: { findUnique: jest.fn().mockResolvedValue({ assembly_mark: 'TC-CO1', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }) },
     }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     const result = await svc.cancelSiblings(1)
 
@@ -977,7 +1032,7 @@ describe('WorkOrdersService.cancelSiblings — preview endpoint', () => {
   it('returns empty arrays when the WO has no non-removed marks', async () => {
     const wo = { id: 1, mo_id: 10, marks: [{ bom_assembly_id: 100, removed_at: new Date() }] }
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(wo) } }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     const result = await svc.cancelSiblings(1)
 
@@ -986,7 +1041,7 @@ describe('WorkOrdersService.cancelSiblings — preview endpoint', () => {
 
   it('404s when the WO does not exist', async () => {
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(null) } }
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.cancelSiblings(999)).rejects.toThrow(NotFoundException)
   })
@@ -1030,7 +1085,7 @@ describe('WorkOrdersService.removeMark', () => {
   it('404s when the target mark is not active on this WO', async () => {
     const wo = makeWo()
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.removeMark(1, { bom_assembly_id: 999, reason: 'x' } as any, 'tester')).rejects.toThrow(NotFoundException)
   })
@@ -1038,7 +1093,7 @@ describe('WorkOrdersService.removeMark', () => {
   it("400s attempting to remove the WO's last non-removed mark", async () => {
     const wo = makeWo({ marks: [{ id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.removeMark(1, { bom_assembly_id: 100, reason: 'x' } as any, 'tester')).rejects.toThrow(BadRequestException)
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
@@ -1047,7 +1102,7 @@ describe('WorkOrdersService.removeMark', () => {
   it('409s on a terminal WO (DONE/CANCELLED)', async () => {
     const wo = makeWo({ status: 'DONE' })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.removeMark(1, { bom_assembly_id: 100, reason: 'x' } as any, 'tester')).rejects.toThrow(ConflictException)
   })
@@ -1060,7 +1115,7 @@ describe('WorkOrdersService.removeMark', () => {
       ],
     })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.removeMark(1, { bom_assembly_id: 100, reason: 'x' } as any, 'tester')).rejects.toThrow(BadRequestException)
   })
@@ -1073,7 +1128,7 @@ describe('WorkOrdersService.removeMark', () => {
       ],
     })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.removeMark(1, { bom_assembly_id: 100, reason: 'x', qty_qc_passed: 10 } as any, 'tester'),
@@ -1088,7 +1143,7 @@ describe('WorkOrdersService.removeMark', () => {
       ],
     })
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await expect(
@@ -1100,7 +1155,7 @@ describe('WorkOrdersService.removeMark', () => {
     const wo = makeWo()
     const prisma = makePrisma(wo)
     const autoCreate = makeAutoCreate()
-    const svc = new WorkOrdersService(prisma, autoCreate as any)
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     const result = await svc.removeMark(1, { bom_assembly_id: 100, reason: 'BOM removed this mark' } as any, 'tester')
@@ -1129,7 +1184,7 @@ describe('WorkOrdersService.removeMark', () => {
     ]
     const prisma = makePrisma(wo, siblingWos)
     const autoCreate = makeAutoCreate()
-    const svc = new WorkOrdersService(prisma, autoCreate as any)
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.removeMark(1, { bom_assembly_id: 100, reason: 'x' } as any, 'tester')
@@ -1150,7 +1205,7 @@ describe('WorkOrdersService.removeMark', () => {
       { id: 2, marks: [{ id: 20, qty_done: null, bom_assembly: { assembly_mark: 'A', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } } }] }, // ONLY mark on sibling 2
     ]
     const prisma = makePrisma(wo, siblingWos)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.removeMark(1, { bom_assembly_id: 100, reason: 'x' } as any, 'tester')
@@ -1170,7 +1225,7 @@ describe('WorkOrdersService.removeMark', () => {
       },
     ]
     const prisma = makePrisma(wo, siblingWos)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.removeMark(1, { bom_assembly_id: 100, reason: 'x' } as any, 'tester')
@@ -1197,7 +1252,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('hold: captures current status as pre_hold_status, sets ON_HOLD, writes a HOLD event', async () => {
     const wo = { id: 1, status: 'IN_PROGRESS', pre_hold_status: null }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.transition(1, 'hold', { reason: 'machine breakdown' }, 'tester')
@@ -1214,7 +1269,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('hold: 409s from a terminal status', async () => {
     const wo = { id: 1, status: 'DONE', pre_hold_status: null }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.transition(1, 'hold', { reason: 'x' }, 'tester')).rejects.toThrow(ConflictException)
   })
@@ -1222,7 +1277,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('hold: 409s when already ON_HOLD', async () => {
     const wo = { id: 1, status: 'ON_HOLD', pre_hold_status: 'IN_PROGRESS' }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.transition(1, 'hold', { reason: 'x' }, 'tester')).rejects.toThrow(ConflictException)
   })
@@ -1230,7 +1285,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('resume: from ON_HOLD restores pre_hold_status, clears it, and writes an UNHOLD event', async () => {
     const wo = { id: 1, status: 'ON_HOLD', pre_hold_status: 'IN_PROGRESS' }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.resume(1, {}, 'tester')
@@ -1247,7 +1302,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('resume: from PAUSED still runs the pre-existing RESUME → IN_PROGRESS path, unaffected', async () => {
     const wo = { id: 1, status: 'PAUSED', pre_hold_status: null }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.resume(1, { notes: 'back from break' }, 'tester')
@@ -1264,7 +1319,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('resume: 409s from a status where neither unhold nor resume-from-pause applies', async () => {
     const wo = { id: 1, status: 'NOT_STARTED', pre_hold_status: null }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.resume(1, {}, 'tester')).rejects.toThrow(ConflictException)
   })
@@ -1272,7 +1327,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
   it('resume: 409s from ON_HOLD with no pre_hold_status recorded (defensive)', async () => {
     const wo = { id: 1, status: 'ON_HOLD', pre_hold_status: null }
     const prisma = makePrisma(wo)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.resume(1, {}, 'tester')).rejects.toThrow(ConflictException)
   })
@@ -1294,11 +1349,11 @@ describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
     return prisma
   }
 
-  it('sets qty_not_started = qty_planned on every non-removed mark when the WO starts', async () => {
+  it('sets qty_not_started = qty_planned on every non-removed mark when the WO starts — and no longer stamps actual_start (2026-10-01)', async () => {
     const wo = { id: 1, status: 'RELEASED' }
     const marks = [{ id: 10, qty_planned: 5 }, { id: 11, qty_planned: 2 }]
     const prisma = makePrisma(wo, marks)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.transition(1, 'start', {}, 'tester')
@@ -1311,20 +1366,87 @@ describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
     expect(prisma.work_order_mark.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { qty_not_started: 2 } })
     expect(prisma.work_order.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { status: 'IN_PROGRESS', updated_by: 'tester', actual_start: expect.any(Date) },
+      data: { status: 'IN_PROGRESS', updated_by: 'tester' },
     })
   })
 
   it('does not touch work_order_mark for other transitions (e.g. pause)', async () => {
     const wo = { id: 1, status: 'IN_PROGRESS' }
     const prisma = makePrisma(wo, [])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.transition(1, 'pause', { reason: 'break' }, 'tester')
 
     expect(prisma.work_order_mark.findMany).not.toHaveBeenCalled()
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
+  })
+})
+
+// 2026-10-01 — actuals are user-typed; editable afterwards only once DONE, audit-logged.
+describe('WorkOrdersService.updateActuals', () => {
+  const OLD = { actual_start: new Date('2026-09-29T01:00:00.000Z'), actual_finish: new Date('2026-09-29T10:00:00.000Z'), timeliness: 'ON_PLAN', delay_note: null }
+  const DTO = { actual_start: '2026-09-29T01:00:00.000Z', actual_finish: '2026-09-30T10:00:00.000Z', timeliness: 'DELAYED', delay_note: ' late steel ' }
+
+  function makeService(wo: Record<string, unknown> | null) {
+    const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(wo), update: jest.fn() } }
+    const mail = { log: jest.fn().mockResolvedValue({}) }
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, mail as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    return { svc, prisma, mail }
+  }
+
+  it('404s when the WO does not exist', async () => {
+    const { svc } = makeService(null)
+    await expect(svc.updateActuals(999, DTO as any, 'tester', 42)).rejects.toThrow(NotFoundException)
+  })
+
+  it('409s unless the WO is DONE', async () => {
+    const { svc, prisma } = makeService({ id: 1, wo_code: 'WO-1', status: 'IN_PROGRESS', ...OLD })
+    await expect(svc.updateActuals(1, DTO as any, 'tester', 42)).rejects.toThrow(
+      new ConflictException('Actual dates can only be edited after the work order is DONE'),
+    )
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('writes the new actuals and logs an audit row tracking only the changed fields', async () => {
+    const { svc, prisma, mail } = makeService({ id: 1, wo_code: 'WO-1', status: 'DONE', ...OLD })
+
+    const result = await svc.updateActuals(1, DTO as any, 'tester', 42)
+
+    expect(prisma.work_order.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: {
+        actual_start: new Date(DTO.actual_start),
+        actual_finish: new Date(DTO.actual_finish),
+        timeliness: 'DELAYED',
+        delay_note: 'late steel',
+        updated_by: 'tester',
+      },
+    })
+    expect(mail.log).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'work_order',
+      res_id: 1,
+      author_id: 42,
+      message_type: 'audit',
+      tracking: [
+        { field: 'actual_finish', old_value: '2026-09-29T10:00:00.000Z', new_value: '2026-09-30T10:00:00.000Z' },
+        { field: 'timeliness', old_value: 'ON_PLAN', new_value: 'DELAYED' },
+        { field: 'delay_note', old_value: null, new_value: 'late steel' },
+      ],
+    }))
+    expect(result).toEqual({ id: 1 })
+  })
+
+  it('applies the same validation as Done: DELAYED needs a note, dates must be ordered', async () => {
+    const { svc, prisma } = makeService({ id: 1, wo_code: 'WO-1', status: 'DONE', ...OLD })
+    await expect(svc.updateActuals(1, { ...DTO, delay_note: '' } as any, 'tester', 42)).rejects.toThrow(
+      new BadRequestException('A delay reason is required when the work order is Delayed'),
+    )
+    await expect(
+      svc.updateActuals(1, { ...DTO, actual_finish: '2026-09-29T00:00:00.000Z' } as any, 'tester', 42),
+    ).rejects.toThrow(new BadRequestException('Actual Finish must not be before Actual Start'))
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
   })
 })
 
@@ -1343,7 +1465,7 @@ describe('WorkOrdersService.updateConsumeActuals', () => {
 
   it('updates qty_actual for each listed material, with no upper-bound check against qty_planned', async () => {
     const prisma = makePrisma([200, 300])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.updateConsumeActuals(1, { consume: [{ material_id: 200, qty_actual: 999 }] } as any, 'tester')
@@ -1357,7 +1479,7 @@ describe('WorkOrdersService.updateConsumeActuals', () => {
 
   it("400s when a material_id isn't already planned (has no work_order_consume row) on this WO", async () => {
     const prisma = makePrisma([200]) // only 200 is planned
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.updateConsumeActuals(1, { consume: [{ material_id: 999, qty_actual: 5 }] } as any, 'tester'),
@@ -1368,7 +1490,7 @@ describe('WorkOrdersService.updateConsumeActuals', () => {
   it('404s when the WO does not exist', async () => {
     const prisma = makePrisma()
     prisma.work_order.findUnique.mockResolvedValue(null)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.updateConsumeActuals(999, { consume: [{ material_id: 200, qty_actual: 5 }] } as any, 'tester'),
@@ -1397,7 +1519,7 @@ describe('WorkOrdersService.updatePartActuals', () => {
 
   it('sets qty (pieces) for each listed part directly — no plan/actual distinction, just capped at the real total (2026-09-18) not an arbitrary bound — and derives weight_kg from it', async () => {
     const prisma = makePrisma([500, 600])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any) // default mock: budget total=Infinity
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any) // default mock: budget total=Infinity
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await svc.updatePartActuals(1, { parts: [{ bom_assembly_part_id: 500, qty: 999 }] } as any, 'tester')
@@ -1414,7 +1536,7 @@ describe('WorkOrdersService.updatePartActuals', () => {
   it('2026-09-18: 400s when qty would exceed the remaining budget, and checks the budget scoped to this WO\'s own mo_id excluding itself', async () => {
     const prisma = makePrisma([500])
     const autoCreate = makeAutoCreate({ computePartBudget: jest.fn().mockResolvedValue({ total: 60, committed: 55, remaining: 5 }) })
-    const svc = new WorkOrdersService(prisma, autoCreate as any)
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any)
 
     await expect(
       svc.updatePartActuals(1, { parts: [{ bom_assembly_part_id: 500, qty: 10 }] } as any, 'tester'),
@@ -1425,7 +1547,7 @@ describe('WorkOrdersService.updatePartActuals', () => {
 
   it("400s when a bom_assembly_part_id isn't already planned on this WO", async () => {
     const prisma = makePrisma([500])
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.updatePartActuals(1, { parts: [{ bom_assembly_part_id: 999, qty: 5 }] } as any, 'tester'),
@@ -1436,7 +1558,7 @@ describe('WorkOrdersService.updatePartActuals', () => {
   it('404s when the WO does not exist', async () => {
     const prisma = makePrisma()
     prisma.work_order.findUnique.mockResolvedValue(null)
-    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(
       svc.updatePartActuals(999, { parts: [{ bom_assembly_part_id: 500, qty: 5 }] } as any, 'tester'),
