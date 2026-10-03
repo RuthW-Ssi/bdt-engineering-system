@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
@@ -7,12 +7,15 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { JwtPayload } from '../auth/auth.service'
 import { ScheduleService } from './schedule.service'
 import { RunScheduleDto } from './dto/run-schedule.dto'
+import { ScheduleBoardQueryDto } from './dto/schedule-board-query.dto'
+import { ScheduleBoard } from './schedule-board.types'
 
-// Production schedule (ADR-0015). The GET reads stay deliberately UNGATED
-// (2026-08-07) — they ride along with view access to the parent WO/`orders`
-// feature, same shape as BIM's viewer-token/bom-assemblies (see
-// `permission-modules.ts`'s `orders` entry). The POST writes — triggering the
-// `prod-scheduler` Cloud Run service and activating a version — are gated per
+// Production schedule (ADR-0015). The small version GETs stay deliberately
+// UNGATED (2026-08-07) — they ride along with view access to the parent
+// WO/`orders` feature, same shape as BIM's viewer-token/bom-assemblies (see
+// `permission-modules.ts`'s `orders` entry). GET /board exposes the whole WO/MO
+// set, so it is gated per method with `orders:view`. The POST writes — triggering
+// the `prod-scheduler` Cloud Run service and activating a version — are gated per
 // method with `orders:update` (ADR-0015 D2).
 @ApiTags('Schedule')
 @ApiBearerAuth()
@@ -31,6 +34,17 @@ export class ScheduleController {
   @ApiOperation({ summary: 'Active schedule version (404 if none)' })
   activeVersion() {
     return this.svc.activeVersion()
+  }
+
+  @Get('board')
+  @UseGuards(PermissionGuard)
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({
+    summary:
+      'Gantt board: versions + ops of version_id (else active, else newest with rows) + WOs/MOs + work centers/lines/teams + holidays',
+  })
+  board(@Query() q: ScheduleBoardQueryDto): Promise<ScheduleBoard> {
+    return this.svc.board(q.version_id)
   }
 
   @Post('runs')
