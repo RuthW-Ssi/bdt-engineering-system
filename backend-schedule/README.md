@@ -26,7 +26,7 @@ later host the optimization engine (OR-Tools/CP-SAT) without bloating the main A
 - WO ↔ assembly is **multi-mark**: `work_order_part` (qty, `weight_kg`) → `bom_assembly_part` → `bom_assembly`.
 - Labor follows main: **`team`** (internal/external) + **`work_order.team_headcount`** per WO.
   Line `crew_size`/`labor_mode`/`subcontractor_id` are kept as legacy columns only.
-- `--activate` / `?activate=true` makes the written version the single `is_active` one
+- `--activate` (CLI) / `"activate": true` (API body) makes the written version the single `is_active` one
   (what the BDT app shows via `GET /schedule/versions/active`). Default = not active.
 - `prod_schedule.workcenter_line_id` → FK to `mrp_workcenter_line` (was mis-wired to `equipment_resource`).
 - `wip_event`/`wip_balance` views rebuilt on the multi-mark model.
@@ -66,8 +66,12 @@ cp .env.example .env            # set DATABASE_URL
 
 # API
 uvicorn app.main:app --reload --port 8100
-# -> POST http://localhost:8100/schedule?direction=backward&dispatch_rule=EDD
-# -> POST http://localhost:8100/schedule/compare
+# -> POST http://localhost:8100/schedule  -H 'Content-Type: application/json'
+#      -d '{"direction":"backward","dispatch_rule":"EDD","activate":false,"requested_by":"me"}'
+#    200 {version_id, kpi, ...} · 409 run_in_progress · 422 data_not_ready · 500 {code:internal}
+# -> POST http://localhost:8100/schedule/compare   (body {dispatch_rule?, now?}; never writes)
+# In staging this runs on Cloud Run (IAM only) and NestJS calls it — see ADR-0015 and
+# docs/runbooks/prod-scheduler-deploy.md. Tests: pip install -r requirements-dev.txt && pytest
 
 # or CLI
 DATABASE_URL=... python scripts/run_local.py --compare

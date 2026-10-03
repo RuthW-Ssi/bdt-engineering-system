@@ -42,6 +42,12 @@ def load_lines(conn) -> list[Line]:
                 for r in cur.fetchall()]
 
 
+def load_workcenter_codes(conn, wc_ids) -> dict[int, str]:
+    with conn.cursor() as cur:
+        cur.execute("select id, code from mrp_workcenter where id = any(%s)", (list(wc_ids),))
+        return dict(cur.fetchall())
+
+
 def load_calendar(conn, allow_ot: bool) -> FactoryCalendar:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("select day_start_overhead_min, day_end_overhead_min "

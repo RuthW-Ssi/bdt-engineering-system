@@ -18,7 +18,7 @@ The sections below are the June handoff, kept for history. What changed since:
   multi-mark `work_order_part` (not `work_order.bom_assembly_id`) · labor = **`team`** + `work_order.team_headcount`
   (`subcontractor` table → `team`; line `crew_size`/`labor_mode` = legacy, unused by the UI).
   §3's labor model and §5 items 4–5 should be read as "toggle a WO's team", not "toggle a line's labor_mode".
-- **Publishing a schedule:** `run_local.py --activate` (or `POST /schedule?activate=true`) sets
+- **Publishing a schedule:** `run_local.py --activate` (or `POST /schedule` with JSON `{"activate": true}`) sets
   `is_active` so the BDT app's `GET /schedule/versions/active` serves it.
 - **Live data was reloaded by main** (2026-10: 4 WOs). The 125-WO set and its EVENTBASED/BACKWARD
   versions in §3 are gone; re-seed plan dates (`scripts/seed_wo_dates.py --lead-days 21`) before a real run.
