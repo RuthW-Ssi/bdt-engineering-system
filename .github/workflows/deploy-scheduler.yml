@@ -1,0 +1,101 @@
+name: Deploy Prod Scheduler to Cloud Run
+
+# ADR-0015. IAM-only service (no --allow-unauthenticated); invoked by NestJS with a Google ID token.
+# One-time setup (DB role, secret, invoker binding): docs/runbooks/prod-scheduler-deploy.md
+
+on:
+  push:
+    branches: [staging]
+    paths:
+      - 'backend-schedule/**'
+      - '.github/workflows/deploy-scheduler.yml'
+
+env:
+  PROJECT_ID: building-technology-493907
+  REGION: asia-northeast1
+  AR_REGION: asia-southeast1
+  SERVICE: prod-scheduler
+  IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/prod-scheduler
+
+jobs:
+  deploy:
+    name: Build and deploy to Cloud Run
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "$AR_REGION-docker.pkg.dev" --quiet
+
+      - name: Build and push image
+        run: |
+          docker build \
+            -t "$IMAGE:$GITHUB_SHA" \
+            -t "$IMAGE:latest" \
+            ./backend-schedule
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE:$GITHUB_SHA" \
+            --platform managed \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --set-secrets DATABASE_URL=prod-scheduler-database-url:latest \
+            --port 8080 \
+            --min-instances 0 \
+            --max-instances 2 \
+            --memory 1Gi \
+            --cpu 1 \
+            --timeout 300 \
+            --concurrency 4 \
+            --no-allow-unauthenticated
+
+      - name: Route traffic to new revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --to-latest \
+            --region "$REGION" \
+            --project "$PROJECT_ID"
+
+      # No ID token here: check the control plane only. /health is verified by hand (runbook §6).
+      - name: Verify service
+        run: |
+          describe() {
+            gcloud run services describe "$SERVICE" \
+              --region "$REGION" --project "$PROJECT_ID" --format "value($1)"
+          }
+          URL=$(describe status.url)
+          READY=$(describe status.latestReadyRevisionName)
+          CREATED=$(describe status.latestCreatedRevisionName)
+          if [ -z "$URL" ]; then
+            echo "::error::$SERVICE has no URL after deploy"
+            exit 1
+          fi
+          if [ "$READY" != "$CREATED" ]; then
+            echo "::error::latest revision $CREATED is not ready (serving $READY)"
+            exit 1
+          fi
+          if POLICY=$(gcloud run services get-iam-policy "$SERVICE" \
+                --region "$REGION" --project "$PROJECT_ID" --format json); then
+            if echo "$POLICY" | grep -qE '"(allUsers|allAuthenticatedUsers)"'; then
+              echo "::error::$SERVICE is publicly invokable; it must be IAM-only (ADR-0015)"
+              exit 1
+            fi
+          else
+            echo "::warning::could not read the IAM policy of $SERVICE; check it is not public (runbook §4)"
+          fi
+          echo "$SERVICE ready: $URL (revision $READY)"

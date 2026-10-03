@@ -1,0 +1,15 @@
+# Build context = backend-schedule/. The image needs only requirements.txt + app/.
+.venv/
+.env
+.env.*
+cockpit/
+docs/
+scripts/
+sql/
+tests/
+.remember/
+.pytest_cache/
+**/__pycache__/
+**/*.pyc
+.DS_Store
+*.md
