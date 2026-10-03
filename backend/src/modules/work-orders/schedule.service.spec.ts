@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import {
   bangkokNowIso,
   BOARD_OPEN_WO_STATUSES,
+  isUndefinedTableError,
   pickBoardVersionId,
   SCHEDULER_LOCK_KEY,
   ScheduleService,
@@ -473,5 +474,237 @@ describe('ScheduleService.board', () => {
     const board = await svc.board()
     expect(board.generated_at).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
     expect(Math.abs(new Date(board.generated_at).getTime() - Date.now())).toBeLessThan(5_000)
+  })
+})
+
+describe('isUndefinedTableError', () => {
+  const p2010 = (pgCode: string) =>
+    new Prisma.PrismaClientKnownRequestError(`Raw query failed. Code: \`${pgCode}\`.`, {
+      code: 'P2010',
+      clientVersion: '6.3.1',
+      meta: { code: pgCode, message: 'relation "wip_balance" does not exist' },
+    })
+
+  it('matches Postgres 42P01 as Prisma P2010 (raw query) and as a bare driver error', () => {
+    expect(isUndefinedTableError(p2010('42P01'))).toBe(true)
+    expect(isUndefinedTableError({ code: '42P01', message: 'relation "wip_balance" does not exist' })).toBe(true)
+  })
+
+  it('does not match other database errors or non-errors', () => {
+    expect(isUndefinedTableError(p2010('42501'))).toBe(false) // insufficient_privilege
+    expect(isUndefinedTableError({ code: 'P2021', meta: { table: 'wip_balance' } })).toBe(false)
+    expect(isUndefinedTableError({ code: 'P2010' })).toBe(false)
+    expect(isUndefinedTableError(new Error('relation "wip_balance" does not exist'))).toBe(false)
+    expect(isUndefinedTableError(null)).toBe(false)
+    expect(isUndefinedTableError('42P01')).toBe(false)
+  })
+})
+
+describe('ScheduleService.fourm', () => {
+  const D = (v: string) => new Prisma.Decimal(v)
+  const T = (iso: string) => new Date(iso)
+  const version = (id: number, is_active: boolean, rows: number) => ({ id, is_active, _count: { schedules: rows } })
+  const sqlOf = (call: unknown[]) => (call[0] as TemplateStringsArray).join('?').replace(/\s+/g, ' ').trim()
+
+  const WIP_ROWS = [
+    { storage_code: 'STG-A', t: T('2026-10-05T01:00:00Z'), area_pct: D('42.5') },
+    { storage_code: 'STG-A', t: T('2026-10-05T03:00:00Z'), area_pct: D('0.0') },
+    { storage_code: 'STG-B', t: T('2026-10-05T02:00:00Z'), area_pct: null },
+  ]
+
+  function makeFourMDeps(over: { versions?: unknown[]; wip?: () => Promise<unknown> } = {}) {
+    const wip = over.wip ?? (() => Promise.resolve(WIP_ROWS))
+    const prisma = {
+      prod_schedule_version: {
+        findMany: jest.fn().mockResolvedValue(over.versions ?? [version(3, false, 0), version(2, true, 3), version(1, false, 1)]),
+      },
+      operator: {
+        groupBy: jest.fn().mockResolvedValue([
+          { team_id: 7, _count: { _all: 4 } },
+          { team_id: 9, _count: { _all: 2 } },
+        ]),
+      },
+      materials: { count: jest.fn().mockResolvedValue(1234) },
+      work_order: {
+        groupBy: jest.fn().mockResolvedValue([
+          { mo_id: 87, _min: { sequence: 10 } },
+          { mo_id: 88, _min: { sequence: null } },
+        ]),
+      },
+      $queryRaw: jest.fn((strings: TemplateStringsArray) =>
+        strings.join('?').includes('wip_balance') ? wip() : Promise.resolve([{ with_stock: 56, short: 3 }]),
+      ),
+    }
+    const wipCalls = () => prisma.$queryRaw.mock.calls.filter((c) => sqlOf(c).includes('wip_balance'))
+    return { prisma, wipCalls, svc: new ScheduleService(prisma as any, {} as any, {} as any) }
+  }
+
+  it.each([
+    ['no query → active version', undefined, 2],
+    ['query version with rows', 1, 1],
+    ['query version with no rows → active', 3, 2],
+    ['unknown query version → active', 42, 2],
+  ])('picks the version like the board: %s', async (_label, requested, expected) => {
+    const { svc, prisma, wipCalls } = makeFourMDeps()
+    const fm = await svc.fourm(requested)
+
+    expect(prisma.prod_schedule_version.findMany.mock.calls[0][0].select).toEqual({
+      id: true,
+      is_active: true,
+      _count: { select: { schedules: true } },
+    })
+    expect(fm.version_id).toBe(expected)
+    expect(fm.version_id).toBe(
+      pickBoardVersionId([{ id: 3, is_active: false, row_count: 0 }, { id: 2, is_active: true, row_count: 3 }, { id: 1, is_active: false, row_count: 1 }], requested),
+    )
+    // wip_balance is read for the picked version.
+    expect(wipCalls()).toHaveLength(1)
+    expect(wipCalls()[0].slice(1)).toEqual([expected])
+  })
+
+  it('falls back to the newest version with rows when none is active', async () => {
+    const { svc } = makeFourMDeps({ versions: [version(3, false, 0), version(2, false, 3), version(1, false, 1)] })
+    expect((await svc.fourm()).version_id).toBe(2)
+  })
+
+  it('returns each MO first sequence over its non-CANCELLED WOs (DONE included) in one groupBy', async () => {
+    const { svc, prisma } = makeFourMDeps()
+    const fm = await svc.fourm()
+    expect(prisma.work_order.groupBy).toHaveBeenCalledWith({
+      by: ['mo_id'],
+      where: { status: { not: 'CANCELLED' } },
+      _min: { sequence: true },
+      orderBy: { mo_id: 'asc' },
+    })
+    expect(fm.first_seq_by_mo).toEqual([{ mo_id: 87, first_seq: 10 }])   // null minimum dropped
+  })
+
+  it('counts active operators per team in one groupBy, skipping unassigned operators', async () => {
+    const { svc, prisma } = makeFourMDeps()
+    // A null-team group can't come back with this where — dropped anyway if it ever did.
+    prisma.operator.groupBy.mockResolvedValue([
+      { team_id: 7, _count: { _all: 4 } },
+      { team_id: 9, _count: { _all: 2 } },
+      { team_id: null, _count: { _all: 11 } },
+    ])
+    const fm = await svc.fourm()
+
+    expect(prisma.operator.groupBy).toHaveBeenCalledTimes(1)
+    expect(prisma.operator.groupBy).toHaveBeenCalledWith({
+      by: ['team_id'],
+      where: { active: true, team_id: { not: null } },
+      _count: { _all: true },
+      orderBy: { team_id: 'asc' },
+    })
+    expect(fm.operators_by_team).toEqual([
+      { team_id: 7, active_operators: 4 },
+      { team_id: 9, active_operators: 2 },
+    ])
+  })
+
+  it('returns operators_by_team [] when no team has an active operator', async () => {
+    const { svc, prisma } = makeFourMDeps()
+    prisma.operator.groupBy.mockResolvedValue([])
+    expect((await svc.fourm()).operators_by_team).toEqual([])
+  })
+
+  it('aggregates stock in SQL: materials count, distinct materials with quantity > 0, rows reserved > quantity', async () => {
+    const { svc, prisma } = makeFourMDeps()
+    const fm = await svc.fourm()
+
+    expect(prisma.materials.count).toHaveBeenCalledTimes(1)
+    const stockCalls = prisma.$queryRaw.mock.calls.filter((c) => sqlOf(c).includes('stock_quant'))
+    expect(stockCalls).toHaveLength(1)
+    const sql = sqlOf(stockCalls[0])
+    expect(sql).toContain('count(distinct material_id) filter (where quantity > 0)::int as with_stock')
+    expect(sql).toContain('count(*) filter (where reserved_quantity > quantity)::int as short')
+    expect(sql).toContain('from stock_quant')
+    expect(sql).not.toMatch(/group by/i) // one aggregate row, not one row per stock_quant
+    expect(fm.stock).toEqual({ materials: 1234, with_stock: 56, short: 3 })
+  })
+
+  it('returns stock counts as numbers even if the driver hands back bigint', async () => {
+    const { svc, prisma } = makeFourMDeps()
+    prisma.$queryRaw.mockImplementation((strings: TemplateStringsArray) =>
+      strings.join('?').includes('wip_balance') ? Promise.resolve([]) : Promise.resolve([{ with_stock: 5n, short: 0n }]),
+    )
+    prisma.materials.count.mockResolvedValue(0)
+    expect((await svc.fourm()).stock).toEqual({ materials: 0, with_stock: 5, short: 0 })
+  })
+
+  it('reads wip_balance for the version (parameterized, storage_code then t) with ISO t and numeric area_pct', async () => {
+    const { svc, wipCalls } = makeFourMDeps()
+    const fm = await svc.fourm()
+
+    const sql = sqlOf(wipCalls()[0])
+    expect(sql).toBe('select storage_code, t, area_pct from wip_balance where ver = ?::int order by storage_code, t')
+    expect(fm.wip).toEqual({
+      status: 'ok',
+      rows: [
+        { storage_code: 'STG-A', t: '2026-10-05T01:00:00.000Z', area_pct: 42.5 },
+        { storage_code: 'STG-A', t: '2026-10-05T03:00:00.000Z', area_pct: 0 },
+        { storage_code: 'STG-B', t: '2026-10-05T02:00:00.000Z', area_pct: null },
+      ],
+    })
+    expect(typeof fm.wip.rows[0].area_pct).toBe('number')
+  })
+
+  it('returns wip ok with no rows when the version has no wip_balance rows', async () => {
+    const { svc } = makeFourMDeps({ wip: () => Promise.resolve([]) })
+    expect((await svc.fourm()).wip).toEqual({ status: 'ok', rows: [] })
+  })
+
+  it('returns version_id null and wip ok/[] without querying wip_balance when no version has rows', async () => {
+    const { svc, wipCalls } = makeFourMDeps({ versions: [version(2, true, 0), version(1, false, 0)] })
+    const fm = await svc.fourm(2)
+
+    expect(fm.version_id).toBeNull()
+    expect(fm.wip).toEqual({ status: 'ok', rows: [] })
+    expect(wipCalls()).toHaveLength(0)
+    // Man + Material still come back.
+    expect(fm.operators_by_team).toHaveLength(2)
+    expect(fm.stock).toEqual({ materials: 1234, with_stock: 56, short: 3 })
+  })
+
+  it.each([
+    [
+      'Prisma P2010 with meta.code 42P01',
+      new Prisma.PrismaClientKnownRequestError('Raw query failed. Code: `42P01`.', {
+        code: 'P2010',
+        clientVersion: '6.3.1',
+        meta: { code: '42P01', message: 'relation "wip_balance" does not exist' },
+      }),
+    ],
+    ['bare Postgres 42P01', Object.assign(new Error('relation "wip_balance" does not exist'), { code: '42P01' })],
+  ])('reports wip view_missing (rest of the panel intact) on %s', async (_label, err) => {
+    const { svc } = makeFourMDeps({ wip: () => Promise.reject(err) })
+    const fm = await svc.fourm()
+
+    expect(fm.wip).toEqual({ status: 'view_missing', rows: [] })
+    expect(fm.version_id).toBe(2)
+    expect(fm.stock.materials).toBe(1234)
+    expect(fm.operators_by_team).toHaveLength(2)
+  })
+
+  it.each([
+    [
+      'Prisma P2010 with another PG code',
+      new Prisma.PrismaClientKnownRequestError('Raw query failed. Code: `42501`.', {
+        code: 'P2010',
+        clientVersion: '6.3.1',
+        meta: { code: '42501', message: 'permission denied for view wip_balance' },
+      }),
+    ],
+    ['a connection error', new Error("Can't reach database server")],
+  ])('propagates any other wip_balance error: %s', async (_label, err) => {
+    const { svc } = makeFourMDeps({ wip: () => Promise.reject(err) })
+    await expect(svc.fourm()).rejects.toBe(err)
+  })
+
+  it('propagates a stock query failure', async () => {
+    const { svc, prisma } = makeFourMDeps()
+    const err = new Error('stock_quant boom')
+    prisma.$queryRaw.mockImplementation(() => Promise.reject(err))
+    await expect(svc.fourm()).rejects.toBe(err)
   })
 })

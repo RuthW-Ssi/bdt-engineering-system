@@ -5,7 +5,7 @@ import { MailMessageService } from '../mail/mail-message.service'
 import { JwtPayload } from '../auth/auth.service'
 import { SchedulerApiClient, ScheduleRunResult } from './scheduler-api.client'
 import { RunScheduleDto } from './dto/run-schedule.dto'
-import { BoardVersion, BoardWorkOrder, ScheduleBoard } from './schedule-board.types'
+import { BoardVersion, BoardWorkOrder, FourMStock, FourMWip, ScheduleBoard, ScheduleFourM } from './schedule-board.types'
 
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000
 
@@ -27,6 +27,17 @@ export function pickBoardVersionId(
 
 const num = (d: Prisma.Decimal | number | null | undefined): number | null => (d == null ? null : Number(d))
 const iso = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null)
+
+/**
+ * Postgres 42P01 (undefined_table) — how a query on a view that was never created
+ * fails. Raw queries surface it as Prisma P2010 with the PG code in meta.code; a
+ * bare driver error carries it as `code` itself.
+ */
+export function isUndefinedTableError(e: unknown): boolean {
+  if (typeof e !== 'object' || e == null) return false
+  const { code, meta } = e as { code?: unknown; meta?: { code?: unknown } }
+  return code === '42P01' || (code === 'P2010' && meta?.code === '42P01')
+}
 
 /**
  * pg_try_advisory_xact_lock key shared with the Python scheduler
@@ -280,6 +291,73 @@ export class ScheduleService {
       teams,
       // @db.Date comes back as UTC midnight, so the ISO date part is the calendar day.
       holidays: [...new Set(offDays.map((d) => d.date.toISOString().slice(0, 10)))].sort(),
+    }
+  }
+
+  /**
+   * 4M panel inputs for the board's version (same pick as board()). Everything is
+   * aggregated in SQL: 4 queries in parallel, then wip_balance for the picked version.
+   */
+  async fourm(requestedVersionId?: number): Promise<ScheduleFourM> {
+    const [versionRows, operatorGroups, materials, stockRows, firstSeqs] = await Promise.all([
+      this.prisma.prod_schedule_version.findMany({
+        select: { id: true, is_active: true, _count: { select: { schedules: true } } },
+      }),
+      this.prisma.operator.groupBy({
+        by: ['team_id'],
+        where: { active: true, team_id: { not: null } },
+        _count: { _all: true },
+        orderBy: { team_id: 'asc' },
+      }),
+      this.prisma.materials.count(),
+      // count() is bigint in Postgres — ::int so the driver hands back a JS number. An
+      // aggregate without GROUP BY always yields exactly one row, even on an empty table.
+      this.prisma.$queryRaw<Omit<FourMStock, 'materials'>[]>`
+        select count(distinct material_id) filter (where quantity > 0)::int as with_stock,
+               count(*) filter (where reserved_quantity > quantity)::int as short
+        from stock_quant`,
+      this.prisma.work_order.groupBy({
+        by: ['mo_id'],
+        where: { status: { not: 'CANCELLED' } },
+        _min: { sequence: true },
+        orderBy: { mo_id: 'asc' },
+      }),
+    ])
+    const version_id = pickBoardVersionId(
+      versionRows.map((v) => ({ id: v.id, is_active: v.is_active, row_count: v._count.schedules })),
+      requestedVersionId,
+    )
+    const [stock] = stockRows
+    return {
+      version_id,
+      operators_by_team: operatorGroups.flatMap((g) =>
+        g.team_id == null ? [] : [{ team_id: g.team_id, active_operators: g._count._all }],
+      ),
+      stock: { materials, with_stock: Number(stock?.with_stock ?? 0), short: Number(stock?.short ?? 0) },
+      wip: await this.wipBalance(version_id),
+      first_seq_by_mo: firstSeqs.flatMap((g) =>
+        g._min.sequence == null ? [] : [{ mo_id: g.mo_id, first_seq: g._min.sequence }],
+      ),
+    }
+  }
+
+  /**
+   * wip_balance rows of `ver`. The view isn't a Prisma model — migration
+   * 20261003000000_prod_scheduler_drift_and_wip_views creates it — so a DB without that
+   * migration reports 'view_missing' instead of failing the whole panel.
+   */
+  private async wipBalance(ver: number | null): Promise<FourMWip> {
+    if (ver == null) return { status: 'ok', rows: [] }
+    try {
+      const rows = await this.prisma.$queryRaw<{ storage_code: string; t: Date; area_pct: Prisma.Decimal | null }[]>`
+        select storage_code, t, area_pct from wip_balance where ver = ${ver}::int order by storage_code, t`
+      return {
+        status: 'ok',
+        rows: rows.map((r) => ({ storage_code: r.storage_code, t: r.t.toISOString(), area_pct: num(r.area_pct) })),
+      }
+    } catch (e) {
+      if (isUndefinedTableError(e)) return { status: 'view_missing', rows: [] }
+      throw e
     }
   }
 

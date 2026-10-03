@@ -101,3 +101,56 @@ export interface BoardTeam {
   team_type: string
   active: boolean
 }
+
+/**
+ * GET /schedule/board/fourm response — the 4M panel's inputs the board payload
+ * doesn't carry (Man: operator headcount, Material: stock counts, WIP: buffer levels).
+ * Machine and Method come from the board itself. Decimal -> number, Date -> ISO string.
+ */
+export interface ScheduleFourM {
+  /** Same pick as ScheduleBoard.version_id (pickBoardVersionId). */
+  version_id: number | null
+  /** active operators per team, team_id ascending; unassigned (team_id null) operators are left out. */
+  operators_by_team: FourMTeamOperators[]
+  stock: FourMStock
+  wip: FourMWip
+  /**
+   * min(work_order.sequence) per MO over its non-CANCELLED WOs — DONE ones included, which
+   * the board leaves out — so Material counts intake only at an MO's real first op.
+   */
+  first_seq_by_mo: FourMFirstSeq[]
+}
+
+export interface FourMFirstSeq {
+  mo_id: number
+  first_seq: number
+}
+
+export interface FourMTeamOperators {
+  team_id: number
+  active_operators: number
+}
+
+export interface FourMStock {
+  /** count(materials). */
+  materials: number
+  /** Distinct stock_quant.material_id with quantity > 0. */
+  with_stock: number
+  /** stock_quant rows with reserved_quantity > quantity. */
+  short: number
+}
+
+export interface FourMWip {
+  /** 'view_missing' = the wip_balance view isn't in the DB (migration 20261003000000 not applied); rows is then []. */
+  status: 'ok' | 'view_missing'
+  /** wip_balance rows of version_id, storage_code then t ascending; [] when version_id is null. */
+  rows: FourMWipRow[]
+}
+
+export interface FourMWipRow {
+  storage_code: string
+  /** ISO instant the buffer level changes. */
+  t: string
+  /** Area used ÷ area_cap_m2 × 100 after t (1 decimal); null when the buffer has no area cap. */
+  area_pct: number | null
+}
