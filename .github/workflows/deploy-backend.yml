@@ -65,6 +65,7 @@ jobs:
             --set-env-vars APS_BIM_BUCKET_KEY=bdt-bim-staging \
             --set-env-vars APS_DRAWING_BUCKET_KEY=bdt-drawing-staging \
             --set-env-vars FRONTEND_BASE_URL=https://bdt-engineering-system.vercel.app \
+            --set-env-vars SCHEDULER_API_URL=https://prod-scheduler-489818756412.asia-northeast1.run.app \
             --port 3000 \
             --min-instances 0 \
             --max-instances 3 \

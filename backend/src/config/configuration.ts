@@ -37,6 +37,10 @@ class EnvironmentVariables {
 
   @IsOptional()
   @IsString()
+  SCHEDULER_API_URL: string
+
+  @IsOptional()
+  @IsString()
   APS_CLIENT_ID: string
 
   @IsOptional()
