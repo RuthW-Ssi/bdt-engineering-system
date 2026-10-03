@@ -1,5 +1,5 @@
 // Production Schedule page logic — pure, React-free port of
-// backend-schedule/cockpit/prod-scheduler.html (the behavioural spec), fed by
+// the retired HTML cockpit (git history: backend-schedule/cockpit/prod-scheduler.html) (the behavioural spec), fed by
 // GET /schedule/board (src/api/schedule.ts).
 export * from './time'
 export * from './colors'

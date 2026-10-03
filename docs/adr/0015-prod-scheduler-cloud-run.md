@@ -54,7 +54,8 @@ Facts that shaped the decision (checked 2026-10-03):
 **D2 (Accepted 2026-10-03)** — Who may run / activate: reuse `@RequiresPermission('orders', 'update')`.
 **D3 (Accepted 2026-10-03)** — Keep overwriting the two fixed versions (`EVENTBASED-V1`, `BACKWARD-V1`) for now;
 move to append-only runs when what-if scenarios arrive.
-**D4 (Accepted 2026-10-03)** — Replace the standalone HTML cockpit with a page in the React app that reads through NestJS.
+**D4 (Accepted 2026-10-03, done 2026-10-04)** — Replace the standalone HTML cockpit with a page in the React app that reads through NestJS
+(`/production-schedule`; the HTML cockpit and `build_demo_snapshot.py` were removed).
 
 ---
 

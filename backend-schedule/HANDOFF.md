@@ -9,7 +9,8 @@
 ## ⭐ UPDATE 2026-10-03 — merged with main (branch `dev-t-prod-scheduler`)
 The sections below are the June handoff, kept for history. What changed since:
 - **Renamed** APS → **prod-scheduler** (APS on main = Autodesk Platform Services).
-  `cockpit/aps-scheduler.html` → `cockpit/prod-scheduler.html`; `aps-design-system.*` → `sched-design-system.*`.
+  The HTML cockpit was later retired (2026-10-04): the UI is the **Production Schedule** page in the
+  BDT app, reading through NestJS (ADR-0015 D4).
 - **Schema now lives in Prisma.** The drift in §4 is captured by the idempotent migration
   `backend/prisma/migrations/20261003000000_prod_scheduler_drift_and_wip_views` — safe for
   CI `migrate deploy` (no-op on live). §0's "not through Prisma" no longer applies;
@@ -22,8 +23,7 @@ The sections below are the June handoff, kept for history. What changed since:
   `is_active` so the BDT app's `GET /schedule/versions/active` serves it.
 - **Live data was reloaded by main** (2026-10: 4 WOs). The 125-WO set and its EVENTBASED/BACKWARD
   versions in §3 are gone; re-seed plan dates (`scripts/seed_wo_dates.py --lead-days 21`) before a real run.
-- anon grants still missing: `work_order_part`, and `wip_event`/`wip_balance` once the migration runs
-  (see README). `operator` stays ungranted on purpose (staff names).
+- No anon grants are needed any more (nothing reads Supabase REST); anon write access was revoked 2026-10-03.
 
 ---
 
@@ -45,7 +45,7 @@ separate from the NestJS `backend/` so it can later host an OR-Tools optimizer.
 Status: **v1 heuristic works end-to-end + validated** (see `README.md`).
 - `app/solver/` — calendar engine + 2 schedulers (event-based, backward) + loader/writer/kpi/engine
 - `app/main.py` — FastAPI (`POST /schedule`, `/schedule/compare`)
-- `cockpit/cockpit.html` — live dashboard (Gantt by line + capacity), reads Supabase REST (anon)
+- ~~`cockpit/cockpit.html`~~ — retired; see the Production Schedule page in the BDT app
 - `scripts/run_local.py` (DB) · `scripts/run_local_embedded.py` (offline 125-WO demo)
 - `docs/` — research + design specs + the WC/line + op/activity draft xlsx the model derives from
 
@@ -58,7 +58,7 @@ pip install -r requirements.txt
 python scripts/run_local_embedded.py          # offline, no DB — should print feasible KPIs
 DATABASE_URL=... python scripts/run_local.py --compare   # against live DB -> writes prod_schedule
 uvicorn app.main:app --reload --port 8100
-open cockpit/cockpit.html                       # live cockpit (browser)
+# UI: BDT app → Production Schedule (/production-schedule)
 ```
 
 ## 3. Current DB state (Supabase, as of handoff)

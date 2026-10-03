@@ -48,7 +48,7 @@ const NO_HOLIDAYS: ReadonlySet<string> = new Set()
  * version: KPI tiles, Backlog, Resource Gantt (WC → line), Utilization
  * Heatmap, Bottleneck Load, the WO detail / order list and, below them, the
  * 📊 4M + WIP analysis (its own query, loaded after the board). Port of
- * backend-schedule/cockpit/prod-scheduler.html; all logic in lib/schedule.
+ * the retired HTML cockpit (git history: backend-schedule/cockpit/prod-scheduler.html); all logic in lib/schedule.
  * Users with orders:update can also run the scheduler and activate a version.
  */
 export function ProductionSchedule() {

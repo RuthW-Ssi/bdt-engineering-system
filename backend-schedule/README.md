@@ -81,29 +81,16 @@ DATABASE_URL=... python scripts/seed_wo_dates.py --lead-days 21 --dry-run    # p
 python scripts/run_local_embedded.py
 ```
 
-## Cockpit (live UI)
-`cockpit/prod-scheduler.html` — the current dashboard (`cockpit/cockpit.html` is the
-legacy v1 page). **Open it in a browser** (or serve the folder: `python3 -m http.server -d cockpit`);
-it reads Supabase REST with the anon key. Layout follows `docs/prod-scheduler-mockup.html`:
-- **KPI tiles** per order (MO late = its last scheduled op ends after `plan_finish`), Backlog count, finish time.
-- **Resource Gantt** by WC → line (WCs without ops start collapsed), axis ≥ 7 working days and
-  stretched to MO due dates, due diamonds per MO, hover time cursor, click a bar → detail + order list.
-- **Backlog** = WOs the scheduler would load (NOT_STARTED/RELEASED, duration > 0, both plan dates)
-  but that are not in the version; WOs missing plan dates or already in progress are counted below it.
-- **Utilization Heatmap** (every active WC × working day) and **⚡ Bottleneck Load** (busiest WC,
-  hours/day vs lines × 705 min × OEE). An op's minutes are split across the days it actually runs.
-- **4M panel**: Man (team demand internal/external; internal crew util if `operator` is readable),
-  Machine (bottleneck WC util %/shift), Material (kg entering production from `work_order_part.weight_kg`),
-  Method, WIP (needs the `wip_balance` view).
-- Every large table is paged with `qAll` (`&order=…&offset=…`), because PostgREST caps each
-  response (~1000 rows) whatever `&limit` says; `bom_assembly*` lookups use id chunks (`qIn`).
+## UI — Production Schedule page (BDT app)
+The schedule is viewed and run from **Production Schedule** in the BDT app sidebar
+(`/production-schedule`, React, `src/pages/ProductionSchedule.tsx`), behind login. It reads
+`GET /api/v1/schedule/board` and `/schedule/board/fourm` from NestJS (`orders:view`) and runs or
+activates through `POST /schedule/runs` / `/schedule/versions/:id/activate` (`orders:update`), so
+the browser never holds a database key. Layout follows `docs/prod-scheduler-mockup.html`: KPI tiles,
+Backlog | Resource Gantt | detail + order list, Utilization Heatmap, Bottleneck Load, 4M + WIP.
 
-**anon grants it needs** (RLS is disabled on this DB — demo posture only):
-```sql
-grant select on public.work_order_part to anon;              -- marks + kg per WO
-grant select on public.wip_event, public.wip_balance to anon; -- after the migration above runs
--- operator: intentionally NOT granted (staff names); the Man panel falls back to team demand.
-```
+The standalone HTML cockpit (`backend-schedule/cockpit/`, Supabase REST with the anon key) was
+retired on 2026-10-04 (ADR-0015 D4); its logic lives on in `src/lib/schedule/` — see git history.
 
 ## Inputs (from DB)
 `work_order` (status NOT_STARTED/RELEASED, duration>0, `plan_start` + `plan_finish` set) ·

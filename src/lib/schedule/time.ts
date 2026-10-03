@@ -1,5 +1,5 @@
 // Bangkok date helpers for the Production Schedule page (port of
-// backend-schedule/cockpit/prod-scheduler.html). Asia/Bangkok is a fixed
+// the retired HTML cockpit (git history: backend-schedule/cockpit/prod-scheduler.html)). Asia/Bangkok is a fixed
 // UTC+7 with no DST, so day / minute-of-day maths use the offset directly
 // (hot path: ivBuckets / X run per op on every render — same approach as
 // backend ScheduleService's BANGKOK_OFFSET_MS); labels go through Intl with
