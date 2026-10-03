@@ -2,9 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 
 /**
- * T-WO.06 · Read-only schedule access (mockup this sprint).
- * The Python APS team will WRITE prod_schedule_version + prod_schedule via a
- * future authenticated endpoint; here we only list + display.
+ * T-WO.06 · Read-only schedule access.
+ * The production scheduler (backend-schedule/, Python) WRITES prod_schedule_version +
+ * prod_schedule; here we only list + display. A run with `activate` makes its version
+ * the single active one served by activeVersion().
  */
 @Injectable()
 export class ScheduleService {
@@ -32,7 +33,7 @@ export class ScheduleService {
 
     const rows = await this.prisma.prod_schedule.findMany({
       where: { work_order_id: woId },
-      include: { prod_schedule_version: true, equipment_resource: true },
+      include: { prod_schedule_version: true, workcenter_line: { include: { workcenter: true } } },
       orderBy: { start_datetime: 'asc' },
     })
 
@@ -73,8 +74,13 @@ export class ScheduleService {
         id: r.id,
         start_datetime: r.start_datetime,
         end_datetime: r.end_datetime,
-        workcenter_line: r.equipment_resource
-          ? { id: r.equipment_resource.id, code: r.equipment_resource.code, name: r.equipment_resource.name }
+        // The line the scheduler placed this WO on, e.g. code "WC-PAINT-L2", name "Paint bay 2".
+        workcenter_line: r.workcenter_line
+          ? {
+              id: r.workcenter_line.id,
+              code: `${r.workcenter_line.workcenter.code}-L${r.workcenter_line.line_no}`,
+              name: r.workcenter_line.name ?? `${r.workcenter_line.workcenter.name} · L${r.workcenter_line.line_no}`,
+            }
           : null,
       })
     }
