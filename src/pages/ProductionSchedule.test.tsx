@@ -1,22 +1,28 @@
 import { vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import type { ScheduleBoard } from '../api/schedule'
-import { RUN_IN_PROGRESS_MESSAGE, SCHEDULER_TIMEOUT_HINT, SCHEDULE_TEXT } from '../lib/schedule'
+import type { ScheduleBoard, ScheduleFourM } from '../api/schedule'
+import { FOURM_TEXT, RUN_IN_PROGRESS_MESSAGE, SCHEDULER_TIMEOUT_HINT, SCHEDULE_TEXT } from '../lib/schedule'
 import { iso, line, makeBoard, mo, op, team, version, wc, wo } from '../lib/schedule/testBoard'
 import { ProductionSchedule } from './ProductionSchedule'
 
-// The page is driven entirely by the three schedule hooks + usePermission;
+// The page is driven entirely by the four schedule hooks + usePermission;
 // mock them so no QueryClient / apiClient is involved.
 let boardResult: Record<string, unknown>
+let fourmResult: Record<string, unknown>
 let runResult: Record<string, unknown>
 let activateResult: Record<string, unknown>
 let canUpdate = true
 const boardCalls: Array<number | null | undefined> = []
+const fourmCalls: Array<{ versionId: number | null | undefined; enabled: boolean | undefined }> = []
 
 vi.mock('../hooks/useSchedule', () => ({
   useScheduleBoard: (versionId?: number | null) => {
     boardCalls.push(versionId)
     return boardResult
+  },
+  useScheduleFourM: (versionId?: number | null, opts?: { enabled?: boolean }) => {
+    fourmCalls.push({ versionId, enabled: opts?.enabled })
+    return fourmResult
   },
   useRunSchedule: () => runResult,
   useActivateVersion: () => activateResult,
@@ -58,6 +64,25 @@ function fixtureBoard(over: Partial<ScheduleBoard> = {}): ScheduleBoard {
   })
 }
 
+// 4M of V2: T-WELD (internal) has 4 operators · 1 short stock row ·
+// STG-A overflows (130 %) Mon morning, STG-B stays at 60 %.
+function fixtureFourM(over: Partial<ScheduleFourM> = {}): ScheduleFourM {
+  return {
+    version_id: 2,
+    operators_by_team: [{ team_id: 7, active_operators: 4 }],
+    stock: { materials: 1200, with_stock: 3, short: 1 },
+    first_seq_by_mo: [],
+    wip: {
+      status: 'ok',
+      rows: [
+        { storage_code: 'STG-A', t: iso('2026-10-05T09:00'), area_pct: 130 },
+        { storage_code: 'STG-B', t: iso('2026-10-05T14:00'), area_pct: 60 },
+      ],
+    },
+    ...over,
+  }
+}
+
 function axiosError(status: number, data: unknown) {
   return Object.assign(new Error(`Request failed with status code ${status}`), { isAxiosError: true, response: { status, data } })
 }
@@ -68,8 +93,10 @@ const activateMutate = vi.fn()
 beforeEach(() => {
   vi.clearAllMocks()
   boardCalls.length = 0
+  fourmCalls.length = 0
   canUpdate = true
   boardResult = { data: fixtureBoard(), isLoading: false, isError: false, error: null, refetch: vi.fn(), isFetching: false, isPlaceholderData: false }
+  fourmResult = { data: fixtureFourM(), isError: false, error: null, refetch: vi.fn() }
   runResult = { mutate: runMutate, isPending: false, error: null, reset: vi.fn() }
   activateResult = { mutate: activateMutate, isPending: false, error: null, reset: vi.fn() }
 })
@@ -324,5 +351,99 @@ describe('ProductionSchedule', () => {
     rerender(<ProductionSchedule />)
     fireEvent.click(screen.getByRole('button', { name: /กลับไป version/ }))
     expect(boardCalls.at(-1)).toBeNull()
+  })
+
+  describe('4M + WIP analysis', () => {
+    // named without its 📊, like the SchedCard sections
+    const fourmSection = () => screen.getByRole('region', { name: '4M + WIP analysis' })
+
+    it('renders the five cards from the board + 4M data, below the grid', () => {
+      render(<ProductionSchedule />)
+      const section = fourmSection()
+
+      expect(section).toHaveTextContent(FOURM_TEXT.sub)
+      expect(within(section).getAllByRole('region').map((r) => r.getAttribute('aria-label'))).toEqual(['Man', 'Machine', 'Material', 'Method', 'WIP / Storage'])
+      // asked for the version the board shows
+      expect(fourmCalls.at(-1)).toEqual({ versionId: 2, enabled: true })
+
+      const man = within(section).getByRole('region', { name: 'Man' })
+      expect(man).toHaveTextContent('internal crew util %/shift')
+      expect(within(man).getByText('4 internal operators')).toHaveAttribute('data-tone', 'ok')
+      expect(within(man).getByText('2 WO ไม่มีทีม')).toHaveAttribute('data-tone', 'warn')
+
+      // CUT: 210 busy min in the 210 min morning on its one line
+      const machine = within(section).getByRole('region', { name: 'Machine' })
+      expect(within(machine).getByText('bottleneck CUT 100%')).toHaveAttribute('data-tone', 'warn')
+
+      const material = within(section).getByRole('region', { name: 'Material' })
+      expect(within(material).getByText('1,200 materials')).toBeInTheDocument()
+      expect(within(material).getByText('1 short')).toHaveAttribute('data-tone', 'bad')
+
+      const method = within(section).getByRole('region', { name: 'Method' })
+      expect(within(method).getByText('2 op-types')).toBeInTheDocument()
+      expect(within(method).getByText('coverage 100%')).toHaveAttribute('data-tone', 'ok')
+
+      // one working day (Mon) × three shift bars per chart, each with a tooltip
+      const wip = within(section).getByRole('region', { name: 'WIP / Storage' })
+      expect(within(wip).getAllByTestId('fm-day')).toHaveLength(1)
+      expect(within(wip).getByText('1 overflow: A')).toHaveAttribute('data-tone', 'bad')
+      expect(within(wip).getAllByTitle(/130% \(A\)/)).toHaveLength(3) // the level carries into บ่าย and โอที
+      // each bar's value is also its accessible name, not only a hover tooltip
+      expect(within(wip).getAllByRole('img', { name: /130% \(A\)/ })).toHaveLength(3)
+    })
+
+    it('shows the missing wip_balance view with the migration hint', () => {
+      fourmResult = { ...fourmResult, data: fixtureFourM({ wip: { status: 'view_missing', rows: [] } }) }
+      render(<ProductionSchedule />)
+
+      const wip = within(fourmSection()).getByRole('region', { name: 'WIP / Storage' })
+      expect(within(wip).getByText('ยังไม่มี view wip_balance')).toHaveAttribute('data-tone', 'bad')
+      expect(wip).toHaveTextContent(FOURM_TEXT.wipMissing)
+      expect(within(wip).queryByTestId('fm-day')).not.toBeInTheDocument()
+      // the other four cards still draw
+      expect(within(fourmSection()).getAllByRole('region')).toHaveLength(5)
+    })
+
+    it('shows the loading stub until 4M data of the shown version is in', () => {
+      fourmResult = { ...fourmResult, data: undefined }
+      const { rerender } = render(<ProductionSchedule />)
+      expect(within(fourmSection()).getByText(FOURM_TEXT.loading)).toBeInTheDocument()
+      expect(within(fourmSection()).queryByRole('region')).not.toBeInTheDocument()
+
+      // the previous version's data (placeholder while switching) is not drawn against this board
+      fourmResult = { ...fourmResult, data: fixtureFourM({ version_id: 1 }) }
+      rerender(<ProductionSchedule />)
+      expect(within(fourmSection()).getByText(FOURM_TEXT.loading)).toBeInTheDocument()
+    })
+
+    it('waits for the board before asking for 4M', () => {
+      boardResult = { ...boardResult, data: undefined, isLoading: true }
+      render(<ProductionSchedule />)
+
+      expect(fourmCalls.at(-1)).toEqual({ versionId: undefined, enabled: false })
+      expect(screen.queryByRole('region', { name: /4M \+ WIP analysis/ })).not.toBeInTheDocument()
+    })
+
+    it('shows a 4M load error with a retry, the board still on screen', () => {
+      const refetch = vi.fn()
+      fourmResult = { data: undefined, isError: true, error: axiosError(500, { message: '4M boom' }), refetch }
+      render(<ProductionSchedule />)
+
+      const section = fourmSection()
+      expect(within(section).getByRole('alert')).toHaveTextContent(`${FOURM_TEXT.error}: 4M boom`)
+      fireEvent.click(within(section).getByRole('button', { name: FOURM_TEXT.retry }))
+      expect(refetch).toHaveBeenCalledTimes(1)
+      expect(screen.getByTestId('kpi-onTime')).toBeInTheDocument()
+    })
+
+    it('Reload refetches the 4M data too', () => {
+      const refetch = vi.fn()
+      fourmResult = { ...fourmResult, refetch }
+      render(<ProductionSchedule />)
+
+      fireEvent.click(screen.getByRole('button', { name: /Reload/ }))
+      expect(boardResult.refetch).toHaveBeenCalled()
+      expect(refetch).toHaveBeenCalledTimes(1)
+    })
   })
 })

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CalendarClock, Loader2 } from 'lucide-react'
 import type { ScheduleRunResult } from '../api/schedule'
-import { useScheduleBoard } from '../hooks/useSchedule'
+import { useScheduleBoard, useScheduleFourM } from '../hooks/useSchedule'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import {
@@ -38,6 +38,7 @@ import { BottleneckLoad } from '../components/schedule/BottleneckLoad'
 import { DetailPanel } from '../components/schedule/DetailPanel'
 import { RunSchedulePanel } from '../components/schedule/RunSchedulePanel'
 import { ActivateVersionControl } from '../components/schedule/ActivateVersionControl'
+import { FourMSection } from '../components/schedule/fourm/FourMSection'
 import { BTN, ERROR_BOX } from '../components/schedule/styles'
 
 const NO_HOLIDAYS: ReadonlySet<string> = new Set()
@@ -45,7 +46,8 @@ const NO_HOLIDAYS: ReadonlySet<string> = new Set()
 /**
  * Production Schedule (S37 · P4a) — read-only board of one prod_schedule
  * version: KPI tiles, Backlog, Resource Gantt (WC → line), Utilization
- * Heatmap, Bottleneck Load and the WO detail / order list. Port of
+ * Heatmap, Bottleneck Load, the WO detail / order list and, below them, the
+ * 📊 4M + WIP analysis (its own query, loaded after the board). Port of
  * backend-schedule/cockpit/prod-scheduler.html; all logic in lib/schedule.
  * Users with orders:update can also run the scheduler and activate a version.
  */
@@ -61,6 +63,8 @@ export function ProductionSchedule() {
 
   const canUpdate = usePermission('orders', 'update')
   const { data: board, isLoading, isError, error, refetch, isFetching, isPlaceholderData } = useScheduleBoard(versionId)
+  // 4M of the version the board shows (also while it is a placeholder), only once a board is in
+  const fourm = useScheduleFourM(board?.version_id, { enabled: !!board })
 
   const ix = useMemo(() => (board ? indexBoard(board) : null), [board])
   const ops = useMemo(() => (ix ? buildOps(ix) : []), [ix])
@@ -106,6 +110,7 @@ export function ProductionSchedule() {
   const reload = () => {
     setReloadN((n) => n + 1)
     void refetch()
+    if (board) void fourm.refetch() // "apply migration … แล้วกด Reload" — the WIP view may exist now
   }
 
   // order list → select the MO's first op, open its WC, scroll the bar into view
@@ -221,6 +226,15 @@ export function ProductionSchedule() {
                 <DetailPanel op={selected} orders={orders} onPickOrder={pickOrder} />
               </SchedCard>
             </div>
+
+            <FourMSection
+              ix={ix}
+              ops={ops}
+              data={fourm.data}
+              isError={fourm.isError}
+              error={fourm.error}
+              onRetry={() => void fourm.refetch()}
+            />
 
             <div className="text-[11px] text-[#6b7682] leading-relaxed">
               {foot.map((l) => <div key={l}>{l}</div>)}

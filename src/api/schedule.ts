@@ -1,7 +1,8 @@
 import { apiClient } from './client'
 
 // Production schedule (ADR-0015). The board is one read-only GET that carries
-// everything the Production Schedule page draws; the two POSTs trigger the
+// everything the Production Schedule page draws (the 4M panel adds a second
+// read-only GET, /schedule/board/fourm); the two POSTs trigger the
 // prod-scheduler Cloud Run service / switch the active version
 // (both @RequiresPermission('orders','update')). Decimal → number and
 // Date → ISO string, as everywhere else in this app.
@@ -104,6 +105,63 @@ export interface ScheduleBoard {
 export async function getScheduleBoard(versionId?: number | null): Promise<ScheduleBoard> {
   const params = versionId != null ? { version_id: versionId } : undefined
   return (await apiClient.get('/schedule/board', { params })).data
+}
+
+// ── GET /schedule/board/fourm ─────────────────────────────────────────────────
+// The 4M + WIP panel's extra data, loaded after the board (larger queries).
+// Same version rule as the board: requested → active → newest with rows.
+
+/** Active operators of one team (operator.active = true, team_id not null). */
+export interface FourMTeamOperators {
+  team_id: number
+  active_operators: number
+}
+
+export interface FourMStock {
+  /** count(materials). */
+  materials: number
+  /** Distinct stock_quant.material_id with quantity > 0. */
+  with_stock: number
+  /** stock_quant rows with reserved_quantity > quantity. */
+  short: number
+}
+
+/** One wip_balance view row of the version: a buffer's occupancy level from `t` on. */
+export interface FourMWipRow {
+  storage_code: string
+  t: string
+  area_pct: number | null
+}
+
+export interface FourMWip {
+  /** 'view_missing' → wip_balance is not created yet (migration 20261003000000 not applied); rows are []. */
+  status: 'ok' | 'view_missing'
+  /** Ordered by storage_code, t. */
+  rows: FourMWipRow[]
+}
+
+/** min(work_order.sequence) over an MO's non-CANCELLED WOs — DONE ones included. */
+export interface FourMFirstSeq {
+  mo_id: number
+  first_seq: number
+}
+
+export interface ScheduleFourM {
+  version_id: number | null
+  operators_by_team: FourMTeamOperators[]
+  stock: FourMStock
+  wip: FourMWip
+  /**
+   * min(sequence) per MO over its non-CANCELLED WOs (DONE included). The board leaves
+   * out DONE WOs that aren't scheduled, so only this knows an MO's cutting is
+   * already done.
+   */
+  first_seq_by_mo: FourMFirstSeq[]
+}
+
+export async function getScheduleFourM(versionId?: number | null): Promise<ScheduleFourM> {
+  const params = versionId != null ? { version_id: versionId } : undefined
+  return (await apiClient.get('/schedule/board/fourm', { params })).data
 }
 
 // ── POST /schedule/runs ───────────────────────────────────────────────────────
