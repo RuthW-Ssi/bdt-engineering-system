@@ -31,6 +31,7 @@ import { ResourceList } from './pages/ResourceList'
 import { MoNew } from './pages/MoNew'
 import { MoDetail } from './pages/MoDetail'
 import { OrderHub } from './pages/OrderHub'
+import { ProductionSchedule } from './pages/ProductionSchedule'
 import { WoDetail } from './pages/WoDetail'
 import { CuttingPlanList } from './pages/CuttingPlanList'
 import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
@@ -147,6 +148,8 @@ export default function App() {
             {/* Sprint 14: Order Hub (MO ↔ WO tabs) */}
             <Route path="/order" element={<ProtectedRoute viewModules={['orders']}><OrderHub /></ProtectedRoute>} />
             <Route path="/order/wo/:id" element={<ProtectedRoute viewModules={['orders']}><WoDetail /></ProtectedRoute>} />
+            {/* Sprint 37: Production Schedule (prod-scheduler board, ADR-0015) */}
+            <Route path="/production-schedule" element={<ProtectedRoute viewModules={['orders']}><ProductionSchedule /></ProtectedRoute>} />
             {/* Sprint 13: Manufacturing Order · /mo list now aliases into the hub */}
             <Route path="/mo" element={<Navigate to="/order?tab=mo" replace />} />
             <Route path="/mo/new" element={<ProtectedRoute viewModules={['orders']}><MoNew /></ProtectedRoute>} />

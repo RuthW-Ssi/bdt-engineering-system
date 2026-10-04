@@ -197,6 +197,22 @@ model materials {
   assembly_paint    mbom_assembly_paint[] @relation("PaintMaterial")
   activity_consumes activity_consume[]    @relation("activity_consume_material")
   wo_consumes       work_order_consume[]
+  stock_quants      stock_quant[]
+}
+
+// ── 🟥 Custom: stock_quant (Odoo on-hand inventory; created on Supabase, captured 2026-10) ──
+model stock_quant {
+  id                  Int       @id @default(autoincrement())
+  material_id         Int
+  material            materials @relation(fields: [material_id], references: [id], onDelete: Cascade)
+  location            String    @default("WH/Stock") @db.VarChar
+  quantity            Decimal   @default(0) @db.Decimal
+  reserved_quantity   Decimal   @default(0) @db.Decimal
+  forecasted_quantity Decimal?  @db.Decimal
+  create_date         DateTime? @default(now()) @db.Timestamptz
+  write_date          DateTime? @default(now()) @db.Timestamptz
+
+  @@unique([material_id, location])
 }
 
 // ── 🟥 Custom: part_code_seq (concurrency-safe counter) ──────
@@ -1242,8 +1258,6 @@ model equipment_resource {
   maintenance_logs maintenance_log[]
   repair_tickets   repair_ticket[]
   status_history   machine_status_history[]
-  // Sprint 14: schedule workcenter line (F-WO · Q14b=C)
-  prod_schedules   prod_schedule[]          @relation("sched_workcenter_line")
 }
 
 model op_act_tool {
@@ -1717,11 +1731,13 @@ model prod_schedule {
   work_order_id            Int
   start_datetime           DateTime @db.Timestamptz
   end_datetime             DateTime @db.Timestamptz
-  workcenter_line_id       Int? // Q14b=C · FK → equipment_resource.id (separate from work_order.work_center_id → mrp_workcenter)
+  // FK → mrp_workcenter_line.id: the line the scheduler placed this WO on (1 line runs 1 job at a time).
+  // Was mis-modeled as equipment_resource (Q14b=C); the live DB FK was re-pointed to mrp_workcenter_line on 2026-07-06.
+  workcenter_line_id       Int?
 
   prod_schedule_version prod_schedule_version @relation(fields: [prod_schedule_version_id], references: [id], onDelete: Cascade)
   work_order            work_order            @relation(fields: [work_order_id], references: [id], onDelete: Cascade)
-  equipment_resource    equipment_resource?   @relation("sched_workcenter_line", fields: [workcenter_line_id], references: [id])
+  workcenter_line       mrp_workcenter_line?  @relation(fields: [workcenter_line_id], references: [id], onDelete: SetNull)
 
   @@index([prod_schedule_version_id])
   @@index([work_order_id])
@@ -1778,12 +1794,14 @@ model consume_formula {
 // ═══════════════════════════════════════════════════════════════
 
 model calendar {
-  id         Int      @id @default(autoincrement())
-  code       String   @unique @db.VarChar(40)
-  name       String   @db.VarChar(120)
-  active     Boolean  @default(true)
-  note       String?  @db.Text
-  created_at DateTime @default(now()) @db.Timestamptz
+  id                     Int      @id @default(autoincrement())
+  code                   String   @unique @db.VarChar(40)
+  name                   String   @db.VarChar(120)
+  active                 Boolean  @default(true)
+  note                   String?  @db.Text
+  created_at             DateTime @default(now()) @db.Timestamptz
+  day_start_overhead_min Int      @default(30) // scheduler: morning start-up overhead (minutes)
+  day_end_overhead_min   Int      @default(15) // scheduler: end-of-day shutdown overhead (minutes)
 
   blocks            calendar_block[]
   exceptions        calendar_exception[]
@@ -1826,14 +1844,21 @@ model work_center_calendar {
 }
 
 model mrp_workcenter_line {
-  id            Int            @id @default(autoincrement())
-  workcenter_id Int
-  workcenter    mrp_workcenter @relation(fields: [workcenter_id], references: [id], onDelete: Cascade)
-  line_no       Int            @db.SmallInt
-  name          String?        @db.VarChar(80)
-  active        Boolean        @default(true)
+  id               Int            @id @default(autoincrement())
+  workcenter_id    Int
+  workcenter       mrp_workcenter @relation(fields: [workcenter_id], references: [id], onDelete: Cascade)
+  line_no          Int            @db.SmallInt
+  name             String?        @db.VarChar(80)
+  active           Boolean        @default(true)
+  // Legacy line-level labor (pre team model). Labor now comes from work_order.team_headcount + team;
+  // kept so the schema matches the live DB — not read by the scheduler for labor.
+  crew_size        Int            @default(1)
+  labor_mode       String         @default("internal") @db.Text
+  subcontractor_id Int?
+  subcontractor    team?          @relation(fields: [subcontractor_id], references: [id], onDelete: SetNull)
 
   operator_workcenters operator_workcenter[]
+  prod_schedules       prod_schedule[]
 
   @@unique([workcenter_id, line_no])
 }
@@ -1908,15 +1933,20 @@ model wip_storage_io {
 // Renamed from subcontractor (2026-09-22) — same concept, broader now that
 // operator.team_id lets any operator belong to one, not just WOs.
 model team {
-  id          Int          @id @default(autoincrement())
-  code        String       @unique @db.Text
-  name        String       @db.Text
-  team_type   String       @db.VarChar(20) // 'internal' | 'external' — required at creation (2026-09-25)
-  skills      String[]     @default([])
-  active      Boolean      @default(true)
-  created_at  DateTime?    @default(now()) @db.Timestamptz
-  work_orders work_order[]
-  operators   operator[]
+  id                Int                   @id @default(autoincrement())
+  code              String                @unique @db.Text
+  name              String                @db.Text
+  team_type         String                @db.VarChar(20) // 'internal' | 'external' — required at creation (2026-09-25)
+  skills            String[]              @default([])
+  active            Boolean               @default(true)
+  created_at        DateTime?             @default(now()) @db.Timestamptz
+  // Carried over from subcontractor (added on Supabase before the rename) — external-team defaults.
+  default_headcount Int?
+  rate              Decimal?              @db.Decimal
+  rate_unit         String?               @db.VarChar(20)
+  work_orders       work_order[]
+  operators         operator[]
+  workcenter_lines  mrp_workcenter_line[]
 }
 
 model formula_code_seq {

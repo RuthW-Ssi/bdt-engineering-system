@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
-  ClipboardList, Scissors, Cuboid, UserCog, FileText,
+  ClipboardList, Scissors, Cuboid, UserCog, FileText, CalendarClock,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { canViewAny, customerCanOpen, isCustomer } from '../../lib/moduleAccess'
@@ -69,6 +69,7 @@ export const SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'Production',
     items: [
       { label: 'Order', icon: <ClipboardList size={18} />, path: '/order', viewModules: ['orders'] },
+      { label: 'Production Schedule', icon: <CalendarClock size={18} />, path: '/production-schedule', viewModules: ['orders'] },
       { label: 'Machine & Resources', icon: <Cog size={18} />, path: '/resources', viewModules: ['machines'] },
     ],
   },
