@@ -234,7 +234,8 @@ export class OperationTemplateService {
     return this.prisma.operation_template.delete({ where: { id } })
   }
 
-  async addFromLibrary(templateId: number, activityId: number) {
+  // userId: who changed the template — stamped on operation_template like update()/publish()
+  async addFromLibrary(templateId: number, activityId: number, userId: number) {
     await this.prisma.operation_template.findUniqueOrThrow({ where: { id: templateId }, select: { id: true } })
       .catch(() => { throw new NotFoundException(`Operation template ${templateId} not found`) })
 
@@ -251,6 +252,7 @@ export class OperationTemplateService {
     const nextSeq = (agg._max.sequence ?? 0) + 10
 
     const created = await this.prisma.$transaction(async tx => {
+      await tx.operation_template.update({ where: { id: templateId }, data: { write_uid: userId, write_date: new Date() } })
       const opAct = await tx.operation_template_activity.create({
         data: {
           operation_template_id: templateId,
@@ -292,7 +294,7 @@ export class OperationTemplateService {
     return { ...created, is_stale: false, source_activity_code: src.activity_code }
   }
 
-  async updateFromLibrary(templateId: number, opActId: number) {
+  async updateFromLibrary(templateId: number, opActId: number, userId: number) {
     const opAct = await this.prisma.operation_template_activity.findUnique({
       where: { id: opActId },
       select: { id: true, source_activity_id: true, operation_template_id: true },
@@ -308,6 +310,7 @@ export class OperationTemplateService {
     })
 
     const updated = await this.prisma.$transaction(async tx => {
+      await tx.operation_template.update({ where: { id: templateId }, data: { write_uid: userId, write_date: new Date() } })
       await tx.operation_template_activity.update({
         where: { id: opActId },
         data: {

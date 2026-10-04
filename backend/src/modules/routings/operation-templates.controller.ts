@@ -42,8 +42,9 @@ export class OperationTemplatesController {
   addFromLibrary(
     @Param('id', ParseIntPipe) id: number,
     @Param('activityId', ParseIntPipe) activityId: number,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.addFromLibrary(id, activityId)
+    return this.svc.addFromLibrary(id, activityId, user.sub)
   }
 
   @Post(':id/activities/:actId/update-from-library')
@@ -52,8 +53,9 @@ export class OperationTemplatesController {
   updateFromLibrary(
     @Param('id', ParseIntPipe) id: number,
     @Param('actId', ParseIntPipe) actId: number,
+    @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.updateFromLibrary(id, actId)
+    return this.svc.updateFromLibrary(id, actId, user.sub)
   }
 
   @Post()

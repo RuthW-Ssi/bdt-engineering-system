@@ -1,5 +1,6 @@
 import {
   Body,
+  ConflictException,
   Controller,
   Delete,
   Get,
@@ -252,10 +253,24 @@ export class RoutingsController {
   @Delete('routing-templates/:id')
   @RequiresPermission('routings', 'delete')
   @ApiTags('RoutingTemplates')
-  @ApiOperation({ summary: 'Delete a routing template' })
+  @ApiOperation({ summary: 'Delete a routing template (409 while products, binding rules or MOs use it)' })
   async deleteRoutingTemplate(@Param('id', ParseIntPipe) id: number) {
-    const exists = await this.prisma.routing_template.findUnique({ where: { id }, select: { id: true } })
-    if (!exists) throw new NotFoundException(`Routing template ${id} not found`)
+    const tpl = await this.prisma.routing_template.findUnique({
+      where: { id },
+      select: { id: true, _count: { select: { bound_products: true, binding_rules: true, manufacturing_orders: true } } },
+    })
+    if (!tpl) throw new NotFoundException(`Routing template ${id} not found`)
+    // products.routing_template_id is ON DELETE SET NULL — a delete would silently unbind them;
+    // binding rules and MOs are ON DELETE RESTRICT and would surface as a raw 500.
+    const { bound_products, binding_rules, manufacturing_orders } = tpl._count
+    const uses = [
+      bound_products && `${bound_products} product(s)`,
+      binding_rules && `${binding_rules} binding rule(s)`,
+      manufacturing_orders && `${manufacturing_orders} manufacturing order(s)`,
+    ].filter(Boolean)
+    if (uses.length) {
+      throw new ConflictException(`Cannot delete: this routing template is used by ${uses.join(', ')}. Rebind or remove them first.`)
+    }
     await this.prisma.routing_template.delete({ where: { id } })
     return { deleted: true }
   }
