@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APS Sequencer — Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eef1f5;--panel:#fff;--ink:#1f2733;--muted:#6b7682;--line:#d8dde3;
+    --accent:#e8590c;--accent2:#fd7e14;--green:#1f9d57;
+    --cut:#2f6f9f;--fit:#2a9d8f;--weld:#e8731a;--blast:#7a828c;--paint:#3a9d5d;--assy:#6f5bd0;
+    --late-fill:rgba(220,38,38,.16);--late-bd:#dc2626;--late-ink:#b91c1c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans Thai","Kanit",system-ui,sans-serif;font-size:13px}
+  h1,h2,h3,.kanit{font-family:"Kanit",sans-serif}
+  .mono{font-family:"IBM Plex Mono",monospace}
+  .app{max-width:1560px;margin:0 auto;padding:16px}
+  .topbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:linear-gradient(180deg,#222a35,#2b3441);color:#fff;border-radius:12px;padding:14px 18px;box-shadow:0 2px 10px rgba(20,26,33,.18)}
+  .topbar h1{margin:0;font-size:18px;font-weight:600}
+  .topbar .sub{color:#aeb7c2;font-size:12px;margin-top:2px}
+  .badge{margin-left:auto;background:var(--accent);color:#fff;font-weight:600;font-family:"Kanit";padding:4px 10px;border-radius:999px;font-size:11px}
+  .badge.edit{background:var(--green)}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:14px 0}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .v{font-family:"Kanit";font-weight:700;font-size:22px;line-height:1}
+  .kpi .l{color:var(--muted);font-size:11px;margin-top:6px}
+  .kpi.good .v{color:var(--green)}.kpi.bad .v{color:var(--late-ink)}.kpi.accent .v{color:var(--accent)}
+  .controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:12px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:#fff;color:var(--ink);padding:7px 12px;font-family:"Kanit";font-size:12px;cursor:pointer}
+  .seg button.on{background:var(--accent);color:#fff}
+  .seg button:disabled{opacity:.4;cursor:not-allowed}
+  .ctl-label{color:var(--muted);font-size:11px;font-family:"Kanit";text-transform:uppercase;letter-spacing:.5px}
+  .chk{display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
+  .zoom button{width:28px;height:28px;border:1px solid var(--line);background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:var(--ink)}
+  .vline{width:1px;height:22px;background:var(--line)}
+  .editbtn{border:1px solid var(--line);background:#fff;color:var(--ink);padding:7px 12px;border-radius:8px;font-family:"Kanit";font-size:12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+  .editbtn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .editbtn.go{background:var(--green);color:#fff;border-color:var(--green)}
+  .editing-hint{font-size:11px;color:var(--green);font-family:"Kanit"}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;margin-left:auto}
+  .lg{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+  .sw{width:13px;height:13px;border-radius:3px;display:inline-block}
+  .grid{display:grid;grid-template-columns:206px 1fr 280px;gap:12px;align-items:start}
+  @media(max-width:1200px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card h3{margin:0;padding:11px 14px;font-size:13px;font-weight:600;border-bottom:1px solid var(--line);background:#f8fafc;display:flex;align-items:center;gap:8px}
+  .card h3 .tag{margin-left:auto;font-family:"IBM Plex Mono";font-size:10px;color:var(--muted);font-weight:500}
+  /* backlog */
+  .bl-list{padding:8px;overflow-y:auto;max-height:620px}
+  .wo-card{border:1px solid var(--line);border-radius:9px;padding:8px;margin-bottom:8px;background:#fff;cursor:default;transition:box-shadow .15s,border-color .15s}
+  .wo-card.draggable{cursor:grab}.wo-card.draggable:hover{border-color:var(--accent);box-shadow:0 2px 8px rgba(232,89,12,.14)}
+  .wo-top{display:flex;align-items:baseline;gap:6px}.wo-top b{font-family:"Kanit";font-size:13px}.wo-top span{color:var(--muted);font-size:11px}
+  .wo-chips{display:flex;gap:5px;flex-wrap:wrap;margin:6px 0}
+  .wo-chips .c{font-size:10px;background:#f1f4f7;border-radius:5px;padding:2px 6px;color:var(--muted)}
+  .wo-chips .c.due{background:#fff3ec;color:var(--accent)}.wo-chips .c.due.urgent{background:#fde7e7;color:var(--late-ink);font-weight:700}
+  .wo-route{display:flex;gap:2px}
+  .rseg{width:17px;height:14px;border-radius:3px;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center}
+  .wo-auto{margin-top:7px;width:100%;border:1px dashed var(--accent);background:#fff7f2;color:var(--accent);border-radius:6px;padding:4px;font-family:"Kanit";font-size:11px;cursor:pointer}
+  .wo-ghost{position:fixed;z-index:200;pointer-events:none;background:#222a35;color:#fff;border:2px solid var(--accent);border-radius:7px;padding:5px 9px;font-size:11px;font-family:"Kanit";box-shadow:0 6px 18px rgba(0,0,0,.35)}
+  /* gantt */
+  .gantt{display:flex}
+  .res-col{flex:0 0 150px;border-right:1px solid var(--line);background:#fbfcfe}
+  .res-head{height:34px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 12px;font-family:"Kanit";font-size:11px;color:var(--muted);text-transform:uppercase}
+  .res-cell{height:40px;border-bottom:1px solid #eef1f4;display:flex;align-items:center;padding:0 12px;gap:8px;font-weight:500}
+  .res-cell small{color:var(--muted);font-weight:400}
+  .res-dot{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
+  .tl-wrap{flex:1;overflow-x:auto}
+  .tl-head{height:34px;position:relative;border-bottom:1px solid var(--line);background:#f8fafc}
+  .tl-day{position:absolute;top:0;height:34px;border-left:1px solid var(--line);padding:5px 8px;font-size:11px;color:var(--muted);font-family:"Kanit"}
+  .tl-day b{color:var(--ink);font-weight:600}
+  .tl-body{position:relative}
+  .tl-body.editmode .bar{cursor:grab}
+  .row-bg{position:absolute;left:0;right:0;height:40px;border-bottom:1px solid #eef1f4}
+  .row-bg.alt{background:#fafbfd}
+  .row-bg.validdrop{background:rgba(31,157,87,.13);box-shadow:inset 0 0 0 1px rgba(31,157,87,.4)}
+  .offband{position:absolute;top:0;bottom:0;background-image:repeating-linear-gradient(45deg,#e9edf2 0,#e9edf2 5px,#f3f5f8 5px,#f3f5f8 10px);border-left:1px solid #e3e8ee;border-right:1px solid #e3e8ee}
+  .bar{position:absolute;height:24px;border-radius:5px;display:flex;align-items:center;padding:0 6px;color:#fff;font-size:10.5px;font-weight:600;white-space:nowrap;overflow:hidden;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.18);transition:left .35s cubic-bezier(.4,0,.2,1),top .35s cubic-bezier(.4,0,.2,1),width .35s,opacity .2s;border:1px solid rgba(0,0,0,.12)}
+  .bar .setup{position:absolute;left:0;top:0;bottom:0;width:5px;background:rgba(0,0,0,.45);border-radius:5px 0 0 5px}
+  .bar.late{outline:2px solid var(--late-bd);outline-offset:-2px}
+  .bar.sel{box-shadow:0 0 0 2px #fff,0 0 0 4px var(--accent);z-index:6}
+  .bar.dim{opacity:.16}
+  .bar.dragging{cursor:grabbing;opacity:.92;z-index:25;transition:none;box-shadow:0 6px 16px rgba(0,0,0,.3)}
+  .bar.manual::after{content:'';position:absolute;right:3px;top:3px;width:6px;height:6px;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  .cursor-line{position:absolute;top:0;bottom:0;width:1px;background:var(--accent);pointer-events:none;z-index:8}
+  .cursor-lbl{position:absolute;top:2px;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:10px;padding:1px 6px;border-radius:6px;pointer-events:none;white-space:nowrap;font-family:"IBM Plex Mono";z-index:9;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+  .drop-caret{position:absolute;top:0;bottom:0;width:2px;background:var(--green);pointer-events:none;z-index:12}
+  .drop-lbl{position:absolute;transform:translateY(-3px);color:#fff;font-size:9px;padding:1px 6px;border-radius:4px;pointer-events:none;z-index:13;font-family:"Kanit";white-space:nowrap}
+  .editcard{position:absolute;z-index:30;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(20,26,33,.22);padding:10px;width:288px;font-size:12px}
+  .editcard .ec-h{font-family:"Kanit";font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+  .editcard .ec-row{display:flex;align-items:center;gap:6px;margin:5px 0}
+  .editcard .ec-row label{width:30px;color:var(--muted)}
+  .editcard input{flex:1;border:1px solid var(--line);border-radius:6px;padding:4px 6px;font-family:"IBM Plex Mono";font-size:11px;min-width:0}
+  .editcard .ec-row button{border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer;font-family:"Kanit"}
+  .editcard .ec-n{color:var(--muted);font-size:10.5px;margin-top:6px;line-height:1.4}
+  .duelane{position:relative;height:30px;border-top:1px dashed var(--line);background:#fcfdfe}
+  .due{position:absolute;top:6px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;font-size:9px;color:var(--muted)}
+  .due .dia{width:10px;height:10px;background:#9aa3ad;transform:rotate(45deg);margin-bottom:2px}
+  .due.late .dia{background:var(--late-bd)}.due.late{color:var(--late-ink);font-weight:700}
+  .heat{padding:10px 14px;overflow-x:auto}
+  table.hm{border-collapse:collapse;width:100%;font-size:11px}
+  table.hm th{font-weight:500;color:var(--muted);padding:5px 6px;text-align:center;font-family:"Kanit"}
+  table.hm td:first-child,table.hm th:first-child{text-align:left;white-space:nowrap;color:var(--ink);font-weight:500}
+  table.hm td{padding:0;text-align:center}
+  .hc{height:30px;border-radius:5px;color:#fff;font-weight:600;display:flex;align-items:center;justify-content:center;margin:2px}
+  .load{padding:12px 14px}
+  .lbars{display:flex;align-items:flex-end;gap:14px;height:120px;border-bottom:2px solid var(--line);position:relative;padding-top:6px}
+  .lbar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative}
+  .lbar .fill{width:60%;background:linear-gradient(180deg,var(--weld),#c85d12);border-radius:5px 5px 0 0;position:relative;transition:height .35s}
+  .lbar .fill.over{background:linear-gradient(180deg,#dc2626,#991b1b)}
+  .lbar .cap{position:absolute;left:0;right:0;border-top:2px dashed #b91c1c}
+  .lbar .vv{position:absolute;top:-16px;font-size:10px;font-weight:700;font-family:"IBM Plex Mono"}
+  .lbar .xx{margin-top:5px;font-size:10px;color:var(--muted)}
+  .panel{padding:14px}
+  .panel .empty{color:var(--muted);text-align:center;padding:20px 8px;font-size:12px;line-height:1.5}
+  .dl{display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-size:12px;margin-top:6px}
+  .dl dt{color:var(--muted)}.dl dd{margin:0;font-weight:600;text-align:right}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700}
+  .pill.ok{background:#e3f5ea;color:var(--green)}.pill.late{background:#fde7e7;color:var(--late-ink)}
+  .unbtn{margin-top:12px;width:100%;border:1px solid var(--line);background:#fff;border-radius:7px;padding:7px;font-family:"Kanit";font-size:12px;cursor:pointer;color:var(--ink)}
+  .panel h4{font-family:"Kanit";margin:14px 0 4px;font-size:12px;color:var(--muted);text-transform:uppercase}
+  .ordrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #eef1f4;font-size:12px;cursor:pointer}
+  .ordrow:hover{background:#f8fafc}.ordrow .nm{font-weight:600}.ordrow .meta{margin-left:auto;color:var(--muted);font-size:11px}
+  .ordrow.bl{opacity:.7}.ordrow.bl .nm::after{content:' ·รอจัด';color:var(--accent);font-weight:400;font-size:10px}
+  .selchip{display:inline-block;background:#fff3ec;color:var(--accent);border:1px solid #f4c9ad;border-radius:6px;padding:2px 7px;margin:2px 3px 0 0;font-size:11px}
+  .foot{color:var(--muted);font-size:11px;margin-top:14px;line-height:1.6}
+  #tip{position:fixed;pointer-events:none;background:#222a35;color:#fff;padding:7px 9px;border-radius:7px;font-size:11px;z-index:50;opacity:0;transition:opacity .12s;max-width:240px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+  #tip b{font-family:"Kanit"}
+  .modal{position:fixed;inset:0;background:rgba(20,26,33,.5);display:flex;align-items:center;justify-content:center;z-index:100}
+  .modal .mc{background:#fff;border-radius:14px;padding:20px 22px;width:380px;box-shadow:0 20px 50px rgba(0,0,0,.35)}
+  .modal h3{margin:0 0 6px;font-family:"Kanit";font-size:16px;border:0;padding:0;background:none}
+  .modal p{color:var(--muted);margin:0 0 14px;font-size:13px;line-height:1.5}
+  .modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:8px}
+  .modal ul{margin:0 0 8px;padding-left:18px;color:var(--ink);font-size:12px;max-height:150px;overflow:auto}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <h1>APS Sequencer — Finite Capacity Schedule</h1>
+      <div class="sub">โครงการ 0X202 คลังสินค้า จ.สมุทรปราการ · Zone A · ข้อมูลจำลอง (mockup)</div>
+    </div>
+    <span class="badge" id="modeBadge">PROTOTYPE</span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="controls">
+    <span class="ctl-label">Sequencing</span>
+    <div class="seg" id="mode">
+      <button data-m="priority" class="on">ตามลำดับติดตั้ง</button>
+      <button data-m="edd">ตามกำหนดส่ง (EDD)</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="lateOnly"> <span>เน้นงานสาย</span></label>
+    <span class="ctl-label" style="margin-left:6px">Zoom</span>
+    <span class="zoom"><button id="zout">−</button> <button id="zin">+</button></span>
+    <span class="vline"></span>
+    <button class="editbtn" id="editToggle">✏️ แก้ไขตาราง</button>
+    <button class="editbtn go" id="saveBtn" style="display:none">💾 บันทึก</button>
+    <button class="editbtn" id="cancelBtn" style="display:none">✖ ยกเลิก</button>
+    <span class="editing-hint" id="editHint" style="display:none">โหมดแก้ไข: ลากจาก Backlog ลง Gantt · ลากงาน · Ctrl+คลิกหลายงาน · ตั้งเวลาในการ์ด</span>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="grid">
+    <div class="card" style="display:flex;flex-direction:column">
+      <h3>📥 Backlog <span class="tag" id="blCount"></span></h3>
+      <div class="bl-list" id="blList"></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="card">
+        <h3>🏭 Resource Gantt <span class="tag">rows = mrp_workcenter · bars = scheduled_operation</span></h3>
+        <div class="gantt">
+          <div class="res-col">
+            <div class="res-head">Work Center</div>
+            <div id="resCells"></div>
+          </div>
+          <div class="tl-wrap" id="tlwrap">
+            <div class="tl-head" id="tlhead"></div>
+            <div class="tl-body" id="tlbody"></div>
+            <div class="duelane" id="duelane"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>🔥 Utilization Heatmap <span class="tag">load ÷ available (derate OEE)</span></h3>
+        <div class="heat" id="heat"></div>
+      </div>
+      <div class="card">
+        <h3>⚡ Welding Load <span class="tag">secondary constraint · capacity = 2 × 9h</span></h3>
+        <div class="load"><div class="lbars" id="load"></div></div>
+      </div>
+    </div>
+
+    <div class="card" style="align-self:start">
+      <h3>📋 รายละเอียด</h3>
+      <div class="panel" id="panel"></div>
+    </div>
+  </div>
+  <div class="foot" id="foot"></div>
+</div>
+<div id="tip"></div>
+<div id="modalRoot"></div>
+
+<script>
+(function(){
+const HOUR=3600000,MIN=60000,WMIN=540,WORK_S=8,WORK_E=17;
+const fmt=(ms,o)=>new Date(ms).toLocaleString('th-TH',o||{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+const fmtH=ms=>new Date(ms).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'});
+const pad=n=>String(n).padStart(2,'0');
+const toInput=ms=>{const d=new Date(ms);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;};
+
+const RES=[
+ {id:'CUT',name:'Cutting / CNC',cls:'cut',t:'CUT',sub:'ตัด'},
+ {id:'FIT1',name:'Fit-up 1',cls:'fit',t:'FIT',sub:'ประกอบ'},
+ {id:'FIT2',name:'Fit-up 2',cls:'fit',t:'FIT',sub:'ประกอบ'},
+ {id:'WELD1',name:'Welding 1',cls:'weld',t:'WELD',sub:'เชื่อม'},
+ {id:'WELD2',name:'Welding 2',cls:'weld',t:'WELD',sub:'เชื่อม'},
+ {id:'BLAST',name:'Blasting',cls:'blast',t:'BLAST',sub:'พ่นทราย'},
+ {id:'PAINT',name:'Painting',cls:'paint',t:'PAINT',sub:'พ่นสี'},
+ {id:'ASSY',name:'Final Assembly',cls:'assy',t:'ASSY',sub:'ประกอบรวม'},
+];
+const CAND={CUT:['CUT'],FIT:['FIT1','FIT2'],WELD:['WELD1','WELD2'],BLAST:['BLAST'],PAINT:['PAINT'],ASSY:['ASSY']};
+const RATE={CUT:8,FIT:14,WELD:22,BLAST:10,PAINT:12,ASSY:30};
+const CLS={CUT:'cut',FIT:'fit',WELD:'weld',BLAST:'blast',PAINT:'paint',ASSY:'assy'};
+const OPNAME={CUT:'Cut Tubes',FIT:'Fit-up',WELD:'Weld',BLAST:'Blast',PAINT:'Paint',ASSY:'Assemble'};
+const ORDERS=[
+ {id:'COL-12',name:'Column',qty:8,prio:1,due:2,route:['CUT','FIT','WELD','BLAST','PAINT']},
+ {id:'BM-101',name:'Main Beam',qty:12,prio:2,due:2,route:['CUT','FIT','WELD','BLAST','PAINT']},
+ {id:'PG-03',name:'Plate Girder',qty:4,prio:3,due:3,route:['CUT','FIT','WELD','BLAST','PAINT','ASSY']},
+ {id:'BM-102',name:'Beam',qty:10,prio:4,due:3,route:['CUT','FIT','WELD','BLAST','PAINT']},
+ {id:'BR-07',name:'Bracing',qty:16,prio:5,due:4,route:['CUT','FIT','WELD','PAINT']},
+ {id:'PL-330',name:'Base Plate',qty:20,prio:6,due:4,route:['CUT','BLAST','PAINT']},
+ {id:'TR-05',name:'Truss',qty:6,prio:7,due:5,route:['CUT','FIT','WELD','BLAST','PAINT','ASSY']},
+ {id:'COL-15',name:'Column',qty:8,prio:8,due:1,route:['CUT','FIT','WELD','BLAST','PAINT']},
+ {id:'BR-09',name:'Bracing',qty:14,prio:9,due:2,route:['CUT','FIT','WELD','PAINT']},
+];
+const woHours=o=>o.route.reduce((s,tp)=>s+Math.max(45,Math.min(360,o.qty*RATE[tp])),0)/60;
+
+const HSTART=new Date(2026,5,22,8,0,0,0).getTime();
+const isWend=ms=>{const d=new Date(ms).getDay();return d===0||d===6;};
+function nextMorning(ms){let d=new Date(ms);d.setDate(d.getDate()+1);d.setHours(8,0,0,0);while(isWend(d.getTime()))d.setDate(d.getDate()+1);return d.getTime();}
+function eod(ms){let d=new Date(ms);d.setHours(WORK_E,0,0,0);return d.getTime();}
+function align(ms){if(isWend(ms))return align(nextMorning(ms));let d=new Date(ms);let h=d.getHours()+d.getMinutes()/60;if(h<WORK_S){d.setHours(8,0,0,0);return d.getTime();}if(h>=WORK_E)return nextMorning(ms);return ms;}
+function place(e,dur){let s=align(e),g=0;while(s+dur>eod(s)&&g<20){s=align(nextMorning(s));g++;}return{start:s,end:s+dur};}
+const DAYS=[];{let d=new Date(HSTART);d.setHours(8,0,0,0);while(DAYS.length<7){if(!isWend(d.getTime()))DAYS.push(new Date(d).getTime());d.setDate(d.getDate()+1);}}
+const dueMs=o=>{let d=new Date(DAYS[Math.min(o.due,DAYS.length-1)]);d.setHours(17,0,0,0);return d.getTime();};
+
+let pxh=26,SEG=[],totalW=0;
+function buildSeg(){SEG=[];let cx=0;for(let i=0;i<DAYS.length;i++){const ws=DAYS[i],we=eod(ws);const wpx=WMIN/60*pxh;SEG.push({t:'w',s:ws,e:we,x0:cx,x1:cx+wpx,d:ws});cx+=wpx;const nm=i<DAYS.length-1?DAYS[i+1]:nextMorning(we);const gap=(nm-we)/HOUR;const opx=gap>20?30:16;SEG.push({t:'o',s:we,e:nm,x0:cx,x1:cx+opx});cx+=opx;}totalW=cx;}
+function X(ms){if(ms<=SEG[0].s)return 0;for(const g of SEG){if(ms>=g.s&&ms<g.e){return g.t==='w'?g.x0+(ms-g.s)/HOUR*pxh:g.x0+(ms-g.s)/(g.e-g.s)*(g.x1-g.x0);}}return totalW;}
+function invX(px){for(const g of SEG){if(px>=g.x0&&px<g.x1){return g.t==='w'?g.s+(px-g.x0)/pxh*HOUR:g.s+(px-g.x0)/(g.x1-g.x0)*(g.e-g.s);}}return SEG[SEG.length-1].e;}
+function segAt(px){for(const g of SEG){if(px>=g.x0&&px<g.x1)return g;}return null;}
+function cursorLabel(t,px){const g=segAt(px);const b=new Date(t).toLocaleString('th-TH',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});return (g&&g.t==='o')?b+' · นอกเวลา':b;}
+
+// ---- state ----
+let OPS=[],VIEW=[],mode='priority',editMode=false,DRAFT=null,orderBackup=null;
+let backlog=new Set(['PL-330','TR-05','BR-09']),backlogBackup=null;
+let selection=new Set();
+const $=id=>document.getElementById(id);
+const clone=a=>a.map(o=>({...o}));
+function recalc(view){ORDERS.forEach(o=>{const es=view.filter(z=>z.order===o.id);if(es.length){o._sched=true;o._finish=Math.max(...es.map(z=>z.end));o._late=o._finish>dueMs(o);}else{o._sched=false;o._finish=null;o._late=false;}});}
+
+function schedule(m){
+  mode=m;const ord=ORDERS.filter(o=>!backlog.has(o.id)).sort((a,b)=> m==='edd'?(a.due-b.due)||(a.prio-b.prio):a.prio-b.prio);
+  const free={};OPS=[];
+  for(const o of ord){let prev=HSTART;o.route.forEach((tp,idx)=>{const cand=CAND[tp];let res=cand[0];for(const c of cand){if((free[c]||HSTART)<(free[res]||HSTART))res=c;}let dur=Math.max(45,Math.min(360,o.qty*RATE[tp]))*MIN;const earliest=Math.max(prev,free[res]||HSTART);const pl=place(earliest,dur);free[res]=pl.end;prev=pl.end;OPS.push({uid:o.id+'-'+(idx+1)*10,order:o.id,oname:o.name,seq:(idx+1)*10,type:tp,res,start:pl.start,end:pl.end,qty:o.qty,manual:false});});}
+  recalc(OPS);VIEW=OPS;editMode=false;DRAFT=null;selection.clear();closeModal();render();
+}
+
+// ---- edit lifecycle ----
+function enterEdit(){editMode=true;DRAFT=clone(OPS);VIEW=DRAFT;orderBackup={};ORDERS.forEach(o=>orderBackup[o.id]={f:o._finish,l:o._late,s:o._sched});backlogBackup=new Set(backlog);selection.clear();render();}
+function cancelEdit(){editMode=false;VIEW=OPS;DRAFT=null;backlog=new Set(backlogBackup);ORDERS.forEach(o=>{o._finish=orderBackup[o.id].f;o._late=orderBackup[o.id].l;o._sched=orderBackup[o.id].s;});selection.clear();closeModal();render();}
+function diff(){if(!DRAFT)return{n:0,added:[],removed:[],moved:[]};
+  const added=DRAFT.filter(d=>!OPS.find(o=>o.uid===d.uid));
+  const removed=OPS.filter(o=>!DRAFT.find(d=>d.uid===o.uid));
+  const moved=DRAFT.filter(d=>{const o=OPS.find(x=>x.uid===d.uid);return o&&(o.start!==d.start||o.end!==d.end||o.res!==d.res);});
+  return{n:added.length+removed.length+moved.length,added,removed,moved};}
+function openSave(){
+  const d=diff();const ag={},rg={};d.added.forEach(o=>ag[o.order]=(ag[o.order]||0)+1);d.removed.forEach(o=>rg[o.order]=(rg[o.order]||0)+1);
+  let li='';Object.keys(ag).forEach(k=>li+=`<li>➕ จัดคิว <b>${k}</b> (${ag[k]} ops)</li>`);Object.keys(rg).forEach(k=>li+=`<li>↩ ถอนกลับ Backlog <b>${k}</b></li>`);if(d.moved.length)li+=`<li>↔ ย้ายเวลา/เครื่อง ${d.moved.length} operation</li>`;
+  $('modalRoot').innerHTML=`<div class="modal"><div class="mc"><h3>ยืนยันการบันทึก</h3><p>มีการเปลี่ยนแปลง ${d.n} รายการ — บันทึกทับตารางปัจจุบัน?</p>${li?'<ul>'+li+'</ul>':'<p>ไม่มีการเปลี่ยนแปลง</p>'}<div class="row"><button class="editbtn" id="mCancel">ยกเลิก</button><button class="editbtn go" id="mOk">ยืนยันบันทึก</button></div></div></div>`;
+  $('mCancel').onclick=closeModal;$('mOk').onclick=confirmSave;
+}
+function confirmSave(){OPS=clone(DRAFT);VIEW=OPS;editMode=false;DRAFT=null;recalc(OPS);selection.clear();closeModal();render();}
+function closeModal(){$('modalRoot').innerHTML='';}
+
+// ---- move helpers (operate on VIEW) ----
+function snapOp(op){const dur=op.end-op.start;let pl=place(align(op.start),dur),g=0;while(g<90){const c=VIEW.find(o=>o!==op&&o.res===op.res&&o.start<pl.end&&o.end>pl.start);if(!c)break;pl=place(align(c.end),dur);g++;}op.start=pl.start;op.end=pl.end;}
+function selOps(){return [...selection].map(u=>VIEW.find(o=>o.uid===u)).filter(Boolean);}
+function setStartSel(ms){const s=selOps();if(!s.length)return;const arr=s.map(o=>({o,dur:o.end-o.start}));const mn=Math.min(...s.map(o=>o.start));const delta=s.length===1?ms-s[0].start:ms-mn;arr.forEach(a=>{a.o.start+=delta;a.o.end=a.o.start+a.dur;});arr.sort((a,b)=>a.o.start-b.o.start).forEach(a=>{snapOp(a.o);a.o.manual=true;});recalc(VIEW);render();}
+function setEndSel(ms){const s=selOps();if(!s.length)return;const arr=s.map(o=>({o,dur:o.end-o.start}));const mx=Math.max(...s.map(o=>o.end));const delta=s.length===1?ms-s[0].end:ms-mx;arr.forEach(a=>{a.o.start+=delta;a.o.end=a.o.start+a.dur;});arr.sort((a,b)=>a.o.start-b.o.start).forEach(a=>{snapOp(a.o);a.o.manual=true;});recalc(VIEW);render();}
+
+// ---- backlog dispatch ----
+function scheduleWO(id,anchorMs){
+  const o=ORDERS.find(x=>x.id===id);if(!o||!backlog.has(id))return;
+  let prev=anchorMs;
+  o.route.forEach((tp,idx)=>{const cand=CAND[tp];let res=cand[0],best=Infinity;cand.forEach(c=>{const m=Math.max(HSTART,...VIEW.filter(x=>x.res===c).map(x=>x.end));if(m<best){best=m;res=c;}});const dur=Math.max(45,Math.min(360,o.qty*RATE[tp]))*MIN;const op={uid:o.id+'-'+(idx+1)*10,order:o.id,oname:o.name,seq:(idx+1)*10,type:tp,res,start:Math.max(prev,anchorMs),end:0,qty:o.qty,manual:false};op.end=op.start+dur;VIEW.push(op);snapOp(op);prev=op.end;});
+  backlog.delete(id);recalc(VIEW);selection=new Set(VIEW.filter(x=>x.order===id).map(x=>x.uid));render();$('tlwrap').scrollLeft=Math.max(0,X(anchorMs)-140);
+}
+function unscheduleWO(id){const keep=VIEW.filter(o=>o.order!==id);VIEW.length=0;keep.forEach(o=>VIEW.push(o));backlog.add(id);selection.clear();recalc(VIEW);render();}
+const earliestAnchor=()=>HSTART;
+
+// ---- render ----
+let selAnchor=null;
+function render(){
+  buildSeg();
+  $('resCells').innerHTML=RES.map(r=>`<div class="res-cell"><span class="res-dot" style="background:var(--${r.cls})"></span><div>${r.name}<br><small>${r.sub}</small></div></div>`).join('');
+  $('tlhead').innerHTML=SEG.filter(s=>s.t==='w').map(s=>{const dd=new Date(s.d);return `<div class="tl-day" style="left:${s.x0}px;width:${s.x1-s.x0}px"><b>${dd.toLocaleDateString('th-TH',{weekday:'short'})}</b> ${dd.toLocaleDateString('th-TH',{day:'2-digit',month:'short'})}</div>`;}).join('');
+  $('tlhead').style.width=totalW+'px';
+  const body=$('tlbody');body.classList.toggle('editmode',editMode);body.style.width=totalW+'px';body.style.height=RES.length*40+'px';
+  let bg=RES.map((r,i)=>`<div class="row-bg ${i%2?'alt':''}" data-row="${i}" style="top:${i*40}px"></div>`).join('');
+  bg+=SEG.filter(s=>s.t==='o').map(s=>`<div class="offband" style="left:${s.x0}px;width:${s.x1-s.x0}px"></div>`).join('');
+  const lateOnly=$('lateOnly').checked;selAnchor=null;
+  const bars=VIEW.map(op=>{const ri=RES.findIndex(r=>r.id===op.res);const x0=X(op.start),x1=X(op.end);const w=Math.max(7,x1-x0);const o=ORDERS.find(x=>x.id===op.order);const late=o._late;const sel=selection.has(op.uid);if(sel&&(!selAnchor||x0<selAnchor.left))selAnchor={left:x0,top:ri*40};const dim=lateOnly&&!late?' dim':'';const lbl=w>34?`<span>${op.order} · ${OPNAME[op.type]}</span>`:'';return `<div class="bar ${late?'late':''}${op.manual?' manual':''}${sel?' sel':''}${dim}" data-uid="${op.uid}" style="left:${x0}px;top:${ri*40+8}px;width:${w}px;background:var(--${CLS[op.type]})"><span class="setup"></span>${lbl}</div>`;}).join('');
+  body.innerHTML=bg+bars;
+  body.querySelectorAll('.bar').forEach(b=>{if(editMode)b.addEventListener('mousedown',startDrag);else b.onclick=()=>{selection=new Set([b.dataset.uid]);render();};b.onmousemove=e=>{if(!drag)tip(e,b.dataset.uid);};b.onmouseleave=hideTip;});
+  body.onmousedown=e=>{if(editMode&&!blDrag&&(e.target===body||e.target.classList.contains('row-bg')||e.target.classList.contains('offband'))){selection.clear();render();}};
+  const cl=document.createElement('div');cl.className='cursor-line';cl.style.display='none';const clb=document.createElement('div');clb.className='cursor-lbl';clb.style.display='none';body.appendChild(cl);body.appendChild(clb);
+  body.addEventListener('mousemove',e=>{if(blDrag)return;const r=body.getBoundingClientRect();const px=e.clientX-r.left;if(px<0||px>totalW){cl.style.display='none';clb.style.display='none';return;}cl.style.display='block';clb.style.display='block';cl.style.left=px+'px';clb.style.left=px+'px';clb.textContent=cursorLabel(invX(px),px);});
+  body.addEventListener('mouseleave',()=>{cl.style.display='none';clb.style.display='none';});
+  if(editMode&&selection.size>0&&selAnchor){
+    const s=selOps();const mnStart=Math.min(...s.map(o=>o.start)),mxEnd=Math.max(...s.map(o=>o.end));
+    const card=document.createElement('div');card.className='editcard';const top=selAnchor.top>72?selAnchor.top-70:selAnchor.top+34;card.style.left=Math.max(0,Math.min(totalW-292,selAnchor.left))+'px';card.style.top=top+'px';
+    card.innerHTML=`<div class="ec-h">⏱ ตั้งเวลา · เลือก ${s.length} งาน</div><div class="ec-row"><label>เริ่ม</label><input type="datetime-local" id="ecStart" value="${toInput(mnStart)}"><button id="ecApplyS">ตั้ง</button></div><div class="ec-row"><label>จบ</label><input type="datetime-local" id="ecEnd" value="${toInput(mxEnd)}"><button id="ecApplyE">ตั้ง</button></div><div class="ec-n">กำหนด <b>เริ่ม</b> หรือ <b>จบ</b> อย่างใดอย่างหนึ่ง · snap เข้าเวลาทำงาน + กันงานทับ${s.length>1?' · หลายงานเลื่อนยกกลุ่ม':''}</div>`;
+    body.appendChild(card);card.onmousedown=e=>e.stopPropagation();
+    $('ecApplyS').onclick=()=>{const v=$('ecStart').value;if(v)setStartSel(new Date(v).getTime());};
+    $('ecApplyE').onclick=()=>{const v=$('ecEnd').value;if(v)setEndSel(new Date(v).getTime());};
+  }
+  const dl=$('duelane');dl.style.width=totalW+'px';dl.innerHTML=ORDERS.filter(o=>o._sched).map(o=>`<div class="due ${o._late?'late':''}" style="left:${X(dueMs(o))}px"><span class="dia"></span>${o.id}</div>`).join('');
+  legend();kpis();heat();load();renderBacklog();showDetail();updToolbar();foot();
+}
+
+function updToolbar(){document.querySelectorAll('#mode button').forEach(b=>{b.classList.toggle('on',b.dataset.m===mode);b.disabled=editMode;});$('editToggle').style.display=editMode?'none':'inline-flex';$('saveBtn').style.display=editMode?'inline-flex':'none';$('cancelBtn').style.display=editMode?'inline-flex':'none';$('editHint').style.display=editMode?'inline':'none';const mb=$('modeBadge');mb.textContent=editMode?'EDIT MODE':'PROTOTYPE';mb.className='badge'+(editMode?' edit':'');}
+function legend(){const items=[['cut','ตัด'],['fit','ประกอบ'],['weld','เชื่อม'],['blast','พ่นทราย'],['paint','พ่นสี'],['assy','ประกอบรวม']];$('legend').innerHTML=items.map(([c,n])=>`<span class="lg"><span class="sw" style="background:var(--${c})"></span>${n}</span>`).join('')+`<span class="lg"><span class="sw" style="background:var(--late-fill);outline:2px solid var(--late-bd);outline-offset:-2px"></span>งานสาย</span>`;}
+function kpis(){const sched=ORDERS.filter(o=>o._sched);const late=sched.filter(o=>o._late).length;const ot=sched.length?Math.round((sched.length-late)/sched.length*100):0;const ends=VIEW.map(o=>o.end);const maxEnd=ends.length?Math.max(...ends):null;const k=[['accent',ot+'%','ส่งทันกำหนด'],[late?'bad':'good',late,'งานสาย'],[backlog.size?'accent':'',backlog.size,'Backlog (รอจัด)'],['',maxEnd?new Date(maxEnd).toLocaleDateString('th-TH',{weekday:'short',day:'2-digit',month:'short'})+' '+fmtH(maxEnd):'—','เสร็จทั้งหมด']];$('kpis').innerHTML=k.map(([c,v,l])=>`<div class="kpi ${c}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');}
+function heat(){const band=u=>u<=0?'#eef1f4':u<.4?'#cfe0ef':u<.7?'#8fbce0':u<.92?'#4a90c4':u<1.0?'#2f6f9f':'#e8731a';let h='<table class="hm"><tr><th>Work Center</th>'+DAYS.map(d=>`<th>${new Date(d).toLocaleDateString('th-TH',{weekday:'short',day:'2-digit'})}</th>`).join('')+'</tr>';RES.forEach(r=>{h+=`<tr><td>${r.name}</td>`+DAYS.map(d=>{const de=eod(d);let b=0;VIEW.forEach(op=>{if(op.res===r.id&&op.start>=d&&op.start<de)b+=op.end-op.start;});const u=b/(WMIN*MIN);return `<td><div class="hc" style="background:${band(u)};${u<.4?'color:#5a6470':''}">${u>0?Math.round(u*100)+'%':''}</div></td>`;}).join('')+'</tr>';});$('heat').innerHTML=h+'</table>';}
+function load(){const cap=2*WMIN/60;$('load').innerHTML=DAYS.map(d=>{const de=eod(d);let b=0;VIEW.forEach(op=>{if((op.res==='WELD1'||op.res==='WELD2')&&op.start>=d&&op.start<de)b+=op.end-op.start;});const hrs=b/HOUR;const ratio=Math.min(1.15,hrs/cap);const over=hrs>cap;return `<div class="lbar"><div class="fill ${over?'over':''}" style="height:${Math.max(2,ratio*100)}%"><span class="vv" style="color:${over?'#b91c1c':'#c85d12'}">${hrs.toFixed(1)}h</span></div><div class="cap"></div><div class="xx">${new Date(d).toLocaleDateString('th-TH',{weekday:'short'})}</div></div>`;}).join('');document.querySelectorAll('#load .cap').forEach(c=>{c.style.bottom=(cap/(1.15*cap)*100)+'%';});}
+
+function renderBacklog(){
+  const items=[...backlog].map(id=>ORDERS.find(o=>o.id===id)).sort((a,b)=>a.due-b.due||a.prio-b.prio);
+  $('blCount').textContent=items.length+' รอจัด';
+  if(!items.length){$('blList').innerHTML=`<div class="empty" style="padding:18px 8px">ทุกงานถูกจัดแล้ว ✓${editMode?'<br><span style="font-size:11px">เลือกงานใน Gantt → ปุ่ม “ถอนกลับ Backlog” เพื่อย้ายมาที่นี่</span>':''}</div>`;return;}
+  $('blList').innerHTML=items.map(o=>{const urgent=o.due<=2;const route=o.route.map(tp=>`<span class="rseg" style="background:var(--${CLS[tp]})" title="${OPNAME[tp]}">${tp[0]}</span>`).join('');return `<div class="wo-card ${editMode?'draggable':''}" data-o="${o.id}"><div class="wo-top"><b>${o.id}</b><span>${o.name}</span></div><div class="wo-chips"><span class="c">⚙ ${o.qty}</span><span class="c due ${urgent?'urgent':''}">⏱ ${new Date(dueMs(o)).toLocaleDateString('th-TH',{day:'2-digit',month:'short'})}</span><span class="c">Σ ${woHours(o).toFixed(1)}h</span></div><div class="wo-route">${route}</div>${editMode?`<button class="wo-auto" data-o="${o.id}">⚡ จัดอัตโนมัติ</button>`:''}</div>`;}).join('');
+  if(editMode){
+    $('blList').querySelectorAll('.wo-card').forEach(c=>c.addEventListener('mousedown',e=>{if(e.target.classList.contains('wo-auto'))return;startBacklogDrag(e,c.dataset.o);}));
+    $('blList').querySelectorAll('.wo-auto').forEach(b=>b.onclick=e=>{e.stopPropagation();scheduleWO(b.dataset.o,earliestAnchor());});
+  }
+}
+
+function showDetail(){
+  const p=$('panel');const s=selOps();
+  if(s.length===1){const op=s[0];const o=ORDERS.find(x=>x.id===op.order);
+    p.innerHTML=`<div style="font-family:Kanit;font-size:16px;font-weight:600">${op.order} <span style="color:var(--muted);font-weight:400">${op.oname}</span></div><span class="pill ${o._late?'late':'ok'}">${o._late?'สาย (LATE)':'ตรงเวลา'}</span>${op.manual?' <span class="pill" style="background:#fff3ec;color:var(--accent)">แก้มือ</span>':''}<dl class="dl"><dt>Operation</dt><dd>${op.seq} · ${OPNAME[op.type]}</dd><dt>Work Center</dt><dd>${RES.find(r=>r.id===op.res).name}</dd><dt>เริ่ม</dt><dd class="mono">${fmt(op.start)}</dd><dt>เสร็จ</dt><dd class="mono">${fmt(op.end)}</dd><dt>ระยะเวลา</dt><dd>${((op.end-op.start)/HOUR).toFixed(1)} ชม.</dd><dt>กำหนดส่ง</dt><dd class="mono">${fmt(dueMs(o),{day:'2-digit',month:'short'})}</dd></dl>${editMode?`<button class="unbtn" id="unBtn" data-o="${op.order}">↩ ถอน <b>${op.order}</b> กลับ Backlog</button>`:''}`;
+    if(editMode)$('unBtn').onclick=()=>unscheduleWO(op.order);
+  }else if(s.length>1){p.innerHTML=`<div style="font-family:Kanit;font-size:15px;font-weight:600">เลือก ${s.length} งาน</div><div style="margin-top:6px">${s.map(op=>`<span class="selchip">${op.order}·${OPNAME[op.type]}</span>`).join('')}</div><div class="ec-n" style="color:var(--muted);margin-top:8px;font-size:11px">ใช้การ์ดบน Gantt ตั้งเวลาเริ่ม/จบพร้อมกัน</div>`;
+  }else p.innerHTML=`<div class="empty">${editMode?'ลาก WO จาก Backlog ลงเลนที่ไฮไลต์ · คลิกงาน (Ctrl+คลิก = หลายงาน) เพื่อแก้':'คลิกแท่งงานเพื่อดูรายละเอียด · กด “แก้ไขตาราง” เพื่อจัดคิว/ปรับเวลา'}</div>`;
+  p.innerHTML+=`<h4>คำสั่งผลิต (${ORDERS.length})</h4>`+[...ORDERS].sort((a,b)=>a.prio-b.prio).map(o=>`<div class="ordrow ${o._sched?'':'bl'}" data-o="${o.id}"><span class="res-dot" style="background:${!o._sched?'var(--accent)':o._late?'var(--late-bd)':'#9aa3ad'}"></span><span class="nm">${o.id}</span><span style="color:var(--muted)">${o.name}</span><span class="meta">${!o._sched?'':o._late?'สาย':'ส่ง '+new Date(dueMs(o)).toLocaleDateString('th-TH',{day:'2-digit',month:'short'})}</span></div>`).join('');
+  p.querySelectorAll('.ordrow').forEach(r=>r.onclick=()=>{const f=VIEW.find(op=>op.order===r.dataset.o);if(f){selection=new Set([f.uid]);render();$('tlwrap').scrollLeft=Math.max(0,X(f.start)-120);}});
+}
+function foot(){const d=diff();const late=ORDERS.filter(o=>o._sched&&o._late).map(o=>o.id);$('foot').innerHTML=`โหมด: <b>${mode==='edd'?'EDD — ตามกำหนดส่ง':'Priority — ตามลำดับติดตั้ง'}</b> · งานสาย: ${late.length?late.join(', '):'ไม่มี'} · Backlog: ${backlog.size} · ${editMode?`<b style="color:var(--green)">กำลังแก้ไข (${d.n} รายการ) — กดบันทึก</b>`:'สลับโหมดเพื่อดูผล algorithm'}<br>วิธีใช้: กด <b>แก้ไขตาราง</b> → <b>ลากการ์ด WO จาก Backlog</b> ลงเลนที่ไฮไลต์เขียว (เฉพาะ work center ที่ WO ใช้) → วางต่อท้าย/แทรกตามเวลา · ลากงานบน Gantt / ตั้งเวลาในการ์ด / ถอนกลับ Backlog · แล้ว <b>บันทึก/ยกเลิก</b><br>หมายเหตุ: mockup + greedy scheduler + ข้อมูลจำลอง · จัดคิวแบบ forward-schedule ทั้ง routing chain (Cut→…→Paint) อัตโนมัติ`;}
+
+// ---- tooltip ----
+const tipEl=$('tip');
+function tip(e,uid){const op=VIEW.find(o=>o.uid===uid);if(!op)return;const o=ORDERS.find(x=>x.id===op.order);tipEl.innerHTML=`<b>${op.order}</b> · ${OPNAME[op.type]}<br>${RES.find(r=>r.id===op.res).name}<br>${fmtH(op.start)}–${fmtH(op.end)} (${((op.end-op.start)/HOUR).toFixed(1)}h)${o._late?'<br><span style="color:#fca5a5">⚠ งานสาย</span>':''}`;tipEl.style.opacity=1;tipEl.style.left=Math.min(window.innerWidth-250,e.clientX+14)+'px';tipEl.style.top=(e.clientY+14)+'px';}
+function hideTip(){tipEl.style.opacity=0;}
+
+// ---- bar drag (edit) ----
+let drag=null;
+function validRows(type){return CAND[type].map(id=>RES.findIndex(r=>r.id===id));}
+function startDrag(e){e.preventDefault();hideTip();const el=e.currentTarget;const uid=el.dataset.uid;const mod=e.ctrlKey||e.metaKey||e.shiftKey;if(!mod&&!selection.has(uid)){selection=new Set([uid]);$('tlbody').querySelectorAll('.bar.sel').forEach(b=>{if(b.dataset.uid!==uid)b.classList.remove('sel');});el.classList.add('sel');}const items=[...(mod?[uid]:selection)].map(u=>{const b=$('tlbody').querySelector(`.bar[data-uid="${u}"]`);return b?{uid:u,op:VIEW.find(o=>o.uid===u),el:b,origLeft:parseFloat(b.style.left),origTop:parseFloat(b.style.top)}:null;}).filter(Boolean);drag={items,sx:e.clientX,sy:e.clientY,dx:0,dy:0,row:RES.findIndex(x=>x.id===items[0].op.res),moved:false,mod,uid};el.classList.add('dragging');document.addEventListener('mousemove',onDrag);document.addEventListener('mouseup',endDrag);}
+function onDrag(e){if(!drag)return;drag.dx=e.clientX-drag.sx;drag.dy=e.clientY-drag.sy;if(Math.abs(drag.dx)>3||Math.abs(drag.dy)>3)drag.moved=true;const single=drag.items.length===1;drag.items.forEach(it=>{const nl=Math.max(0,Math.min(totalW-6,it.origLeft+drag.dx));it.el.style.left=nl+'px';});if(single){const it=drag.items[0];const rows=validRows(it.op.type);let ri=Math.max(0,Math.min(RES.length-1,Math.round((it.origTop-8+drag.dy)/40)));if(rows.includes(ri)){drag.row=ri;it.el.style.top=(ri*40+8)+'px';}}}
+function endDrag(){document.removeEventListener('mousemove',onDrag);document.removeEventListener('mouseup',endDrag);if(!drag)return;const d=drag;d.items.forEach(it=>it.el.classList.remove('dragging'));if(!d.moved){if(d.mod){if(selection.has(d.uid))selection.delete(d.uid);else selection.add(d.uid);}else selection=new Set([d.uid]);drag=null;render();return;}const single=d.items.length===1;d.items.map(it=>({it,dur:it.op.end-it.op.start})).forEach(({it,dur})=>{const targetLeft=Math.max(0,Math.min(totalW-6,it.origLeft+d.dx));const ns=align(invX(targetLeft));it.op.start=ns;it.op.end=ns+dur;if(single)it.op.res=RES[d.row].id;});d.items.map(it=>it.op).sort((a,b)=>a.start-b.start).forEach(op=>{snapOp(op);op.manual=true;});recalc(VIEW);drag=null;render();}
+
+// ---- backlog drag-to-schedule ----
+let blDrag=null;
+function startBacklogDrag(e,id){if(!editMode)return;e.preventDefault();hideTip();const o=ORDERS.find(x=>x.id===id);const ghost=document.createElement('div');ghost.className='wo-ghost';ghost.textContent='📦 '+id+' · '+o.name;document.body.appendChild(ghost);const types=new Set(o.route);const body=$('tlbody');body.querySelectorAll('.row-bg').forEach((rb,i)=>{if(types.has(RES[i].t))rb.classList.add('validdrop');});const caret=document.createElement('div');caret.className='drop-caret';caret.style.display='none';const lbl=document.createElement('div');lbl.className='drop-lbl';lbl.style.display='none';body.appendChild(caret);body.appendChild(lbl);blDrag={id,o,types,ghost,caret,lbl,body,valid:false,anchor:null};document.addEventListener('mousemove',onBacklogDrag);document.addEventListener('mouseup',endBacklogDrag);}
+function onBacklogDrag(e){if(!blDrag)return;const{ghost,caret,lbl,body,types}=blDrag;ghost.style.left=(e.clientX+12)+'px';ghost.style.top=(e.clientY+12)+'px';const r=body.getBoundingClientRect();const px=e.clientX-r.left,py=e.clientY-r.top;const inside=px>=-2&&px<=totalW+2&&py>=0&&py<=RES.length*40;const ri=Math.floor(py/40);const laneType=inside&&ri>=0&&ri<RES.length?RES[ri].t:null;const valid=!!laneType&&types.has(laneType);blDrag.valid=valid&&inside;blDrag.anchor=inside?align(invX(Math.max(0,Math.min(totalW,px)))):null;if(inside&&ri>=0&&ri<RES.length){caret.style.display='block';caret.style.left=Math.max(0,Math.min(totalW,px))+'px';caret.style.background=valid?'var(--green)':'var(--late-bd)';let txt;if(valid){const wc=RES[ri].id;const lane=VIEW.filter(o=>o.res===wc).sort((a,b)=>a.start-b.start);const t=blDrag.anchor;txt=(!lane.length||t>=lane[lane.length-1].end)?'▸ ต่อท้าย '+RES[ri].name:'▸ แทรกใน '+RES[ri].name;}else txt='✕ '+(laneType?RES[ri].name+' ไม่ใช่ขั้นของงานนี้':'นอกพื้นที่');lbl.style.display='block';lbl.style.left=Math.max(0,Math.min(totalW-110,px+6))+'px';lbl.style.top=(ri*40+9)+'px';lbl.textContent=txt;lbl.style.background=valid?'var(--green)':'var(--late-bd)';ghost.style.borderColor=valid?'var(--green)':'var(--late-bd)';}else{caret.style.display='none';lbl.style.display='none';ghost.style.borderColor='var(--accent)';}}
+function endBacklogDrag(){document.removeEventListener('mousemove',onBacklogDrag);document.removeEventListener('mouseup',endBacklogDrag);if(!blDrag)return;const d=blDrag;d.ghost.remove();if(d.valid&&d.anchor!=null){scheduleWO(d.id,d.anchor);}else render();blDrag=null;}
+
+// ---- controls ----
+document.querySelectorAll('#mode button').forEach(b=>b.onclick=()=>{if(!editMode)schedule(b.dataset.m);});
+$('lateOnly').onchange=render;$('zin').onclick=()=>{pxh=Math.min(60,pxh+6);render();};$('zout').onclick=()=>{pxh=Math.max(14,pxh-6);render();};
+$('editToggle').onclick=enterEdit;$('saveBtn').onclick=openSave;$('cancelBtn').onclick=cancelEdit;
+schedule('priority');
+})();
+</script>
+</body>
+</html>
