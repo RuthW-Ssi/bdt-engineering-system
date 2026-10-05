@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   acceptNewVersion,
   getBomVersionStatus,
@@ -81,12 +81,15 @@ export function useWoSchedule(id: number) {
 // the tab self-heals once translation finishes without a manual reload.
 // `bomAssemblyId` selects which mark's match to resolve — part of the query
 // key so switching the mark-selector tab refetches instead of reusing a
-// cached match for a different mark.
-export function useWoBimMatch(id: number, bomAssemblyId?: number) {
+// cached match for a different mark. Same for `modelId` (3D version picker).
+// keepPreviousData holds the last match (and its model list) while a switch
+// loads, so the picker doesn't blink out — callers check isPlaceholderData.
+export function useWoBimMatch(id: number, bomAssemblyId?: number, modelId?: number) {
   return useQuery({
-    queryKey: ['wo', 'bim-match', id, bomAssemblyId ?? null],
-    queryFn: () => getWoBimMatch(id, bomAssemblyId),
+    queryKey: ['wo', 'bim-match', id, bomAssemblyId ?? null, modelId ?? null],
+    queryFn: () => getWoBimMatch(id, bomAssemblyId, modelId),
     enabled: !!id,
+    placeholderData: keepPreviousData,
     refetchInterval: query => {
       const d = query.state.data
       return d?.status === 'model_not_ready' && d.translation_status !== 'failed' ? 5000 : false
