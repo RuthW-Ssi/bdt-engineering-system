@@ -15,7 +15,9 @@ export type WoStatus =
 // User-picked result on Complete (2026-10-01) — null on WOs completed before then.
 export type WoTimeliness = 'ON_PLAN' | 'DELAYED'
 
-type WoEventType = 'START' | 'PAUSE' | 'RESUME' | 'DONE' | 'CANCEL' | 'ACCEPT_VERSION' | 'HOLD' | 'UNHOLD' | 'MARK_REMOVED'
+export type WoEventType =
+  | 'START' | 'PAUSE' | 'RESUME' | 'DONE' | 'CANCEL' | 'ACCEPT_VERSION' | 'HOLD' | 'UNHOLD' | 'MARK_REMOVED'
+  | 'PROGRESS_UPDATE' // per-mark progress save / any qty change (2026-10-05)
 
 // The "simple" transitions — a bare {reason?/notes?} body, POSTed to
 // `/wo/:id/<action>`. done/cancel/remove-mark/accept-new-version each have
@@ -219,12 +221,21 @@ export interface WoDetail {
   parts: WoPart[]
 }
 
+// One qty field a write changed (2026-10-05) — `field` is a WoMark qty_* key
+// (qty_planned included); null = the field was/became empty.
+export interface WoProgressChange {
+  field: string
+  old: number | null
+  new: number | null
+}
+
 export interface WoEvent {
   id: number
   work_order_id: number
   work_order_mark_id: number | null
   event_type: WoEventType
   notes: string | null
+  changes: WoProgressChange[] | null // null on events that changed no qty
   recorded_by: string
   recorded_at: string
 }
@@ -367,8 +378,33 @@ export interface WoActualsInput {
   delay_note?: string
 }
 
-export async function woDone(id: number, body: { marks: WoDoneMarkInput[]; notes?: string } & WoActualsInput): Promise<WoDetail> {
+// `marks` optional (2026-10-05): progress is saved per mark beforehand, so
+// the server validates the saved values when it's omitted.
+export async function woDone(id: number, body: { marks?: WoDoneMarkInput[]; notes?: string } & WoActualsInput): Promise<WoDetail> {
   return (await apiClient.post(`/wo/${id}/done`, body)).data
+}
+
+// ── Per-mark progress save (2026-10-05) — absolute new totals for ONE mark ──
+// `markId` = work_order_mark.id. `expected` = the six values as loaded into
+// the form (optimistic check) — a mismatch with the stored row → 409
+// { code: 'STALE_PROGRESS' }, the caller reloads and re-seeds.
+export interface MarkProgressValues {
+  qty_not_started: number
+  qty_in_progress: number
+  qty_done: number
+  qty_qc_passed: number
+  qty_rework: number
+  qty_renew: number
+}
+
+export type MarkProgressExpected = { [K in keyof MarkProgressValues]: number | null }
+
+export async function updateMarkProgress(
+  woId: number,
+  markId: number,
+  body: MarkProgressValues & { expected: MarkProgressExpected },
+): Promise<WoDetail> {
+  return (await apiClient.patch(`/wo/${woId}/marks/${markId}/progress`, body)).data
 }
 
 // DONE-only correction of the actual dates/timeliness (2026-10-01) — 409 otherwise.

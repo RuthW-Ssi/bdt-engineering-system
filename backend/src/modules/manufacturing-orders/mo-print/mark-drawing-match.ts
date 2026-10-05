@@ -18,13 +18,19 @@ function extractMarkFromFilename(fileName: string): string {
   return withoutExt.split(' - ')[0].trim()
 }
 
+// The mark's own newest .pdf (2026-10-05, print option A — same rule as the
+// WO Visual tab's listMarkDrawingVersions default): filter by mark FIRST,
+// then take the highest version. Drawing versions are sparse (one upload =
+// one version holding only that batch's files), so the old "zone's newest
+// version, then the mark" rule returned null — and blocked the whole packet
+// with a 409 — whenever a later batch didn't happen to re-upload this mark.
+// Several matches in one version → the most recently uploaded.
 export function findLatestPdfForMark<T extends DrawingRow>(drawings: T[], mark: string): T | null {
-  const pdfs = drawings.filter(d => d.file_name.toLowerCase().endsWith('.pdf'))
-  if (pdfs.length === 0) return null
-  const latestVersion = Math.max(...pdfs.map(d => d.version))
-  const matches = pdfs.filter(
-    d => d.version === latestVersion && extractMarkFromFilename(d.file_name).toLowerCase() === mark.toLowerCase(),
+  const matches = drawings.filter(
+    d => d.file_name.toLowerCase().endsWith('.pdf') && extractMarkFromFilename(d.file_name).toLowerCase() === mark.toLowerCase(),
   )
   if (matches.length === 0) return null
-  return matches.reduce((newest, d) => (new Date(d.create_date) > new Date(newest.create_date) ? d : newest))
+  return matches.reduce((best, d) =>
+    d.version > best.version || (d.version === best.version && new Date(d.create_date) > new Date(best.create_date)) ? d : best,
+  )
 }

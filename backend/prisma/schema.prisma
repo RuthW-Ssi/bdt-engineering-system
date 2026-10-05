@@ -1691,6 +1691,7 @@ model work_order_event {
   work_order_mark_id Int? // set for per-mark events (ACCEPT_VERSION, MARK_REMOVED); null for whole-WO events
   event_type         WoEventType
   notes              String?     @db.Text
+  changes            Json? // [{ field, old, new }] — qty fields that changed (2026-10-05); null on events that change no qty
   recorded_by        String      @db.VarChar(120)
   recorded_at        DateTime    @default(now()) @db.Timestamptz
 
@@ -1768,6 +1769,7 @@ enum WoEventType {
   HOLD // manual hold by factory admin/manager
   UNHOLD // manual resume from ON_HOLD (multi-mark redesign, 2026-09-17)
   MARK_REMOVED // a mark removed from its WO — BOM-removed or manual (multi-mark redesign, 2026-09-17)
+  PROGRESS_UPDATE // per-mark progress save / any qty change, values in `changes` (2026-10-05)
 }
 
 // ═══════════════════════════════════════════════════════════════
