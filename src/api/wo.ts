@@ -87,6 +87,7 @@ export interface SourceRoutingOp {
 
 export interface WoMarkDispatch {
   id: number
+  project_id: number
   project: { name: string } | null
   zone: { id: number; label: string } | null
   sub_zone: { id: number; name: string } | null
@@ -279,6 +280,14 @@ export interface WoScheduleGroup {
 // ── Visual tab (Sprint 28) ───────────────────────────────────────────────────
 type WoBimMatchStatus = 'ok' | 'mark_not_found' | 'model_not_ready' | 'no_model'
 
+// One project model for the Visual tab's 3D version picker.
+export interface WoBimModelOption {
+  id: number
+  version: string // "maj.min"
+  translation_status: string
+  create_date: string
+}
+
 export interface WoBimMatch {
   status: WoBimMatchStatus
   mark: string
@@ -286,7 +295,10 @@ export interface WoBimMatch {
   model_version: string | null
   translation_status: string | null
   global_id: string | null
+  global_ids: string[] // every instance of the mark; global_id is the first
+  wo_global_ids: string[] // every instance of every same-project WO mark
   match_count: number
+  models: WoBimModelOption[] // newest first, any status
 }
 
 // ── WO CRUD ───────────────────────────────────────────────────────────────────
@@ -430,7 +442,8 @@ export async function getWoSchedule(id: number): Promise<WoScheduleGroup[]> {
 
 // `bomAssemblyId` selects which of the WO's marks to resolve — omitted, the
 // backend defaults to the WO's first non-removed mark (multi-mark redesign
-// mark-selector, Visual tab).
-export async function getWoBimMatch(id: number, bomAssemblyId?: number): Promise<WoBimMatch> {
-  return (await apiClient.get(`/wo/${id}/bim-match`, { params: bomAssemblyId != null ? { bom_assembly_id: bomAssemblyId } : undefined })).data
+// mark-selector, Visual tab). `modelId` pins a 3D model version — omitted,
+// the backend picks the project's newest complete model.
+export async function getWoBimMatch(id: number, bomAssemblyId?: number, modelId?: number): Promise<WoBimMatch> {
+  return (await apiClient.get(`/wo/${id}/bim-match`, { params: { bom_assembly_id: bomAssemblyId, model_id: modelId } })).data
 }

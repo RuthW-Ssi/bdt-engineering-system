@@ -381,7 +381,7 @@ export function WoDetail() {
             woId={woId}
             marks={wo.marks.filter(m => !m.removed_at).map(m => {
               const d = m.snapshot_dispatch ?? m.bom_assembly.dispatch
-              return { bomAssemblyId: m.bom_assembly_id, mark: m.bom_assembly.assembly_mark, zoneId: d.zone?.id ?? null, subZoneId: d.sub_zone?.id ?? null }
+              return { bomAssemblyId: m.bom_assembly_id, mark: m.bom_assembly.assembly_mark, projectId: d.project_id, zoneId: d.zone?.id ?? null, subZoneId: d.sub_zone?.id ?? null }
             })}
           />
         )}
