@@ -320,7 +320,7 @@ export function WoMarksTable({
             const outdated = !!bom?.is_outdated
             const removedIrreversibly = bom?.delta_types.includes('REMOVED')
             const expanded = expandedId === m.id
-            const dispatchText = dispatchLabel(m.snapshot_dispatch ?? { id: 0, project: m.bom_assembly.dispatch.project, zone: m.bom_assembly.dispatch.zone, sub_zone: m.bom_assembly.dispatch.sub_zone })
+            const dispatchText = dispatchLabel(m.snapshot_dispatch ?? { id: 0, project_id: m.bom_assembly.dispatch.project_id, project: m.bom_assembly.dispatch.project, zone: m.bom_assembly.dispatch.zone, sub_zone: m.bom_assembly.dispatch.sub_zone })
             return (
               <Fragment key={m.id}>
                 <tr style={{ background: expanded ? '#FAFAFA' : selected.has(m.bom_assembly_id) ? '#FFF7F7' : undefined }}>

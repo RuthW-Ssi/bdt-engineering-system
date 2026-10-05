@@ -60,6 +60,11 @@ export interface BimFocusRequest {
   // as barely distinguishable. Fully hiding everything outside the set
   // makes "what's in this phase" unambiguous. Confirmed 2026-07-21.
   hideRest?: boolean
+  // Only for the empty-set "show everything" request: frame the camera on
+  // these instead of the whole model (WO Visual tab's whole-model modes keep
+  // the selected mark in view). A pure camera move — no select()/isolate(),
+  // so theming colors survive. Omitted = whole-model fit, as before.
+  fitGlobalIds?: string[]
 }
 
 // externalId (Navisworks scene-graph path) turned out to be an unreliable
@@ -528,7 +533,12 @@ export const BimViewport = forwardRef<BimViewportHandle, Props>(function BimView
         // Zoom back out to the whole model too — without this, switching
         // Overview↔Zone tabs still leaves the camera framed on whatever was
         // last isolated even though selection/isolation itself is cleared.
-        viewer.fitToView()
+        // Unless the caller asked to keep specific elements framed.
+        const fitDbIds = (focusRequest.fitGlobalIds ?? [])
+          .map(g => guidToDbIdRef.current.get(g))
+          .filter((id): id is number => id != null)
+        if (fitDbIds.length) viewer.fitToView(fitDbIds)
+        else viewer.fitToView()
         applyStatusColors()
         return
       }
