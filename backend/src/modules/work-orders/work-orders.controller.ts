@@ -264,13 +264,22 @@ export class WorkOrdersController {
   // Visual tab mark-selector through to WoBimMatchService.getBimMatch's
   // already-supported second argument — omitted, it falls back to the WO's
   // first non-removed mark (see that service's own doc comment).
+  //
+  // `model_id` (2026-10-05): the Visual tab's 3D version picker — omitted,
+  // the service defaults to the project's newest complete model.
   @Get(':id/bim-match')
   @ApiOperation({ summary: 'Resolve one of this WO\'s marks (default: first) to a BIM model + isolated global_id for the Visual tab' })
   @ApiQuery({ name: 'bom_assembly_id', required: false })
+  @ApiQuery({ name: 'model_id', required: false })
   getBimMatch(
     @Param('id', ParseIntPipe) id: number,
     @Query('bom_assembly_id') bomAssemblyId?: string,
+    @Query('model_id') modelId?: string,
   ) {
-    return this.bimMatch.getBimMatch(id, bomAssemblyId ? Number(bomAssemblyId) : undefined)
+    return this.bimMatch.getBimMatch(
+      id,
+      bomAssemblyId ? Number(bomAssemblyId) : undefined,
+      modelId ? Number(modelId) : undefined,
+    )
   }
 }

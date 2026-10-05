@@ -14,7 +14,7 @@ function makeMark(overrides: Partial<WoMark> = {}): WoMark {
     bom_assembly: {
       id: 1, assembly_mark: 'A1', name: null, length_mm: null, surface_area_m2: null,
       weight_kg: null, width_mm: null, height_mm: null,
-      dispatch: { id: 1, project: null, zone: null, sub_zone: null },
+      dispatch: { id: 1, project_id: 1, project: null, zone: null, sub_zone: null },
     },
     bom_dispatch_id_snapshot: 1,
     snapshot_dispatch: null,
