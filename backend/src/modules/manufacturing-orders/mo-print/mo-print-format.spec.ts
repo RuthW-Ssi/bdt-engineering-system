@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
 
 describe('fmt2', () => {
   it('pads a whole number to 2 decimal places', () => {
@@ -151,5 +151,28 @@ describe('formatWoCodes', () => {
 
   it('shows a dash for none', () => {
     expect(formatWoCodes([])).toBe('—')
+  })
+})
+
+// 2026-10-05 (print option A): the drawing's version + upload date print on
+// the drawing page, and the traveler flags drawings uploaded after the WO.
+describe('formatShortDate', () => {
+  it('formats dd/mm/yy in shop-floor time (Asia/Bangkok), not the server\'s UTC', () => {
+    expect(formatShortDate(new Date('2026-10-01T18:30:00Z'))).toBe('02/10/26')
+    expect(formatShortDate('2026-09-16T01:30:00Z')).toBe('16/09/26')
+  })
+})
+
+describe('drawingsUpdatedAfter', () => {
+  const mark = (assemblyMark: string, version: number, uploaded_at: string) =>
+    ({ assemblyMark, drawing: { version, uploaded_at: new Date(uploaded_at) } })
+
+  it('lists only marks whose drawing was uploaded after the WO was created, as "MARK v3 (02/10/26)"', () => {
+    const marks = [mark('CTR1', 1, '2026-09-20T03:00:00Z'), mark('CTR10', 3, '2026-10-02T03:00:00Z')]
+    expect(drawingsUpdatedAfter(new Date('2026-09-25T00:00:00Z'), marks)).toEqual(['CTR10 v3 (02/10/26)'])
+  })
+
+  it('is empty when every drawing predates the WO', () => {
+    expect(drawingsUpdatedAfter(new Date('2026-10-05T00:00:00Z'), [mark('CTR1', 2, '2026-10-01T00:00:00Z')])).toEqual([])
   })
 })

@@ -86,6 +86,9 @@ const en = {
   assemblyQty: (qty: string) => `Assembly Qty ${qty}`,
   minutes: (n: string) => `${n} min`,
   moreSeeQr: (n: number) => `+${n} more (see QR)`,
+  // Drawing version stamp + traveler note (2026-10-05, print option A).
+  drawingStamp: (rev: string) => `Drawing ${rev}`,
+  drawingUpdatedAfterWo: (items: string) => `Drawing updated after this WO was created: ${items}`,
 }
 
 export type PrintLabels = typeof en
@@ -162,6 +165,8 @@ const th: PrintLabels = {
   minutes: (n: string) => `${n} นาที`,
   // Kept as short as the English — it's squeezed into the first column only.
   moreSeeQr: (n: number) => `+อีก ${n} (ดู QR)`,
+  drawingStamp: (rev: string) => `แบบ ${rev}`,
+  drawingUpdatedAfterWo: (items: string) => `แบบอัปเดตหลังสร้าง WO: ${items}`,
 }
 
 export const PRINT_LABELS: Record<PrintLang, PrintLabels> = { en, th }

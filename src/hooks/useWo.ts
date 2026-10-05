@@ -10,6 +10,7 @@ import {
   getWoSchedule,
   removeWoMark,
   updateWoConsume,
+  updateMarkProgress,
   updateWoParts,
   woCancel,
   woDone,
@@ -128,12 +129,23 @@ export function useWoTransition(id: number) {
   })
 }
 
-// Done — body.marks[] must cover every non-removed mark on the WO (built by
-// the caller from the Marks table's current values).
+// Done — body.marks[] optional (2026-10-05): progress is saved per mark via
+// useUpdateMarkProgress, so the server validates the saved values.
 export function useWoDone(id: number) {
   const invalidate = useWoInvalidate(id)
   return useMutation({
     mutationFn: (body: Parameters<typeof woDone>[1]) => woDone(id, body),
+    onSuccess: invalidate,
+  })
+}
+
+// Save ONE mark's progress (2026-10-05) — 409 STALE_PROGRESS when the row
+// changed since it was loaded; the caller reloads (see WoMarksTable).
+export function useUpdateMarkProgress(woId: number) {
+  const invalidate = useWoInvalidate(woId)
+  return useMutation({
+    mutationFn: ({ markId, body }: { markId: number; body: Parameters<typeof updateMarkProgress>[2] }) =>
+      updateMarkProgress(woId, markId, body),
     onSuccess: invalidate,
   })
 }

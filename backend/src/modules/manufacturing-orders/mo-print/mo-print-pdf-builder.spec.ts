@@ -139,7 +139,7 @@ async function fakePdfBytes(pageCount: number, size: [number, number] = [200, 20
 
 function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrderRow {
   return {
-    wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15 },
+    wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') },
     workCenterName: 'Cutting',
     projectName: 'Smash golf driving range Bangna',
     projectCode: 'DBN',
@@ -151,7 +151,7 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
     operationLabel: 'OP-WELD-SAW — SAW auto weld',
     marks: [{
       assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450,
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }],
     assignedTo: null,
     teamHeadcount: 1,
@@ -181,8 +181,8 @@ jest.setTimeout(20000)
 describe('buildMoPrintPdf', () => {
   it('produces one manifest page, then a traveler page + one dedicated drawing page per WO row, in order', async () => {
     const plan = makePlan([
-      makeRow({ wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15 } }),
-      makeRow({ wo: { id: 1399, wo_code: 'WO-00000740', sequence: 20, status: 'NOT_STARTED', expected_duration_min: 30, setup_time_min: 5 } }),
+      makeRow({ wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') } }),
+      makeRow({ wo: { id: 1399, wo_code: 'WO-00000740', sequence: 20, status: 'NOT_STARTED', expected_duration_min: 30, setup_time_min: 5, created_at: new Date('2026-09-20T00:00:00Z') } }),
     ])
     const drawingPageCounts = [1, 2] // a multi-page drawing source must not inflate output page count
     let call = 0
@@ -278,7 +278,7 @@ describe('buildMoPrintPdf', () => {
   // Selective print (2026-09-21) — includeManifest is its own toggle,
   // independent of which WO rows are in the plan.
   it('2026-09-21: omits the manifest page entirely when includeManifest is false, printing only the WO rows', async () => {
-    const plan = makePlan([makeRow(), makeRow({ wo: { id: 1399, wo_code: 'WO-00000740', sequence: 20, status: 'NOT_STARTED', expected_duration_min: 30, setup_time_min: 5 } })])
+    const plan = makePlan([makeRow(), makeRow({ wo: { id: 1399, wo_code: 'WO-00000740', sequence: 20, status: 'NOT_STARTED', expected_duration_min: 30, setup_time_min: 5, created_at: new Date('2026-09-20T00:00:00Z') } })])
     const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1), false)
     const merged = await PDFDocument.load(bytes)
     expect(merged.getPageCount()).toBe(2 * 2) // 2 rows × (traveler + drawing), no manifest page
@@ -313,7 +313,7 @@ describe('buildMoPrintPdf', () => {
       makeRow({
         marks: [{
           assemblyMark: 'DBN-A1-CTR1', name: 'เสาเหล็ก Column A1', qty: 1, weight_kg: 450,
-          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
         }],
         assignedTo: 'ทีมช่างเชื่อม',
       }),
@@ -509,7 +509,7 @@ describe('buildMoPrintPdf', () => {
   describe('MO page', () => {
     it('prints a single MO page for several operations and marks, with nothing below the page border', async () => {
       const rows = [10, 20, 30].flatMap(sequence => [0, 1].map(i => makeRow({
-        wo: { id: sequence * 10 + i, wo_code: `WO-000000${sequence}${i}`, sequence, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15 },
+        wo: { id: sequence * 10 + i, wo_code: `WO-000000${sequence}${i}`, sequence, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') },
       })))
       const marks = ['M-1', 'M-2'].map((assemblyMark, i) => ({
         seq: i + 1, assemblyMark, name: 'โครงหลังคา', projectCode: 'DBN', projectName: 'x', zoneLabel: 'BIF Zone 1',
@@ -528,7 +528,7 @@ describe('buildMoPrintPdf', () => {
   // one specific operation with its own expected_duration_min/setup_time_min.
   describe('Planned Time (traveler pages)', () => {
     it('does not throw when building a traveler for a row with planned time data', async () => {
-      const plan = makePlan([makeRow({ wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 45, setup_time_min: 10 } })])
+      const plan = makePlan([makeRow({ wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 45, setup_time_min: 10, created_at: new Date('2026-09-20T00:00:00Z') } })])
 
       await expect(buildMoPrintPdf(plan, async () => fakePdfBytes(1))).resolves.toBeInstanceOf(Uint8Array)
     })
@@ -598,11 +598,40 @@ describe('buildMoPrintPdf', () => {
       expect(label!.x).toBeGreaterThan(pageWidth / 2)
     })
 
+    // 2026-10-05 (print option A; the user moved it twice, settling on the end
+    // of the corner label: "เอามาอยู่ต่อท้าย DBN-B1-CTR10") — one bottom-right
+    // run "WO · mark · Drawing vN · date"; the top-right page number stays plain.
+    it('appends "Drawing vN · date" to the bottom-right WO · mark label and leaves the page number plain', async () => {
+      const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1, [1600, 1000]))
+      const merged = await PDFDocument.load(bytes)
+      const { width: pageWidth, height: pageHeight } = merged.getPage(2).getSize()
+      const runs = Array.from(decodedContentStream(merged, 2).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => ({ x: Number(m[1]), y: Number(m[2]) }))
+
+      const corner = runs.filter(p => p.y < pageHeight / 3)
+      expect(corner).toHaveLength(1)
+      // "WO-00000739 · DBN-A1-CTR1" alone at 12pt bold is ~170pt wide; with the stamp it reaches well further left.
+      expect(corner[0].x).toBeLessThan(pageWidth - 250)
+      const top = runs.filter(p => p.y > pageHeight - 20)
+      expect(top).toHaveLength(1)
+      expect(top[0].x).toBeGreaterThan(pageWidth - 40) // bare "3 / 3"
+    })
+
+    it('keeps a plain page number (no stamp) on the traveler page', async () => {
+      const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1, [1600, 1000]))
+      const merged = await PDFDocument.load(bytes)
+      const { width, height } = merged.getPage(1).getSize()
+      const top = Array.from(decodedContentStream(merged, 1).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => ({ x: Number(m[1]), y: Number(m[2]) }))
+        .filter(p => p.y > height - 20)
+      expect(top).toHaveLength(1)
+      expect(top[0].x).toBeGreaterThan(width - 40)
+    })
+
     // 2026-09-22: "ตรงลายน้ำบน Drawing ต้องใส่ mark ลงไปด้วย" — the drawing
     // page's watermark carries the mark too (two lines), unlike the
     // traveler's (WO code only) — a WO now contributes one drawing page per
     // mark, so the mark is what tells otherwise-identical sheets apart.
-    it('stamps a translucent two-line WO-code + mark watermark across the middle of the drawing page', async () => {
+    // + the drawing revision as a third line (2026-10-05: "เอาไปใส่ตรงลายน้ำด้วย").
+    it('stamps a translucent three-line WO-code + mark + drawing-revision watermark across the middle of the drawing page', async () => {
       const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1))
       const merged = await PDFDocument.load(bytes)
       // The drawing page's own height (2026-09-23: no longer the fixed A3
@@ -613,7 +642,7 @@ describe('buildMoPrintPdf', () => {
 
       expect(pageHasTranslucentGraphicsState(merged, 2)).toBe(true)
       const middleThirdYs = textOriginYs(merged, 2).filter(y => y > pageHeight / 3 && y < (pageHeight * 2) / 3)
-      expect(middleThirdYs).toHaveLength(2)
+      expect(middleThirdYs).toHaveLength(3)
     })
 
     // 2026-09-22: "wo มีหลายมาก mark ทำไมถึงแสดงแค่ print แค่ 1 drawing
@@ -623,8 +652,8 @@ describe('buildMoPrintPdf', () => {
     it('embeds one drawing page per mark on a multi-mark WO, not just the primary mark, each fetched and labeled separately', async () => {
       const plan = makePlan([makeRow({
         marks: [
-          { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf' } },
-          { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf' } },
+          { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
+          { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
         ],
       })])
       const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
@@ -656,7 +685,7 @@ describe('buildMoPrintPdf', () => {
     }))
     const longMarks = Array.from({ length: 30 }, (_, i) => ({
       assemblyMark: `DBN-A1-CTR${i}`, name: `Column ${i}`, qty: 1, weight_kg: 450,
-      drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf` },
+      drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf`, version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }))
 
     it('does not throw with a normal activity list (including an unresolved one), a Thai consume list, and a full Production Time', async () => {
@@ -683,7 +712,7 @@ describe('buildMoPrintPdf', () => {
         activities: [], consume: [], assignedTo: null, planStart: null, planEnd: null,
         marks: [{
           assemblyMark: 'DBN-A1-CTR1', name: null, qty: null, weight_kg: null,
-          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
         }],
       })])
 
@@ -751,6 +780,30 @@ describe('buildMoPrintPdf', () => {
 
       const xs = Array.from(decodedContentStream(merged, 1).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => Number(m[1]))
       expect(xs.some(x => x > pageWidth / 2)).toBe(true)
+    })
+  })
+
+  // 2026-10-05 (print option A): a drawing uploaded after the WO was created
+  // gets a note on the traveler, in the top margin above both columns.
+  describe('drawing updated after the WO', () => {
+    const topMarginRuns = (doc: PDFDocument, pageIndex: number) => {
+      const { height } = doc.getPage(pageIndex).getSize()
+      return textOriginYs(doc, pageIndex).filter(y => y > height - 40).length
+    }
+    const updatedRow = () => makeRow({
+      marks: [{ ...makeRow().marks[0], drawing: { ...makeRow().marks[0].drawing, version: 3, uploaded_at: new Date('2026-10-02T03:00:00Z') } }],
+    })
+    const traveler = async (row: MoPrintWorkOrderRow) => PDFDocument.load(await buildMoPrintPdf(makePlan([row]), async () => fakePdfBytes(1)))
+
+    it('adds exactly one note in the traveler\'s top margin when a mark\'s drawing was uploaded after the WO was created', async () => {
+      const baseline = topMarginRuns(await traveler(makeRow()), 1)
+      expect(topMarginRuns(await traveler(updatedRow()), 1)).toBe(baseline + 1)
+    })
+
+    it('adds nothing when every drawing predates the WO', async () => {
+      const baseline = topMarginRuns(await traveler(makeRow()), 1)
+      const olderDrawing = makeRow({ wo: { ...makeRow().wo, created_at: new Date('2026-10-05T00:00:00Z') } })
+      expect(topMarginRuns(await traveler(olderDrawing), 1)).toBe(baseline)
     })
   })
 })

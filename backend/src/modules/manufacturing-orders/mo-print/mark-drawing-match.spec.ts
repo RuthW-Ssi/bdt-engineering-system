@@ -30,10 +30,19 @@ describe('findLatestPdfForMark', () => {
     expect(findLatestPdfForMark([d], 'DBN-A1-CTR1')).toBeNull()
   })
 
-  it('only searches the latest version, never an older revision that happens to match', () => {
+  // 2026-10-05 (print option A): versions are sparse (one upload = one version
+  // holding only that batch's files), so the zone's newest batch skipping this
+  // mark must not hide — or block printing of — the mark's own newest drawing.
+  it('picks the newest version that actually holds the mark, even when the zone\'s latest batch skipped it', () => {
     const older = drawing({ file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1 })
-    const newer = drawing({ file_name: 'DBN-A1-STR1 - - Rev 1.pdf', version: 2 })
-    expect(findLatestPdfForMark([older, newer], 'DBN-A1-CTR1')).toBeNull()
+    const newerOtherMark = drawing({ file_name: 'DBN-A1-STR1 - - Rev 1.pdf', version: 2 })
+    expect(findLatestPdfForMark([older, newerOtherMark], 'DBN-A1-CTR1')).toBe(older)
+  })
+
+  it('prefers the mark\'s higher version over an older one', () => {
+    const v1 = drawing({ file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, create_date: '2026-03-01T00:00:00Z' })
+    const v3 = drawing({ file_name: 'DBN-A1-CTR1 - - Rev 2.pdf', version: 3, create_date: '2026-02-01T00:00:00Z' })
+    expect(findLatestPdfForMark([v1, v3], 'DBN-A1-CTR1')).toBe(v3)
   })
 
   it('tie-breaks same-version matches by most recent create_date', () => {
