@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes } from './mo-print-format'
+import { capList, drawingsUpdatedAfter, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
 import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
@@ -527,6 +527,7 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels,
   // (drawActivities/drawAssemblyAndQcChunk use the same formula), so their
   // bottom edges read as level with each other without needing to be
   // physically joined.
+  drawDrawingUpdatedNote(page, fonts, L, row)
   drawWoWatermark(page, fonts, row)
 
   // Every mark must show (2026-09-21: "ต้องแสดง assembly list ทั้งหมด") —
@@ -539,6 +540,24 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels,
     remaining = remaining.slice(n)
     drawWoWatermark(contPage, fonts, row)
   }
+}
+
+// Drawings uploaded after this WO was created (2026-10-05, print option A):
+// one red line in the traveler's top margin, above both columns, so the floor
+// knows the sheet changed since the job was issued. Nothing when none did.
+function drawDrawingUpdatedNote(page: PDFPage, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow): void {
+  const updated = drawingsUpdatedAfter(row.wo.created_at, row.marks)
+  if (updated.length === 0) return
+  const text = L.drawingUpdatedAfterWo(updated.join(', '))
+  // Baseline just above the content's top edge — inside the band between
+  // the page border (BORDER_INSET) and the content (MARGIN), clear of both.
+  page.drawText(text, {
+    x: MARGIN,
+    y: PAGE_HEIGHT - MARGIN + 5,
+    size: fitTextSize(fonts.bold, text, CONTENT_WIDTH, 10),
+    font: fonts.bold,
+    color: rgb(0.78, 0.13, 0.16),
+  })
 }
 
 // Identification grid + the QR in its own bordered box to the grid's
@@ -956,12 +975,16 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, L: PrintLabels, cols: Tabl
 // produce several of these sheets) moved from top-left to BOTTOM-RIGHT the
 // same day, on the user's direct instruction, to sit clear of the drawing's
 // own content up top.
-async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow, drawingDoc: PDFDocument): Promise<void> {
+async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow, drawingDoc: PDFDocument): Promise<void> {
   const embeddedDrawing = await doc.embedPage(drawingDoc.getPage(0))
   const page = doc.addPage([embeddedDrawing.width, embeddedDrawing.height])
   page.drawPage(embeddedDrawing, { x: 0, y: 0, width: embeddedDrawing.width, height: embeddedDrawing.height })
 
-  const label = `${row.wo.wo_code} · ${mark.assemblyMark}`
+  // Which revision this sheet is (2026-10-05, print option A) rides at the
+  // end of the corner label and as the watermark's third line ("เอามาอยู่
+  // ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย").
+  const stamp = L.drawingStamp(`v${mark.drawing.version} · ${formatShortDate(mark.drawing.uploaded_at)}`)
+  const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
   const labelSize = 12
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
   page.drawText(label, {
@@ -975,8 +998,7 @@ async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, row: MoPrintWork
     font: fonts.bold,
     color: BLACK,
   })
-
-  drawWoWatermark(page, fonts, row, mark.assemblyMark)
+  drawWoWatermark(page, fonts, row, mark.assemblyMark, stamp)
 }
 
 // Big translucent red type centered on the page — stamped last, on top of
@@ -1081,8 +1103,9 @@ function drawGenericIcon(page: PDFPage, cx: number, cy: number, size: number, co
 // ใส่แค่ตรงลายน้ำของ wo พอ") to the WO Details page (and its own
 // continuation pages) only — a markCode means this is a per-mark shop
 // drawing page (buildDrawingPage), which now stays icon-free.
-function drawWoWatermark(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, markCode?: string): void {
-  drawWatermark(page, fonts, markCode ? [row.wo.wo_code, markCode] : [row.wo.wo_code], markCode ? undefined : row.icon)
+function drawWoWatermark(page: PDFPage, fonts: Fonts, row: MoPrintWorkOrderRow, markCode?: string, drawingStamp?: string): void {
+  const lines = markCode ? [row.wo.wo_code, markCode, ...(drawingStamp ? [drawingStamp] : [])] : [row.wo.wo_code]
+  drawWatermark(page, fonts, lines, markCode ? undefined : row.icon)
 }
 
 // MO code, one line — every page belonging to the MO section (manifest,
@@ -1132,7 +1155,7 @@ export async function buildMoPrintPdf(
     for (const mark of row.marks) {
       const drawingBytes = await fetchDrawingBytes(row, mark)
       const drawingDoc = await PDFDocument.load(drawingBytes)
-      await buildDrawingPage(doc, fonts, row, mark, drawingDoc)
+      await buildDrawingPage(doc, fonts, L, row, mark, drawingDoc)
     }
   }
 

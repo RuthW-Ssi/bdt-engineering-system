@@ -24,6 +24,7 @@ import { RemoveMarkDto } from './dto/remove-mark.dto'
 import { AcceptVersionDto } from './dto/accept-version.dto'
 import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
+import { UpdateMarkProgressDto } from './dto/update-mark-progress.dto'
 
 @ApiTags('Work Orders')
 @ApiBearerAuth()
@@ -143,13 +144,25 @@ export class WorkOrdersController {
 
   @Post(':id/done')
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'IN_PROGRESS|PAUSED → DONE · body.marks[] must cover every non-removed mark · requires user-typed actual_start + actual_finish + timeliness (ON_PLAN|DELAYED; delay_note required when DELAYED) · event=DONE (whole-WO)' })
+  @ApiOperation({ summary: 'IN_PROGRESS|PAUSED → DONE · body.marks[] optional: omitted (current UI) → the SAVED per-mark values are validated (sum rules + every mark QC Passed = Quantity); sent (older clients) → must cover every non-removed mark, written + audited as per-mark PROGRESS_UPDATE events · requires user-typed actual_start + actual_finish + timeliness (ON_PLAN|DELAYED; delay_note required when DELAYED) · event=DONE (whole-WO)' })
   done(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: WoDoneDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.svc.done(id, dto, user.login)
+  }
+
+  @Patch(':id/marks/:markId/progress')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Save one mark\'s progress totals (IN_PROGRESS|PAUSED) · body.expected = values as loaded → 409 STALE_PROGRESS if changed meanwhile · audited as PROGRESS_UPDATE event with `changes`' })
+  updateMarkProgress(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('markId', ParseIntPipe) markId: number,
+    @Body() dto: UpdateMarkProgressDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.svc.updateMarkProgress(id, markId, dto, user.login)
   }
 
   @Patch(':id/actual-dates')

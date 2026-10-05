@@ -402,7 +402,13 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
       data: { bom_assembly_id: 200, bom_dispatch_id_snapshot: 20, qty_planned: 8, qty_qc_passed: undefined, qty_rework: undefined, qty_renew: undefined },
     })
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ work_order_id: 1, work_order_mark_id: 1, event_type: 'ACCEPT_VERSION', recorded_by: 'tester' }),
+      data: expect.objectContaining({
+        work_order_id: 1,
+        work_order_mark_id: 1,
+        event_type: 'ACCEPT_VERSION',
+        changes: [{ field: 'qty_planned', old: 5, new: 8 }], // 2026-10-05 audit
+        recorded_by: 'tester',
+      }),
     })
     expect(autoCreate.recomputeDuration).toHaveBeenCalledWith(prisma, 1)
     expect(result).toEqual({ id: 1 })
@@ -440,11 +446,41 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
 
     expect(prisma.work_order_mark.update).toHaveBeenCalledWith({
       where: { id: 1 },
-      data: { bom_assembly_id: 200, bom_dispatch_id_snapshot: 20, qty_planned: 3, qty_qc_passed: 1, qty_rework: undefined, qty_renew: 1 },
+      data: { bom_assembly_id: 200, bom_dispatch_id_snapshot: 20, qty_planned: 3, qty_qc_passed: 1, qty_rework: 0, qty_renew: 1 },
     })
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ notes: expect.stringMatching(/reused 2 offcuts$/) }),
+      data: expect.objectContaining({
+        notes: expect.stringMatching(/reused 2 offcuts$/),
+        changes: [
+          { field: 'qty_planned', old: 5, new: 3 },
+          { field: 'qty_qc_passed', old: null, new: 1 },
+          { field: 'qty_renew', old: null, new: 1 },
+        ],
+      }),
     })
+  })
+
+  // Fix wave 2026-10-05: progress is saved before Done now, so QC fields can
+  // already hold values. A provided breakdown REPLACES all three (blank = 0) —
+  // keeping a saved Rework 2 next to a new QC 5 would leave QC sum > Done.
+  it('a provided breakdown writes ALL THREE QC fields, blank = 0 (saved Done 5 / QC 3 / Rework 2 + {qty_qc_passed: 5} → 5/0/0)', async () => {
+    const mark = makeMark({ qty_done: 5, qty_qc_passed: 3, qty_rework: 2 })
+    const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 3 }
+    const prisma = makePrisma(mark, latestAsm)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100, qty_qc_passed: 5 } as any)
+
+    expect(prisma.work_order_mark.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { bom_assembly_id: 200, bom_dispatch_id_snapshot: 20, qty_planned: 3, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0 },
+    })
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toEqual([
+      { field: 'qty_planned', old: 5, new: 3 },
+      { field: 'qty_qc_passed', old: 3, new: 5 },
+      { field: 'qty_rework', old: 2, new: 0 },
+    ])
   })
 
   it('does not require a note at all — the old ON_HOLD-gated requirement is gone', async () => {
@@ -455,6 +491,8 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
 
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).resolves.toEqual({ id: 1 })
+    // Same qty (5 → 5), no QC breakdown → no qty changed → no `changes`.
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toBeUndefined()
   })
 
   it('409s on REMOVED (no ACTIVE row for the mark anywhere in the group), not the generic "already latest" guard', async () => {
@@ -497,7 +535,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     const mark = makeMark()
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 8 }
     const prisma = makePrisma(mark, latestAsm, { mo_id: 10 })
-    const otherMark = { id: 2, work_order_id: 2, bom_assembly_id: 100 }
+    const otherMark = { id: 2, work_order_id: 2, bom_assembly_id: 100, qty_planned: 5 }
     prisma.work_order_mark.findMany = jest.fn().mockResolvedValue([otherMark])
     const autoCreate = makeAutoCreate()
     const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any)
@@ -513,7 +551,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
       data: { bom_assembly_id: 200, bom_dispatch_id_snapshot: 20, qty_planned: 8 },
     })
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ work_order_id: 2, work_order_mark_id: 2, event_type: 'ACCEPT_VERSION' }),
+      data: expect.objectContaining({ work_order_id: 2, work_order_mark_id: 2, event_type: 'ACCEPT_VERSION', changes: [{ field: 'qty_planned', old: 5, new: 8 }] }),
     })
     expect(autoCreate.recomputeDuration).toHaveBeenCalledWith(prisma, 2)
   })
@@ -632,6 +670,41 @@ describe('WorkOrdersService.done (per-mark array)', () => {
     expect(result).toEqual({ id: 1 })
   })
 
+  // Fix wave 2026-10-05: the legacy marks[] path is a qty writer too, so it
+  // audits each mark it actually changes (same transaction) — Q27's single
+  // audit trail. Only fields it writes count; null ↔ 0 is not a change.
+  it('with marks: writes one PROGRESS_UPDATE per mark whose values changed, with only the written changes', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [
+      { id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: null, qty_done: 5, qty_qc_passed: 4, qty_rework: null, qty_renew: 1 } as any,
+      { id: 2, bom_assembly_id: 200, qty_planned: 3, qty_not_started: 0, qty_in_progress: 0, qty_done: 3, qty_qc_passed: 3, qty_rework: 0, qty_renew: 0 } as any,
+    ])
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.done(
+      1,
+      {
+        marks: [
+          // mark 1: QC 4 → 5 and Rework null → 0 (not a change); Renew omitted → not written, not audited
+          { bom_assembly_id: 100, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0 },
+          // mark 2: same values as saved → no event
+          { bom_assembly_id: 200, qty_done: 3, qty_qc_passed: 3 },
+        ],
+        ...ACTUALS,
+      } as any,
+      'tester',
+    )
+
+    const progress = prisma.work_order_event.create.mock.calls.map((c: any) => c[0].data).filter((d: any) => d.event_type === 'PROGRESS_UPDATE')
+    expect(progress).toEqual([
+      { work_order_id: 1, work_order_mark_id: 1, event_type: 'PROGRESS_UPDATE', changes: [{ field: 'qty_qc_passed', old: 4, new: 5 }], recorded_by: 'tester' },
+    ])
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: { work_order_id: 1, event_type: 'DONE', notes: null, recorded_by: 'tester' },
+    })
+  })
+
   it('writes qty_not_started/qty_in_progress per mark, same as the QC breakdown fields', async () => {
     const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }])
     const prisma = makePrisma(wo)
@@ -727,6 +800,59 @@ describe('WorkOrdersService.done (per-mark array)', () => {
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
     await expect(svc.done(999, { marks: [] } as any, 'tester')).rejects.toThrow(NotFoundException)
+  })
+
+  it('without marks: validates the SAVED values and completes without touching marks', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0 } as any])
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc.done(1, { ...ACTUALS } as any, 'tester')
+    expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
+    expect(prisma.work_order.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'DONE' }) }))
+  })
+
+  it('without marks: 400s when a saved mark is not fully QC-passed', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_done: 5, qty_qc_passed: 3, qty_rework: 2 } as any])
+    const svc = new WorkOrdersService(makePrisma(wo), makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(/QC Passed = Quantity/)
+  })
+
+  // Spec §4: without marks, the SAVED values must also pass the sum rules —
+  // each case below passes the QC gate (qc_passed = planned) on purpose, so
+  // only the sum rule can stop it.
+  it('without marks: 400s when a saved field exceeds Quantity (accept-version lowered planned below done)', async () => {
+    // planned 10 → 5 via acceptNewVersion with qc 5 + rework 5; qty_done stayed 10
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 10, qty_qc_passed: 5, qty_rework: 5, qty_renew: 0 } as any])
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(/cannot exceed Quantity for mark\(s\): 100/)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('without marks: 400s when saved Not Started + In Progress + Done exceeds Quantity', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 1, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0 } as any])
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(/Not Started \+ In Progress \+ Done exceeds Quantity for mark\(s\): 100/)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('without marks: 400s when saved QC Passed + Rework + Renew exceeds Done', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 1 } as any])
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(/QC Passed \+ Rework \+ Renew exceeds Done for mark\(s\): 100/)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+  })
+
+  it('without marks: treats a null saved qty_done as 0, so QC Passed cannot stand on it', async () => {
+    // acceptNewVersion skips its QC upper bound when qty_done is null
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: null, qty_in_progress: null, qty_done: null, qty_qc_passed: 5, qty_rework: null, qty_renew: null } as any])
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(/QC Passed \+ Rework \+ Renew exceeds Done for mark\(s\): 100/)
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
   })
 })
 
@@ -839,13 +965,54 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
     expect(qcCall[0].where).toEqual({ id: 1 })
     expect(Number(qcCall[0].data.qty_qc_passed)).toBe(2)
     expect(Number(qcCall[0].data.qty_rework)).toBe(1)
-    expect(qcCall[0].data.qty_renew).toBeUndefined()
+    expect(Number(qcCall[0].data.qty_renew)).toBe(0) // provided breakdown → blank = 0 (fix wave)
     const releaseCalls = prisma.work_order_mark.update.mock.calls.slice(1)
     expect(releaseCalls.map((c: any) => c[0].where)).toEqual(expect.arrayContaining([{ id: 1 }, { id: 2 }]))
     for (const [call] of releaseCalls) {
       expect(call.data.removed_at).toBeInstanceOf(Date)
       expect(call.data.removed_by).toBe('tester')
     }
+    // 2026-10-05: the disposition is audited as a PROGRESS_UPDATE on the mark with output only.
+    const progressEvents = prisma.work_order_event.create.mock.calls.map((c: any) => c[0].data).filter((d: any) => d.event_type === 'PROGRESS_UPDATE')
+    expect(progressEvents).toEqual([
+      {
+        work_order_id: 1,
+        work_order_mark_id: 1,
+        event_type: 'PROGRESS_UPDATE',
+        changes: [{ field: 'qty_qc_passed', old: null, new: 2 }, { field: 'qty_rework', old: null, new: 1 }],
+        notes: 'Cancel disposition',
+        recorded_by: 'tester',
+      },
+    ])
+  })
+
+  it('a provided breakdown writes ALL THREE QC fields, blank = 0 (saved Done 5 / QC 3 / Rework 2 + {qty_qc_passed: 5} → 5/0/0)', async () => {
+    const wo = makeWo({ marks: [{ id: 1, bom_assembly_id: 100, qty_done: 5, qty_qc_passed: 3, qty_rework: 2, qty_renew: null, removed_at: null }] })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.cancel(1, { reason: 'x', mark_disposition: [{ bom_assembly_id: 100, qty_qc_passed: 5 }] } as any, 'tester')
+
+    const [qcCall] = prisma.work_order_mark.update.mock.calls
+    expect(qcCall[0].where).toEqual({ id: 1 })
+    expect(Number(qcCall[0].data.qty_qc_passed)).toBe(5)
+    expect(Number(qcCall[0].data.qty_rework)).toBe(0)
+    expect(Number(qcCall[0].data.qty_renew)).toBe(0)
+    const progress = prisma.work_order_event.create.mock.calls.map((c: any) => c[0].data).filter((d: any) => d.event_type === 'PROGRESS_UPDATE')
+    expect(progress).toHaveLength(1)
+    expect(progress[0].changes).toEqual([{ field: 'qty_qc_passed', old: 3, new: 5 }, { field: 'qty_rework', old: 2, new: 0 }])
+  })
+
+  it('writes no PROGRESS_UPDATE when the disposition matches the saved QC values', async () => {
+    const wo = makeWo({ marks: [{ id: 1, bom_assembly_id: 100, qty_done: 5, qty_qc_passed: 2, qty_rework: 1, qty_renew: null, removed_at: null }] })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.cancel(1, { reason: 'x', mark_disposition: [{ bom_assembly_id: 100, qty_qc_passed: 2, qty_rework: 1 }] } as any, 'tester')
+
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1) // CANCEL only
   })
 
   it('releases a removed mark\'s budget once (not twice) and still releases the other non-removed mark', async () => {
@@ -1149,6 +1316,34 @@ describe('WorkOrdersService.removeMark', () => {
     await expect(
       svc.removeMark(1, { bom_assembly_id: 100, reason: 'x', qty_qc_passed: 0, qty_rework: 0, qty_renew: 0 } as any, 'tester'),
     ).resolves.toEqual({ id: 1 })
+    // Fix wave 2026-10-05: null ↔ 0 is not a change, so writing 0s over blank
+    // QC fields audits nothing (the MARK_REMOVED event carries no `changes`).
+    const ev = prisma.work_order_event.create.mock.calls[0][0].data
+    expect(ev).toMatchObject({ event_type: 'MARK_REMOVED', work_order_mark_id: 1 })
+    expect(ev.changes).toBeUndefined()
+  })
+
+  it('a provided breakdown writes ALL THREE QC fields, blank = 0 (saved Done 5 / QC 3 / Rework 2 + {qty_qc_passed: 5} → 5/0/0)', async () => {
+    const wo = makeWo({
+      marks: [
+        { id: 1, bom_assembly_id: 100, qty_done: 5, qty_qc_passed: 3, qty_rework: 2, qty_renew: null, removed_at: null },
+        { id: 2, bom_assembly_id: 200, qty_done: null, removed_at: null },
+      ],
+    })
+    const prisma = makePrisma(wo)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.removeMark(1, { bom_assembly_id: 100, reason: 'x', qty_qc_passed: 5 } as any, 'tester')
+
+    const data = prisma.work_order_mark.update.mock.calls[0][0].data
+    expect(Number(data.qty_qc_passed)).toBe(5)
+    expect(Number(data.qty_rework)).toBe(0)
+    expect(Number(data.qty_renew)).toBe(0)
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toEqual([
+      { field: 'qty_qc_passed', old: 3, new: 5 },
+      { field: 'qty_rework', old: 2, new: 0 },
+    ])
   })
 
   it('soft-removes the mark, writes MARK_REMOVED, and recomputes duration', async () => {
@@ -1167,6 +1362,10 @@ describe('WorkOrdersService.removeMark', () => {
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
       data: { work_order_id: 1, work_order_mark_id: 1, event_type: 'MARK_REMOVED', notes: 'BOM removed this mark', recorded_by: 'tester' },
     })
+    // No QC breakdown sent → QC fields untouched, no `changes` on the event.
+    const data = prisma.work_order_mark.update.mock.calls[0][0].data
+    expect([data.qty_qc_passed, data.qty_rework, data.qty_renew]).toEqual([undefined, undefined, undefined])
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toBeUndefined()
     expect(autoCreate.recomputeDuration).toHaveBeenCalledWith(prisma, 1)
     expect(result).toEqual({ id: 1 })
   })
@@ -1339,7 +1538,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
 })
 
 describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
-  function makePrisma(wo: any, marks: { id: number; qty_planned: number }[]) {
+  function makePrisma(wo: any, marks: { id: number; qty_planned: number; qty_not_started: number | null }[]) {
     const prisma: any = {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo), update: jest.fn() },
       work_order_event: { create: jest.fn() },
@@ -1351,7 +1550,7 @@ describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
 
   it('sets qty_not_started = qty_planned on every non-removed mark when the WO starts — and no longer stamps actual_start (2026-10-01)', async () => {
     const wo = { id: 1, status: 'RELEASED' }
-    const marks = [{ id: 10, qty_planned: 5 }, { id: 11, qty_planned: 2 }]
+    const marks = [{ id: 10, qty_planned: 5, qty_not_started: null }, { id: 11, qty_planned: 2, qty_not_started: null }]
     const prisma = makePrisma(wo, marks)
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
@@ -1360,7 +1559,7 @@ describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
 
     expect(prisma.work_order_mark.findMany).toHaveBeenCalledWith({
       where: { work_order_id: 1, removed_at: null },
-      select: { id: true, qty_planned: true },
+      select: { id: true, qty_planned: true, qty_not_started: true },
     })
     expect(prisma.work_order_mark.update).toHaveBeenCalledWith({ where: { id: 10 }, data: { qty_not_started: 5 } })
     expect(prisma.work_order_mark.update).toHaveBeenCalledWith({ where: { id: 11 }, data: { qty_not_started: 2 } })
@@ -1368,6 +1567,27 @@ describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
       where: { id: 1 },
       data: { status: 'IN_PROGRESS', updated_by: 'tester' },
     })
+    // 2026-10-05: the seed is audited — one PROGRESS_UPDATE per mark, on top of the START event.
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ work_order_id: 1, event_type: 'START', recorded_by: 'tester' }),
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ event_type: 'PROGRESS_UPDATE', work_order_mark_id: 10, changes: [{ field: 'qty_not_started', old: null, new: 5 }], notes: 'Start', recorded_by: 'tester' }),
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ event_type: 'PROGRESS_UPDATE', work_order_mark_id: 11, changes: [{ field: 'qty_not_started', old: null, new: 2 }], notes: 'Start', recorded_by: 'tester' }),
+    })
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(3)
+  })
+
+  it('writes no PROGRESS_UPDATE for a mark whose seed changes nothing', async () => {
+    const prisma = makePrisma({ id: 1, status: 'RELEASED' }, [{ id: 10, qty_planned: 5, qty_not_started: 5 }])
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.transition(1, 'start', {}, 'tester')
+
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1) // START only
   })
 
   it('does not touch work_order_mark for other transitions (e.g. pause)', async () => {
@@ -1563,5 +1783,112 @@ describe('WorkOrdersService.updatePartActuals', () => {
     await expect(
       svc.updatePartActuals(999, { parts: [{ bom_assembly_part_id: 500, qty: 5 }] } as any, 'tester'),
     ).rejects.toThrow(NotFoundException)
+  })
+})
+
+describe('WorkOrdersService.updateMarkProgress (2026-10-05)', () => {
+  const stored = { id: 7, work_order_id: 1, qty_planned: 10, removed_at: null, qty_not_started: 10, qty_in_progress: null, qty_done: null, qty_qc_passed: null, qty_rework: null, qty_renew: null }
+  const EXPECTED = { qty_not_started: 10, qty_in_progress: null, qty_done: null, qty_qc_passed: null, qty_rework: null, qty_renew: null }
+  const BODY = { qty_not_started: 2, qty_in_progress: 0, qty_done: 8, qty_qc_passed: 6, qty_rework: 1, qty_renew: 0, expected: EXPECTED }
+  const SIX = ['qty_not_started', 'qty_in_progress', 'qty_done', 'qty_qc_passed', 'qty_rework', 'qty_renew'] as const
+
+  // updateMany behaves like the DB's conditional UPDATE (fix wave 2026-10-05):
+  // it matches the stored row only when every `where` key equals it (null-aware,
+  // Decimal-vs-number by value) — so a `where` missing the expected values
+  // would wrongly match and the stale tests would catch it.
+  const toN = (v: unknown) => (v == null ? null : Number(v))
+  const matches = (row: any, where: Record<string, unknown>) =>
+    !!row && Object.entries(where).every(([k, v]) => (k === 'removed_at' ? row.removed_at === v : toN(row[k]) === toN(v)))
+
+  function makePrisma(status = 'IN_PROGRESS', mark: any = stored) {
+    const prisma: any = {
+      work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, status, marks: mark ? [mark] : [] }) },
+      work_order_mark: {
+        findUnique: jest.fn().mockResolvedValue(mark),
+        update: jest.fn(),
+        updateMany: jest.fn().mockImplementation(async ({ where }: any) => ({ count: matches(mark, where) ? 1 : 0 })),
+      },
+      work_order_event: { create: jest.fn() },
+      $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
+    }
+    return prisma
+  }
+  function svcFor(prisma: any) {
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    return svc
+  }
+  const rejection = (p: Promise<unknown>) => p.then(() => { throw new Error('expected a rejection') }, (e) => e)
+
+  it('saves the six totals with ONE conditional updateMany (expected values in `where`) and logs one PROGRESS_UPDATE with only the changed fields', async () => {
+    const prisma = makePrisma()
+    await svcFor(prisma).updateMarkProgress(1, 7, BODY as any, 'tao')
+    expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
+    expect(prisma.work_order_mark.updateMany).toHaveBeenCalledTimes(1)
+    const { where, data } = prisma.work_order_mark.updateMany.mock.calls[0][0]
+    expect(where).toEqual({ id: 7, work_order_id: 1, removed_at: null, ...EXPECTED })
+    expect(Object.fromEntries(SIX.map((f) => [f, Number(data[f])]))).toEqual({
+      qty_not_started: 2, qty_in_progress: 0, qty_done: 8, qty_qc_passed: 6, qty_rework: 1, qty_renew: 0,
+    })
+    const ev = prisma.work_order_event.create.mock.calls[0][0].data
+    expect(ev).toMatchObject({ work_order_id: 1, work_order_mark_id: 7, event_type: 'PROGRESS_UPDATE', recorded_by: 'tao' })
+    // null ↔ 0 (In Progress, Renew) is not a change — fix wave 2026-10-05.
+    expect(ev.changes).toEqual([
+      { field: 'qty_not_started', old: 10, new: 2 },
+      { field: 'qty_done', old: null, new: 8 },
+      { field: 'qty_qc_passed', old: null, new: 6 },
+      { field: 'qty_rework', old: null, new: 1 },
+    ])
+  })
+
+  it('accepts a PAUSED work order too', async () => {
+    const prisma = makePrisma('PAUSED')
+    await expect(svcFor(prisma).updateMarkProgress(1, 7, BODY as any, 'tao')).resolves.toEqual({ id: 1 })
+    expect(prisma.work_order_mark.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.work_order_event.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('writes nothing when the values are unchanged (no-op)', async () => {
+    const same = { ...stored, qty_in_progress: 0, qty_done: 0, qty_qc_passed: 0, qty_rework: 0, qty_renew: 0 }
+    const prisma = makePrisma('IN_PROGRESS', same)
+    const body = { qty_not_started: 10, qty_in_progress: 0, qty_done: 0, qty_qc_passed: 0, qty_rework: 0, qty_renew: 0, expected: { qty_not_started: 10, qty_in_progress: 0, qty_done: 0, qty_qc_passed: 0, qty_rework: 0, qty_renew: 0 } }
+    await svcFor(prisma).updateMarkProgress(1, 7, body as any, 'tao')
+    expect(prisma.work_order_mark.updateMany).not.toHaveBeenCalled()
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('409s with code STALE_PROGRESS when the stored values differ from `expected`', async () => {
+    const prisma = makePrisma('IN_PROGRESS', { ...stored, qty_done: 3 })
+    const err = await rejection(svcFor(prisma).updateMarkProgress(1, 7, BODY as any, 'tao'))
+    expect(err).toBeInstanceOf(ConflictException)
+    expect(err.getResponse()).toEqual({ message: 'This mark was updated by someone else — latest values reloaded', code: 'STALE_PROGRESS' })
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('409s STALE_PROGRESS when the conditional update matches no row (someone saved between the read and the write)', async () => {
+    const prisma = makePrisma() // the read inside the transaction still sees the expected values…
+    prisma.work_order_mark.updateMany.mockResolvedValue({ count: 0 }) // …but the row changed before the UPDATE ran
+    const err = await rejection(svcFor(prisma).updateMarkProgress(1, 7, BODY as any, 'tao'))
+    expect(err).toBeInstanceOf(ConflictException)
+    expect(err.getResponse()).toMatchObject({ code: 'STALE_PROGRESS' })
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+
+  it('409s outside IN_PROGRESS/PAUSED', async () => {
+    await expect(svcFor(makePrisma('DONE')).updateMarkProgress(1, 7, BODY as any, 'tao')).rejects.toThrow(ConflictException)
+  })
+
+  it('404s for a mark not on the WO or already removed', async () => {
+    await expect(svcFor(makePrisma('IN_PROGRESS', null)).updateMarkProgress(1, 99, BODY as any, 'tao')).rejects.toThrow(NotFoundException)
+    await expect(svcFor(makePrisma('IN_PROGRESS', { ...stored, removed_at: new Date() })).updateMarkProgress(1, 7, BODY as any, 'tao')).rejects.toThrow(NotFoundException)
+  })
+
+  it('400s on a field above qty_planned (named by its UI label) or broken sum rules', async () => {
+    const svc = svcFor(makePrisma())
+    await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_done: 11, qty_qc_passed: 11 } as any, 'tao')).rejects.toThrow(
+      new BadRequestException('Values cannot exceed Quantity (10): Done, QC Passed'),
+    )
+    await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_not_started: 5 } as any, 'tao')).rejects.toThrow(/Not Started \+ In Progress \+ Done/)
+    await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_qc_passed: 8, qty_rework: 1 } as any, 'tao')).rejects.toThrow(/QC Passed \+ Rework \+ Renew/)
   })
 })

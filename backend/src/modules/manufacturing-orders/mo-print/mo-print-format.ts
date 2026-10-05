@@ -58,6 +58,30 @@ export function formatPlanDateTime(d: Date | null): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`
 }
 
+// Drawing version stamp + the traveler's "updated after this WO" note
+// (2026-10-05, print option A) — dd/mm/yy in shop-floor time, same reason
+// as formatPlanDateTime above.
+export function formatShortDate(d: Date | string): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', year: '2-digit', month: '2-digit', day: '2-digit' })
+      .formatToParts(new Date(d)).map(p => [p.type, p.value]),
+  )
+  return `${parts.day}/${parts.month}/${parts.year}`
+}
+
+/** Marks whose printed drawing was uploaded after the WO was created —
+ *  "CTR10 v3 (02/10/26)" each — so the floor knows the sheet changed since
+ *  the job was issued. Upload date vs WO creation, no stored WO↔drawing link. */
+export function drawingsUpdatedAfter(
+  woCreatedAt: Date | string,
+  marks: { assemblyMark: string; drawing: { version: number; uploaded_at: Date | string } }[],
+): string[] {
+  const created = new Date(woCreatedAt).getTime()
+  return marks
+    .filter(m => new Date(m.drawing.uploaded_at).getTime() > created)
+    .map(m => `${m.assemblyMark} v${m.drawing.version} (${formatShortDate(m.drawing.uploaded_at)})`)
+}
+
 // MO page Routing checklist: one row per routing operation (by sequence),
 // collecting the codes of every WO that operation currently has — one per
 // mark today (2026-09-16).

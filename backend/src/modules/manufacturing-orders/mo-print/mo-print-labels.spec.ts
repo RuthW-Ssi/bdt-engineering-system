@@ -21,6 +21,8 @@ describe('PRINT_LABELS', () => {
       expect(L.assemblyQty('7.00')).toContain('7.00')
       expect(L.minutes('75')).toContain('75')
       expect(L.moreSeeQr(12)).toContain('12')
+      expect(L.drawingStamp('v3 · 02/10/26')).toContain('v3 · 02/10/26')
+      expect(L.drawingUpdatedAfterWo('CTR10 v3 (02/10/26)')).toContain('CTR10 v3 (02/10/26)')
     }
   })
 })
