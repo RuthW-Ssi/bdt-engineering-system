@@ -33,6 +33,7 @@ function makeWo(overrides: Record<string, any> = {}) {
   return {
     id: 1398,
     wo_code: 'WO-00000739',
+    created_at: new Date('2026-09-20T00:00:00Z'),
     sequence: 10,
     status: 'NOT_STARTED',
     expected_duration_min: 45,
@@ -156,9 +157,11 @@ describe('MoPrintService.buildPlan', () => {
     expect(plan.rows[0]).toMatchObject({ workCenterName: 'Cutting' })
     expect(plan.rows[0].marks).toEqual([{
       assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450,
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' },
+      // version + upload date (2026-10-05, print option A) — stamped on the
+      // drawing page and compared against the WO's own create_date.
+      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }])
-    expect(plan.rows[0].wo).toMatchObject({ expected_duration_min: 45, setup_time_min: 10 })
+    expect(plan.rows[0].wo).toMatchObject({ expected_duration_min: 45, setup_time_min: 10, created_at: new Date('2026-09-20T00:00:00Z') })
   })
 
   it("carries the assembly's name + per-piece weight onto its mark row, and the WO's assignee onto the row itself (for the traveler's Assembly List / Production Time)", async () => {
@@ -613,6 +616,23 @@ describe('MoPrintService.buildPlan', () => {
     })
   })
 
+  // 2026-10-05 (print option A): used to 409 — the zone's newest batch held
+  // only another mark, so the old zone-latest rule found nothing.
+  it("prints the mark's own newest drawing when the zone's latest upload batch skipped that mark", async () => {
+    const prisma = makePrisma()
+    const drawings = makeDrawings({
+      findByZone: jest.fn().mockResolvedValue([
+        makePdfDrawing({ id: 1, version: 1 }),
+        makePdfDrawing({ id: 2, version: 2, file_key: 'drawings/dbn-a1-str1.pdf', file_name: 'DBN-A1-STR1 - - Rev 1.pdf', create_date: '2026-10-02T00:00:00Z' }),
+      ]),
+    })
+    const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows[0].marks[0].drawing).toMatchObject({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', version: 1 })
+  })
+
   it('fetches a zone\'s drawings only once even when multiple WOs share the same zone', async () => {
     const prisma = makePrisma({
       work_order: {
@@ -666,8 +686,8 @@ describe('MoPrintService.buildPlan', () => {
 
     expect(plan.rows).toHaveLength(1)
     expect(plan.rows[0].marks).toEqual([
-      { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' } },
-      { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 3, weight_kg: 220, drawing: { file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' } },
+      { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }) },
+      { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 3, weight_kg: 220, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' }) },
     ])
   })
 

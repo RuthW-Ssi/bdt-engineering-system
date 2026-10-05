@@ -17,6 +17,9 @@ export interface MoPrintWorkOrderRow {
     status: string
     expected_duration_min: number
     setup_time_min: number
+    // Compared against each mark's drawing upload date — the traveler flags
+    // drawings uploaded after the WO was issued (2026-10-05, print option A).
+    created_at: Date
   }
   workCenterName: string
   // Project/Zone — resolved once per WO from its primary (first non-removed)
@@ -125,7 +128,9 @@ export interface MoPrintAssemblyMarkRow {
   name: string | null
   qty: number | null
   weight_kg: number | null
-  drawing: { file_key: string; file_name: string }
+  // version + upload date (2026-10-05, print option A) — stamped on the
+  // drawing page next to the WO · mark label.
+  drawing: { file_key: string; file_name: string; version: number; uploaded_at: Date }
 }
 
 // One assembly (mo_assembly_line) and the bom_parts cut for it — printed
@@ -206,7 +211,7 @@ const zoneKey = (zoneId: number, subZoneId: number | null) => `${zoneId}:${subZo
 
 // Orchestrates the data behind a printable MO/WO packet: pulls every
 // non-cancelled WO on the MO, resolves every one of its marks' latest PDF
-// drawings (findLatestPdfForMark — same filename-convention match the WO
+// drawings (findLatestPdfForMark — the mark's own newest PDF, same rule as the WO
 // Visual Tab uses, ported server-side), and refuses to build a partial
 // packet — any mark missing a drawing blocks the whole MO (P0 decision,
 // 2026-09-15 brainstorm; narrowed from "any WO" to "any mark" on
@@ -430,7 +435,7 @@ export class MoPrintService {
           name: assembly.name ?? null,
           qty: qtyByAssembly.get(mark.bom_assembly_id) ?? null,
           weight_kg: assembly.weight_kg != null ? Number(assembly.weight_kg) : null,
-          drawing: { file_key: drawing.file_key, file_name: drawing.file_name },
+          drawing: { file_key: drawing.file_key, file_name: drawing.file_name, version: drawing.version, uploaded_at: new Date(drawing.create_date) },
         })
       }
 
@@ -442,6 +447,7 @@ export class MoPrintService {
           status: wo.status,
           expected_duration_min: wo.expected_duration_min,
           setup_time_min: wo.setup_time_min,
+          created_at: wo.created_at,
         },
         workCenterName: wo.mrp_workcenter.name,
         projectName: primaryDispatch.zone.project.name,

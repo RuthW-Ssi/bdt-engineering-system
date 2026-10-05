@@ -96,16 +96,19 @@ export class WoActualsDto {
 }
 
 /**
- * done — `marks` must cover every non-removed work_order_mark on the WO (enforced
- * in WorkOrdersService.done(), not here — only the WO's current marks are
- * knowable once the service loads them).
+ * done — `marks` is optional (2026-10-05): progress is saved per mark as it's
+ * entered, so the current frontend omits it and done() validates the saved
+ * values. When sent (older clients), it must cover every non-removed
+ * work_order_mark on the WO (enforced in WorkOrdersService.done(), not here —
+ * only the WO's current marks are knowable once the service loads them).
  */
 export class WoDoneDto extends WoActualsDto {
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => WoDoneMarkDto)
-  marks: WoDoneMarkDto[]
+  marks?: WoDoneMarkDto[]
 
   @IsOptional()
   @IsString()

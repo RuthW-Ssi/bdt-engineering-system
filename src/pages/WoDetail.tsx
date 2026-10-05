@@ -5,14 +5,16 @@ import { toast } from 'sonner'
 import {
   useWo, useWoEvents, useWoSchedule, useBomVersionStatus,
   useWoTransition, useWoDone, useWoCancel, useRemoveWoMark, useAcceptNewVersion, useWoCancelSiblings, useUpdateWoActuals,
+  useUpdateMarkProgress,
 } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
-import { WoMarksTable, clampQty, type MarkEdits } from '../components/wo/WoMarksTable'
+import { WoMarksTable } from '../components/wo/WoMarksTable'
+import { formatProgressChanges } from '../components/wo/progressChanges'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from '../components/wo/QcBreakdownFields'
 import { WoVisualTab } from '../components/wo/WoVisualTab'
 import type {
-  WoAction, WoStatus, WoDetail as WoDetailT, WoMark, SourceRoutingOp,
-  WoDoneMarkInput, MarkDispositionInput,
+  WoAction, WoStatus, WoDetail as WoDetailT, WoMark, WoEvent, SourceRoutingOp,
+  MarkDispositionInput, MarkProgressValues, MarkProgressExpected,
 } from '../api/wo'
 import { siblingQtyDone } from '../api/wo'
 import { usePermission } from '../hooks/usePermission'
@@ -50,47 +52,6 @@ function fmtDateTime(d: string | null) {
 }
 
 /**
- * Builds the POST /wo/:id/done payload from the Marks table's current draft
- * (edits) layered over each mark's last-known server value — every
- * non-removed mark must resolve to a valid qty_done. The QC breakdown
- * (qty_qc_passed/qty_rework/qty_renew, 2026-09-23) and the Not Started/In
- * Progress breakdown (2026-09-23) are optional, same as qty_scrapped was —
- * no per-field required-ness here, the server still rejects a breakdown
- * whose sum exceeds qty_done/qty_planned. Exported (pure) for unit testing,
- * same pattern as qcBreakdownValid.
- */
-export function buildDoneMarksPayload(
-  marks: Pick<WoMark, 'bom_assembly_id' | 'removed_at' | 'qty_not_started' | 'qty_in_progress' | 'qty_done' | 'qty_qc_passed' | 'qty_rework' | 'qty_renew' | 'bom_assembly'>[],
-  edits: MarkEdits,
-): { marks: WoDoneMarkInput[] } | { error: string } {
-  const activeMarks = marks.filter(m => !m.removed_at)
-  if (!activeMarks.length) return { error: 'This work order has no marks to complete.' }
-  const payload: WoDoneMarkInput[] = []
-  for (const m of activeMarks) {
-    const doneStr = edits[m.bom_assembly_id]?.qty_done ?? (m.qty_done != null ? String(m.qty_done) : '')
-    const doneNum = Number(doneStr)
-    if (doneStr === '' || !Number.isFinite(doneNum) || doneNum < 0) {
-      return { error: `Enter a valid Qty Done for mark ${m.bom_assembly.assembly_mark} before completing.` }
-    }
-    const notStartedStr = edits[m.bom_assembly_id]?.qty_not_started ?? (m.qty_not_started != null ? String(m.qty_not_started) : '')
-    const inProgressStr = edits[m.bom_assembly_id]?.qty_in_progress ?? (m.qty_in_progress != null ? String(m.qty_in_progress) : '')
-    const qcPassedStr = edits[m.bom_assembly_id]?.qty_qc_passed ?? (m.qty_qc_passed != null ? String(m.qty_qc_passed) : '')
-    const reworkStr = edits[m.bom_assembly_id]?.qty_rework ?? (m.qty_rework != null ? String(m.qty_rework) : '')
-    const renewStr = edits[m.bom_assembly_id]?.qty_renew ?? (m.qty_renew != null ? String(m.qty_renew) : '')
-    payload.push({
-      bom_assembly_id: m.bom_assembly_id,
-      qty_not_started: notStartedStr !== '' ? Number(notStartedStr) : undefined,
-      qty_in_progress: inProgressStr !== '' ? Number(inProgressStr) : undefined,
-      qty_done: doneNum,
-      qty_qc_passed: qcPassedStr !== '' ? Number(qcPassedStr) : undefined,
-      qty_rework: reworkStr !== '' ? Number(reworkStr) : undefined,
-      qty_renew: renewStr !== '' ? Number(renewStr) : undefined,
-    })
-  }
-  return { marks: payload }
-}
-
-/**
  * Builds the POST /wo/:id/cancel payload — reason plus one QC breakdown
  * (2026-09-23, was a single qty_reusable scalar) per non-removed mark that
  * already has qty_done > 0. Exported (pure) for unit testing.
@@ -122,57 +83,19 @@ export function buildCancelPayload(
  * Gates the Complete button's visibility (2026-09-23, user: "ปุ่ม complete
  * จะแสดงก็ต่อเมื่อ qc passed ทุก mark = quantity ของทุก mark" — the Complete
  * button only shows once every non-removed mark's QC Passed reaches its full
- * planned qty). Reads the SAME draft (edits layered over server value) the
- * Marks table itself shows and buildDoneMarksPayload will submit — the button
- * must react to what's currently typed in, not just the last-saved value,
- * since QC Passed is itself only ever persisted by clicking Complete.
- * Exported (pure) for unit testing, same pattern as buildDoneMarksPayload.
+ * planned qty). Reads saved server values only (2026-10-05): progress is
+ * saved per mark on Confirm, and POST /wo/:id/done without marks re-checks
+ * this same gate server-side. Exported (pure) for unit testing, same pattern
+ * as buildCancelPayload.
  */
 export function allMarksQcPassed(
-  marks: Pick<WoMark, 'bom_assembly_id' | 'removed_at' | 'qty_planned' | 'qty_qc_passed'>[],
-  edits: MarkEdits,
+  marks: Pick<WoMark, 'removed_at' | 'qty_planned' | 'qty_qc_passed'>[],
 ): boolean {
   const activeMarks = marks.filter(m => !m.removed_at)
   if (!activeMarks.length) return false
-  return activeMarks.every(m => {
-    const str = edits[m.bom_assembly_id]?.qty_qc_passed ?? (m.qty_qc_passed != null ? String(m.qty_qc_passed) : '')
-    const num = str !== '' ? Number(str) : 0
-    return num === Number(m.qty_planned)
-  })
-}
-
-/**
- * Clamps a Marks-table qty edit to [0, the mark's own Quantity] (2026-09-23,
- * user spotted "32" sitting unflagged in Not Started on a mark whose
- * Quantity is "1": "ทุก status ค่า max ต้องห้ามเกิน quantity" — every
- * editable qty field's value must never exceed the mark's own Quantity;
- * same-day follow-up: "ค่า min ต้อง = 0 ห้ามใส่ติดลบ" — the min must be 0,
- * negative values are forbidden too). Applies uniformly to all 6 fields
- * (not-started/in-progress/done/qc-passed/rework/renew) — a flat per-field
- * [0, qty_planned] range, independent of the sum-of-buckets checks the
- * server already enforces at Done time (those already guarantee no single
- * field can fall outside that range once *submitted* — this closes the gap
- * where an impossible value could still sit in the draft, unflagged, before
- * ever being submitted; the `min={0}`/`max={qty_planned}` HTML attributes on
- * the <input>s alone don't block typing out-of-range values, only mark them
- * :invalid). Delegates the actual [0, max] math to WoMarksTable's own
- * clampQty — this wrapper's only job is resolving WHICH max applies (this
- * mark's own qty_planned), needed here since this is the funnel every
- * onEditChange call passes through, including bulk-apply's (which calls
- * onEditChange once per selected mark directly, bypassing the expand-row's
- * own local staged-draft clamp in WoMarksTable — see its doc comment).
- * Exported (pure) for unit testing.
- */
-export function clampQtyEdit(
-  marks: Pick<WoMark, 'bom_assembly_id' | 'qty_planned'>[],
-  bomAssemblyId: number,
-  value: string,
-): string {
-  const mark = marks.find(m => m.bom_assembly_id === bomAssemblyId)
-  // Mark not found: still enforce the (mark-independent) min bound, just
-  // without a max — same defensive behavior as before this was refactored
-  // to delegate to clampQty.
-  return clampQty(value, mark ? Number(mark.qty_planned) : Infinity)
+  // null never passes (fix wave 2026-10-05) — the server's rule is
+  // toNum(qc) === Number(planned), and toNum(null) is null.
+  return activeMarks.every(m => m.qty_qc_passed != null && Number(m.qty_qc_passed) === Number(m.qty_planned))
 }
 
 export function WoDetail() {
@@ -186,18 +109,16 @@ export function WoDetail() {
   const [cancelBreakdown, setCancelBreakdown] = useState<Record<number, QcBreakdown>>({})
   const [modalError, setModalError] = useState<string | null>(null)
 
-  // Marks table draft — nothing here is persisted until Done is submitted;
-  // see WoMarksTable's own doc comment for why there's no per-row Save.
-  const [markEdits, setMarkEdits] = useState<MarkEdits>({})
-  const [doneNotes, setDoneNotes] = useState('')
   const [actionError, setActionError] = useState<string | null>(null)
   // Actual dates + On Plan/Delayed are typed by the user, never auto-filled
-  // (2026-10-01): 'complete' carries the already-validated marks payload so
-  // nothing is sent until the modal's Confirm; 'edit' = DONE-only fix.
-  const [datesModal, setDatesModal] = useState<{ mode: 'complete'; marks: WoDoneMarkInput[] } | { mode: 'edit' } | null>(null)
+  // (2026-10-01): nothing is sent until the modal's Confirm; 'complete'
+  // sends no marks (progress is already saved per mark, 2026-10-05);
+  // 'edit' = DONE-only fix.
+  const [datesModal, setDatesModal] = useState<{ mode: 'complete' | 'edit' } | null>(null)
   const [datesError, setDatesError] = useState<string | null>(null)
 
-  const { data: wo, isLoading } = useWo(woId)
+  const { data: wo, isLoading, refetch } = useWo(woId)
+  const { data: events, isLoading: eventsLoading } = useWoEvents(woId)
   const { data: bomList } = useBomVersionStatus(woId)
   const simpleTransition = useWoTransition(woId)
   const done = useWoDone(woId)
@@ -205,6 +126,7 @@ export function WoDetail() {
   const removeMark = useRemoveWoMark(woId)
   const acceptVersion = useAcceptNewVersion(woId)
   const updateActuals = useUpdateWoActuals(woId)
+  const updateProgress = useUpdateMarkProgress(woId)
   const canWrite = usePermission('orders', 'update')
 
   // Cascade-cancel preview (Task 10, Sprint 20) — only fetches while the
@@ -265,11 +187,9 @@ export function WoDetail() {
   }
 
   function handleDone() {
-    const result = buildDoneMarksPayload(wo!.marks, markEdits)
-    if ('error' in result) { setActionError(result.error); return }
     setActionError(null)
     setDatesError(null)
-    setDatesModal({ mode: 'complete', marks: result.marks })
+    setDatesModal({ mode: 'complete' })
   }
 
   function submitDates(v: ActualDatesValue) {
@@ -278,9 +198,9 @@ export function WoDetail() {
     const actuals = { actual_start: v.actual_start, actual_finish: v.actual_finish, timeliness: v.timeliness!, delay_note: v.delay_note }
     if (datesModal.mode === 'complete') {
       done.mutate(
-        { marks: datesModal.marks, notes: doneNotes.trim() || undefined, ...actuals },
+        actuals,
         {
-          onSuccess: () => { setDatesModal(null); setMarkEdits({}); setDoneNotes(''); toast.success('Work order completed') },
+          onSuccess: () => { setDatesModal(null); toast.success('Work order completed') },
           onError: err => setDatesError(getErrorMessage(err, 'Failed to complete the work order.')),
         },
       )
@@ -314,7 +234,7 @@ export function WoDetail() {
               {a.label}
             </button>
           ))}
-          {canWrite && DONEABLE.includes(wo.status) && allMarksQcPassed(wo.marks, markEdits) && (
+          {canWrite && DONEABLE.includes(wo.status) && allMarksQcPassed(wo.marks) && (
             <button
               onClick={handleDone}
               disabled={done.isPending}
@@ -361,15 +281,18 @@ export function WoDetail() {
           <OverviewTab
             wo={wo}
             bomList={bomList ?? []}
-            markEdits={markEdits}
-            onEditChange={(bomAssemblyId, field, value) => setMarkEdits(prev => ({ ...prev, [bomAssemblyId]: { ...prev[bomAssemblyId], [field]: clampQtyEdit(wo.marks, bomAssemblyId, value) } }))}
+            onSaveProgress={(markId, body) => updateProgress.mutateAsync({ markId, body })}
+            // throwOnError: a failed refetch must reject (the table toasts and
+            // keeps the row closed) instead of resolving with the stale marks.
+            onReloadMarks={async () => (await refetch({ throwOnError: true })).data?.marks}
+            events={events ?? []}
+            eventsLoading={eventsLoading}
+            savePending={updateProgress.isPending}
             canWrite={canWrite}
             onRemove={(bomAssemblyId, body) => removeMark.mutateAsync({ bom_assembly_id: bomAssemblyId, ...body })}
             onAcceptVersion={(bomAssemblyId, body) => acceptVersion.mutateAsync({ bom_assembly_id: bomAssemblyId, ...body })}
             removePending={removeMark.isPending}
             acceptPending={acceptVersion.isPending}
-            doneNotes={doneNotes}
-            onDoneNotesChange={setDoneNotes}
             onMo={() => navigate(`/mo/${wo.mo_id}`)}
             onEditActualDates={() => { setDatesError(null); setDatesModal({ mode: 'edit' }) }}
           />
@@ -670,20 +593,21 @@ function ConsumeCard({ wo }: { wo: import('../api/wo').WoDetail }) {
 }
 
 function OverviewTab({
-  wo, bomList, markEdits, onEditChange, canWrite, onRemove, onAcceptVersion, removePending, acceptPending,
-  doneNotes, onDoneNotesChange, onMo, onEditActualDates,
+  wo, bomList, onSaveProgress, onReloadMarks, events, eventsLoading, savePending, canWrite, onRemove, onAcceptVersion, removePending, acceptPending,
+  onMo, onEditActualDates,
 }: {
   wo: WoDetailT
   bomList: import('../api/wo').BomVersionStatus[]
-  markEdits: MarkEdits
-  onEditChange: (bomAssemblyId: number, field: 'qty_not_started' | 'qty_in_progress' | 'qty_done' | 'qty_qc_passed' | 'qty_rework' | 'qty_renew', value: string) => void
+  onSaveProgress: (markId: number, body: MarkProgressValues & { expected: MarkProgressExpected }) => Promise<unknown>
+  onReloadMarks: () => Promise<WoMark[] | undefined>
+  events: WoEvent[]
+  eventsLoading: boolean
+  savePending: boolean
   canWrite: boolean
   onRemove: (bomAssemblyId: number, body: { reason: string; qty_qc_passed?: number; qty_rework?: number; qty_renew?: number }) => Promise<unknown>
   onAcceptVersion: (bomAssemblyId: number, body: { note?: string; qty_qc_passed?: number; qty_rework?: number; qty_renew?: number; apply_to_other_wos?: boolean }) => Promise<unknown>
   removePending: boolean
   acceptPending: boolean
-  doneNotes: string
-  onDoneNotesChange: (v: string) => void
   onMo: () => void
   onEditActualDates: () => void
 }) {
@@ -712,8 +636,11 @@ function OverviewTab({
         <WoMarksTable
           marks={wo.marks}
           bomVersionStatus={bomList}
-          edits={markEdits}
-          onEditChange={onEditChange}
+          onSaveProgress={onSaveProgress}
+          onReloadMarks={onReloadMarks}
+          events={events}
+          eventsLoading={eventsLoading}
+          savePending={savePending}
           canEditQty={canWrite && (wo.status === 'IN_PROGRESS' || wo.status === 'PAUSED')}
           canModify={canWrite && wo.status !== 'DONE' && wo.status !== 'CANCELLED'}
           onRemove={onRemove}
@@ -721,20 +648,6 @@ function OverviewTab({
           removePending={removePending}
           acceptPending={acceptPending}
         />
-        {/* Whole-WO completion note (POST /wo/:id/done's optional `notes`) —
-            only meaningful once Complete is actually available. */}
-        {canWrite && (wo.status === 'IN_PROGRESS' || wo.status === 'PAUSED') && (
-          <div style={{ marginTop: 10 }}>
-            <label style={{ fontSize: 11, color: '#999', display: 'block', marginBottom: 4 }}>Completion notes (optional)</label>
-            <textarea
-              value={doneNotes}
-              onChange={(e) => onDoneNotesChange(e.target.value)}
-              rows={2}
-              placeholder="Notes to record when this work order is completed…"
-              style={{ width: '100%', padding: '8px 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, resize: 'vertical' }}
-            />
-          </div>
-        )}
       </div>
 
       <ConsumeCard wo={wo} />
@@ -791,6 +704,7 @@ function ScheduleTab({ woId }: { woId: number }) {
 const EVENT_LABEL: Record<string, string> = {
   START: 'Started', PAUSE: 'Paused', RESUME: 'Resumed', DONE: 'Completed', CANCEL: 'Cancelled',
   ACCEPT_VERSION: 'Accepted BOM version', HOLD: 'Put on hold', UNHOLD: 'Resumed from hold', MARK_REMOVED: 'Mark removed',
+  PROGRESS_UPDATE: 'Progress updated',
 }
 
 function EventsTab({ woId, marks }: { woId: number; marks: WoMark[] }) {
@@ -813,6 +727,7 @@ function EventsTab({ woId, marks }: { woId: number; marks: WoMark[] }) {
                 {EVENT_LABEL[e.event_type] ?? e.event_type}
                 {relatedMark && <span style={{ fontWeight: 500, color: '#888' }}> · {relatedMark.bom_assembly.assembly_mark}</span>}
               </div>
+              {!!e.changes?.length && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{formatProgressChanges(e.changes)}</div>}
               {e.notes && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{e.notes}</div>}
               <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtDateTime(e.recorded_at)} · {e.recorded_by}</div>
             </div>

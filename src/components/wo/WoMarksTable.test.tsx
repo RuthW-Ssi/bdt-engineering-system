@@ -1,7 +1,8 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { toast } from 'sonner'
 import { WoMarksTable } from './WoMarksTable'
-import type { BomVersionStatus, WoMark } from '../../api/wo'
+import type { BomVersionStatus, WoEvent, WoMark } from '../../api/wo'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -50,12 +51,35 @@ function makeBom(overrides: Partial<BomVersionStatus> = {}): BomVersionStatus {
   }
 }
 
-function baseProps(overrides: Partial<React.ComponentProps<typeof WoMarksTable>> = {}) {
+function makeEvent(overrides: Partial<WoEvent> = {}): WoEvent {
   return {
-    marks: [makeMark()],
+    id: 1,
+    work_order_id: 1,
+    work_order_mark_id: 1,
+    event_type: 'PROGRESS_UPDATE',
+    notes: null,
+    changes: null,
+    recorded_by: 'tester',
+    recorded_at: '2026-10-01T08:00:00Z',
+    ...overrides,
+  }
+}
+
+function httpError(status: number, data: unknown) {
+  return new AxiosError('Request failed', undefined, undefined, undefined, { status, data } as AxiosResponse)
+}
+
+function baseProps(overrides: Partial<React.ComponentProps<typeof WoMarksTable>> = {}) {
+  const marks = overrides.marks ?? [makeMark()]
+  return {
+    marks,
     bomVersionStatus: [],
-    edits: {},
-    onEditChange: vi.fn(),
+    events: [],
+    // The reload resolves to the same marks by default — tests that need the
+    // server to have moved on override it.
+    onReloadMarks: vi.fn().mockResolvedValue(marks),
+    onSaveProgress: vi.fn().mockResolvedValue(undefined),
+    savePending: false,
     canEditQty: true,
     canModify: true,
     onRemove: vi.fn().mockResolvedValue(undefined),
@@ -222,48 +246,113 @@ describe('WoMarksTable — accept-new-version modal', () => {
   })
 })
 
-describe('WoMarksTable — qty editing (stage, then Confirm/Cancel)', () => {
-  it('typing in the expand-row inputs stages locally — onEditChange is NOT called yet', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ onEditChange })} />)
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
+// ✎ reloads first (await), so the expand-row inputs appear asynchronously.
+async function openEditor(index = 0) {
+  fireEvent.click(screen.getAllByTitle('Edit qty')[index])
+  return screen.findAllByRole('spinbutton')
+}
+
+describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () => {
+  it('clicking ✎ reloads the WO first, then seeds the inputs from the reloaded values', async () => {
+    const onReloadMarks = vi.fn().mockResolvedValue([makeMark({ qty_done: 4, qty_qc_passed: 3 })])
+    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_done: null })], onReloadMarks })} />)
+
     // Expand-row field order: Not Started, In Progress, Qty Done, QC Passed, Rework, Renew.
-    const [notStartedInput, inProgressInput, doneInput] = screen.getAllByRole('spinbutton')
-    fireEvent.change(notStartedInput, { target: { value: '2' } })
-    fireEvent.change(inProgressInput, { target: { value: '3' } })
-    fireEvent.change(doneInput, { target: { value: '7' } })
-
-    expect(onEditChange).not.toHaveBeenCalled()
-    expect(notStartedInput).toHaveValue(2)
-    expect(inProgressInput).toHaveValue(3)
-    expect(doneInput).toHaveValue(7)
+    const [, , doneInput, qcPassedInput] = await openEditor()
+    expect(onReloadMarks).toHaveBeenCalledTimes(1)
+    expect(doneInput).toHaveValue(4)
+    expect(qcPassedInput).toHaveValue(3)
   })
 
-  it('Confirm commits every staged field via onEditChange, then collapses the row', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ onEditChange })} />)
+  it('typing stages locally — onSaveProgress is NOT called until Confirm', async () => {
+    const onSaveProgress = vi.fn().mockResolvedValue(undefined)
+    render(<WoMarksTable {...baseProps({ onSaveProgress })} />)
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [notStartedInput, , doneInput] = screen.getAllByRole('spinbutton')
+    const [notStartedInput, inProgressInput, doneInput] = await openEditor()
     fireEvent.change(notStartedInput, { target: { value: '2' } })
+    fireEvent.change(inProgressInput, { target: { value: '3' } })
+    fireEvent.change(doneInput, { target: { value: '5' } })
+
+    expect(onSaveProgress).not.toHaveBeenCalled()
+    expect(notStartedInput).toHaveValue(2)
+    expect(inProgressInput).toHaveValue(3)
+    expect(doneInput).toHaveValue(5)
+  })
+
+  it('Confirm saves the six numbers (blank → 0) with expected = the values as loaded, toasts, then collapses', async () => {
+    const onSaveProgress = vi.fn().mockResolvedValue(undefined)
+    const loaded = makeMark({ qty_not_started: 10 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]), onSaveProgress })} />)
+
+    const [notStartedInput, , doneInput] = await openEditor()
+    fireEvent.change(notStartedInput, { target: { value: '3' } })
     fireEvent.change(doneInput, { target: { value: '7' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
-    expect(onEditChange).toHaveBeenCalledWith(1, 'qty_not_started', '2')
-    expect(onEditChange).toHaveBeenCalledWith(1, 'qty_done', '7')
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('A1 saved'))
+    expect(onSaveProgress).toHaveBeenCalledWith(1, {
+      qty_not_started: 3, qty_in_progress: 0, qty_done: 7, qty_qc_passed: 0, qty_rework: 0, qty_renew: 0,
+      expected: { qty_not_started: 10, qty_in_progress: null, qty_done: null, qty_qc_passed: null, qty_rework: null, qty_renew: null },
+    })
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
     expect(screen.getByTitle('Edit qty')).toBeInTheDocument()
-    expect(toast.success).toHaveBeenCalledWith('A1 updated')
     expect(toast.error).not.toHaveBeenCalled()
   })
 
-  it('Confirm shows an error toast and does NOT commit when Not Started + In Progress + Done exceeds Quantity', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 5 })], onEditChange })} />)
+  it('a 409 STALE_PROGRESS toasts "updated by someone else", reloads, re-seeds the inputs and keeps the row open', async () => {
+    const onReloadMarks = vi.fn()
+      .mockResolvedValueOnce([makeMark({ qty_done: 2 })])
+      .mockResolvedValueOnce([makeMark({ qty_done: 5 })])
+    const onSaveProgress = vi.fn()
+      .mockRejectedValueOnce(httpError(409, { message: 'This mark was updated by someone else — latest values reloaded', code: 'STALE_PROGRESS' }))
+      .mockResolvedValueOnce(undefined)
+    render(<WoMarksTable {...baseProps({ onReloadMarks, onSaveProgress })} />)
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [notStartedInput, inProgressInput, doneInput] = screen.getAllByRole('spinbutton')
+    const [, , doneInput] = await openEditor()
+    expect(doneInput).toHaveValue(2)
+    fireEvent.change(doneInput, { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('updated by someone else')))
+    await waitFor(() => expect(screen.getAllByRole('spinbutton')[2]).toHaveValue(5))
+    expect(onReloadMarks).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(toast.success).not.toHaveBeenCalled()
+
+    // The next save sends the RE-loaded values as `expected`.
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('A1 saved'))
+    expect(onSaveProgress).toHaveBeenLastCalledWith(1, expect.objectContaining({
+      qty_done: 5,
+      expected: expect.objectContaining({ qty_done: 5 }),
+    }))
+  })
+
+  it.each([
+    ['a 400', 400, 'QC Passed + Rework + Renew exceeds Done'],
+    ['a non-stale 409 (status gate)', 409, 'Progress can only be recorded while the work order is in progress or paused (status ON_HOLD)'],
+  ])('%s toasts the server message and keeps the row open without reloading', async (_label, status, message) => {
+    const onReloadMarks = vi.fn().mockResolvedValue([makeMark()])
+    const onSaveProgress = vi.fn().mockRejectedValue(httpError(status, { message }))
+    render(<WoMarksTable {...baseProps({ onReloadMarks, onSaveProgress })} />)
+
+    const [, , doneInput] = await openEditor()
+    fireEvent.change(doneInput, { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(message))
+    expect(onReloadMarks).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(doneInput).toHaveValue(4)
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('Confirm shows an error toast and does NOT save when Not Started + In Progress + Done exceeds Quantity', async () => {
+    const onSaveProgress = vi.fn()
+    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 5 })], onSaveProgress })} />)
+
+    const [notStartedInput, inProgressInput, doneInput] = await openEditor()
     fireEvent.change(notStartedInput, { target: { value: '2' } })
     fireEvent.change(inProgressInput, { target: { value: '2' } })
     fireEvent.change(doneInput, { target: { value: '2' } }) // 2+2+2=6 > 5
@@ -271,18 +360,17 @@ describe('WoMarksTable — qty editing (stage, then Confirm/Cancel)', () => {
 
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Not Started + In Progress + Done exceeds Quantity'))
     expect(toast.success).not.toHaveBeenCalled()
-    expect(onEditChange).not.toHaveBeenCalled()
+    expect(onSaveProgress).not.toHaveBeenCalled()
     // Row stays open — the draft is preserved, not discarded.
-    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
     expect(notStartedInput).toHaveValue(2)
   })
 
-  it('Confirm shows an error toast and does NOT commit when QC Passed + Rework + Renew exceeds Qty Done', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 10 })], onEditChange })} />)
+  it('Confirm shows an error toast and does NOT save when QC Passed + Rework + Renew exceeds Qty Done', async () => {
+    const onSaveProgress = vi.fn()
+    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 10 })], onSaveProgress })} />)
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [, , doneInput, qcPassedInput, reworkInput] = screen.getAllByRole('spinbutton')
+    const [, , doneInput, qcPassedInput, reworkInput] = await openEditor()
     fireEvent.change(doneInput, { target: { value: '5' } })
     fireEvent.change(qcPassedInput, { target: { value: '3' } })
     fireEvent.change(reworkInput, { target: { value: '3' } }) // 3+3=6 > 5
@@ -290,68 +378,50 @@ describe('WoMarksTable — qty editing (stage, then Confirm/Cancel)', () => {
 
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('QC Passed + Rework + Renew exceeds Qty Done'))
     expect(toast.success).not.toHaveBeenCalled()
-    expect(onEditChange).not.toHaveBeenCalled()
-    expect(screen.queryByRole('button', { name: 'Confirm' })).toBeInTheDocument()
+    expect(onSaveProgress).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
   })
 
-  it('Cancel (the panel button) discards the staged draft — onEditChange is never called', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ onEditChange })} />)
+  it('disables Confirm while a save is pending', async () => {
+    render(<WoMarksTable {...baseProps({ savePending: true })} />)
+    await openEditor()
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  })
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [, , doneInput] = screen.getAllByRole('spinbutton')
+  it('Cancel (the panel button) discards the staged draft — nothing is saved', async () => {
+    const onSaveProgress = vi.fn()
+    render(<WoMarksTable {...baseProps({ onSaveProgress })} />)
+
+    const [, , doneInput] = await openEditor()
     fireEvent.change(doneInput, { target: { value: '7' } })
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
-    expect(onEditChange).not.toHaveBeenCalled()
+    expect(onSaveProgress).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument()
     expect(screen.getByTitle('Edit qty')).toBeInTheDocument()
   })
 
-  it('the row\'s own top-right icon also discards the draft while expanded (same as the panel\'s Cancel)', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ onEditChange })} />)
+  it('the row\'s own top-right icon also discards the draft while expanded (same as the panel\'s Cancel)', async () => {
+    const onSaveProgress = vi.fn()
+    render(<WoMarksTable {...baseProps({ onSaveProgress })} />)
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
+    const [, , doneInput] = await openEditor()
     expect(screen.queryByTitle('Edit qty')).not.toBeInTheDocument()
-    const [, , doneInput] = screen.getAllByRole('spinbutton')
     fireEvent.change(doneInput, { target: { value: '7' } })
     fireEvent.click(screen.getByTitle('Close (discards unconfirmed changes)'))
 
-    expect(onEditChange).not.toHaveBeenCalled()
+    expect(onSaveProgress).not.toHaveBeenCalled()
     expect(screen.getByTitle('Edit qty')).toBeInTheDocument()
   })
 
-  it('seeds the draft from the current effective value (edit-layered-over-server) on open', () => {
-    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_done: 4 })], edits: { 1: { qty_qc_passed: '3' } } })} />)
-
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [, , doneInput, qcPassedInput] = screen.getAllByRole('spinbutton')
-    expect(doneInput).toHaveValue(4)
-    expect(qcPassedInput).toHaveValue(3)
-  })
-
-  it('clamps a staged value to [0, qty_planned] while typing, same as the max/min fix', () => {
+  it('clamps a staged value to [0, qty_planned] while typing, same as the max/min fix', async () => {
     render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 1 })] })} />)
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [notStartedInput] = screen.getAllByRole('spinbutton')
+    const [notStartedInput] = await openEditor()
     fireEvent.change(notStartedInput, { target: { value: '32' } })
     expect(notStartedInput).toHaveValue(1)
     fireEvent.change(notStartedInput, { target: { value: '-5' } })
     expect(notStartedInput).toHaveValue(0)
-  })
-
-  it('reflects an edited value back in the collapsed row', () => {
-    // Two marks with distinct totals so the edited "7" can only be the row
-    // cell — a single-mark WO would make the row value and the footer's
-    // aggregate collide on the same text, which is what this test used to do.
-    const marks = [
-      makeMark({ id: 1, bom_assembly_id: 1, qty_planned: 10, qty_done: 4 }),
-      makeMark({ id: 2, bom_assembly_id: 2, qty_planned: 5, qty_done: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
-    ]
-    render(<WoMarksTable {...baseProps({ marks, edits: { 1: { qty_done: '7' } } })} />)
-    expect(screen.getByText('7')).toBeInTheDocument()
   })
 
   it('does not show the edit action when canEditQty is false', () => {
@@ -359,120 +429,251 @@ describe('WoMarksTable — qty editing (stage, then Confirm/Cancel)', () => {
     expect(screen.queryByTitle('Edit qty')).not.toBeInTheDocument()
   })
 
-  it('checking a row\'s own checkbox while its edit panel is open closes the panel and discards the draft', () => {
-    const onEditChange = vi.fn()
-    render(<WoMarksTable {...baseProps({ onEditChange })} />)
+  // Fix wave 2026-10-05: reload guards.
+  function deferred<T>() {
+    let resolve!: (v: T) => void
+    let reject!: (e: unknown) => void
+    const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej })
+    return { promise, resolve, reject }
+  }
+  const stale409 = () => httpError(409, { message: 'This mark was updated by someone else — latest values reloaded', code: 'STALE_PROGRESS' })
 
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    const [, , doneInput] = screen.getAllByRole('spinbutton')
-    fireEvent.change(doneInput, { target: { value: '7' } })
+  it('disables every ✎ toggle while the ✎ reload is in flight, so it cannot be re-triggered', async () => {
+    const marks = [
+      makeMark({ id: 1, bom_assembly_id: 1 }),
+      makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
+    ]
+    const reload = deferred<WoMark[]>()
+    const onReloadMarks = vi.fn().mockReturnValue(reload.promise)
+    render(<WoMarksTable {...baseProps({ marks, onReloadMarks })} />)
 
-    const rowCheckbox = screen.getAllByRole('checkbox').find(cb => cb !== screen.getByTitle('Select all'))!
-    fireEvent.click(rowCheckbox)
+    fireEvent.click(screen.getAllByTitle('Edit qty')[0])
+    await waitFor(() => screen.getAllByTitle('Edit qty').forEach(b => expect(b).toBeDisabled()))
+    fireEvent.click(screen.getAllByTitle('Edit qty')[0])
+    fireEvent.click(screen.getAllByTitle('Edit qty')[1])
+    expect(onReloadMarks).toHaveBeenCalledTimes(1)
 
-    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
-    expect(screen.getByTitle('Edit qty')).toBeInTheDocument()
-    expect(onEditChange).not.toHaveBeenCalled()
-    expect(rowCheckbox).toBeChecked()
+    reload.resolve(marks)
+    expect(await screen.findByRole('button', { name: 'Confirm' })).not.toBeDisabled()
+    expect(screen.getByTitle('Close (discards unconfirmed changes)')).not.toBeDisabled()
   })
 
-  it('checking a DIFFERENT row\'s checkbox also closes an open edit panel elsewhere', () => {
+  it('disables Confirm and the close toggle while the post-409 reload is in flight', async () => {
+    const second = deferred<WoMark[]>()
+    const onReloadMarks = vi.fn().mockResolvedValueOnce([makeMark({ qty_done: 2 })]).mockReturnValueOnce(second.promise)
+    const onSaveProgress = vi.fn().mockRejectedValueOnce(stale409())
+    render(<WoMarksTable {...baseProps({ onReloadMarks, onSaveProgress })} />)
+
+    await openEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled())
+    expect(screen.getByTitle('Close (discards unconfirmed changes)')).toBeDisabled()
+
+    second.resolve([makeMark({ qty_done: 5 })])
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm' })).not.toBeDisabled())
+    expect(screen.getAllByRole('spinbutton')[2]).toHaveValue(5)
+  })
+
+  it('a failed ✎ reload toasts "Couldn\'t load the latest values — try again" and leaves the row closed', async () => {
+    const onReloadMarks = vi.fn().mockRejectedValue(new Error('Network Error'))
+    render(<WoMarksTable {...baseProps({ onReloadMarks })} />)
+
+    fireEvent.click(screen.getByTitle('Edit qty'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't load the latest values — try again"))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByTitle('Edit qty')).not.toBeDisabled()
+  })
+
+  it('a failed post-409 reload toasts the same error and closes the row (its `expected` is stale)', async () => {
+    const onReloadMarks = vi.fn().mockResolvedValueOnce([makeMark()]).mockRejectedValueOnce(new Error('Network Error'))
+    const onSaveProgress = vi.fn().mockRejectedValueOnce(stale409())
+    render(<WoMarksTable {...baseProps({ onReloadMarks, onSaveProgress })} />)
+
+    await openEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Couldn't load the latest values — try again"))
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByTitle('Edit qty')).not.toBeDisabled()
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('Cancel during the post-409 reload wins — the row stays closed when the reload lands', async () => {
+    const second = deferred<WoMark[]>()
+    const onReloadMarks = vi.fn().mockResolvedValueOnce([makeMark()]).mockReturnValueOnce(second.promise)
+    const onSaveProgress = vi.fn().mockRejectedValueOnce(stale409())
+    render(<WoMarksTable {...baseProps({ onReloadMarks, onSaveProgress })} />)
+
+    await openEditor()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm' })).toBeDisabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    second.resolve([makeMark({ qty_done: 5 })])
+
+    await waitFor(() => expect(screen.getByTitle('Edit qty')).not.toBeDisabled())
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+  })
+
+  it('has no bulk-select checkboxes', () => {
     const marks = [
       makeMark({ id: 1, bom_assembly_id: 1 }),
       makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
     ]
     render(<WoMarksTable {...baseProps({ marks })} />)
-
-    fireEvent.click(screen.getAllByTitle('Edit qty')[0])
-    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
-
-    const rowCheckboxes = screen.getAllByRole('checkbox').filter(cb => cb !== screen.getByTitle('Select all'))
-    fireEvent.click(rowCheckboxes[1])
-
-    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
-    expect(screen.getAllByTitle('Edit qty')).toHaveLength(2)
-  })
-
-  it('"Select all" also closes an open edit panel', () => {
-    render(<WoMarksTable {...baseProps()} />)
-
-    fireEvent.click(screen.getByTitle('Edit qty'))
-    expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByTitle('Select all'))
-
-    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
-    expect(screen.getByText('1 selected')).toBeInTheDocument()
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
   })
 })
 
-describe('WoMarksTable — bulk select + apply', () => {
-  it('applies only the touched field(s) to every selected mark', () => {
-    const onEditChange = vi.fn()
-    const marks = [
-      makeMark({ id: 1, bom_assembly_id: 1 }),
-      makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
-    ]
-    render(<WoMarksTable {...baseProps({ marks, onEditChange })} />)
+// Amended D2 (user, 2026-10-05): "ไม่ต้องมีปุ่มดู history แยก เวลากดแก้ไขแล้ว
+// แสดง history ด้านล่างเลย" — no History button/modal; the open ✎ panel lists
+// the mark's history below the inputs.
+describe('WoMarksTable — history inside the edit panel', () => {
+  const twoMarks = () => [
+    makeMark({ id: 1, bom_assembly_id: 1 }),
+    makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
+  ]
+  // Header row first, then one row per event: six change cells aligned under
+  // the inputs (Not Started … Renew), then "When · By", then "Note".
+  const historyRows = () =>
+    within(screen.getByRole('region', { name: 'History' }))
+      .queryAllByRole('row').slice(1)
+      .map(r => within(r).getAllByRole('cell').map(c => c.textContent ?? ''))
+  const WHEN_BY = (who: string) => new RegExp(String.raw`^\d\d/\d\d \d\d:\d\d${who}$`)
+  // History starts hidden (user 2026-10-05: "default เป็น hide ไว้ก่อนอยากดูค่อยเปิด").
+  const showHistory = () => fireEvent.click(screen.getByRole('button', { name: /show history/i }))
 
-    const rowCheckboxes = screen.getAllByRole('checkbox').filter(cb => cb !== screen.getByTitle('Select all'))
-    fireEvent.click(rowCheckboxes[0])
-    fireEvent.click(rowCheckboxes[1])
-
-    fireEvent.change(screen.getByLabelText('Set Qty Done'), { target: { value: '10' } })
-    fireEvent.click(screen.getByRole('button', { name: /apply to 2/i }))
-
-    expect(onEditChange).toHaveBeenCalledWith(1, 'qty_done', '10')
-    expect(onEditChange).toHaveBeenCalledWith(2, 'qty_done', '10')
-    expect(onEditChange).not.toHaveBeenCalledWith(expect.anything(), 'qty_qc_passed', expect.anything())
+  it('has no History button — for editors or read-only viewers', () => {
+    const { unmount } = render(<WoMarksTable {...baseProps()} />)
+    expect(screen.queryByTitle('History')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /history/i })).not.toBeInTheDocument()
+    unmount()
+    render(<WoMarksTable {...baseProps({ canEditQty: false, canModify: false })} />)
+    expect(screen.queryByTitle('History')).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'History' })).not.toBeInTheDocument()
   })
 
-  it('bulk-applies a QC breakdown field too', () => {
-    const onEditChange = vi.fn()
-    const marks = [
-      makeMark({ id: 1, bom_assembly_id: 1 }),
-      makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
-    ]
-    render(<WoMarksTable {...baseProps({ marks, onEditChange })} />)
-
-    fireEvent.click(screen.getByTitle('Select all'))
-    fireEvent.change(screen.getByLabelText('Set QC Passed'), { target: { value: '5' } })
-    fireEvent.click(screen.getByRole('button', { name: /apply to 2/i }))
-
-    expect(onEditChange).toHaveBeenCalledWith(1, 'qty_qc_passed', '5')
-    expect(onEditChange).toHaveBeenCalledWith(2, 'qty_qc_passed', '5')
+  it('shows nothing until ✎ opens the panel', () => {
+    render(<WoMarksTable {...baseProps({ events: [makeEvent()] })} />)
+    expect(screen.queryByRole('region', { name: 'History' })).not.toBeInTheDocument()
   })
 
-  it('bulk-applies Not Started and In Progress, same as Done/QC Passed/Rework/Renew', () => {
-    const onEditChange = vi.fn()
-    const marks = [
-      makeMark({ id: 1, bom_assembly_id: 1 }),
-      makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
+  it('renders the history as a table aligned with the inputs — only this mark, newest first, noise hidden', async () => {
+    const events = [
+      makeEvent({ id: 1, work_order_mark_id: 1, recorded_at: '2026-10-01T08:00:00Z', recorded_by: 'alice', notes: 'Start', changes: [{ field: 'qty_not_started', old: null, new: 10 }] }),
+      makeEvent({ id: 2, work_order_mark_id: 2, recorded_at: '2026-10-01T09:00:00Z', recorded_by: 'bob', changes: [{ field: 'qty_done', old: 0, new: 3 }] }),
+      makeEvent({ id: 3, work_order_mark_id: 1, recorded_at: '2026-10-02T08:00:00Z', recorded_by: 'carol', event_type: 'ACCEPT_VERSION', notes: 'Accepted BOM version → dispatch 2' }),
+      makeEvent({ id: 4, work_order_mark_id: 1, recorded_at: '2026-10-03T08:00:00Z', recorded_by: 'dave', changes: [{ field: 'qty_done', old: 5, new: 8 }, { field: 'qty_qc_passed', old: 4, new: 6 }] }),
+      makeEvent({ id: 5, work_order_mark_id: null, recorded_at: '2026-10-01T07:00:00Z', recorded_by: 'erin', event_type: 'START' }),
+      makeEvent({ id: 6, work_order_mark_id: 1, recorded_at: '2026-10-04T08:00:00Z', recorded_by: 'frank', notes: 'Cancel disposition', changes: [{ field: 'qty_qc_passed', old: 3, new: 5 }] }),
+      makeEvent({ id: 7, work_order_mark_id: 1, recorded_at: '2026-10-02T12:00:00Z', recorded_by: 'gina', event_type: 'ACCEPT_VERSION', notes: 'Accepted BOM version → dispatch 3', changes: [{ field: 'qty_planned', old: 10, new: 8 }] }),
+      // Recorded before blank→0 stopped being logged: the — → 0 parts are noise.
+      makeEvent({ id: 8, work_order_mark_id: 1, recorded_at: '2026-10-01T09:30:00Z', recorded_by: 'henry', changes: [{ field: 'qty_in_progress', old: null, new: 1 }, { field: 'qty_done', old: null, new: 0 }, { field: 'qty_qc_passed', old: null, new: 0 }] }),
+      // Nothing but noise and no note → no row at all.
+      makeEvent({ id: 9, work_order_mark_id: 1, recorded_at: '2026-10-01T09:45:00Z', recorded_by: 'ivan', changes: [{ field: 'qty_rework', old: null, new: 0 }] }),
     ]
-    render(<WoMarksTable {...baseProps({ marks, onEditChange })} />)
+    render(<WoMarksTable {...baseProps({ marks: twoMarks(), events })} />)
+    await openEditor(0)
+    showHistory()
 
-    fireEvent.click(screen.getByTitle('Select all'))
-    fireEvent.change(screen.getByLabelText('Set Not Started'), { target: { value: '1' } })
-    fireEvent.change(screen.getByLabelText('Set In Progress'), { target: { value: '4' } })
-    fireEvent.click(screen.getByRole('button', { name: /apply to 2/i }))
+    const region = screen.getByRole('region', { name: 'History' })
+    expect(within(region).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
+      ['Not Started', 'In Progress', 'Qty Done', 'QC Passed', 'Rework', 'Renew', 'When · By', 'Note'],
+    )
+    const rows = historyRows()
+    //            Not St    In Prog   Done      QC        Rework  Renew
+    const expected: [string[], string, string][] = [
+      [['', '', '', '3 → 5', '', ''], 'frank', 'Cancel disposition'],
+      [['', '', '5 → 8', '4 → 6', '', ''], 'dave', ''],
+      [['', '', '', '', '', ''], 'gina', 'BOM version accepted · Quantity 10 → 8'],
+      [['', '', '', '', '', ''], 'carol', 'BOM version accepted'],
+      [['', '– → 1', '', '', '', ''], 'henry', ''],
+      [['– → 10', '', '', '', '', ''], 'alice', 'Start'],
+    ]
+    expect(rows).toHaveLength(expected.length) // bob (other mark), erin (WO-level), ivan (noise only) left out
+    rows.forEach((cells, i) => {
+      const [changeCells, who, note] = expected[i]
+      expect(cells.slice(0, 6)).toEqual(changeCells)
+      expect(cells[6]).toMatch(WHEN_BY(who))
+      expect(cells[7]).toBe(note)
+    })
 
-    expect(onEditChange).toHaveBeenCalledWith(1, 'qty_not_started', '1')
-    expect(onEditChange).toHaveBeenCalledWith(2, 'qty_not_started', '1')
-    expect(onEditChange).toHaveBeenCalledWith(1, 'qty_in_progress', '4')
-    expect(onEditChange).toHaveBeenCalledWith(2, 'qty_in_progress', '4')
+    for (const control of [screen.getAllByRole('spinbutton')[5], screen.getByRole('button', { name: 'Confirm' }), screen.getByRole('button', { name: 'Cancel' })]) {
+      expect(control.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
   })
 
-  it('selects/deselects all active marks via the header checkbox', () => {
-    const marks = [
-      makeMark({ id: 1, bom_assembly_id: 1 }),
-      makeMark({ id: 2, bom_assembly_id: 2, bom_assembly: { ...makeMark().bom_assembly, assembly_mark: 'A2' } }),
+  it('follows the panel to the other mark', async () => {
+    const events = [
+      makeEvent({ id: 1, work_order_mark_id: 1, recorded_by: 'alice', changes: [{ field: 'qty_done', old: 1, new: 2 }] }),
+      makeEvent({ id: 2, work_order_mark_id: 2, recorded_by: 'bob', changes: [{ field: 'qty_done', old: 0, new: 3 }] }),
     ]
-    render(<WoMarksTable {...baseProps({ marks })} />)
+    render(<WoMarksTable {...baseProps({ marks: twoMarks(), events })} />)
+    await openEditor(1)
+    showHistory()
+    const rows = historyRows()
+    expect(rows).toHaveLength(1)
+    expect(rows[0][2]).toBe('0 → 3')
+    expect(rows[0][6]).toMatch(WHEN_BY('bob'))
+  })
 
-    fireEvent.click(screen.getByTitle('Select all'))
-    expect(screen.getByText('2 selected')).toBeInTheDocument()
+  it('shows "Loading history…" while the events load', async () => {
+    render(<WoMarksTable {...baseProps({ events: [], eventsLoading: true })} />)
+    await openEditor()
+    showHistory()
+    const region = screen.getByRole('region', { name: 'History' })
+    expect(within(region).getByText('Loading history…')).toBeInTheDocument()
+    expect(within(region).queryByText('No progress recorded yet')).not.toBeInTheDocument()
+  })
 
-    fireEvent.click(screen.getByTitle('Select all'))
-    expect(screen.queryByText('2 selected')).not.toBeInTheDocument()
+  it('shows "No progress recorded yet" when the mark has no events', async () => {
+    render(<WoMarksTable {...baseProps({ events: [makeEvent({ work_order_mark_id: 99 })] })} />)
+    await openEditor()
+    showHistory()
+    const region = screen.getByRole('region', { name: 'History' })
+    expect(within(region).getByText('No progress recorded yet')).toBeInTheDocument()
+    expect(within(region).queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  // User 2026-10-05: "เอามาทำเป็นข้างๆ Dispatch #13 changed this mark ... ไว้เปิดปิด history"
+  // — a toggle on the same line as the outdated note; history starts open.
+  describe('show/hide toggle', () => {
+    const events = [
+      makeEvent({ id: 1, work_order_mark_id: 1, recorded_by: 'alice', changes: [{ field: 'qty_done', old: 1, new: 2 }] }),
+      makeEvent({ id: 2, work_order_mark_id: 1, recorded_by: 'bob', changes: [{ field: 'qty_done', old: 2, new: 3 }] }),
+    ]
+
+    it('starts hidden with the count; Show history opens it and Hide history folds it away again', async () => {
+      render(<WoMarksTable {...baseProps({ events })} />)
+      await openEditor()
+      expect(screen.queryByRole('region', { name: 'History' })).not.toBeInTheDocument()
+      const show = screen.getByRole('button', { name: 'Show history (2)' })
+      expect(show).toHaveAttribute('aria-expanded', 'false')
+      // Icon only (user 2026-10-05: "เอาให้เหลือ icon อย่างเดียวพอ") — the count lives in the tooltip.
+      expect(show).toHaveTextContent('')
+      expect(show).toHaveAttribute('title', 'Show history (2)')
+
+      fireEvent.click(show)
+      expect(screen.getByRole('region', { name: 'History' })).toBeInTheDocument()
+      const hide = screen.getByRole('button', { name: /hide history/i })
+      expect(hide).toHaveAttribute('aria-expanded', 'true')
+
+      fireEvent.click(hide)
+      expect(screen.queryByRole('region', { name: 'History' })).not.toBeInTheDocument()
+    })
+
+    // User 2026-10-05: "เอาไปไว้ข้างปุ่ม cancel" — right after Cancel, not on the outdated note's line.
+    it('sits right after Cancel in the Confirm/Cancel row, apart from the outdated note', async () => {
+      render(<WoMarksTable {...baseProps({ events, bomVersionStatus: [makeBom()] })} />)
+      await openEditor()
+      const toggle = screen.getByRole('button', { name: /show history/i })
+      expect(toggle.previousElementSibling).toBe(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.getByText(/changed this mark/).parentElement).not.toBe(toggle.parentElement)
+    })
+
+    it('is still offered when the mark is up to date (no note)', async () => {
+      render(<WoMarksTable {...baseProps({ events, bomVersionStatus: [makeBom({ is_outdated: false, delta_types: [] })] })} />)
+      await openEditor()
+      expect(screen.queryByText(/changed this mark/)).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /show history/i })).toBeInTheDocument()
+    })
   })
 })

@@ -9,6 +9,8 @@ import { CancelWoDto, WoActualsDto, WoDoneDto } from './dto/wo-transition.dto'
 import { RemoveMarkDto } from './dto/remove-mark.dto'
 import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
+import { UpdateMarkProgressDto } from './dto/update-mark-progress.dto'
+import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField } from './progress-changes'
 
 /**
  * WO list default sort tiebreak (T-WO.09): active work first, terminal last.
@@ -508,13 +510,27 @@ export class WorkOrdersService {
       // reachable only from NOT_STARTED — a WO can never re-enter RELEASED once
       // IN_PROGRESS, so this always runs exactly once per WO, before any
       // qty_not_started could have been written by done().
+      // Audited (2026-10-05) as one PROGRESS_UPDATE per mark whose seed changed a value.
       if (action === 'start') {
         const marks = await tx.work_order_mark.findMany({
           where: { work_order_id: id, removed_at: null },
-          select: { id: true, qty_planned: true },
+          select: { id: true, qty_planned: true, qty_not_started: true },
         })
         for (const m of marks) {
+          const changes = diffProgress(m, { qty_not_started: m.qty_planned })
           await tx.work_order_mark.update({ where: { id: m.id }, data: { qty_not_started: m.qty_planned } })
+          if (changes.length) {
+            await tx.work_order_event.create({
+              data: {
+                work_order_id: id,
+                work_order_mark_id: m.id,
+                event_type: 'PROGRESS_UPDATE',
+                changes: changes as unknown as Prisma.InputJsonValue,
+                notes: 'Start', // tells the seed apart from a manual save in the mark's history
+                recorded_by: userName,
+              },
+            })
+          }
         }
       }
     })
@@ -567,13 +583,29 @@ export class WorkOrdersService {
     return (input.qty_qc_passed ?? 0) + (input.qty_rework ?? 0) + (input.qty_renew ?? 0)
   }
 
+  /**
+   * The values a PROVIDED QC breakdown writes (fix wave 2026-10-05): all three
+   * fields, blank = 0 — never "keep the saved value". Progress is saved per mark
+   * before Done now, so QC fields can already hold values; keeping e.g. a saved
+   * Rework 2 beside a new QC Passed 5 would leave the QC sum above qty_done for
+   * good. Used by cancel()/removeMark()/acceptNewVersion().
+   */
+  private qcBreakdownWrite(input: { qty_qc_passed?: number | null; qty_rework?: number | null; qty_renew?: number | null }) {
+    return { qty_qc_passed: input.qty_qc_passed ?? 0, qty_rework: input.qty_rework ?? 0, qty_renew: input.qty_renew ?? 0 }
+  }
+
   // ── Done — per-mark array (multi-mark redesign, 2026-09-17) ─────────────────
   /**
-   * Must cover every non-removed work_order_mark on the WO (400 listing whichever
+   * `dto.marks` omitted (2026-10-05, the current frontend): no mark writes — every
+   * non-removed mark's SAVED qty_qc_passed must equal qty_planned (400 otherwise).
+   * `dto.marks` sent (older clients): must cover every non-removed
+   * work_order_mark on the WO (400 listing whichever
    * are missing/unknown otherwise). Writes each mark's qty_done + QC breakdown
    * (qty_qc_passed/qty_rework/qty_renew, 2026-09-23), sets the WO status=DONE +
    * the user-typed actuals/timeliness (2026-10-01, see resolveActuals()), and
-   * writes ONE whole-WO DONE event (work_order_mark_id null) — not one event per mark.
+   * writes ONE whole-WO DONE event (work_order_mark_id null). Each mark whose
+   * written values changed also gets a PROGRESS_UPDATE event with `changes`
+   * (fix wave 2026-10-05), same as every other qty writer.
    */
   async done(id: number, dto: WoDoneDto, userName: string) {
     const wo = await this.prisma.work_order.findUnique({
@@ -588,6 +620,42 @@ export class WorkOrdersService {
         current_status: wo.status,
         allowed_next: allowedActionsFrom(wo.status),
       })
+    }
+
+    if (!dto.marks) {
+      // 2026-10-05: progress is saved per mark as it's entered, so Complete
+      // carries no quantities — validate what's stored instead (spec §4): the
+      // same rules the per-mark PATCH enforces, then the QC gate. Saved values
+      // can still break them — acceptNewVersion may lower qty_planned below an
+      // existing qty_done, and skips its QC bound when qty_done is null.
+      const saved = wo.marks.map((m) => ({
+        m,
+        planned: Number(m.qty_planned),
+        v: Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, toNum(m[f]) ?? 0])) as Record<EditableProgressField, number>,
+      }))
+      const ids = (rows: typeof saved) => rows.map((r) => r.m.bom_assembly_id).join(', ')
+      const overField = saved.filter(({ v, planned }) => EDITABLE_PROGRESS_FIELDS.some((f) => v[f] > planned))
+      if (overField.length > 0) {
+        throw new BadRequestException(`Values cannot exceed Quantity for mark(s): ${ids(overField)}`)
+      }
+      const overPlanned = saved.filter(({ v, planned }) => v.qty_not_started + v.qty_in_progress + v.qty_done > planned)
+      if (overPlanned.length > 0) {
+        throw new BadRequestException(`Not Started + In Progress + Done exceeds Quantity for mark(s): ${ids(overPlanned)}`)
+      }
+      const overQc = saved.filter(({ v }) => v.qty_qc_passed + v.qty_rework + v.qty_renew > v.qty_done)
+      if (overQc.length > 0) {
+        throw new BadRequestException(`QC Passed + Rework + Renew exceeds Done for mark(s): ${ids(overQc)}`)
+      }
+      const notPassed = wo.marks.filter((m) => toNum(m.qty_qc_passed) !== Number(m.qty_planned))
+      if (notPassed.length > 0) {
+        throw new BadRequestException(`Every mark needs QC Passed = Quantity before completing: ${notPassed.map((m) => m.bom_assembly_id).join(', ')}`)
+      }
+      const actuals = this.resolveActuals(dto)
+      await this.prisma.$transaction(async (tx) => {
+        await tx.work_order.update({ where: { id }, data: { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName } })
+        await tx.work_order_event.create({ data: { work_order_id: id, event_type: 'DONE', notes: dto.notes ?? null, recorded_by: userName } })
+      })
+      return this.findOne(id)
     }
 
     const byAssembly = new Map(dto.marks.map((m) => [m.bom_assembly_id, m]))
@@ -629,17 +697,34 @@ export class WorkOrdersService {
     await this.prisma.$transaction(async (tx) => {
       for (const m of wo.marks) {
         const input = byAssembly.get(m.bom_assembly_id)!
+        // Omitted fields stay untouched (undefined); qty_done is always written.
+        const written = {
+          qty_not_started: input.qty_not_started ?? undefined,
+          qty_in_progress: input.qty_in_progress ?? undefined,
+          qty_done: input.qty_done,
+          qty_qc_passed: input.qty_qc_passed ?? undefined,
+          qty_rework: input.qty_rework ?? undefined,
+          qty_renew: input.qty_renew ?? undefined,
+        }
         await tx.work_order_mark.update({
           where: { id: m.id },
-          data: {
-            qty_not_started: input.qty_not_started != null ? new Prisma.Decimal(input.qty_not_started) : undefined,
-            qty_in_progress: input.qty_in_progress != null ? new Prisma.Decimal(input.qty_in_progress) : undefined,
-            qty_done: new Prisma.Decimal(input.qty_done),
-            qty_qc_passed: input.qty_qc_passed != null ? new Prisma.Decimal(input.qty_qc_passed) : undefined,
-            qty_rework: input.qty_rework != null ? new Prisma.Decimal(input.qty_rework) : undefined,
-            qty_renew: input.qty_renew != null ? new Prisma.Decimal(input.qty_renew) : undefined,
-          },
+          data: Object.fromEntries(
+            EDITABLE_PROGRESS_FIELDS.map((f) => [f, written[f] != null ? new Prisma.Decimal(written[f]!) : undefined]),
+          ),
         })
+        // Audited (fix wave 2026-10-05) like every other qty writer.
+        const changes = diffProgress(m, written)
+        if (changes.length) {
+          await tx.work_order_event.create({
+            data: {
+              work_order_id: id,
+              work_order_mark_id: m.id,
+              event_type: 'PROGRESS_UPDATE',
+              changes: changes as unknown as Prisma.InputJsonValue,
+              recorded_by: userName,
+            },
+          })
+        }
       }
       await tx.work_order.update({
         where: { id },
@@ -650,6 +735,73 @@ export class WorkOrdersService {
       })
     })
 
+    return this.findOne(id)
+  }
+
+  // ── Per-mark progress save (2026-10-05) ─────────────────────────────────────
+  /**
+   * Absolute new totals for ONE mark, saved immediately (replaces the old
+   * draft-until-Done flow). `dto.expected` is what the client loaded — if the
+   * row changed since, 409 STALE_PROGRESS so the client reloads instead of
+   * silently overwriting someone else's entry. The check is atomic (fix wave
+   * 2026-10-05): one conditional UPDATE whose WHERE carries every expected
+   * value, so a save landing between our read and our write can't be
+   * overwritten. Audited as a PROGRESS_UPDATE event carrying only the changed
+   * fields; a no-op writes nothing.
+   */
+  async updateMarkProgress(id: number, markId: number, dto: UpdateMarkProgressDto, userName: string) {
+    const wo = await this.prisma.work_order.findUnique({ where: { id }, include: { marks: { where: { id: markId } } } })
+    if (!wo) throw new NotFoundException(`WO ${id} not found`)
+    if (wo.status !== 'IN_PROGRESS' && wo.status !== 'PAUSED') {
+      throw new ConflictException(`Progress can only be recorded while the work order is in progress or paused (status ${wo.status})`)
+    }
+    const mark = wo.marks[0]
+    if (!mark || mark.removed_at) throw new NotFoundException(`Active mark ${markId} not found on WO ${id}`)
+
+    const planned = Number(mark.qty_planned)
+    const over = EDITABLE_PROGRESS_FIELDS.filter((f) => dto[f] > planned)
+    if (over.length > 0) {
+      throw new BadRequestException(`Values cannot exceed Quantity (${planned}): ${over.map((f) => FIELD_LABEL[f]).join(', ')}`)
+    }
+    if (dto.qty_not_started + dto.qty_in_progress + dto.qty_done > planned) {
+      throw new BadRequestException(`Not Started + In Progress + Done exceeds Quantity (${planned})`)
+    }
+    if (dto.qty_qc_passed + dto.qty_rework + dto.qty_renew > dto.qty_done) {
+      throw new BadRequestException('QC Passed + Rework + Renew exceeds Done')
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Read first only to compute the audit diff — the stale check itself is
+      // the conditional updateMany below.
+      const current = await tx.work_order_mark.findUnique({ where: { id: markId } })
+      if (!current) throw new NotFoundException(`Active mark ${markId} not found on WO ${id}`)
+      const next = Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, dto[f]])) as Record<EditableProgressField, number>
+      const changes = diffProgress(current, next)
+      if (changes.length === 0) return
+      // WHERE = every expected value (null → IS NULL): matches no row if anyone
+      // saved this mark since the client loaded it, even after our read above.
+      const { count } = await tx.work_order_mark.updateMany({
+        where: {
+          id: markId,
+          work_order_id: id,
+          removed_at: null,
+          ...Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, dto.expected[f] ?? null])),
+        },
+        data: Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, new Prisma.Decimal(next[f])])),
+      })
+      if (count === 0) {
+        throw new ConflictException({ message: 'This mark was updated by someone else — latest values reloaded', code: 'STALE_PROGRESS' })
+      }
+      await tx.work_order_event.create({
+        data: {
+          work_order_id: id,
+          work_order_mark_id: markId,
+          event_type: 'PROGRESS_UPDATE',
+          changes: changes as unknown as Prisma.InputJsonValue,
+          recorded_by: userName,
+        },
+      })
+    })
     return this.findOne(id)
   }
 
@@ -727,15 +879,29 @@ export class WorkOrdersService {
 
     await this.prisma.$transaction(async (tx) => {
       for (const m of withOutput) {
-        const disposition = dispositionByAssembly.get(m.bom_assembly_id)!
+        const qc = this.qcBreakdownWrite(dispositionByAssembly.get(m.bom_assembly_id)!)
+        const changes = diffProgress(m, qc)
         await tx.work_order_mark.update({
           where: { id: m.id },
           data: {
-            qty_qc_passed: disposition.qty_qc_passed != null ? new Prisma.Decimal(disposition.qty_qc_passed) : undefined,
-            qty_rework: disposition.qty_rework != null ? new Prisma.Decimal(disposition.qty_rework) : undefined,
-            qty_renew: disposition.qty_renew != null ? new Prisma.Decimal(disposition.qty_renew) : undefined,
+            qty_qc_passed: new Prisma.Decimal(qc.qty_qc_passed),
+            qty_rework: new Prisma.Decimal(qc.qty_rework),
+            qty_renew: new Prisma.Decimal(qc.qty_renew),
           },
         })
+        // Audited (2026-10-05) per mark whose QC fields actually changed.
+        if (changes.length) {
+          await tx.work_order_event.create({
+            data: {
+              work_order_id: id,
+              work_order_mark_id: m.id,
+              event_type: 'PROGRESS_UPDATE',
+              changes: changes as unknown as Prisma.InputJsonValue,
+              notes: 'Cancel disposition',
+              recorded_by: userName,
+            },
+          })
+        }
       }
       await tx.work_order.update({
         where: { id },
@@ -845,6 +1011,12 @@ export class WorkOrdersService {
       throw new BadRequestException('QC breakdown cannot exceed qty_done')
     }
 
+    // A provided breakdown replaces all three QC fields (blank = 0); none
+    // provided leaves them untouched. Audited (2026-10-05) on the MARK_REMOVED
+    // event itself.
+    const qc = provided ? this.qcBreakdownWrite(dto) : null
+    const changes = qc ? diffProgress(target, qc) : []
+
     await this.prisma.$transaction(async (tx) => {
       const now = new Date()
       await tx.work_order_mark.update({
@@ -853,9 +1025,9 @@ export class WorkOrdersService {
           removed_at: now,
           removed_by: userName,
           removed_reason: dto.reason,
-          qty_qc_passed: dto.qty_qc_passed != null ? new Prisma.Decimal(dto.qty_qc_passed) : undefined,
-          qty_rework: dto.qty_rework != null ? new Prisma.Decimal(dto.qty_rework) : undefined,
-          qty_renew: dto.qty_renew != null ? new Prisma.Decimal(dto.qty_renew) : undefined,
+          qty_qc_passed: qc ? new Prisma.Decimal(qc.qty_qc_passed) : undefined,
+          qty_rework: qc ? new Prisma.Decimal(qc.qty_rework) : undefined,
+          qty_renew: qc ? new Prisma.Decimal(qc.qty_renew) : undefined,
         },
       })
       await tx.work_order_event.create({
@@ -864,6 +1036,7 @@ export class WorkOrdersService {
           work_order_mark_id: target.id,
           event_type: 'MARK_REMOVED',
           notes: dto.reason,
+          changes: changes.length ? (changes as unknown as Prisma.InputJsonValue) : undefined,
           recorded_by: userName,
         },
       })
@@ -1309,6 +1482,11 @@ export class WorkOrdersService {
 
     const newQtyPlanned = latestAsm.qty ?? mark.qty_planned
     const originalBomAssemblyId = dto.bom_assembly_id
+    // A provided breakdown replaces all three QC fields (blank = 0); none
+    // provided leaves them untouched. Audited (2026-10-05) on the
+    // ACCEPT_VERSION event itself.
+    const qc = provided ? this.qcBreakdownWrite(dto) : null
+    const changes = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
 
     await this.prisma.$transaction(async (tx) => {
       await tx.work_order_mark.update({
@@ -1317,9 +1495,9 @@ export class WorkOrdersService {
           bom_assembly_id: latestAsm.id,
           bom_dispatch_id_snapshot: status.latest_dispatch_id,
           qty_planned: newQtyPlanned,
-          qty_qc_passed: dto.qty_qc_passed ?? undefined,
-          qty_rework: dto.qty_rework ?? undefined,
-          qty_renew: dto.qty_renew ?? undefined,
+          qty_qc_passed: qc?.qty_qc_passed,
+          qty_rework: qc?.qty_rework,
+          qty_renew: qc?.qty_renew,
         },
       })
       await tx.work_order_event.create({
@@ -1328,6 +1506,7 @@ export class WorkOrdersService {
           work_order_mark_id: mark.id,
           event_type: 'ACCEPT_VERSION',
           notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id}${status.delta_types.length ? ` (${status.delta_types.join(', ')})` : ''}${dto.note ? ` — ${dto.note}` : ''}`,
+          changes: changes.length ? (changes as unknown as Prisma.InputJsonValue) : undefined,
           recorded_by: userName,
         },
       })
@@ -1345,6 +1524,7 @@ export class WorkOrdersService {
           },
         })
         for (const other of others) {
+          const otherChanges = diffProgress(other, { qty_planned: newQtyPlanned })
           await tx.work_order_mark.update({
             where: { id: other.id },
             data: {
@@ -1359,6 +1539,7 @@ export class WorkOrdersService {
               work_order_mark_id: other.id,
               event_type: 'ACCEPT_VERSION',
               notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id} (applied from WO ${id})`,
+              changes: otherChanges.length ? (otherChanges as unknown as Prisma.InputJsonValue) : undefined,
               recorded_by: userName,
             },
           })
