@@ -13,6 +13,8 @@ export interface SourceFileInput {
 
 export interface CreateMoPartInput {
   project_id: number
+  zone_id: number
+  sub_zone_id?: number | null
   primary_mark_prefix_code: string
   routing_template_id: number
   part_sources: PartSource[]
@@ -101,7 +103,8 @@ export class MoPartService {
     assertInput(marks, input.part_lines, input.part_sources)
     const project = await this.prisma.project.findUnique({ where: { id: input.project_id } })
     if (!project) throw new NotFoundException(`Project ${input.project_id} not found`)
-    await this.assertBomPartsInProject(input.part_lines, input.project_id)
+    await this.assertZone(input.project_id, input.zone_id, input.sub_zone_id)
+    await this.assertBomPartsInZone(input.part_lines, input.project_id, input.zone_id)
     await this.assertPrefixAndRouting(input.primary_mark_prefix_code, input.routing_template_id)
 
     const status = input.confirm === true ? 'CONFIRMED' : 'DRAFT'
@@ -113,6 +116,8 @@ export class MoPartService {
           mo_code,
           kind: 'PART',
           project_id: input.project_id,
+          zone_id: input.zone_id,
+          sub_zone_id: input.sub_zone_id ?? null,
           part_sources: [...new Set(input.part_sources)],
           source_files: files,
           primary_mark_prefix_code: input.primary_mark_prefix_code,
@@ -165,7 +170,7 @@ export class MoPartService {
 
       const sources = [...new Set([...(mo.part_sources ?? []), ...(input.part_sources ?? [])])]
       assertInput(marks, input.part_lines, sources)
-      if (mo.project_id != null) await this.assertBomPartsInProject(input.part_lines, mo.project_id)
+      if (mo.project_id != null) await this.assertBomPartsInZone(input.part_lines, mo.project_id, mo.zone_id)
       await this.assertPrefixAndRouting(input.primary_mark_prefix_code, input.routing_template_id)
 
       const header = (m: { primary_mark_prefix_code: string; routing_template_id: number; plan_start?: Date | string | null; plan_finish?: Date | string | null }) => ({
@@ -246,13 +251,26 @@ export class MoPartService {
     })))
   }
 
-  private async assertBomPartsInProject(lines: PartLineInput[], projectId: number) {
+  // One MO Part = one zone of its project (sub-zone optional); fixed after create.
+  private async assertZone(projectId: number, zoneId: number, subZoneId?: number | null) {
+    const zone = await this.prisma.project_zone.findFirst({ where: { id: zoneId, project_id: projectId }, select: { id: true } })
+    if (!zone) throw new BadRequestException(`Zone ${zoneId} is not in project ${projectId}`)
+    if (subZoneId != null) {
+      const sub = await this.prisma.sub_zone.findFirst({ where: { id: subZoneId, zone_id: zoneId }, select: { id: true } })
+      if (!sub) throw new BadRequestException(`Sub-zone ${subZoneId} is not in zone ${zoneId}`)
+    }
+  }
+
+  // bom_part_ids are traceability refs — they must be real parts of this MO's
+  // own zone (an MO Part saved before zones existed: its project).
+  private async assertBomPartsInZone(lines: PartLineInput[], projectId: number, zoneId: number | null) {
     const ids = [...new Set(lines.flatMap(l => l.bom_part_ids ?? []))]
     if (!ids.length) return
-    const found = await this.prisma.bom_part.findMany({ where: { id: { in: ids }, dispatch: { project_id: projectId } }, select: { id: true } })
+    const dispatch = zoneId != null ? { project_id: projectId, zone_id: zoneId } : { project_id: projectId }
+    const found = await this.prisma.bom_part.findMany({ where: { id: { in: ids }, dispatch }, select: { id: true } })
     const ok = new Set(found.map(p => p.id))
     const missing = ids.filter(id => !ok.has(id))
-    if (missing.length) throw new BadRequestException(`bom_part_ids not found in this project: ${missing.join(', ')}`)
+    if (missing.length) throw new BadRequestException(`bom_part_ids not found in this ${zoneId != null ? 'zone' : 'project'}: ${missing.join(', ')}`)
   }
   private async assertPrefixAndRouting(prefixCode: string, routingId: number) {
     const [prefix, template] = await Promise.all([

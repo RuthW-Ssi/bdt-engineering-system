@@ -40,6 +40,8 @@ const ALLOWED_TRANSITIONS: Record<MoStatus, MoStatus[]> = {
 const DETAIL_INCLUDE = {
   primary_mark_prefix: true,
   project: { select: { id: true, project_code: true, name: true } },
+  zone: { select: { id: true, code: true, label: true } },
+  sub_zone: { select: { id: true, name: true, code: true } },
   part_marks: { orderBy: { mark: 'asc' as const } },
   part_lines: { orderBy: { line_seq: 'asc' as const }, include: { mark: { select: { mark: true } } } },
   create_user: { select: { id: true, name: true, login: true } },
@@ -144,6 +146,7 @@ export class ManufacturingOrderService {
         routing_template: {
           select: { id: true, code: true, name: true, _count: { select: { operations: true } } },
         },
+        zone: { select: { id: true, code: true, label: true } },
         _count: { select: { assembly_lines: true, part_lines: true } },
       },
     })
@@ -158,6 +161,7 @@ export class ManufacturingOrderService {
       routing_template: { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name },
       assembly_count: r._count.assembly_lines,
       part_line_count: r._count.part_lines,
+      zone: r.zone ?? null,
       operation_count: r.routing_template._count.operations, // from routing template (ops no longer stored on MO)
       create_date: r.create_date,
     }))

@@ -6,7 +6,7 @@ import { MoPartService } from './mo-part.service'
 const LINE = { profile: 'PL25x400', grade: 'SM520', length_mm: 10550, qty: 6, unit_weight_kg: 828.17 }
 const MARK = { mark: 'BUH1-3', set_qty: 2, length_mm: 10550, width_mm: 400, height_mm: 1200, weight_kg: 7122.3 }
 const INPUT = {
-  project_id: 5, primary_mark_prefix_code: 'FLG', routing_template_id: 3,
+  project_id: 5, zone_id: 3, primary_mark_prefix_code: 'FLG', routing_template_id: 3,
   part_sources: ['MATERIAL_LIST' as const, 'DISPATCH_NOTE' as const],
   source_files: [{ kind: 'MATERIAL_LIST' as const, filename: 'ML.xls' }, { kind: 'DISPATCH_NOTE' as const, filename: 'DN.xls' }],
   part_marks: [MARK],
@@ -32,6 +32,8 @@ function make(over: Partial<Record<string, unknown>> = {}, txOver: Partial<Recor
   }
   const prisma = {
     project: { findUnique: jest.fn().mockResolvedValue({ id: 5 }) },
+    project_zone: { findFirst: jest.fn().mockResolvedValue({ id: 3 }) },
+    sub_zone: { findFirst: jest.fn().mockResolvedValue({ id: 8 }) },
     mark_prefix_master: { findUnique: jest.fn().mockResolvedValue({ code: 'FLG' }) },
     routing_template: { findUnique: jest.fn().mockResolvedValue({ id: 3 }) },
     bom_dispatch: { findUnique: jest.fn().mockResolvedValue({ id: 10 }) },
@@ -51,7 +53,7 @@ describe('MoPartService.create', () => {
     const { svc, tx, mail } = make()
     await expect(svc.create(INPUT, 1, 'tao')).resolves.toEqual({ id: 77, mo_code: 'MO-26000077' })
     const data = tx.manufacturing_order.create.mock.calls[0][0].data
-    expect(data).toMatchObject({ kind: 'PART', project_id: 5, status: 'DRAFT', part_sources: ['MATERIAL_LIST', 'DISPATCH_NOTE'] })
+    expect(data).toMatchObject({ kind: 'PART', project_id: 5, zone_id: 3, sub_zone_id: null, status: 'DRAFT', part_sources: ['MATERIAL_LIST', 'DISPATCH_NOTE'] })
     expect(data.source_files).toEqual([
       { kind: 'MATERIAL_LIST', filename: 'ML.xls', at: expect.any(String) },
       { kind: 'DISPATCH_NOTE', filename: 'DN.xls', at: expect.any(String) },
@@ -92,7 +94,24 @@ describe('MoPartService.create', () => {
   it('rejects bom_part_ids from another project', async () => {
     const { svc } = make({ bom_part: { findMany: jest.fn().mockResolvedValue([{ id: 1 }]) } })
     await expect(svc.create({ ...INPUT, part_sources: ['BOM_PART_LIST'], part_marks: [], part_lines: [{ ...LINE, bom_part_ids: [1, 2] }] }, 1, 'tao'))
-      .rejects.toThrow(new BadRequestException('bom_part_ids not found in this project: 2'))
+      .rejects.toThrow(new BadRequestException('bom_part_ids not found in this zone: 2'))
+  })
+  it('rejects a zone that is not in the project', async () => {
+    const { svc, prisma } = make({ project_zone: { findFirst: jest.fn().mockResolvedValue(null) } })
+    await expect(svc.create(INPUT, 1, 'tao')).rejects.toThrow(new BadRequestException('Zone 3 is not in project 5'))
+    expect((prisma as any).project_zone.findFirst.mock.calls[0][0].where).toEqual({ id: 3, project_id: 5 })
+  })
+  it('rejects a sub-zone that is not in the zone, and saves a valid one', async () => {
+    const bad = make({ sub_zone: { findFirst: jest.fn().mockResolvedValue(null) } })
+    await expect(bad.svc.create({ ...INPUT, sub_zone_id: 9 }, 1, 'tao')).rejects.toThrow(new BadRequestException('Sub-zone 9 is not in zone 3'))
+    const ok = make()
+    await ok.svc.create({ ...INPUT, sub_zone_id: 8 }, 1, 'tao')
+    expect(ok.tx.manufacturing_order.create.mock.calls[0][0].data.sub_zone_id).toBe(8)
+  })
+  it('checks bom_part_ids against the zone, not just the project', async () => {
+    const { svc, prisma } = make({ bom_part: { findMany: jest.fn().mockResolvedValue([{ id: 1 }]) } })
+    await svc.create({ ...INPUT, part_sources: ['BOM_PART_LIST'], part_marks: [], part_lines: [{ ...LINE, bom_part_ids: [1] }] }, 1, 'tao')
+    expect((prisma as any).bom_part.findMany.mock.calls[0][0].where).toEqual({ id: { in: [1] }, dispatch: { project_id: 5, zone_id: 3 } })
   })
   it('404s on a missing project', async () => {
     const { svc } = make({ project: { findUnique: jest.fn().mockResolvedValue(null) } })

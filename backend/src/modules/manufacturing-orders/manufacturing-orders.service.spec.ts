@@ -529,6 +529,11 @@ describe('ManufacturingOrderService.findAll — MO Part', () => {
     const prisma = { manufacturing_order: { findMany: jest.fn().mockResolvedValue(rows) } }
     return { svc: new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any), prisma }
   }
+  it('returns the zone of a PART MO', async () => {
+    const { svc } = svcWith([row({ id: 3, kind: 'PART', zone: { id: 4, code: 'Z1', label: 'Zone 1' }, _count: { assembly_lines: 0, part_lines: 2 } })])
+    const [r] = await svc.findAll({})
+    expect(r.zone).toEqual({ id: 4, code: 'Z1', label: 'Zone 1' })
+  })
   it('returns kind and part_line_count', async () => {
     const { svc } = svcWith([row({ id: 2, kind: 'PART', _count: { assembly_lines: 0, part_lines: 8 } })])
     const [r] = await svc.findAll({})

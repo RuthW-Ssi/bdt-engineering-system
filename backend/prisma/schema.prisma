@@ -363,8 +363,9 @@ model project_zone {
 
   products   products[]
   sub_zones  sub_zone[]
-  dispatches bom_dispatch[] @relation("ZoneDispatches")
+  dispatches bom_dispatch[]        @relation("ZoneDispatches")
   drawings   drawing[]
+  part_mos   manufacturing_order[] @relation("ZonePartMos")
 
   @@unique([project_id, code])
 }
@@ -384,8 +385,9 @@ model sub_zone {
   create_date DateTime     @default(now()) @db.Timestamptz
   write_date  DateTime     @updatedAt @db.Timestamptz
 
-  dispatches bom_dispatch[] @relation("SubZoneDispatches")
+  dispatches bom_dispatch[]        @relation("SubZoneDispatches")
   drawings   drawing[]
+  part_mos   manufacturing_order[] @relation("SubZonePartMos")
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -1505,6 +1507,11 @@ model manufacturing_order {
   // PART only (null on ASSEMBLY — those derive projects from their lines).
   project_id               Int?
   project                  project?           @relation("ProjectPartMos", fields: [project_id], references: [id])
+  // PART only: one MO Part = one zone (sub-zone optional); fixed after create.
+  zone_id                  Int?
+  zone                     project_zone?      @relation("ZonePartMos", fields: [zone_id], references: [id])
+  sub_zone_id              Int?
+  sub_zone                 sub_zone?          @relation("SubZonePartMos", fields: [sub_zone_id], references: [id])
   // PART only: every source that contributed — MATERIAL_LIST | DISPATCH_NOTE |
   // BOM_PART_LIST | MANUAL | NC (round 3 R1). source_files: [{ kind, filename, at }].
   part_sources             String[]           @default([])

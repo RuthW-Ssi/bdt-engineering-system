@@ -40,6 +40,8 @@ export class SourceFileDto {
 
 export class CreateMoPartDto {
   @IsInt() @IsPositive() project_id: number
+  @IsInt() @IsPositive() zone_id: number
+  @IsOptional() @IsInt() @IsPositive() sub_zone_id?: number | null
   @IsString() @Length(1, 10) primary_mark_prefix_code: string
   @IsInt() @IsPositive() routing_template_id: number
   @IsArray() @IsIn(PART_SOURCES, { each: true }) part_sources: PartSource[]
