@@ -500,3 +500,21 @@ describe('ManufacturingOrderService.updateActualDates', () => {
     expect(prisma.manufacturing_order.update).not.toHaveBeenCalled()
   })
 })
+describe('ManufacturingOrderService — PART MO guards', () => {
+  function svcWith(mo: unknown) {
+    const prisma = { manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) } }
+    return new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any)
+  }
+  it('refuses to create a WO on a PART MO', async () => {
+    await expect(svcWith({ id: 1, status: 'CONFIRMED', kind: 'PART' }).createWorkOrder(1, { team_id: 1 } as any, 'tao', 1))
+      .rejects.toThrow(new ConflictException('Work orders for MO Part are not supported yet'))
+  })
+  it('refuses to preview a WO on a PART MO', async () => {
+    await expect(svcWith({ id: 1, status: 'CONFIRMED', kind: 'PART' }).previewWorkOrder(1, { operation_id: 1, marks: [] } as any))
+      .rejects.toThrow(new ConflictException('Work orders for MO Part are not supported yet'))
+  })
+  it('refuses to edit a PART MO through the assembly edit route', async () => {
+    await expect(svcWith({ id: 1, status: 'DRAFT', kind: 'PART' }).update(1, {} as any, 1))
+      .rejects.toThrow(new ConflictException('MO 1 is an MO Part — edit it with PATCH /mo/part/1'))
+  })
+})

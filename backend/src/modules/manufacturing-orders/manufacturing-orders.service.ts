@@ -39,6 +39,8 @@ const ALLOWED_TRANSITIONS: Record<MoStatus, MoStatus[]> = {
 
 const DETAIL_INCLUDE = {
   primary_mark_prefix: true,
+  project: { select: { id: true, project_code: true, name: true } },
+  part_lines: { orderBy: { line_seq: 'asc' as const } },
   create_user: { select: { id: true, name: true, login: true } },
   write_user: { select: { id: true, name: true, login: true } },
   routing_template: {
@@ -601,6 +603,9 @@ export class ManufacturingOrderService {
     if (mo.status !== 'DRAFT') {
       throw new ConflictException(`Only DRAFT MOs can be edited (current: ${mo.status})`)
     }
+    if (mo.kind === 'PART') {
+      throw new ConflictException(`MO ${id} is an MO Part — edit it with PATCH /mo/part/${id}`)
+    }
 
     if (dto.assembly_lines) {
       await this.assertQtyWithinRemaining(dto.assembly_lines, id)
@@ -729,7 +734,8 @@ export class ManufacturingOrderService {
   // the WO for (this MO, operation_id), then add a work_order_mark row for each
   // assembly_line_id not already on it. See WorkOrderAutoCreateService.createOrAddMarks().
   async createWorkOrder(moId: number, dto: CreateWoDto, userName: string, userId: number) {
-    await this.requireMo(moId)
+    const mo = await this.requireMo(moId)
+    if (mo.kind === 'PART') throw new ConflictException('Work orders for MO Part are not supported yet')
     // Internal teams cap headcount at their own active-operator count — the
     // frontend auto-fills and clamps this, but re-check server-side since
     // that's just UX, not enforcement (2026-09-25). External teams have no
@@ -809,7 +815,8 @@ export class ManufacturingOrderService {
 
   /** POST /mo/:id/work-orders/preview — read-only, see WorkOrderAutoCreateService.previewMarksImpact(). */
   async previewWorkOrder(moId: number, dto: PreviewWoDto) {
-    await this.requireMo(moId)
+    const mo = await this.requireMo(moId)
+    if (mo.kind === 'PART') throw new ConflictException('Work orders for MO Part are not supported yet')
     const marks = dto.marks.map((m) => ({ assembly_line_id: m.assembly_line_id, qty: m.qty }))
     return this.woAutoCreate.previewMarksImpact(this.prisma, moId, dto.operation_id, marks)
   }
