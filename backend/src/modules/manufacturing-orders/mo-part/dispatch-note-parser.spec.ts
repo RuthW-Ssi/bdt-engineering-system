@@ -31,6 +31,11 @@ describe('parseDispatchNote', () => {
     ])
     expect(r.warnings).toEqual([])
   })
+  it('accepts headers written without spaces (Bangna: MarkNo., WeightKg., DrawingNumber)', () => {
+    const head = ['No.', 'MarkNo.', 'Name', 'DrawingNumber', 'Set', 'Rev', '', '', '', '', '', 'WeightKg.', 'Paint', 'LENGTH', 'WIDTH', 'HIGTH', 'TYPEPAINT', 'STATUS']
+    const r = parseDispatchNote(book({ Dispatch: [head, ['', '', '', '', '', 0, 1, 2, 3, 4, 5, '', 'Area'], [1, 'DBN-B1-BR1', 'BRACE', 'DBN-B1-BR1', 18, 0, 1, 2, '', '', '', 104.44, 3.276, 650, 61, 100]] }))
+    expect(r.marks).toEqual([{ mark: 'DBN-B1-BR1', set_qty: 18, length_mm: 650, width_mm: 61, height_mm: 100, weight_kg: 104.44 }])
+  })
   it('warns on a mark with no positive Set and skips it', () => {
     const r = parseDispatchNote(book({ Dispatch: [HEAD, [1, 'X-1', 'WEB', 'X-1', '', 0, 1, 1, 100, 100, 100]] }))
     expect(r.marks).toEqual([])

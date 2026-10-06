@@ -22,7 +22,13 @@ const num = (v: unknown) => {
   const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/,/g, '').trim())
   return String(v ?? '').trim() === '' || !Number.isFinite(n) ? null : n
 }
-const findCol = (header: string[], aliases: string[]) => header.findIndex(h => aliases.includes(h))
+// Spacing in headers varies by export template ("Mark No." vs "MarkNo."),
+// so header cells and aliases are compared with all spaces removed.
+const squash = (v: string) => v.replace(/\s+/g, '')
+const findCol = (header: string[], aliases: string[]) => {
+  const want = aliases.map(squash)
+  return header.findIndex(h => want.includes(squash(h)))
+}
 
 const MARK = ['mark no.', 'mark no', 'mark', 'assembly mark', 'ass mk']
 const SET = ['set', 'qty', "q'ty", 'quantity']
