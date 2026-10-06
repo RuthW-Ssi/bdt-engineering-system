@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,10 +10,14 @@ import {
   Post,
   Query,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common'
+import { FileInterceptor } from '@nestjs/platform-express'
+import { memoryStorage } from 'multer'
 import type { Response } from 'express'
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
+import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
 import { MoStatus } from '@prisma/client'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
@@ -27,6 +32,9 @@ import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
 import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
 import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
+import { CreateMoPartDto, UpdateMoPartDto } from './dto/create-mo-part.dto'
+import { MoPartService } from './mo-part/mo-part.service'
+import { parseMaterialList } from './mo-part/material-list-parser'
 
 @ApiTags('Manufacturing Orders')
 @ApiBearerAuth()
@@ -36,7 +44,42 @@ export class ManufacturingOrderController {
   constructor(
     private readonly svc: ManufacturingOrderService,
     private readonly moPrint: MoPrintService,
+    private readonly moPart: MoPartService,
   ) {}
+
+  // ── MO Part (wiki features/mo-part-import-plan) — declared before the
+  // ':id' routes so 'part' is never parsed as an MO id.
+  @Post('part/import/material-list')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'MO Part · parse a Material List file (not stored) into size lines' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  importMaterialList(@UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('file is required')
+    return { ...parseMaterialList(file.buffer), filename: file.originalname }
+  }
+
+  @Get('part/import/bom-parts')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'MO Part · ACTIVE parts of a dispatch grouped by size (qty = bom_part.qty)' })
+  importBomParts(@Query('dispatch_id', ParseIntPipe) dispatchId: number, @Query('slot') slot?: string) {
+    if (slot != null && slot !== 'MAIN' && slot !== 'ACC') throw new BadRequestException('slot must be MAIN or ACC')
+    return this.moPart.bomPartLines(dispatchId, slot as 'MAIN' | 'ACC' | undefined)
+  }
+
+  @Post('part')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'Create MO Part (size lines from one source)' })
+  createPart(@Body() dto: CreateMoPartDto, @CurrentUser() user: JwtPayload) {
+    return this.moPart.create(dto, user.sub, user.login)
+  }
+
+  @Patch('part/:id')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'Edit a DRAFT MO Part (header + replace all lines)' })
+  updatePart(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateMoPartDto, @CurrentUser() user: JwtPayload) {
+    return this.moPart.update(id, dto, user.sub)
+  }
 
   @Get()
   @RequiresPermission('orders', 'view')
