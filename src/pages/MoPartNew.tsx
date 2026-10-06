@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { changeMoStatus, importBomParts, importDispatchNote, importMaterialList, importNc, type PartLine, type PartMark, type PartSource } from '../api/mo'
 import { apiClient } from '../api/client'
@@ -15,19 +15,13 @@ import { SizeComparisonPanel } from '../components/mo/SizeComparisonPanel'
 import { duplicateGroups, rowErrors } from '../lib/moPartLines'
 import { rebuildLines } from '../lib/moPartMatch'
 import { toDatetimeLocal } from '../lib/datetimeLocal'
+import { StepHead, ui } from '../components/mo/PartUi'
+import { MoStatusPill } from '../components/mo/MoStatusPill'
 
 // MO Part create/edit (wiki features/mo-part-import-plan §10). Every source
 // only pre-fills: Dispatch Note → marks, Material List → sizes (and the
 // comparison), NC → one line per part mark, BOM → grouped sizes. Everything
 // stays editable; edit mode works in any status except CANCELLED (R2).
-
-const PANEL: React.CSSProperties = { border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff', padding: 14, marginBottom: 12 }
-const LABEL: React.CSSProperties = { fontSize: 12, fontWeight: 700, color: '#1A1A1A', marginBottom: 6 }
-const SELECT: React.CSSProperties = { width: '100%', padding: '6px 8px', borderRadius: 6, fontSize: 13, border: '1px solid #D4D4D4', background: '#fff' }
-const WARN: React.CSSProperties = { padding: '6px 10px', borderRadius: 6, background: '#FFF8E1', border: '1px solid #F5D77A', fontSize: 12, marginTop: 6 }
-const ERR: React.CSSProperties = { padding: '8px 10px', borderRadius: 6, background: '#FFF0F0', border: '1px solid #F2B8B8', color: '#A3161E', fontSize: 12, marginBottom: 10 }
-const CARD: React.CSSProperties = { border: '1px solid #E8E8E8', borderRadius: 8, padding: 10, fontSize: 12 }
-const BTN: React.CSSProperties = { padding: '6px 12px', borderRadius: 6, border: 'none', background: '#C8202A', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
 
 export const SOURCE_LABEL: Record<PartSource, string> = {
   DISPATCH_NOTE: 'Dispatch Note',
@@ -227,146 +221,154 @@ export function MoPartNew() {
 
   if (isEdit && !loadingExisting && existing && !editable) {
     return (
-      <div style={{ padding: 24 }}>
-        <div style={ERR}>{existing.kind !== 'PART' ? 'หน้านี้ใช้แก้ไขเฉพาะ MO Part' : 'MO Part ที่ยกเลิกแล้วแก้ไขไม่ได้'}</div>
-        <Link to={`/mo/${editId}`}>← กลับไปที่ MO</Link>
+      <div className="p-6">
+        <div className={`${ui.error} mb-3`}>{existing.kind !== 'PART' ? 'หน้านี้ใช้แก้ไขเฉพาะ MO Part' : 'MO Part ที่ยกเลิกแล้วแก้ไขไม่ได้'}</div>
+        <Link to={`/mo/${editId}`} className="text-sm text-steel-600 hover:underline">← กลับไปที่ MO</Link>
       </div>
     )
   }
 
-  const warnList = (kind: PartSource) => (warnings[kind] ?? []).map(w => <div key={w} style={WARN}>{w}</div>)
+  const warnList = (kind: PartSource) => (warnings[kind] ?? []).map(w => <div key={w} className={`${ui.warn} mt-1.5`}>{w}</div>)
   const fileOf = (kind: PartSource) => files.filter(f => f.kind === kind).map(f => f.filename).join(', ')
+  const totalQty = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)
+  const routingName = routings?.find(r => r.id === routingId)?.name
 
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <button onClick={() => navigate(isEdit ? `/mo/${editId}` : '/order?tab=mo')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', display: 'flex' }}><ArrowLeft size={18} /></button>
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{isEdit ? `แก้ไข MO Part ${existing?.mo_code ?? ''}` : 'สร้าง MO Part'}</h1>
-        {isEdit && existing && <span style={{ fontSize: 12, color: '#888' }}>สถานะ {existing.status}</span>}
+    <div className={ui.page}>
+      <div className={ui.header}>
+        <button className={ui.backBtn} onClick={() => navigate(isEdit ? `/mo/${editId}` : '/order?tab=mo')}><ArrowLeft size={18} /></button>
+        <span className={ui.title}>{isEdit ? `แก้ไข MO Part ${existing?.mo_code ?? ''}` : 'สร้าง MO Part'}</span>
+        <span className={ui.partBadge}>MO Part</span>
+        {isEdit && existing && <MoStatusPill status={existing.status} />}
       </div>
 
-      <div style={PANEL}>
-        <div style={LABEL}>1. โปรเจกต์</div>
-        {isEdit ? (
-          <div style={{ fontSize: 13 }}>{existing?.project ? `${existing.project.project_code} · ${existing.project.name}` : '—'}</div>
-        ) : (
-          <select style={SELECT} value={projectId ?? ''} onChange={e => pickProject(e.target.value ? Number(e.target.value) : null)}>
-            <option value="">— เลือกโปรเจกต์ —</option>
-            {projects?.items.map(p => <option key={p.id} value={p.id}>{p.project_code} · {p.name}</option>)}
-          </select>
-        )}
-      </div>
+      <div className={ui.body}>
+        <section className={ui.panel}>
+          <StepHead n={1} title="โปรเจกต์" />
+          {isEdit ? (
+            <div className="text-sm text-chrome-900">{existing?.project ? `${existing.project.project_code} · ${existing.project.name}` : '—'}</div>
+          ) : (
+            <select className={ui.select} value={projectId ?? ''} onChange={e => pickProject(e.target.value ? Number(e.target.value) : null)}>
+              <option value="">— เลือกโปรเจกต์ —</option>
+              {projects?.items.map(p => <option key={p.id} value={p.id}>{p.project_code} · {p.name}</option>)}
+            </select>
+          )}
+        </section>
 
-      <div style={PANEL}>
-        <div style={LABEL}>2. นำข้อมูลเข้า (ไม่บังคับ เลือกได้หลายอย่าง แก้ทุกอย่างได้ภายหลัง)</div>
-        {!projectId ? <div style={{ fontSize: 12, color: '#999' }}>เลือกโปรเจกต์ก่อน</div> : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-            <div style={CARD}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Dispatch Note → mark</div>
-              <input type="file" accept=".xls,.xlsx" disabled={importing} onChange={e => { void onDispatchNote(e.target.files?.[0]); e.target.value = '' }} />
-              {fileOf('DISPATCH_NOTE') && <div style={{ color: '#666', marginTop: 4 }}>ไฟล์: {fileOf('DISPATCH_NOTE')}</div>}
-              {warnList('DISPATCH_NOTE')}
-            </div>
-            <div style={CARD}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Material List → ขนาดแผ่น</div>
-              <input type="file" accept=".xls,.xlsx" disabled={importing} onChange={e => { void onMaterialList(e.target.files?.[0]); e.target.value = '' }} />
-              {fileOf('MATERIAL_LIST') && <div style={{ color: '#666', marginTop: 4 }}>ไฟล์: {fileOf('MATERIAL_LIST')}</div>}
-              {projectMismatch && <div style={WARN}>เลขโปรเจกต์ในไฟล์ ({fileProjectNumber}) ไม่ตรงกับโปรเจกต์ที่เลือก ({project?.project_code})</div>}
-              {warnList('MATERIAL_LIST')}
-            </div>
-            <div style={CARD}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>NC (.nc1) → รายชิ้น + รูเจาะ</div>
-              <input type="file" accept=".nc1,.nc" multiple disabled={importing} onChange={e => { void onNc(e.target.files); e.target.value = '' }} />
-              {fileOf('NC') && <div style={{ color: '#666', marginTop: 4 }}>{fileOf('NC')}</div>}
-              {warnList('NC')}
-            </div>
-            <div style={CARD}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Part List (BOM) ในระบบ</div>
-              <select style={{ ...SELECT, fontSize: 12, marginBottom: 4 }} value={dispatchId ?? ''} onChange={e => setDispatchId(e.target.value ? Number(e.target.value) : null)}>
-                <option value="">— เลือก BOM —</option>
-                {dispatches?.items.map(d => <option key={d.id} value={d.id}>{d.zone.label}{d.sub_zone ? ` / ${d.sub_zone.name}` : ''} · rev {d.revision}</option>)}
-              </select>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <select style={{ ...SELECT, fontSize: 12 }} value={slot} onChange={e => setSlot(e.target.value as '' | 'MAIN' | 'ACC')}>
-                  <option value="">ทุก slot</option><option value="MAIN">MAIN</option><option value="ACC">ACC</option>
-                </select>
-                <button type="button" style={{ ...BTN, opacity: dispatchId ? 1 : 0.4 }} disabled={!dispatchId || importing} onClick={() => void onBom()}>ดึง</button>
+        <section className={ui.panel}>
+          <StepHead n={2} title="นำข้อมูลเข้า" hint="ไม่บังคับ · เลือกได้หลายอย่าง · แก้ทุกอย่างได้ภายหลัง" />
+          {!projectId ? <div className={ui.muted}>เลือกโปรเจกต์ก่อน</div> : (
+            <div className="grid grid-cols-4 gap-2">
+              <div className={ui.card}>
+                <div className="mb-1.5 font-semibold text-chrome-900">Dispatch Note → mark</div>
+                <input type="file" accept=".xls,.xlsx" className={ui.file} disabled={importing} onChange={e => { void onDispatchNote(e.target.files?.[0]); e.target.value = '' }} />
+                {fileOf('DISPATCH_NOTE') && <div className="mt-1 text-chrome-400">ไฟล์: {fileOf('DISPATCH_NOTE')}</div>}
+                {warnList('DISPATCH_NOTE')}
               </div>
-              {warnList('BOM_PART_LIST')}
+              <div className={ui.card}>
+                <div className="mb-1.5 font-semibold text-chrome-900">Material List → ขนาดแผ่น</div>
+                <input type="file" accept=".xls,.xlsx" className={ui.file} disabled={importing} onChange={e => { void onMaterialList(e.target.files?.[0]); e.target.value = '' }} />
+                {fileOf('MATERIAL_LIST') && <div className="mt-1 text-chrome-400">ไฟล์: {fileOf('MATERIAL_LIST')}</div>}
+                {projectMismatch && <div className={`${ui.warn} mt-1.5`}>เลขโปรเจกต์ในไฟล์ ({fileProjectNumber}) ไม่ตรงกับโปรเจกต์ที่เลือก ({project?.project_code})</div>}
+                {warnList('MATERIAL_LIST')}
+              </div>
+              <div className={ui.card}>
+                <div className="mb-1.5 font-semibold text-chrome-900">NC (.nc1) → รายชิ้น + รูเจาะ</div>
+                <input type="file" accept=".nc1,.nc" multiple className={ui.file} disabled={importing} onChange={e => { void onNc(e.target.files); e.target.value = '' }} />
+                {fileOf('NC') && <div className="mt-1 text-chrome-400">{fileOf('NC')}</div>}
+                {warnList('NC')}
+              </div>
+              <div className={ui.card}>
+                <div className="mb-1.5 font-semibold text-chrome-900">Part List (BOM) ในระบบ</div>
+                <select className={`${ui.select} mb-1 text-xs`} value={dispatchId ?? ''} onChange={e => setDispatchId(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">— เลือก BOM —</option>
+                  {dispatches?.items.map(d => <option key={d.id} value={d.id}>{d.zone.label}{d.sub_zone ? ` / ${d.sub_zone.name}` : ''} · rev {d.revision}</option>)}
+                </select>
+                <div className="flex gap-1">
+                  <select className={`${ui.select} text-xs`} value={slot} onChange={e => setSlot(e.target.value as '' | 'MAIN' | 'ACC')}>
+                    <option value="">ทุก slot</option><option value="MAIN">MAIN</option><option value="ACC">ACC</option>
+                  </select>
+                  <button type="button" className={ui.btnPrimarySm} disabled={!dispatchId || importing} onClick={() => void onBom()}>ดึง</button>
+                </div>
+                {warnList('BOM_PART_LIST')}
+              </div>
             </div>
-          </div>
+          )}
+          {importing && <div className="mt-2 flex items-center gap-1.5 text-xs text-chrome-600"><Loader2 size={13} className="animate-spin" /> กำลังอ่านข้อมูล…</div>}
+          {importError && <div className={`${ui.error} mt-2`}>{importError}</div>}
+          {isEdit && existing?.source_files?.length ? <div className={`${ui.muted} mt-2`}>ไฟล์ที่ใช้ก่อนหน้า: {existing.source_files.map(f => f.filename).join(', ')}</div> : null}
+        </section>
+
+        {projectId && (
+          <section className={ui.panel}>
+            <StepHead n={3} title={`Mark (${marks.length})`} hint="จาก Dispatch Note หรือเพิ่มเอง · tw/tf ว่างได้"
+              right={marks.length > 0 && <button type="button" className={ui.btnPrimarySm} onClick={buildPlates}>สร้างรายการแผ่นจาก mark</button>} />
+            <PartMarksTable marks={marks} onChange={setMarks} />
+            {buildWarnings.map(w => <div key={w} className={`${ui.warn} mt-1.5`}>{w}</div>)}
+          </section>
         )}
-        {importing && <div style={{ fontSize: 12, color: '#666', marginTop: 8 }}>กำลังอ่านข้อมูล…</div>}
-        {importError && <div style={{ ...ERR, marginTop: 8, marginBottom: 0 }}>{importError}</div>}
-        {isEdit && existing?.source_files?.length ? <div style={{ fontSize: 12, color: '#888', marginTop: 8 }}>ไฟล์ที่ใช้ก่อนหน้า: {existing.source_files.map(f => f.filename).join(', ')}</div> : null}
+
+        {materialList && marks.length > 0 && lines.some(l => l.mark) && (
+          <section className={ui.panel}>
+            <StepHead n={4} title="เทียบกับ Material List" hint="แค่เตือน ไม่บล็อกการบันทึก" />
+            <SizeComparisonPanel lines={lines} materialList={materialList} />
+          </section>
+        )}
+
+        {projectId && (
+          <section className={ui.panel}>
+            <StepHead n={materialList && marks.length > 0 && lines.some(l => l.mark) ? 5 : 4} title={`รายการแผ่น (${lines.length})`} />
+            <PartLinesReviewTable lines={lines} onChange={setLines} marks={markNames} />
+          </section>
+        )}
+
+        <section className={ui.panel}>
+          <StepHead n={projectId ? (materialList && marks.length > 0 && lines.some(l => l.mark) ? 6 : 5) : 3} title="ข้อมูล MO" />
+          <div className="grid grid-cols-4 gap-3">
+            <label className="flex flex-col gap-1"><span className={ui.label}>Mark prefix</span>
+              <select className={ui.select} value={prefix} onChange={e => setPrefix(e.target.value)}>
+                <option value="">— เลือก —</option>
+                {prefixes?.filter(p => p.active).map(p => <option key={p.code} value={p.code}>{p.code} · {p.label}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1"><span className={ui.label}>Routing</span>
+              <select className={ui.select} value={routingId ?? ''} onChange={e => setRoutingId(e.target.value ? Number(e.target.value) : null)}>
+                <option value="">— เลือก —</option>
+                {routings?.map(r => <option key={r.id} value={r.id}>{r.code} · {r.name}</option>)}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1"><span className={ui.label}>เริ่ม (แผน)</span>
+              <input type="datetime-local" className={ui.select} value={planStart} onChange={e => setPlanStart(e.target.value)} />
+            </label>
+            <label className="flex flex-col gap-1"><span className={ui.label}>เสร็จ (แผน)</span>
+              <input type="datetime-local" className={ui.select} value={planFinish} onChange={e => setPlanFinish(e.target.value)} />
+            </label>
+          </div>
+          {isEdit && (
+            <label className="mt-3 flex flex-col gap-1"><span className={ui.label}>หมายเหตุการแก้ไข (ไม่บังคับ)</span>
+              <input className={ui.select} value={note} maxLength={1000} onChange={e => setNote(e.target.value)} placeholder="เช่น ลูกค้าแก้แบบ flange เพิ่ม 2 แผ่น" />
+            </label>
+          )}
+        </section>
+        {saveError && <div className={ui.error}>{saveError}</div>}
       </div>
 
-      {projectId && (
-        <div style={PANEL}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-            <div style={LABEL}>3. Mark ({marks.length})</div>
-            {marks.length > 0 && <button type="button" style={BTN} onClick={buildPlates}>สร้างรายการแผ่นจาก mark</button>}
-          </div>
-          <PartMarksTable marks={marks} onChange={setMarks} />
-          {buildWarnings.map(w => <div key={w} style={WARN}>{w}</div>)}
+      <div className={ui.saveBar}>
+        <div className="flex gap-5 text-xs text-chrome-600">
+          <span>Prefix: <strong className="text-chrome-900">{prefix || '—'}</strong></span>
+          <span>Mark: <strong className="text-chrome-900">{marks.length}</strong></span>
+          <span>แผ่น: <strong className="text-chrome-900">{lines.length}</strong> แถว · <strong className="text-chrome-900">{totalQty}</strong> ชิ้น</span>
+          <span>Routing: <strong className="text-chrome-900">{routingName ?? '—'}</strong></span>
         </div>
-      )}
-
-      {materialList && marks.length > 0 && lines.some(l => l.mark) && (
-        <div style={PANEL}>
-          <div style={LABEL}>เทียบกับ Material List</div>
-          <SizeComparisonPanel lines={lines} materialList={materialList} />
-        </div>
-      )}
-
-      {projectId && (
-        <div style={PANEL}>
-          <div style={LABEL}>4. รายการแผ่น ({lines.length})</div>
-          <PartLinesReviewTable lines={lines} onChange={setLines} marks={markNames} />
-        </div>
-      )}
-
-      <div style={PANEL}>
-        <div style={LABEL}>5. ข้อมูล MO</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
-          <label style={{ fontSize: 12 }}>Mark prefix
-            <select style={SELECT} value={prefix} onChange={e => setPrefix(e.target.value)}>
-              <option value="">— เลือก —</option>
-              {prefixes?.filter(p => p.active).map(p => <option key={p.code} value={p.code}>{p.code} · {p.label}</option>)}
-            </select>
-          </label>
-          <label style={{ fontSize: 12 }}>Routing
-            <select style={SELECT} value={routingId ?? ''} onChange={e => setRoutingId(e.target.value ? Number(e.target.value) : null)}>
-              <option value="">— เลือก —</option>
-              {routings?.map(r => <option key={r.id} value={r.id}>{r.code} · {r.name}</option>)}
-            </select>
-          </label>
-          <label style={{ fontSize: 12 }}>เริ่ม (แผน)
-            <input type="datetime-local" style={SELECT} value={planStart} onChange={e => setPlanStart(e.target.value)} />
-          </label>
-          <label style={{ fontSize: 12 }}>เสร็จ (แผน)
-            <input type="datetime-local" style={SELECT} value={planFinish} onChange={e => setPlanFinish(e.target.value)} />
-          </label>
-        </div>
-        {isEdit && (
-          <label style={{ fontSize: 12, display: 'block', marginTop: 10 }}>หมายเหตุการแก้ไข (ไม่บังคับ)
-            <input style={SELECT} value={note} maxLength={1000} onChange={e => setNote(e.target.value)} placeholder="เช่น ลูกค้าแก้แบบ flange เพิ่ม 2 แผ่น" />
-          </label>
-        )}
-      </div>
-
-      {saveError && <div style={ERR}>{saveError}</div>}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-        <button type="button" disabled={!canSave || saving} onClick={() => void save(false)}
-          style={{ padding: '8px 16px', borderRadius: 6, border: `1px solid ${canSave ? '#C8202A' : '#DDD'}`, background: '#fff', color: canSave ? '#C8202A' : '#BBB', fontWeight: 600, cursor: canSave ? 'pointer' : 'not-allowed' }}>
-          {isEdit ? 'บันทึก' : 'บันทึกร่าง'}
-        </button>
-        {(!isEdit || existing?.status === 'DRAFT') && (
-          <button type="button" disabled={!canSave || saving} onClick={() => void save(true)}
-            style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: canSave ? '#C8202A' : '#DDD', color: '#fff', fontWeight: 600, cursor: canSave ? 'pointer' : 'not-allowed' }}>
-            บันทึกและยืนยัน
+        <div className="flex items-center gap-2">
+          <button type="button" className={ui.btnNeutral} onClick={() => navigate(isEdit ? `/mo/${editId}` : '/order?tab=mo')}>ยกเลิก</button>
+          <button type="button" className={ui.btnSecondary} disabled={!canSave || saving} onClick={() => void save(false)}>
+            {saving ? <Loader2 size={13} className="animate-spin" /> : isEdit ? 'บันทึก' : 'บันทึกร่าง'}
           </button>
-        )}
+          {(!isEdit || existing?.status === 'DRAFT') && (
+            <button type="button" className={ui.btnPrimary} disabled={!canSave || saving} onClick={() => void save(true)}>บันทึกและยืนยัน</button>
+          )}
+        </div>
       </div>
     </div>
   )

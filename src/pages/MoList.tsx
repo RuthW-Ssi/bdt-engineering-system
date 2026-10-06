@@ -98,7 +98,7 @@ export function MoList() {
               <div style={{ minWidth: 120 }}>
                 <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>
                   {mo.mo_code}
-                  {mo.kind === 'PART' && <span style={{ marginLeft: 6, fontFamily: 'inherit', fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 999, color: '#C8202A', background: '#FFF5F5', border: '1px solid #F2B8B8' }}>Part</span>}
+                  {mo.kind === 'PART' && <span className="ml-1.5 rounded-full border border-ssi-100 bg-ssi-50 px-1.5 py-px font-sans text-[10px] font-bold text-ssi-600">Part</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 2 }}>
                   {mo.mark_prefix?.code} · {mo.routing_template?.name}

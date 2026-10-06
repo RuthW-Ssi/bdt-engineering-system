@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, History } from 'lucide-react'
 import { toast } from 'sonner'
 import type { MoDetail, MoPartChange, MoStatus, PartSource } from '../../api/mo'
 import { useChangeMoStatus, useMoPartHistory } from '../../hooks/useMo'
 import { usePermission } from '../../hooks/usePermission'
+import { MoStatusPill } from './MoStatusPill'
+import { ui } from './PartUi'
 
 // MO Part detail (wiki features/mo-part-import-plan). Kept apart from the
-// assembly MoDetail page: header + read-only part lines + Confirm / Cancel /
+// assembly MoDetail page: header + marks + plate lines + Confirm / Cancel /
 // Edit (any status except CANCELLED, round 3 R2) + change history.
-// WOs for MO Part are not supported yet.
+// WOs for MO Part are not supported yet. Styling: tokens via PartUi.
 
 const SOURCE_LABEL: Record<PartSource, string> = {
   MATERIAL_LIST: 'Material List',
@@ -18,23 +20,26 @@ const SOURCE_LABEL: Record<PartSource, string> = {
   DISPATCH_NOTE: 'Dispatch Note',
   NC: 'NC (.nc1)',
 }
-const STATUS_COLOR: Record<MoStatus, string> = {
-  DRAFT: '#888', CONFIRMED: '#1F6FEB', IN_PROGRESS: '#D97706', DONE: '#15803D', CANCELLED: '#B91C1C',
-}
-const CELL: React.CSSProperties = { padding: '6px 8px', borderBottom: '1px solid #F0F0F0', fontSize: 12 }
-const HEAD: React.CSSProperties = { ...CELL, fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#FAFAFA' }
-const BTN: React.CSSProperties = { padding: '7px 14px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }
 
 function fmt(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 const show = (v: unknown) => (v == null ? '—' : String(v))
-// "BUH1-3 · tf: — → 25", "line BUH1-3 PL25X400 10550 · qty: 4 → 6", "เพิ่ม/ลบ …"
+// "mark BUH1-3 · tf_mm: — → 25", "แผ่น BUH1-3 PL25X400 … · qty: 4 → 6", "เพิ่ม/ลบ …"
 function describeChange(c: MoPartChange) {
   const what = c.entity === 'header' ? 'MO' : c.entity === 'mark' ? `mark ${c.key}` : `แผ่น ${c.key.split('|').filter(x => x !== '-').join(' ')}`
   if (c.field === '*') return `${c.new === 'added' ? 'เพิ่ม' : 'ลบ'} ${what}`
   return `${what} · ${c.field}: ${show(c.old)} → ${show(c.new)}`
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className={ui.label}>{label}</div>
+      <div className="mt-0.5 text-sm text-chrome-900">{children}</div>
+    </div>
+  )
 }
 
 export function MoPartDetail({ mo }: { mo: MoDetail }) {
@@ -65,102 +70,119 @@ export function MoPartDetail({ mo }: { mo: MoDetail }) {
   }
 
   return (
-    <div style={{ padding: 20, maxWidth: 1100, margin: '0 auto' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-        <button onClick={() => navigate('/order?tab=mo')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', display: 'flex' }}><ArrowLeft size={18} /></button>
-        <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{mo.mo_code}</h1>
-        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#FFF5F5', color: '#C8202A', border: '1px solid #F2B8B8' }}>MO Part</span>
-        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, color: '#fff', background: STATUS_COLOR[mo.status] }}>{mo.status}</span>
-        <div style={{ flex: 1 }} />
-        {canWrite && mo.status !== 'CANCELLED' && (
-          <button style={{ ...BTN, border: '1px solid #C8202A', background: '#fff', color: '#C8202A' }} onClick={() => navigate(`/mo/${mo.id}/edit-part`)}>แก้ไข</button>
-        )}
-        {canWrite && mo.status === 'DRAFT' && (
-          <button disabled={busy} style={{ ...BTN, border: 'none', background: '#C8202A', color: '#fff' }} onClick={() => void move('CONFIRMED', 'เหตุผลการยืนยัน')}>ยืนยัน</button>
-        )}
-        {canWrite && (mo.status === 'DRAFT' || mo.status === 'CONFIRMED') && (
-          <button disabled={busy} style={{ ...BTN, border: '1px solid #DDD', background: '#fff', color: '#666' }} onClick={() => void move('CANCELLED', 'เหตุผลการยกเลิก')}>ยกเลิก MO</button>
-        )}
+    <div className={ui.page}>
+      <div className={ui.header}>
+        <button className={ui.backBtn} onClick={() => navigate('/order?tab=mo')}><ArrowLeft size={18} /></button>
+        <span className="font-mono text-[17px] font-bold text-chrome-900">{mo.mo_code}</span>
+        <span className={ui.prefixChip}>{mo.mark_prefix?.code ?? mo.primary_mark_prefix_code}</span>
+        <span className={ui.partBadge}>MO Part</span>
+        <MoStatusPill status={mo.status} />
+        <div className="flex-1" />
+        <div className="flex items-center gap-2">
+          {canWrite && mo.status !== 'CANCELLED' && (
+            <button className={ui.btnSecondary} onClick={() => navigate(`/mo/${mo.id}/edit-part`)}>แก้ไข</button>
+          )}
+          {canWrite && (mo.status === 'DRAFT' || mo.status === 'CONFIRMED') && (
+            <button className={ui.btnNeutral} disabled={busy} onClick={() => void move('CANCELLED', 'เหตุผลการยกเลิก')}>ยกเลิก MO</button>
+          )}
+          {canWrite && mo.status === 'DRAFT' && (
+            <button className={ui.btnPrimary} disabled={busy} onClick={() => void move('CONFIRMED', 'เหตุผลการยืนยัน')}>ยืนยัน</button>
+          )}
+        </div>
       </div>
 
-      <div style={{ border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff', padding: 14, marginBottom: 12, display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, fontSize: 13 }}>
-        <div><div style={{ fontSize: 11, color: '#999' }}>โปรเจกต์</div>{mo.project ? `${mo.project.project_code} · ${mo.project.name}` : '—'}</div>
-        <div><div style={{ fontSize: 11, color: '#999' }}>Mark prefix</div>{mo.mark_prefix?.code ?? mo.primary_mark_prefix_code} · {mo.mark_prefix?.label ?? ''}</div>
-        <div><div style={{ fontSize: 11, color: '#999' }}>Routing</div>{mo.routing_template.code} · {mo.routing_template.name}</div>
-        <div><div style={{ fontSize: 11, color: '#999' }}>แหล่งข้อมูล</div>{mo.part_sources?.length ? mo.part_sources.map(s => SOURCE_LABEL[s] ?? s).join(', ') : '—'}{mo.source_files?.length ? <div style={{ fontSize: 11, color: '#888' }}>{mo.source_files.map(f => f.filename).join(', ')}</div> : null}</div>
-      </div>
+      <div className={ui.body}>
+        <section className={`${ui.panel} grid grid-cols-4 gap-4`}>
+          <Field label="โปรเจกต์">{mo.project ? `${mo.project.project_code} · ${mo.project.name}` : '—'}</Field>
+          <Field label="Mark prefix">{mo.mark_prefix?.code ?? mo.primary_mark_prefix_code} · {mo.mark_prefix?.label ?? ''}</Field>
+          <Field label="Routing">{mo.routing_template.code} · {mo.routing_template.name}</Field>
+          <Field label="แหล่งข้อมูล">
+            {mo.part_sources?.length ? mo.part_sources.map(s => SOURCE_LABEL[s] ?? s).join(', ') : '—'}
+            {mo.source_files?.length ? <div className="truncate text-xs text-chrome-400">{mo.source_files.map(f => f.filename).join(', ')}</div> : null}
+          </Field>
+        </section>
 
-      {mo.part_marks?.length > 0 && (
-        <div style={{ border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff', padding: 14, marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Mark ({mo.part_marks.length})</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>{['Mark', 'Set', 'L', 'W', 'H', 'น้ำหนัก (kg)', 'tw', 'tf'].map(h => <th key={h} style={HEAD}>{h}</th>)}</tr>
-            </thead>
-            <tbody>
-              {mo.part_marks.map(m => (
-                <tr key={m.id}>
-                  <td style={CELL}>{m.mark}</td>
-                  {[m.set_qty, m.length_mm, m.width_mm, m.height_mm, m.weight_kg, m.tw_mm, m.tf_mm].map((v, k) => <td key={k} style={CELL}>{v == null ? '—' : Number(v)}</td>)}
+        {mo.part_marks?.length > 0 && (
+          <section className={ui.panel}>
+            <div className={`${ui.label} mb-2`}>Mark ({mo.part_marks.length})</div>
+            <table className={ui.table}>
+              <thead>
+                <tr>
+                  <th className={ui.th}>Mark</th>
+                  {['Set', 'L (mm)', 'W (mm)', 'H (mm)', 'น้ำหนัก (kg)', 'tw', 'tf'].map(h => <th key={h} className={ui.thRight}>{h}</th>)}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {mo.part_marks.map(m => (
+                  <tr key={m.id}>
+                    <td className={`${ui.td} font-semibold`}>{m.mark}</td>
+                    {[m.set_qty, m.length_mm, m.width_mm, m.height_mm, m.weight_kg, m.tw_mm, m.tf_mm].map((v, k) => (
+                      <td key={k} className={ui.tdRight}>{v == null ? <span className="text-chrome-200">—</span> : Number(v)}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
 
-      <div style={{ border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff', padding: 14 }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ ...HEAD, width: 32 }}>#</th>
-              <th style={HEAD}>Mark</th>
-              <th style={HEAD}>Profile</th>
-              <th style={HEAD}>Grade</th>
-              <th style={{ ...HEAD, textAlign: 'right' }}>ยาว (mm)</th>
-              <th style={{ ...HEAD, textAlign: 'right' }}>จำนวน</th>
-              <th style={{ ...HEAD, textAlign: 'right' }}>น้ำหนัก/ชิ้น (kg)</th>
-              <th style={{ ...HEAD, textAlign: 'right' }}>น้ำหนักรวม (kg)</th>
-              <th style={HEAD}>Part mark</th>
-              <th style={HEAD}>รูเจาะ</th>
-              <th style={{ ...HEAD, textAlign: 'right' }}>แนวตัด (m)</th>
-            </tr>
-          </thead>
-          <tbody>
-            {lines.map((l, i) => (
-              <tr key={l.id}>
-                <td style={{ ...CELL, color: '#999' }}>{i + 1}</td>
-                <td style={CELL}>{l.mark?.mark ?? '—'}</td>
-                <td style={CELL}>{l.profile}</td>
-                <td style={CELL}>{l.grade}</td>
-                <td style={{ ...CELL, textAlign: 'right' }}>{l.length_mm}</td>
-                <td style={{ ...CELL, textAlign: 'right' }}>{l.qty}</td>
-                <td style={{ ...CELL, textAlign: 'right' }}>{l.w == null ? '—' : fmt(l.w)}</td>
-                <td style={{ ...CELL, textAlign: 'right' }}>{l.w == null ? '—' : fmt(l.qty * l.w)}</td>
-                <td style={{ ...CELL, color: '#888' }}>{l.part_mark ?? ''}</td>
-                <td style={CELL}>{(l.holes ?? []).map(h => `${h.count}×Ø${h.diameter_mm}`).join(', ')}</td>
-                <td style={{ ...CELL, textAlign: 'right' }}>{l.cut_length_mm == null ? '' : (Number(l.cut_length_mm) / 1000).toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: '#666' }}>
-          <span>การออก WO สำหรับ MO Part ยังไม่รองรับ</span>
-          <span>{lines.length} แถว · รวม {totalQty} ชิ้น · น้ำหนักรวม {fmt(totalKg)} kg</span>
-        </div>
-      </div>
-
-      <div style={{ border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff', padding: 14, marginTop: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>ประวัติการแก้ไข</div>
-        {!history?.length ? <div style={{ fontSize: 12, color: '#999' }}>ยังไม่มี</div> : history.map(h => (
-          <div key={h.id} style={{ borderTop: '1px solid #F0F0F0', padding: '6px 0', fontSize: 12 }}>
-            <div style={{ color: '#666' }}>
-              {new Date(h.changed_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })} · {h.changed_by}
-              {h.note && <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 4, background: '#F3F4F6' }}>{h.note === 'created' ? 'สร้าง' : h.note}</span>}
-            </div>
-            {h.changes.map((c, k) => <div key={k} style={{ marginLeft: 10, color: '#333' }}>{describeChange(c)}</div>)}
+        <section className={ui.panel}>
+          <div className={`${ui.label} mb-2`}>รายการแผ่น ({lines.length})</div>
+          <div className="overflow-x-auto scroll-thin">
+            <table className={ui.table}>
+              <thead>
+                <tr>
+                  <th className={`${ui.th} w-8`}>#</th>
+                  <th className={ui.th}>Mark</th>
+                  <th className={ui.th}>Profile</th>
+                  <th className={ui.th}>Grade</th>
+                  <th className={ui.thRight}>ยาว (mm)</th>
+                  <th className={ui.thRight}>จำนวน</th>
+                  <th className={ui.thRight}>น้ำหนัก/ชิ้น (kg)</th>
+                  <th className={ui.thRight}>น้ำหนักรวม (kg)</th>
+                  <th className={ui.th}>Part mark</th>
+                  <th className={ui.th}>รูเจาะ</th>
+                  <th className={ui.thRight}>แนวตัด (m)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l, i) => (
+                  <tr key={l.id} className="hover:bg-chrome-50">
+                    <td className={ui.tdMuted}>{i + 1}</td>
+                    <td className={ui.td}>{l.mark?.mark ?? <span className="text-chrome-200">—</span>}</td>
+                    <td className={ui.td}>{l.profile}</td>
+                    <td className={ui.td}>{l.grade}</td>
+                    <td className={ui.tdRight}>{l.length_mm}</td>
+                    <td className={ui.tdRight}>{l.qty}</td>
+                    <td className={ui.tdRight}>{l.w == null ? '—' : fmt(l.w)}</td>
+                    <td className={ui.tdRight}>{l.w == null ? '—' : fmt(l.qty * l.w)}</td>
+                    <td className={`${ui.tdMuted} max-w-[180px] truncate`}>{l.part_mark ?? ''}</td>
+                    <td className={`${ui.td} whitespace-nowrap text-chrome-600`}>{(l.holes ?? []).map(h => `${h.count}×Ø${h.diameter_mm}`).join(', ')}</td>
+                    <td className={ui.tdRight}>{l.cut_length_mm == null ? '' : (Number(l.cut_length_mm) / 1000).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
+          <div className="mt-2 flex justify-between text-xs text-chrome-600">
+            <span className="text-chrome-400">การออก WO สำหรับ MO Part ยังไม่รองรับ</span>
+            <span>{lines.length} แถว · รวม <strong className="text-chrome-900">{totalQty}</strong> ชิ้น · น้ำหนักรวม <strong className="text-chrome-900">{fmt(totalKg)}</strong> kg</span>
+          </div>
+        </section>
+
+        <section className={ui.panel}>
+          <div className={`${ui.label} mb-2 flex items-center gap-1.5`}><History size={12} /> ประวัติการแก้ไข</div>
+          {!history?.length ? <div className={ui.muted}>ยังไม่มี</div> : history.map(h => (
+            <div key={h.id} className="border-t border-chrome-50 py-2 text-xs first:border-t-0">
+              <div className="flex items-center gap-2 text-chrome-600">
+                <span>{new Date(h.changed_at).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                <span className="font-semibold text-chrome-900">{h.changed_by}</span>
+                {h.note && <span className="rounded bg-chrome-50 px-1.5 py-px text-chrome-600">{h.note === 'created' ? 'สร้าง' : h.note}</span>}
+              </div>
+              {h.changes.map((c, k) => <div key={k} className="ml-3 mt-0.5 text-chrome-800">{describeChange(c)}</div>)}
+            </div>
+          ))}
+        </section>
       </div>
     </div>
   )

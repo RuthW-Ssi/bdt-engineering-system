@@ -1,14 +1,10 @@
 import { Plus, Trash2 } from 'lucide-react'
 import type { PartLine } from '../../api/mo'
 import { duplicateGroups, mergeRows, rowErrors, totalWeight } from '../../lib/moPartLines'
+import { ui } from './PartUi'
 
 // MO Part review table (wiki features/mo-part-import-plan §5): every source
 // pre-fills these rows; the user can then edit, add and delete freely (D2).
-
-const CELL: React.CSSProperties = { padding: '4px 6px', borderBottom: '1px solid #F0F0F0', fontSize: 12 }
-const HEAD: React.CSSProperties = { ...CELL, fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#FAFAFA' }
-const INPUT: React.CSSProperties = { width: '100%', padding: '4px 6px', borderRadius: 5, fontSize: 12, border: '1px solid #D4D4D4' }
-const INPUT_BAD: React.CSSProperties = { ...INPUT, border: '1px solid #C8202A', background: '#FFF5F5' }
 
 const EMPTY_ROW: PartLine = { profile: '', grade: '', length_mm: 0, qty: 0, unit_weight_kg: null }
 
@@ -25,78 +21,78 @@ export function PartLinesReviewTable({ lines, onChange, marks = [] }: { lines: P
   function patch(i: number, p: Partial<PartLine>) {
     onChange(lines.map((l, k) => (k === i ? { ...l, ...p } : l)))
   }
-  const has = (i: number, word: string) => (errors.get(i) ?? []).some(e => e.startsWith(word))
+  const cls = (i: number, word: string) => ((errors.get(i) ?? []).some(e => e.startsWith(word)) ? ui.inputBad : ui.input)
   const numOrZero = (v: string) => (v === '' ? 0 : Number(v))
 
   return (
     <div>
       {dupes.map(g => (
-        <div key={g.join('-')} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', marginBottom: 6, borderRadius: 6, background: '#FFF8E1', border: '1px solid #F5D77A', fontSize: 12 }}>
+        <div key={g.join('-')} className={`${ui.warn} mb-2 flex items-center gap-3`}>
           <span>แถว {g.map(i => i + 1).join(' และ ')} ขนาดเดียวกัน</span>
-          <button type="button" onClick={() => onChange(mergeRows(lines, g))} style={{ padding: '3px 10px', borderRadius: 5, border: '1px solid #C8202A', color: '#C8202A', background: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            รวมแถว
-          </button>
+          <button type="button" className={ui.btnOutlineRed} onClick={() => onChange(mergeRows(lines, g))}>รวมแถว</button>
         </div>
       ))}
 
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            <th style={{ ...HEAD, width: 32 }}>#</th>
-            {marks.length > 0 && <th style={HEAD}>Mark</th>}
-            <th style={HEAD}>Profile</th>
-            <th style={HEAD}>Grade</th>
-            <th style={HEAD}>ยาว (mm)</th>
-            <th style={HEAD}>จำนวน</th>
-            <th style={HEAD}>น้ำหนัก/ชิ้น (kg)</th>
-            <th style={{ ...HEAD, textAlign: 'right' }}>น้ำหนักรวม (kg)</th>
-            <th style={HEAD}>Part mark</th>
-            <th style={HEAD}>รูเจาะ</th>
-            <th style={{ ...HEAD, textAlign: 'right' }}>แนวตัด (m)</th>
-            <th style={{ ...HEAD, width: 36 }} />
-          </tr>
-        </thead>
-        <tbody>
-          {lines.map((l, i) => (
-            <tr key={i} title={(errors.get(i) ?? []).join(' · ') || undefined}>
-              <td style={{ ...CELL, color: '#999' }}>{i + 1}</td>
-              {marks.length > 0 && (
-                <td style={CELL}>
-                  <select style={{ ...(has(i, 'mark') ? INPUT_BAD : INPUT), minWidth: 110 }} value={l.mark ?? ''} onChange={e => patch(i, { mark: e.target.value || null })}>
-                    <option value="">— ไม่ระบุ —</option>
-                    {marks.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </td>
-              )}
-              <td style={CELL}><input style={has(i, 'profile') ? INPUT_BAD : INPUT} value={l.profile} onChange={e => patch(i, { profile: e.target.value })} /></td>
-              <td style={CELL}><input style={has(i, 'grade') ? INPUT_BAD : INPUT} value={l.grade} onChange={e => patch(i, { grade: e.target.value })} /></td>
-              <td style={CELL}><input type="number" min={0} style={has(i, 'length') ? INPUT_BAD : INPUT} value={l.length_mm || ''} onChange={e => patch(i, { length_mm: numOrZero(e.target.value) })} /></td>
-              <td style={CELL}><input type="number" min={0} step={1} style={has(i, 'qty') ? INPUT_BAD : INPUT} value={l.qty || ''} onChange={e => patch(i, { qty: numOrZero(e.target.value) })} /></td>
-              <td style={CELL}><input type="number" min={0} style={has(i, 'weight') ? INPUT_BAD : INPUT} value={l.unit_weight_kg ?? ''} onChange={e => patch(i, { unit_weight_kg: e.target.value === '' ? null : Number(e.target.value) })} /></td>
-              <td style={{ ...CELL, textAlign: 'right', color: '#555' }}>{l.unit_weight_kg == null ? '—' : fmt(Number(l.qty) * Number(l.unit_weight_kg))}</td>
-              <td style={{ ...CELL, color: '#888', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.part_mark ?? ''}</td>
-              <td style={{ ...CELL, color: '#555', whiteSpace: 'nowrap' }}>{holesText(l.holes)}</td>
-              <td style={{ ...CELL, textAlign: 'right', color: '#555' }}>{l.cut_length_mm == null ? '' : (Number(l.cut_length_mm) / 1000).toFixed(2)}</td>
-              <td style={CELL}>
-                <button type="button" aria-label={`ลบแถว ${i + 1}`} onClick={() => onChange(lines.filter((_, k) => k !== i))} style={{ border: 'none', background: 'none', color: '#999', cursor: 'pointer', display: 'flex' }}>
-                  <Trash2 size={14} />
-                </button>
-              </td>
+      <div className="overflow-x-auto scroll-thin">
+        <table className={ui.table}>
+          <thead>
+            <tr>
+              <th className={`${ui.th} w-8`}>#</th>
+              {marks.length > 0 && <th className={ui.th}>Mark</th>}
+              <th className={ui.th}>Profile</th>
+              <th className={ui.th}>Grade</th>
+              <th className={ui.th}>ยาว (mm)</th>
+              <th className={ui.th}>จำนวน</th>
+              <th className={ui.th}>น้ำหนัก/ชิ้น (kg)</th>
+              <th className={ui.thRight}>น้ำหนักรวม (kg)</th>
+              <th className={ui.th}>Part mark</th>
+              <th className={ui.th}>รูเจาะ</th>
+              <th className={ui.thRight}>แนวตัด (m)</th>
+              <th className={`${ui.th} w-9`} />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {lines.map((l, i) => (
+              <tr key={i} title={(errors.get(i) ?? []).join(' · ') || undefined} className="hover:bg-chrome-50">
+                <td className={ui.tdMuted}>{i + 1}</td>
+                {marks.length > 0 && (
+                  <td className={ui.td}>
+                    <select className={`${cls(i, 'mark')} min-w-[110px]`} value={l.mark ?? ''} onChange={e => patch(i, { mark: e.target.value || null })}>
+                      <option value="">— ไม่ระบุ —</option>
+                      {marks.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </td>
+                )}
+                <td className={ui.td}><input className={cls(i, 'profile')} value={l.profile} onChange={e => patch(i, { profile: e.target.value })} /></td>
+                <td className={ui.td}><input className={cls(i, 'grade')} value={l.grade} onChange={e => patch(i, { grade: e.target.value })} /></td>
+                <td className={ui.td}><input type="number" min={0} className={`${cls(i, 'length')} font-mono`} value={l.length_mm || ''} onChange={e => patch(i, { length_mm: numOrZero(e.target.value) })} /></td>
+                <td className={ui.td}><input type="number" min={0} step={1} className={`${cls(i, 'qty')} font-mono`} value={l.qty || ''} onChange={e => patch(i, { qty: numOrZero(e.target.value) })} /></td>
+                <td className={ui.td}><input type="number" min={0} className={`${cls(i, 'weight')} font-mono`} value={l.unit_weight_kg ?? ''} onChange={e => patch(i, { unit_weight_kg: e.target.value === '' ? null : Number(e.target.value) })} /></td>
+                <td className={`${ui.tdRight} text-chrome-600`}>{l.unit_weight_kg == null ? '—' : fmt(Number(l.qty) * Number(l.unit_weight_kg))}</td>
+                <td className={`${ui.tdMuted} max-w-[180px] truncate`}>{l.part_mark ?? ''}</td>
+                <td className={`${ui.td} whitespace-nowrap text-chrome-600`}>{holesText(l.holes)}</td>
+                <td className={`${ui.tdRight} text-chrome-600`}>{l.cut_length_mm == null ? '' : (Number(l.cut_length_mm) / 1000).toFixed(2)}</td>
+                <td className={ui.td}>
+                  <button type="button" aria-label={`ลบแถว ${i + 1}`} className={ui.iconBtn} onClick={() => onChange(lines.filter((_, k) => k !== i))}>
+                    <Trash2 size={14} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-        <button type="button" onClick={() => onChange([...lines, { ...EMPTY_ROW }])} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '5px 10px', borderRadius: 6, border: '1px dashed #BBB', background: '#fff', fontSize: 12, cursor: 'pointer' }}>
+      <div className="mt-2 flex items-center justify-between">
+        <button type="button" className={ui.btnAdd} onClick={() => onChange([...lines, { ...EMPTY_ROW }])}>
           <Plus size={13} /> เพิ่มแถว
         </button>
-        <div style={{ fontSize: 12, color: '#666', display: 'flex', gap: 16 }}>
+        <div className="flex gap-4 text-xs text-chrome-600">
           <span>{lines.length} แถว</span>
-          <span>รวม {lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)} ชิ้น</span>
-          <span>น้ำหนักรวม {fmt(totalWeight(lines))} kg</span>
-          {lines.some(l => l.holes?.length) && <span>รูเจาะ {lines.reduce((s, l) => s + (Number(l.qty) || 0) * (l.holes ?? []).reduce((a, h) => a + h.count, 0), 0)} รู</span>}
-          {lines.some(l => l.cut_length_mm != null) && <span>แนวตัด {fmt(lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.cut_length_mm) || 0), 0) / 1000)} m</span>}
+          <span>รวม <strong className="text-chrome-900">{lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)}</strong> ชิ้น</span>
+          <span>น้ำหนักรวม <strong className="text-chrome-900">{fmt(totalWeight(lines))}</strong> kg</span>
+          {lines.some(l => l.holes?.length) && <span>รูเจาะ <strong className="text-chrome-900">{lines.reduce((s, l) => s + (Number(l.qty) || 0) * (l.holes ?? []).reduce((a, h) => a + h.count, 0), 0)}</strong> รู</span>}
+          {lines.some(l => l.cut_length_mm != null) && <span>แนวตัด <strong className="text-chrome-900">{fmt(lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.cut_length_mm) || 0), 0) / 1000)}</strong> m</span>}
         </div>
       </div>
     </div>

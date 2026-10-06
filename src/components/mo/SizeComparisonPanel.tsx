@@ -1,34 +1,38 @@
 import type { PartLine } from '../../api/mo'
 import { compareSizes } from '../../lib/moPartMatch'
+import { ui } from './PartUi'
 
 // Round 3 R3: live comparison of plates expected from the marks vs the
 // Material List. Differences are highlighted only — never blocks saving.
-
-const CELL: React.CSSProperties = { padding: '4px 8px', borderBottom: '1px solid #F0F0F0', fontSize: 12 }
-const HEAD: React.CSSProperties = { ...CELL, fontSize: 10, fontWeight: 600, color: '#888', textTransform: 'uppercase', textAlign: 'left', background: '#FAFAFA' }
 
 export function SizeComparisonPanel({ lines, materialList }: { lines: PartLine[]; materialList: PartLine[] }) {
   const rows = compareSizes(lines, materialList)
   const diffs = rows.filter(r => r.diff !== 0)
   return (
     <div>
-      <div style={{ fontSize: 12, marginBottom: 6, color: diffs.length ? '#A15C00' : '#15803D', fontWeight: 600 }}>
+      <div className={`mb-2 ${diffs.length ? 'text-xs font-semibold text-molten-600' : ui.ok}`}>
         {diffs.length ? `ต่างกัน ${diffs.length} ขนาด — ตรวจและแก้ในตารางรายการแผ่น` : 'จาก mark ตรงกับ Material List ทุกขนาด'}
       </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table className={ui.table}>
         <thead>
           <tr>
-            <th style={HEAD}>Profile</th><th style={HEAD}>Grade</th><th style={HEAD}>ยาว</th>
-            <th style={{ ...HEAD, textAlign: 'right' }}>จาก mark</th><th style={{ ...HEAD, textAlign: 'right' }}>ใน Material List</th><th style={{ ...HEAD, textAlign: 'right' }}>ต่าง</th>
+            <th className={ui.th}>Profile</th>
+            <th className={ui.th}>Grade</th>
+            <th className={ui.thRight}>ยาว (mm)</th>
+            <th className={ui.thRight}>จาก mark</th>
+            <th className={ui.thRight}>ใน Material List</th>
+            <th className={ui.thRight}>ต่าง</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={`${r.profile}|${r.grade}|${r.length_mm}`} style={{ background: r.diff !== 0 ? '#FFF8E1' : undefined }}>
-              <td style={CELL}>{r.profile}</td><td style={CELL}>{r.grade}</td><td style={CELL}>{r.length_mm}</td>
-              <td style={{ ...CELL, textAlign: 'right' }}>{r.from_marks}</td>
-              <td style={{ ...CELL, textAlign: 'right' }}>{r.from_list ?? '—'}</td>
-              <td style={{ ...CELL, textAlign: 'right', fontWeight: r.diff ? 700 : 400, color: r.diff ? '#A15C00' : '#999' }}>{r.diff > 0 ? `+${r.diff}` : r.diff}</td>
+            <tr key={`${r.profile}|${r.grade}|${r.length_mm}`} className={r.diff !== 0 ? 'bg-molten-50' : undefined}>
+              <td className={ui.td}>{r.profile}</td>
+              <td className={ui.td}>{r.grade}</td>
+              <td className={ui.tdRight}>{r.length_mm}</td>
+              <td className={ui.tdRight}>{r.from_marks}</td>
+              <td className={ui.tdRight}>{r.from_list ?? '—'}</td>
+              <td className={`${ui.tdRight} ${r.diff ? 'font-bold text-molten-600' : 'text-chrome-400'}`}>{r.diff > 0 ? `+${r.diff}` : r.diff}</td>
             </tr>
           ))}
         </tbody>
