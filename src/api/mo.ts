@@ -3,6 +3,39 @@ import { apiClient } from './client'
 
 // ── Enums (mirror Prisma) ─────────────────────────────────────────────────────
 export type MoStatus = 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+// MO Part (wiki features/mo-part-import-plan): ASSEMBLY = mark-based MO,
+// PART = size-based lines pre-filled from one source, then freely edited.
+export type MoKind = 'ASSEMBLY' | 'PART'
+export type PartSource = 'MATERIAL_LIST' | 'BOM_PART_LIST' | 'MANUAL'
+
+export interface PartLine {
+  profile: string
+  grade: string
+  length_mm: number
+  qty: number
+  unit_weight_kg?: number | null
+  part_mark?: string | null
+  bom_part_ids?: number[]
+}
+
+export interface MoPartLineRow extends PartLine {
+  id: number
+  line_seq: number
+}
+
+export interface CreateMoPartPayload {
+  project_id: number
+  primary_mark_prefix_code: string
+  routing_template_id: number
+  part_source: PartSource
+  source_filename?: string | null
+  plan_start?: string
+  plan_finish?: string
+  confirm?: boolean
+  part_lines: PartLine[]
+}
+
+export type UpdateMoPartPayload = Pick<CreateMoPartPayload, 'primary_mark_prefix_code' | 'routing_template_id' | 'plan_start' | 'plan_finish' | 'part_lines'>
 
 export interface MarkPrefix {
   code: string
@@ -14,6 +47,7 @@ export interface MoListItem {
   id: number
   mo_code: string
   status: MoStatus
+  kind: MoKind
   plan_start: string | null
   plan_finish: string | null
   mark_prefix: MarkPrefix
@@ -88,6 +122,10 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   actual_start: string | null
   actual_finish: string | null
   assembly_lines: MoAssemblyLine[]
+  project: { id: number; project_code: string; name: string } | null
+  part_source: PartSource | null
+  // Prisma Decimal columns arrive as strings — convert with Number() before math.
+  part_lines: MoPartLineRow[]
   projects_involved: { id: number; project_code: string; name: string }[]
   zones_involved: { id: number; label: string }[]
   sub_zones_involved: { id: number; name: string }[]
@@ -342,6 +380,28 @@ export async function getMoConsumeSummary(id: number): Promise<MoConsumeSummaryR
 
 export async function getMoHistory(id: number): Promise<MoHistoryEntry[]> {
   return (await apiClient.get(`/mo/${id}/history`)).data
+}
+
+export function importMaterialList(file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiClient
+    .post('/mo/part/import/material-list', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data as { project_number: string | null; lines: PartLine[]; warnings: string[]; filename: string })
+}
+
+export function importBomParts(dispatchId: number, slot?: 'MAIN' | 'ACC') {
+  return apiClient
+    .get('/mo/part/import/bom-parts', { params: { dispatch_id: dispatchId, slot } })
+    .then(r => r.data as { lines: PartLine[]; skipped: string[] })
+}
+
+export function createMoPart(payload: CreateMoPartPayload) {
+  return apiClient.post('/mo/part', payload).then(r => r.data as { id: number; mo_code: string })
+}
+
+export function updateMoPart(id: number, payload: UpdateMoPartPayload) {
+  return apiClient.patch(`/mo/part/${id}`, payload).then(r => r.data as { id: number; mo_code: string })
 }
 
 export async function createMo(payload: CreateMoPayload): Promise<MoDetail> {

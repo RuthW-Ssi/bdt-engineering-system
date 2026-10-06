@@ -2,6 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   changeMoStatus,
   createMo,
+  createMoPart,
+  updateMoPart,
+  type CreateMoPartPayload,
+  type UpdateMoPartPayload,
   createMoWorkOrder,
   getBomAssembliesByPrefix,
   getMarkPrefixesWithCount,
@@ -53,6 +57,22 @@ export function useCreateMo() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (payload: CreateMoPayload) => createMo(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
+  })
+}
+
+export function useCreateMoPart() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: CreateMoPartPayload) => createMoPart(payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
+  })
+}
+
+export function useUpdateMoPart(id: number) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (payload: UpdateMoPartPayload) => updateMoPart(id, payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['mo'] }),
   })
 }
