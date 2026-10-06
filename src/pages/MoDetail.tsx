@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useUpdateMoActualDates, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
+import { MoPartDetail } from '../components/mo/MoPartDetail'
 import { useWos } from '../hooks/useWo'
 import { useTeams, useLaborSkills } from '../hooks/useLaborSkills'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
@@ -55,6 +56,7 @@ export function MoDetail() {
   if (isLoading || !mo) {
     return <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}><Loader2 size={22} className="animate-spin" style={{ color: '#C2C2C2' }} /></div>
   }
+  if (mo.kind === 'PART') return <MoPartDetail mo={mo} />
 
   async function applyStatus() {
     if (!reasonModal || !reason.trim()) return

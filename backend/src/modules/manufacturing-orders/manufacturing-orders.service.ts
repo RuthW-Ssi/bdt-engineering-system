@@ -123,11 +123,14 @@ export class ManufacturingOrderService {
       ...(opts.search
         ? { mo_code: { contains: opts.search, mode: 'insensitive' } }
         : {}),
+      // ASSEMBLY MOs reach their project through their lines; PART MOs carry
+      // project_id themselves.
       ...(opts.project_id
         ? {
-            assembly_lines: {
-              some: { bom_assembly: { dispatch: { project_id: opts.project_id } } },
-            },
+            OR: [
+              { assembly_lines: { some: { bom_assembly: { dispatch: { project_id: opts.project_id } } } } },
+              { project_id: opts.project_id },
+            ],
           }
         : {}),
     }
@@ -140,18 +143,20 @@ export class ManufacturingOrderService {
         routing_template: {
           select: { id: true, code: true, name: true, _count: { select: { operations: true } } },
         },
-        _count: { select: { assembly_lines: true } },
+        _count: { select: { assembly_lines: true, part_lines: true } },
       },
     })
     return rows.map((r) => ({
       id: r.id,
       mo_code: r.mo_code,
       status: r.status,
+      kind: r.kind,
       plan_start: r.plan_start,
       plan_finish: r.plan_finish,
       mark_prefix: r.primary_mark_prefix,
       routing_template: { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name },
       assembly_count: r._count.assembly_lines,
+      part_line_count: r._count.part_lines,
       operation_count: r.routing_template._count.operations, // from routing template (ops no longer stored on MO)
       create_date: r.create_date,
     }))

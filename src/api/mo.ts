@@ -53,6 +53,7 @@ export interface MoListItem {
   mark_prefix: MarkPrefix
   routing_template: { id: number; code: string; name: string }
   assembly_count: number
+  part_line_count: number
   operation_count: number
   create_date: string
 }
