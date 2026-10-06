@@ -1,4 +1,4 @@
-import { buildFromSources, compareSizes, deriveMarkPlates } from './moPartMatch'
+import { buildFromSources, compareSizes, deriveMarkPlates, rebuildLines } from './moPartMatch'
 
 const ML = [
   { profile: 'PL20x950', grade: 'SM520', length_mm: 8550, qty: 5, unit_weight_kg: 1275.23 },
@@ -56,5 +56,26 @@ describe('buildFromSources + compareSizes (Celestica)', () => {
   it('with marks only, every size compares against null', () => {
     const cmp = compareSizes(buildFromSources([{ ...MARKS[1], tf_mm: 25, tw_mm: 20 }], []).lines, null)
     expect(cmp.every(c => c.from_list === null)).toBe(true)
+  })
+})
+
+describe('rebuildLines (form "สร้างรายการแผ่นจาก mark")', () => {
+  const nc = { mark: null, part_mark: 'X-p1', profile: 'PL10x100', grade: 'HY370', length_mm: 200, qty: 3, unit_weight_kg: 1.5 }
+  it('fills blank tw/tf on the marks it could derive, so a later rebuild without the Material List still works', () => {
+    const r = rebuildLines([], MARKS.slice(0, 1), ML)
+    expect(r.marks[0]).toMatchObject({ mark: 'BUH1-3', tf_mm: 25, tw_mm: 20 })
+    const again = rebuildLines(r.lines, r.marks, null)
+    expect(again.lines.filter(l => l.mark === 'BUH1-3').map(l => [l.profile, l.qty])).toEqual([['PL25x400', 4], ['PL20x1150', 2]])
+    expect(again.warnings).toEqual([])
+  })
+  it('keeps the current lines of a mark it cannot derive, and keeps NC/BOM lines', () => {
+    const current = [{ mark: 'BUH1-3', profile: 'PL25x400', grade: 'SM520', length_mm: 10550, qty: 6 }, nc]
+    const r = rebuildLines(current, MARKS.slice(0, 1), null)
+    expect(r.lines).toEqual(current)
+    expect(r.warnings).toHaveLength(1)
+  })
+  it('replaces unassigned Material List leftovers only when a Material List is loaded', () => {
+    const leftover = { mark: null, profile: 'PL25x400', grade: 'SM520', length_mm: 8550, qty: 10 }
+    expect(rebuildLines([leftover], [], null).lines).toEqual([leftover])
   })
 })

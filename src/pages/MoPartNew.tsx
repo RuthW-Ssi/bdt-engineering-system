@@ -13,7 +13,7 @@ import { PartLinesReviewTable } from '../components/mo/PartLinesReviewTable'
 import { PartMarksTable } from '../components/mo/PartMarksTable'
 import { SizeComparisonPanel } from '../components/mo/SizeComparisonPanel'
 import { duplicateGroups, rowErrors } from '../lib/moPartLines'
-import { buildFromSources } from '../lib/moPartMatch'
+import { rebuildLines } from '../lib/moPartMatch'
 import { toDatetimeLocal } from '../lib/datetimeLocal'
 
 // MO Part create/edit (wiki features/mo-part-import-plan §10). Every source
@@ -178,13 +178,17 @@ export function MoPartNew() {
     addSource('BOM_PART_LIST', undefined, r.skipped.length ? [`ข้าม part ที่ข้อมูลไม่ครบ: ${r.skipped.join(', ')}`] : [])
   }
 
-  // Rebuild plate lines from the marks (+ Material List). Lines from NC/BOM
-  // (they carry a part mark or BOM ids) are kept; the rest are replaced.
+  // Rebuild plate lines from the marks (+ Material List when loaded). Marks
+  // that can't be derived keep their lines; NC/BOM lines are kept; derived
+  // tw/tf are written back to the marks (see rebuildLines).
   function buildPlates() {
-    const keep = lines.filter(l => l.part_mark || l.bom_part_ids?.length)
-    if (lines.length > keep.length && !window.confirm('จะแทนที่รายการแผ่นที่มาจาก mark / Material List / ที่กรอกเอง (รายการจาก NC และ BOM คงไว้) ต้องการต่อไหม?')) return
-    const r = buildFromSources(marks, materialList ?? [])
-    setLines([...r.lines, ...keep])
+    const msg = materialList
+      ? 'จะสร้างรายการแผ่นของ mark ใหม่จาก mark + Material List (รายการจาก NC และ BOM คงไว้) ต้องการต่อไหม?'
+      : 'ยังไม่ได้อัปโหลด Material List ในหน้านี้ — mark ที่ไม่มี tw/tf จะคงรายการเดิมไว้ ต้องการต่อไหม?'
+    if (lines.length && !window.confirm(msg)) return
+    const r = rebuildLines(lines, marks, materialList)
+    setLines(r.lines)
+    setMarks(r.marks)
     setBuildWarnings(r.warnings)
   }
 

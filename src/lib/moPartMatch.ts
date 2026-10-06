@@ -95,3 +95,47 @@ export function compareSizes(lines: PartLine[], list: PartLine[] | null): SizeCo
   for (const c of rows.values()) c.diff = c.from_marks - (c.from_list ?? c.from_marks)
   return [...rows.values()]
 }
+
+// The form's "สร้างรายการแผ่นจาก mark" (final review, Important 2): safe to
+// press in edit mode, where the Material List is not loaded any more.
+// - Marks it can derive get fresh plate lines, and their blank tw/tf are
+//   filled with the thickness it found, so the next rebuild needs no list.
+//   Grade/unit weight missing from the list are kept from the current line.
+// - Marks it cannot derive keep their current lines (plus a warning).
+// - Unassigned lines are recomputed from the list only when one is loaded.
+// - NC / BOM lines (part mark or BOM ids) are always kept.
+export function rebuildLines(current: PartLine[], marks: PartMark[], list: PartLine[] | null): { lines: PartLine[]; marks: PartMark[]; warnings: string[] } {
+  const isImported = (l: PartLine) => !!l.part_mark || !!l.bom_part_ids?.length
+  const imported = current.filter(isImported)
+  const own = current.filter(l => !isImported(l))
+  const prev = new Map(own.filter(l => l.mark).map(l => [`${l.mark}|${l.profile.toUpperCase()}|${Number(l.length_mm)}`, l]))
+
+  const lines: PartLine[] = []
+  const warnings: string[] = []
+  const nextMarks = marks.map(m => {
+    const r = deriveMarkPlates(m, list ?? [])
+    if ('reason' in r) {
+      warnings.push(r.reason)
+      lines.push(...own.filter(l => l.mark === m.mark))
+      return m
+    }
+    for (const l of r.lines) {
+      const before = prev.get(`${l.mark}|${l.profile.toUpperCase()}|${Number(l.length_mm)}`)
+      lines.push({ ...l, grade: l.grade || before?.grade || '', unit_weight_kg: l.unit_weight_kg ?? before?.unit_weight_kg ?? null })
+    }
+    return { ...m, tf_mm: m.tf_mm ?? r.tf, tw_mm: m.tw_mm ?? r.tw }
+  })
+
+  if (list) {
+    const derived = new Map<string, number>()
+    for (const l of lines) derived.set(sizeKey(l), (derived.get(sizeKey(l)) ?? 0) + Number(l.qty))
+    for (const row of list) {
+      const extra = Number(row.qty) - (derived.get(sizeKey(row)) ?? 0)
+      if (extra > 0) lines.push({ ...row, mark: null, qty: extra })
+    }
+  } else {
+    const markNames = new Set(marks.map(m => m.mark))
+    lines.push(...own.filter(l => !l.mark || !markNames.has(l.mark)))
+  }
+  return { lines: [...lines, ...imported], marks: nextMarks, warnings }
+}
