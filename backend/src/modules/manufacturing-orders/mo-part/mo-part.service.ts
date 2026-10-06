@@ -152,6 +152,9 @@ export class MoPartService {
     const marks = input.part_marks ?? []
 
     const result = await this.prisma.$transaction(async (tx) => {
+      // Row lock: a concurrent cancel or a second save waits for this one, so
+      // the status check and the delete/insert below can't interleave.
+      await tx.$queryRaw`SELECT id FROM manufacturing_order WHERE id = ${id} FOR UPDATE`
       const mo = await tx.manufacturing_order.findUnique({
         where: { id },
         include: { part_marks: true, part_lines: { orderBy: { line_seq: 'asc' }, include: { mark: { select: { mark: true } } } } },

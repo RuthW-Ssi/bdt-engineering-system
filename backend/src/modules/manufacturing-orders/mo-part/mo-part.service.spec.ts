@@ -27,6 +27,7 @@ function make(over: Partial<Record<string, unknown>> = {}, txOver: Partial<Recor
     },
     mo_part_line: { deleteMany: jest.fn(), createMany: jest.fn() },
     mo_part_change: { create: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([]),
     ...txOver,
   }
   const prisma = {
@@ -113,7 +114,21 @@ describe('MoPartService.update', () => {
     part_lines: [{ ...LINE, qty: '6', mark: { mark: 'BUH1-3' }, part_mark: null, unit_weight_kg: '828.17', cut_length_mm: null, holes: [], bom_part_ids: [] }],
   })
   const UPD = { primary_mark_prefix_code: 'FLG', routing_template_id: 3, part_marks: [MARK], part_lines: [{ ...LINE, mark: 'BUH1-3', qty: 4 }] }
-  const withMo = (mo: unknown) => make({}, { manufacturing_order: { update: jest.fn().mockResolvedValue({ id: 77, mo_code: 'MO-26000077' }), findUnique: jest.fn().mockResolvedValue(mo) } })
+  const withMo = (mo: unknown) => {
+    const order: string[] = []
+    const m = make({}, {
+      manufacturing_order: { update: jest.fn().mockResolvedValue({ id: 77, mo_code: 'MO-26000077' }), findUnique: jest.fn(() => { order.push('read'); return Promise.resolve(mo) }) },
+      $queryRaw: jest.fn(() => { order.push('lock'); return Promise.resolve([]) }),
+    })
+    return { ...m, order }
+  }
+
+  it('locks the MO row (FOR UPDATE) before reading its status', async () => {
+    const { svc, tx, order } = withMo(existing('CONFIRMED'))
+    await svc.update(77, UPD, 1, 'tao')
+    expect(order).toEqual(['lock', 'read'])
+    expect((tx as any).$queryRaw.mock.calls[0][0].join('')).toContain('FOR UPDATE')
+  })
 
   it('edits a CONFIRMED MO Part and logs only the changed field', async () => {
     const { svc, tx, mail } = withMo(existing('CONFIRMED'))
