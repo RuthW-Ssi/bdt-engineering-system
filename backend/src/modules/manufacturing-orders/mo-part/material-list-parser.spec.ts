@@ -50,6 +50,11 @@ describe('parseMaterialList', () => {
       .toThrow(new BadRequestException('Material List: cannot find Profile column'))
   })
 
+  it('rejects a Tekla Part List / Assembly Part List (has a mark column)', () => {
+    expect(() => parseMaterialList(book([['Assembly Mark', 'Part Mark', 'Profile', 'Grade', 'Qty', 'Length'], ['BUH1-3', 'C-f1', 'PL25x400', 'SM520', 2, 10550]])))
+      .toThrow(new BadRequestException('This looks like a Part List (it has a mark column) — use "ดึงจาก Part List (BOM)" instead'))
+  })
+
   it('rejects a file that is not a spreadsheet', () => {
     expect(() => parseMaterialList(Buffer.from('%PDF-1.4 not a sheet')))
       .toThrow(BadRequestException)

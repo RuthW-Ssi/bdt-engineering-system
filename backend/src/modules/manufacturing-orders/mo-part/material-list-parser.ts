@@ -18,6 +18,9 @@ const PROFILE = ['profile', 'section', 'size']
 const GRADE = ['grade', 'material', 'mat grade']
 const QTY = ['qty', 'quantity', "q'ty"]
 const LENGTH = ['length(mm)', 'length (mm)', 'length', 'length_mm']
+// A Part List / Assembly Part List also has Profile/Grade/Qty/Length, but its
+// qty is per assembly — reject it here and point the user at source ②.
+const MARK = ['part mark', 'part_mark', 'assembly mark', 'assembly_mark', 'mark', 'ass mk', 'asm mark', 'assembly part', 'assemblypart']
 const UNIT_WEIGHT = ['net wieght(kg) for one', 'net weight(kg) for one', 'weight(kg)/1pcs.', 'unit weight']
 
 export function parseMaterialList(buffer: Buffer): { project_number: string | null; lines: PartLineInput[]; warnings: string[] } {
@@ -34,6 +37,9 @@ export function parseMaterialList(buffer: Buffer): { project_number: string | nu
   if (headerIdx < 0) throw new BadRequestException('Material List: cannot find Profile column')
   const header = rows[headerIdx].map(norm)
   const col = { profile: findCol(header, PROFILE), grade: findCol(header, GRADE), qty: findCol(header, QTY), length: findCol(header, LENGTH), weight: findCol(header, UNIT_WEIGHT) }
+  if (header.some(h => MARK.includes(h))) {
+    throw new BadRequestException('This looks like a Part List (it has a mark column) — use "ดึงจาก Part List (BOM)" instead')
+  }
   for (const [name, idx] of [['Grade', col.grade], ['Qty', col.qty], ['Length', col.length]] as const) {
     if (idx < 0) throw new BadRequestException(`Material List: cannot find ${name} column`)
   }

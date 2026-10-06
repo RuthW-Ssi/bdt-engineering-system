@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer'
-import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, Length, Min, ValidateNested } from 'class-validator'
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, Length, Min, ValidateNested } from 'class-validator'
 import { PART_SOURCES, PartSource } from '../mo-part/part-lines'
 
 export class PartLineDto {
@@ -9,7 +9,7 @@ export class PartLineDto {
   @IsInt() @IsPositive() qty: number
   @IsOptional() @IsNumber() @Min(0) unit_weight_kg?: number | null
   @IsOptional() @IsString() part_mark?: string | null
-  @IsOptional() @IsArray() @IsInt({ each: true }) bom_part_ids?: number[]
+  @IsOptional() @IsArray() @ArrayMaxSize(5000) @IsInt({ each: true }) bom_part_ids?: number[]
 }
 
 export class CreateMoPartDto {

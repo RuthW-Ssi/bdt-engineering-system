@@ -56,6 +56,7 @@ export class MoPartService {
     assertLines(input.part_lines, input.part_source)
     const project = await this.prisma.project.findUnique({ where: { id: input.project_id } })
     if (!project) throw new NotFoundException(`Project ${input.project_id} not found`)
+    await this.assertBomPartsInProject(input.part_lines, input.project_id)
     await this.assertPrefixAndRouting(input.primary_mark_prefix_code, input.routing_template_id)
 
     const status = input.confirm === true ? 'CONFIRMED' : 'DRAFT'
@@ -104,6 +105,7 @@ export class MoPartService {
     if (mo.kind !== 'PART') throw new ConflictException(`MO ${id} is not an MO Part`)
     if (mo.status !== 'DRAFT') throw new ConflictException(`Only DRAFT MOs can be edited (current: ${mo.status})`)
     assertLines(input.part_lines, mo.part_source as PartSource)
+    if (mo.project_id != null) await this.assertBomPartsInProject(input.part_lines, mo.project_id)
     await this.assertPrefixAndRouting(input.primary_mark_prefix_code, input.routing_template_id)
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -128,6 +130,17 @@ export class MoPartService {
       subject: `MO ${updated.mo_code} edited · ${input.part_lines.length} part lines`,
     })
     return { id: updated.id, mo_code: updated.mo_code }
+  }
+
+  // bom_part_ids are traceability refs — they must be real parts of this
+  // MO's own project, never another project's.
+  private async assertBomPartsInProject(lines: PartLineInput[], projectId: number) {
+    const ids = [...new Set(lines.flatMap(l => l.bom_part_ids ?? []))]
+    if (!ids.length) return
+    const found = await this.prisma.bom_part.findMany({ where: { id: { in: ids }, dispatch: { project_id: projectId } }, select: { id: true } })
+    const ok = new Set(found.map(p => p.id))
+    const missing = ids.filter(id => !ok.has(id))
+    if (missing.length) throw new BadRequestException(`bom_part_ids not found in this project: ${missing.join(', ')}`)
   }
 
   private async assertPrefixAndRouting(prefixCode: string, routingId: number) {

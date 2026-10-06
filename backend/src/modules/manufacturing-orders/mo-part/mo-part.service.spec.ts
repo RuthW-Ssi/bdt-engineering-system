@@ -53,9 +53,23 @@ describe('MoPartService.create', () => {
     await expect(svc.create(INPUT, 1, 'tao')).rejects.toThrow(NotFoundException)
   })
   it('caps a grouped part_mark at 60 chars', async () => {
-    const { svc, tx } = make()
+    const { svc, tx } = make({ bom_part: { findMany: jest.fn().mockResolvedValue([{ id: 1 }, { id: 2 }]) } })
     await svc.create({ ...INPUT, part_source: 'BOM_PART_LIST', part_lines: [{ ...LINE, part_mark: 'C-f'.repeat(30), bom_part_ids: [1, 2] }] }, 1, 'tao')
     expect(tx.manufacturing_order.create.mock.calls[0][0].data.part_lines.create[0].part_mark).toHaveLength(60)
+  })
+})
+
+describe('MoPartService — bom_part_ids ownership', () => {
+  const BOM_INPUT = { ...INPUT, part_source: 'BOM_PART_LIST' as const, part_lines: [{ ...LINE, bom_part_ids: [1, 2] }] }
+  it('accepts ids that are parts of the same project', async () => {
+    const { svc, prisma } = make({ bom_part: { findMany: jest.fn().mockResolvedValue([{ id: 1 }, { id: 2 }]) } })
+    await expect(svc.create(BOM_INPUT, 1, 'tao')).resolves.toEqual({ id: 77, mo_code: 'MO-26000077' })
+    expect((prisma as any).bom_part.findMany.mock.calls[0][0].where).toEqual({ id: { in: [1, 2] }, dispatch: { project_id: 5 } })
+  })
+  it('rejects ids that are missing or belong to another project', async () => {
+    const { svc } = make({ bom_part: { findMany: jest.fn().mockResolvedValue([{ id: 1 }]) } })
+    await expect(svc.create(BOM_INPUT, 1, 'tao'))
+      .rejects.toThrow(new BadRequestException('bom_part_ids not found in this project: 2'))
   })
 })
 

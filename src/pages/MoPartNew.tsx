@@ -115,6 +115,16 @@ export function MoPartNew() {
     setDispatchId(null)
   }
 
+  // Lines (and BOM part ids) belong to the project they were loaded for —
+  // switching project starts over (final review, Important 1).
+  function pickProject(next: number | null) {
+    if (next === projectId) return
+    if (lines.length && !window.confirm('เปลี่ยนโปรเจกต์จะล้างรายการที่มี ต้องการต่อไหม?')) return
+    resetImport()
+    setSource(null)
+    setProjectId(next)
+  }
+
   function pickSource(next: PartSource) {
     if (next === source) return
     if (lines.length && !window.confirm('เปลี่ยนแหล่งข้อมูลจะล้างรายการที่มี ต้องการต่อไหม?')) return
@@ -207,7 +217,7 @@ export function MoPartNew() {
         {isEdit ? (
           <div style={{ fontSize: 13 }}>{existing?.project ? `${existing.project.project_code} · ${existing.project.name}` : '—'}</div>
         ) : (
-          <select style={SELECT} value={projectId ?? ''} onChange={e => { setProjectId(e.target.value ? Number(e.target.value) : null); setDispatchId(null) }}>
+          <select style={SELECT} value={projectId ?? ''} onChange={e => pickProject(e.target.value ? Number(e.target.value) : null)}>
             <option value="">— เลือกโปรเจกต์ —</option>
             {projects?.items.map(p => <option key={p.id} value={p.id}>{p.project_code} · {p.name}</option>)}
           </select>
