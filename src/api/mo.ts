@@ -33,24 +33,50 @@ export interface PartLine {
   cut_length_mm?: number | null
 }
 
-export interface MoPartLineRow extends PartLine {
+// Decimal columns arrive as strings — convert with Number() before math.
+export interface MoPartLineRow extends Omit<PartLine, 'mark'> {
   id: number
   line_seq: number
+  mark: { mark: string } | null
+}
+
+export interface MoPartMarkRow extends PartMark {
+  id: number
+}
+
+export interface MoPartChange {
+  entity: 'header' | 'mark' | 'line'
+  key: string
+  field: string
+  old: unknown
+  new: unknown
+}
+
+export interface MoPartHistoryEntry {
+  id: number
+  changed_by: string
+  changed_at: string
+  note: string | null
+  changes: MoPartChange[]
 }
 
 export interface CreateMoPartPayload {
   project_id: number
   primary_mark_prefix_code: string
   routing_template_id: number
-  part_source: PartSource
-  source_filename?: string | null
+  part_sources: PartSource[]
+  source_files?: { kind: PartSource; filename: string }[]
   plan_start?: string
   plan_finish?: string
   confirm?: boolean
+  part_marks?: PartMark[]
   part_lines: PartLine[]
 }
 
-export type UpdateMoPartPayload = Pick<CreateMoPartPayload, 'primary_mark_prefix_code' | 'routing_template_id' | 'plan_start' | 'plan_finish' | 'part_lines'>
+export type UpdateMoPartPayload = Pick<CreateMoPartPayload, 'primary_mark_prefix_code' | 'routing_template_id' | 'plan_start' | 'plan_finish' | 'part_marks' | 'part_lines' | 'source_files'> & {
+  part_sources?: PartSource[]
+  note?: string
+}
 
 export interface MarkPrefix {
   code: string
@@ -139,7 +165,9 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   actual_finish: string | null
   assembly_lines: MoAssemblyLine[]
   project: { id: number; project_code: string; name: string } | null
-  part_source: PartSource | null
+  part_sources: PartSource[]
+  source_files: { kind: PartSource; filename: string; at: string }[]
+  part_marks: MoPartMarkRow[]
   // Prisma Decimal columns arrive as strings — convert with Number() before math.
   part_lines: MoPartLineRow[]
   projects_involved: { id: number; project_code: string; name: string }[]
@@ -410,6 +438,26 @@ export function importBomParts(dispatchId: number, slot?: 'MAIN' | 'ACC') {
   return apiClient
     .get('/mo/part/import/bom-parts', { params: { dispatch_id: dispatchId, slot } })
     .then(r => r.data as { lines: PartLine[]; skipped: string[] })
+}
+
+export function importDispatchNote(file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiClient
+    .post('/mo/part/import/dispatch-note', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data as { marks: PartMark[]; warnings: string[]; filename: string })
+}
+
+export function importNc(files: File[]) {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  return apiClient
+    .post('/mo/part/import/nc', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data as { lines: PartLine[]; warnings: string[]; files_count: number })
+}
+
+export function getMoPartHistory(id: number) {
+  return apiClient.get(`/mo/${id}/part-history`).then(r => r.data as MoPartHistoryEntry[])
 }
 
 export function createMoPart(payload: CreateMoPartPayload) {

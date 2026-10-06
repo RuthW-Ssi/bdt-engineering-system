@@ -32,10 +32,10 @@ describe('deriveMarkPlates', () => {
     ] })
   })
   it('gives a reason instead of guessing when no flange size matches', () => {
-    expect(deriveMarkPlates({ ...MARKS[0], width_mm: 450 }, ML)).toEqual({ reason: 'BUH1-3: no PL…x450 at length 10550 in the Material List — type tf/tw' })
+    expect(deriveMarkPlates({ ...MARKS[0], width_mm: 450 }, ML)).toEqual({ reason: 'BUH1-3: ไม่พบแผ่น PL…x450 ยาว 10550 ใน Material List — กรอก tf/tw เอง' })
   })
   it('gives a reason when L, W or H is missing', () => {
-    expect(deriveMarkPlates({ ...MARKS[0], height_mm: null }, ML)).toEqual({ reason: 'BUH1-3: length, width and height are needed' })
+    expect(deriveMarkPlates({ ...MARKS[0], height_mm: null }, ML)).toEqual({ reason: 'BUH1-3: ต้องมีความยาว ความกว้าง และความสูง' })
   })
 })
 

@@ -33,20 +33,20 @@ function pickThickness(list: PartLine[], mark: string, width: number, length: nu
   }
   const found = platesAt(list, width, length)
   const ts = [...new Set(found.map(f => f.t))]
-  if (ts.length === 0) return { reason: `${mark}: no PL…x${width} at length ${length} in the Material List — type tf/tw` }
-  if (ts.length > 1) return { reason: `${mark}: several thicknesses for PL…x${width} at length ${length} — type tf/tw` }
+  if (ts.length === 0) return { reason: `${mark}: ไม่พบแผ่น PL…x${width} ยาว ${length} ใน Material List — กรอก tf/tw เอง` }
+  if (ts.length > 1) return { reason: `${mark}: แผ่น PL…x${width} ยาว ${length} มีหลายความหนา — กรอก tf/tw เอง` }
   return { t: ts[0], row: found[0].row }
 }
 
 export function deriveMarkPlates(m: PartMark, list: PartLine[]): { lines: PartLine[]; tf: number; tw: number } | { reason: string } {
   const L = Number(m.length_mm), W = Number(m.width_mm), H = Number(m.height_mm)
-  if (!(L > 0 && W > 0 && H > 0)) return { reason: `${m.mark}: length, width and height are needed` }
-  if (!(Number(m.set_qty) > 0)) return { reason: `${m.mark}: set must be > 0` }
+  if (!(L > 0 && W > 0 && H > 0)) return { reason: `${m.mark}: ต้องมีความยาว ความกว้าง และความสูง` }
+  if (!(Number(m.set_qty) > 0)) return { reason: `${m.mark}: จำนวน set ต้องมากกว่า 0` }
 
   const flange = pickThickness(list, m.mark, W, L, m.tf_mm)
   if ('reason' in flange) return { reason: flange.reason! }
   const webH = H - 2 * flange.t!
-  if (!(webH > 0)) return { reason: `${m.mark}: height ${H} is too small for flange thickness ${flange.t}` }
+  if (!(webH > 0)) return { reason: `${m.mark}: ความสูง ${H} น้อยเกินไปสำหรับ flange หนา ${flange.t}` }
   const web = pickThickness(list, m.mark, webH, L, m.tw_mm)
   if ('reason' in web) return { reason: web.reason! }
 

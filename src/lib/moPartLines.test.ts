@@ -8,6 +8,10 @@ describe('moPartLines', () => {
     expect(e.get(0)).toBeUndefined()
     expect(e.get(1)).toEqual(['profile is required', 'qty must be a whole number > 0'])
   })
+  it('rowErrors flags a mark that is not in the mark list', () => {
+    expect(rowErrors([{ ...L, mark: 'Z' }], ['A']).get(0)).toEqual(['mark Z is not in the mark list'])
+    expect(rowErrors([{ ...L, mark: 'A' }], ['A']).get(0)).toBeUndefined()
+  })
   it('duplicateGroups finds same size ignoring case', () => {
     expect(duplicateGroups([L, { ...L, length_mm: 8550 }, { ...L, profile: 'pl25x400' }])).toEqual([[0, 2]])
   })

@@ -16,8 +16,10 @@ function fmt(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-export function PartLinesReviewTable({ lines, onChange }: { lines: PartLine[]; onChange: (lines: PartLine[]) => void }) {
-  const errors = rowErrors(lines)
+const holesText = (h: PartLine['holes']) => (h?.length ? h.map(x => `${x.count}×Ø${x.diameter_mm}`).join(', ') : '')
+
+export function PartLinesReviewTable({ lines, onChange, marks = [] }: { lines: PartLine[]; onChange: (lines: PartLine[]) => void; marks?: string[] }) {
+  const errors = rowErrors(lines, marks.length ? marks : undefined)
   const dupes = duplicateGroups(lines)
 
   function patch(i: number, p: Partial<PartLine>) {
@@ -41,6 +43,7 @@ export function PartLinesReviewTable({ lines, onChange }: { lines: PartLine[]; o
         <thead>
           <tr>
             <th style={{ ...HEAD, width: 32 }}>#</th>
+            {marks.length > 0 && <th style={HEAD}>Mark</th>}
             <th style={HEAD}>Profile</th>
             <th style={HEAD}>Grade</th>
             <th style={HEAD}>ยาว (mm)</th>
@@ -48,6 +51,8 @@ export function PartLinesReviewTable({ lines, onChange }: { lines: PartLine[]; o
             <th style={HEAD}>น้ำหนัก/ชิ้น (kg)</th>
             <th style={{ ...HEAD, textAlign: 'right' }}>น้ำหนักรวม (kg)</th>
             <th style={HEAD}>Part mark</th>
+            <th style={HEAD}>รูเจาะ</th>
+            <th style={{ ...HEAD, textAlign: 'right' }}>แนวตัด (m)</th>
             <th style={{ ...HEAD, width: 36 }} />
           </tr>
         </thead>
@@ -55,6 +60,14 @@ export function PartLinesReviewTable({ lines, onChange }: { lines: PartLine[]; o
           {lines.map((l, i) => (
             <tr key={i} title={(errors.get(i) ?? []).join(' · ') || undefined}>
               <td style={{ ...CELL, color: '#999' }}>{i + 1}</td>
+              {marks.length > 0 && (
+                <td style={CELL}>
+                  <select style={{ ...(has(i, 'mark') ? INPUT_BAD : INPUT), minWidth: 110 }} value={l.mark ?? ''} onChange={e => patch(i, { mark: e.target.value || null })}>
+                    <option value="">— ไม่ระบุ —</option>
+                    {marks.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </td>
+              )}
               <td style={CELL}><input style={has(i, 'profile') ? INPUT_BAD : INPUT} value={l.profile} onChange={e => patch(i, { profile: e.target.value })} /></td>
               <td style={CELL}><input style={has(i, 'grade') ? INPUT_BAD : INPUT} value={l.grade} onChange={e => patch(i, { grade: e.target.value })} /></td>
               <td style={CELL}><input type="number" min={0} style={has(i, 'length') ? INPUT_BAD : INPUT} value={l.length_mm || ''} onChange={e => patch(i, { length_mm: numOrZero(e.target.value) })} /></td>
@@ -62,6 +75,8 @@ export function PartLinesReviewTable({ lines, onChange }: { lines: PartLine[]; o
               <td style={CELL}><input type="number" min={0} style={has(i, 'weight') ? INPUT_BAD : INPUT} value={l.unit_weight_kg ?? ''} onChange={e => patch(i, { unit_weight_kg: e.target.value === '' ? null : Number(e.target.value) })} /></td>
               <td style={{ ...CELL, textAlign: 'right', color: '#555' }}>{l.unit_weight_kg == null ? '—' : fmt(Number(l.qty) * Number(l.unit_weight_kg))}</td>
               <td style={{ ...CELL, color: '#888', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.part_mark ?? ''}</td>
+              <td style={{ ...CELL, color: '#555', whiteSpace: 'nowrap' }}>{holesText(l.holes)}</td>
+              <td style={{ ...CELL, textAlign: 'right', color: '#555' }}>{l.cut_length_mm == null ? '' : (Number(l.cut_length_mm) / 1000).toFixed(2)}</td>
               <td style={CELL}>
                 <button type="button" aria-label={`ลบแถว ${i + 1}`} onClick={() => onChange(lines.filter((_, k) => k !== i))} style={{ border: 'none', background: 'none', color: '#999', cursor: 'pointer', display: 'flex' }}>
                   <Trash2 size={14} />
@@ -80,6 +95,8 @@ export function PartLinesReviewTable({ lines, onChange }: { lines: PartLine[]; o
           <span>{lines.length} แถว</span>
           <span>รวม {lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)} ชิ้น</span>
           <span>น้ำหนักรวม {fmt(totalWeight(lines))} kg</span>
+          {lines.some(l => l.holes?.length) && <span>รูเจาะ {lines.reduce((s, l) => s + (Number(l.qty) || 0) * (l.holes ?? []).reduce((a, h) => a + h.count, 0), 0)} รู</span>}
+          {lines.some(l => l.cut_length_mm != null) && <span>แนวตัด {fmt(lines.reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.cut_length_mm) || 0), 0) / 1000)} m</span>}
         </div>
       </div>
     </div>

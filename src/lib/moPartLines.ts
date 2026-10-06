@@ -6,7 +6,7 @@ import type { PartLine } from '../api/mo'
 // Same size is fine under different marks / part marks (round 3).
 const key = (l: PartLine) => `${l.mark ?? '-'}|${l.part_mark ?? '-'}|${l.profile.trim().toUpperCase()}|${l.grade.trim().toUpperCase()}|${Number(l.length_mm)}`
 
-export function rowErrors(lines: PartLine[]): Map<number, string[]> {
+export function rowErrors(lines: PartLine[], markNames?: string[]): Map<number, string[]> {
   const out = new Map<number, string[]>()
   lines.forEach((l, i) => {
     const e: string[] = []
@@ -15,6 +15,7 @@ export function rowErrors(lines: PartLine[]): Map<number, string[]> {
     if (!(Number(l.length_mm) > 0)) e.push('length must be > 0')
     if (!Number.isInteger(Number(l.qty)) || Number(l.qty) <= 0) e.push('qty must be a whole number > 0')
     if (l.unit_weight_kg != null && Number(l.unit_weight_kg) < 0) e.push('weight must be ≥ 0')
+    if (l.mark && markNames && !markNames.includes(l.mark)) e.push(`mark ${l.mark} is not in the mark list`)
     if (e.length) out.set(i, e)
   })
   return out
