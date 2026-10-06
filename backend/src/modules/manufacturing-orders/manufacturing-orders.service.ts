@@ -40,7 +40,8 @@ const ALLOWED_TRANSITIONS: Record<MoStatus, MoStatus[]> = {
 const DETAIL_INCLUDE = {
   primary_mark_prefix: true,
   project: { select: { id: true, project_code: true, name: true } },
-  part_lines: { orderBy: { line_seq: 'asc' as const } },
+  part_marks: { orderBy: { mark: 'asc' as const } },
+  part_lines: { orderBy: { line_seq: 'asc' as const }, include: { mark: { select: { mark: true } } } },
   create_user: { select: { id: true, name: true, login: true } },
   write_user: { select: { id: true, name: true, login: true } },
   routing_template: {

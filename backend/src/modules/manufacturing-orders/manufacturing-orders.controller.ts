@@ -78,7 +78,7 @@ export class ManufacturingOrderController {
   @RequiresPermission('orders', 'update')
   @ApiOperation({ summary: 'Edit a DRAFT MO Part (header + replace all lines)' })
   updatePart(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateMoPartDto, @CurrentUser() user: JwtPayload) {
-    return this.moPart.update(id, dto, user.sub)
+    return this.moPart.update(id, dto, user.sub, user.login)
   }
 
   @Get()

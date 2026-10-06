@@ -1505,8 +1505,10 @@ model manufacturing_order {
   // PART only (null on ASSEMBLY — those derive projects from their lines).
   project_id               Int?
   project                  project?           @relation("ProjectPartMos", fields: [project_id], references: [id])
-  // PART only: MATERIAL_LIST | BOM_PART_LIST | MANUAL — where the MO started (D2).
-  part_source              String?            @db.VarChar(20)
+  // PART only: every source that contributed — MATERIAL_LIST | DISPATCH_NOTE |
+  // BOM_PART_LIST | MANUAL | NC (round 3 R1). source_files: [{ kind, filename, at }].
+  part_sources             String[]           @default([])
+  source_files             Json               @default("[]")
   // Planned production window, set at create time — replaces the old single
   // due_date (P21) with a start/finish pair. Date+time, matching
   // work_order's own plan_start/plan_finish (2026-09-22).
@@ -1527,6 +1529,8 @@ model manufacturing_order {
 
   assembly_lines mo_assembly_line[]
   part_lines     mo_part_line[]
+  part_marks     mo_part_mark[]
+  part_changes   mo_part_change[]
   status_history mo_status_history[]
   work_orders    work_order[] // Sprint 14: execution layer (F-WO)
 
@@ -1564,6 +1568,45 @@ model mo_part_line {
   unit_weight_kg Decimal?            @db.Decimal(12, 3)
   part_mark      String?             @db.VarChar(60)
   bom_part_ids   Int[]               @default([])
+  // NC source (round 3 §A): per-piece holes [{ diameter_mm, count }] and
+  // outer+inner contour cut length — what the cutting/drilling MO needs.
+  holes          Json                @default("[]")
+  cut_length_mm  Decimal?            @db.Decimal(12, 2)
+  mark_id        Int?
+  mark           mo_part_mark?       @relation(fields: [mark_id], references: [id], onDelete: SetNull)
+
+  @@index([mo_id])
+}
+
+// MO Part mark (round 3): one row per Dispatch Note mark (or typed). tw/tf
+// optional (R4) — when blank, plates are derived from the Material List.
+model mo_part_mark {
+  id        Int                 @id @default(autoincrement())
+  mo_id     Int
+  mo        manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  mark      String              @db.VarChar(60)
+  set_qty   Decimal             @db.Decimal(12, 3)
+  length_mm Decimal?            @db.Decimal(10, 2)
+  width_mm  Decimal?            @db.Decimal(10, 2)
+  height_mm Decimal?            @db.Decimal(10, 2)
+  weight_kg Decimal?            @db.Decimal(12, 3)
+  tw_mm     Decimal?            @db.Decimal(6, 2)
+  tf_mm     Decimal?            @db.Decimal(6, 2)
+  lines     mo_part_line[]
+
+  @@unique([mo_id, mark])
+}
+
+// MO Part change log (round 3 R2): one row per save that changed something;
+// changes = [{ entity: header|mark|line, key, field, old, new }].
+model mo_part_change {
+  id         Int                 @id @default(autoincrement())
+  mo_id      Int
+  mo         manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  changed_by String              @db.VarChar(120)
+  changed_at DateTime            @default(now()) @db.Timestamptz
+  note       String?             @db.Text
+  changes    Json
 
   @@index([mo_id])
 }
