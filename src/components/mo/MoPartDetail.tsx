@@ -92,8 +92,9 @@ export function MoPartDetail({ mo }: { mo: MoDetail }) {
       </div>
 
       <div className={ui.body}>
-        <section className={`${ui.panel} grid grid-cols-4 gap-4`}>
+        <section className={`${ui.panel} grid grid-cols-5 gap-4`}>
           <Field label="โปรเจกต์">{mo.project ? `${mo.project.project_code} · ${mo.project.name}` : '—'}</Field>
+          <Field label="Zone">{mo.zone ? `${mo.zone.code} · ${mo.zone.label}` : '—'}{mo.sub_zone && <div className="text-xs text-chrome-400">{mo.sub_zone.name}</div>}</Field>
           <Field label="Mark prefix">{mo.mark_prefix?.code ?? mo.primary_mark_prefix_code} · {mo.mark_prefix?.label ?? ''}</Field>
           <Field label="Routing">{mo.routing_template.code} · {mo.routing_template.name}</Field>
           <Field label="แหล่งข้อมูล">

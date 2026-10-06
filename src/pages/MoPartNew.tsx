@@ -8,6 +8,9 @@ import { apiClient } from '../api/client'
 import { dispatchesApi } from '../api/dispatches'
 import { useCreateMoPart, useMo, useUpdateMoPart } from '../hooks/useMo'
 import { useProjects } from '../hooks/useProjects'
+import { useProjectZones } from '../hooks/useProjectZones'
+import { useSubZones } from '../hooks/useSubZones'
+import { fileZoneMismatch } from '../lib/moPartZone'
 import { usePermission } from '../hooks/usePermission'
 import { PartLinesReviewTable } from '../components/mo/PartLinesReviewTable'
 import { PartMarksTable } from '../components/mo/PartMarksTable'
@@ -62,6 +65,8 @@ export function MoPartNew() {
   })
 
   const [projectId, setProjectId] = useState<number | null>(null)
+  const [zoneId, setZoneId] = useState<number | null>(null)
+  const [subZoneId, setSubZoneId] = useState<number | null>(null)
   const [marks, setMarks] = useState<PartMark[]>([])
   const [lines, setLines] = useState<PartLine[]>([])
   const [materialList, setMaterialList] = useState<PartLine[] | null>(null)
@@ -81,10 +86,13 @@ export function MoPartNew() {
   const [note, setNote] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
 
+  const { data: zones } = useProjectZones(projectId ?? undefined)
+  const { data: subZones } = useSubZones(zoneId)
+  // One MO Part = one zone: the BOM list only offers this zone's dispatches.
   const { data: dispatches } = useQuery({
-    queryKey: ['dispatches', 'mo-part', projectId],
-    queryFn: () => dispatchesApi.list({ project_id: projectId!, limit: 100 }),
-    enabled: projectId != null,
+    queryKey: ['dispatches', 'mo-part', projectId, zoneId],
+    queryFn: () => dispatchesApi.list({ project_id: projectId!, zone_id: zoneId!, limit: 100 }),
+    enabled: projectId != null && zoneId != null,
   })
 
   const editable = !isEdit || (existing?.kind === 'PART' && existing.status !== 'CANCELLED')
@@ -95,6 +103,8 @@ export function MoPartNew() {
     if (!isEdit || !existing || seeded.current || !editable) return
     seeded.current = true
     setProjectId(existing.project?.id ?? null)
+    setZoneId(existing.zone?.id ?? null)
+    setSubZoneId(existing.sub_zone?.id ?? null)
     setMarks((existing.part_marks ?? []).map(m => ({
       mark: m.mark, set_qty: Number(m.set_qty), length_mm: n(m.length_mm), width_mm: n(m.width_mm), height_mm: n(m.height_mm),
       weight_kg: n(m.weight_kg), tw_mm: n(m.tw_mm), tf_mm: n(m.tf_mm),
@@ -112,6 +122,7 @@ export function MoPartNew() {
   }, [isEdit, existing, editable])
 
   const project = useMemo(() => projects?.items.find(p => p.id === projectId) ?? null, [projects, projectId])
+  const zone = useMemo(() => zones?.find(z => z.id === zoneId) ?? null, [zones, zoneId])
   const projectMismatch = fileProjectNumber && project && fileProjectNumber.trim() !== project.project_code.trim()
   const markNames = marks.map(m => m.mark.trim()).filter(Boolean)
 
@@ -121,12 +132,24 @@ export function MoPartNew() {
     setWarnings(prev => ({ ...prev, [kind]: w }))
   }
 
-  // Lines (and BOM part ids) belong to the project they were loaded for.
+  // Lines (and BOM part ids) belong to the project/zone they were loaded for.
+  function clearData() {
+    setLines([]); setMarks([]); setMaterialList(null); setSources([]); setFiles([]); setWarnings({}); setFileProjectNumber(null); setDispatchId(null); setBuildWarnings([])
+  }
   function pickProject(next: number | null) {
     if (next === projectId) return
     if ((lines.length || marks.length) && !window.confirm('เปลี่ยนโปรเจกต์จะล้างข้อมูลที่มี ต้องการต่อไหม?')) return
-    setLines([]); setMarks([]); setMaterialList(null); setSources([]); setFiles([]); setWarnings({}); setFileProjectNumber(null); setDispatchId(null); setBuildWarnings([])
+    clearData()
+    setZoneId(null)
+    setSubZoneId(null)
     setProjectId(next)
+  }
+  function pickZone(next: number | null) {
+    if (next === zoneId) return
+    if ((lines.length || marks.length) && !window.confirm('เปลี่ยน zone จะล้างข้อมูลที่มี ต้องการต่อไหม?')) return
+    clearData()
+    setSubZoneId(null)
+    setZoneId(next)
   }
 
   async function run<T>(fn: () => Promise<T>, fallback: string): Promise<T | null> {
@@ -188,11 +211,11 @@ export function MoPartNew() {
 
   const invalid = rowErrors(lines, markNames).size > 0 || duplicateGroups(lines).length > 0 || marks.some(m => !m.mark.trim() || !(m.set_qty > 0))
   const hasContent = lines.length > 0 || marks.length > 0
-  const canSave = canWrite && editable && !!projectId && !!prefix && !!routingId && hasContent && !invalid
+  const canSave = canWrite && editable && !!projectId && !!zoneId && !!prefix && !!routingId && hasContent && !invalid
   const saving = createMut.isPending || updateMut.isPending
 
   async function save(confirm: boolean) {
-    if (!canSave || !projectId || !routingId) return
+    if (!canSave || !projectId || !zoneId || !routingId) return
     setSaveError(null)
     const common = {
       primary_mark_prefix_code: prefix,
@@ -210,7 +233,7 @@ export function MoPartNew() {
         toast.success('บันทึกแล้ว')
         navigate(`/mo/${editId}`)
       } else {
-        const mo = await createMut.mutateAsync({ ...common, project_id: projectId, part_sources: sources.length ? sources : ['MANUAL'], confirm })
+        const mo = await createMut.mutateAsync({ ...common, project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, part_sources: sources.length ? sources : ['MANUAL'], confirm })
         toast.success(`สร้าง ${mo.mo_code} แล้ว`)
         navigate(`/mo/${mo.id}`)
       }
@@ -230,6 +253,11 @@ export function MoPartNew() {
 
   const warnList = (kind: PartSource) => (warnings[kind] ?? []).map(w => <div key={w} className={`${ui.warn} mt-1.5`}>{w}</div>)
   const fileOf = (kind: PartSource) => files.filter(f => f.kind === kind).map(f => f.filename).join(', ')
+  const zoneWarn = (kind: PartSource) => {
+    const other = zone ? files.filter(f => f.kind === kind).map(f => fileZoneMismatch(f.filename, zone)).find(Boolean) : null
+    return other ? <div className={`${ui.warn} mt-1.5`}>ชื่อไฟล์ระบุ ZONE {other} ไม่ตรงกับ zone ที่เลือก ({zone?.label})</div> : null
+  }
+  const ready = projectId != null && zoneId != null
   const totalQty = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)
   const routingName = routings?.find(r => r.id === routingId)?.name
 
@@ -244,31 +272,52 @@ export function MoPartNew() {
 
       <div className={ui.body}>
         <section className={ui.panel}>
-          <StepHead n={1} title="โปรเจกต์" />
+          <StepHead n={1} title="โปรเจกต์ และ zone" hint="1 MO Part = 1 zone · เปลี่ยนภายหลังไม่ได้" />
           {isEdit ? (
-            <div className="text-sm text-chrome-900">{existing?.project ? `${existing.project.project_code} · ${existing.project.name}` : '—'}</div>
+            <div className="text-sm text-chrome-900">
+              {existing?.project ? `${existing.project.project_code} · ${existing.project.name}` : '—'}
+              {existing?.zone && <span className="ml-3 text-chrome-600">Zone: <strong className="text-chrome-900">{existing.zone.label}</strong>{existing.sub_zone && ` / ${existing.sub_zone.name}`}</span>}
+            </div>
           ) : (
-            <select className={ui.select} value={projectId ?? ''} onChange={e => pickProject(e.target.value ? Number(e.target.value) : null)}>
-              <option value="">— เลือกโปรเจกต์ —</option>
-              {projects?.items.map(p => <option key={p.id} value={p.id}>{p.project_code} · {p.name}</option>)}
-            </select>
+            <div className="grid grid-cols-3 gap-3">
+              <label className="flex flex-col gap-1"><span className={ui.label}>โปรเจกต์</span>
+                <select className={ui.select} value={projectId ?? ''} onChange={e => pickProject(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">— เลือกโปรเจกต์ —</option>
+                  {projects?.items.map(p => <option key={p.id} value={p.id}>{p.project_code} · {p.name}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1"><span className={ui.label}>Zone</span>
+                <select className={ui.select} value={zoneId ?? ''} disabled={!projectId} onChange={e => pickZone(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">— เลือก zone —</option>
+                  {zones?.filter(z => z.active).map(z => <option key={z.id} value={z.id}>{z.code} · {z.label}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1"><span className={ui.label}>Sub-zone (ไม่บังคับ)</span>
+                <select className={ui.select} value={subZoneId ?? ''} disabled={!zoneId || !subZones?.length} onChange={e => setSubZoneId(e.target.value ? Number(e.target.value) : null)}>
+                  <option value="">— ทั้ง zone —</option>
+                  {subZones?.filter(z => z.active).map(z => <option key={z.id} value={z.id}>{z.code ? `${z.code} · ` : ''}{z.name}</option>)}
+                </select>
+              </label>
+            </div>
           )}
         </section>
 
         <section className={ui.panel}>
           <StepHead n={2} title="นำข้อมูลเข้า" hint="ไม่บังคับ · เลือกได้หลายอย่าง · แก้ทุกอย่างได้ภายหลัง" />
-          {!projectId ? <div className={ui.muted}>เลือกโปรเจกต์ก่อน</div> : (
+          {!ready ? <div className={ui.muted}>เลือกโปรเจกต์และ zone ก่อน</div> : (
             <div className="grid grid-cols-4 gap-2">
               <div className={ui.card}>
                 <div className="mb-1.5 font-semibold text-chrome-900">Dispatch Note → mark</div>
                 <input type="file" accept=".xls,.xlsx" className={ui.file} disabled={importing} onChange={e => { void onDispatchNote(e.target.files?.[0]); e.target.value = '' }} />
                 {fileOf('DISPATCH_NOTE') && <div className="mt-1 text-chrome-400">ไฟล์: {fileOf('DISPATCH_NOTE')}</div>}
+                {zoneWarn('DISPATCH_NOTE')}
                 {warnList('DISPATCH_NOTE')}
               </div>
               <div className={ui.card}>
                 <div className="mb-1.5 font-semibold text-chrome-900">Material List → ขนาดแผ่น</div>
                 <input type="file" accept=".xls,.xlsx" className={ui.file} disabled={importing} onChange={e => { void onMaterialList(e.target.files?.[0]); e.target.value = '' }} />
                 {fileOf('MATERIAL_LIST') && <div className="mt-1 text-chrome-400">ไฟล์: {fileOf('MATERIAL_LIST')}</div>}
+                {zoneWarn('MATERIAL_LIST')}
                 {projectMismatch && <div className={`${ui.warn} mt-1.5`}>เลขโปรเจกต์ในไฟล์ ({fileProjectNumber}) ไม่ตรงกับโปรเจกต์ที่เลือก ({project?.project_code})</div>}
                 {warnList('MATERIAL_LIST')}
               </div>
@@ -299,7 +348,7 @@ export function MoPartNew() {
           {isEdit && existing?.source_files?.length ? <div className={`${ui.muted} mt-2`}>ไฟล์ที่ใช้ก่อนหน้า: {existing.source_files.map(f => f.filename).join(', ')}</div> : null}
         </section>
 
-        {projectId && (
+        {ready && (
           <section className={ui.panel}>
             <StepHead n={3} title={`Mark (${marks.length})`} hint="จาก Dispatch Note หรือเพิ่มเอง · tw/tf ว่างได้"
               right={marks.length > 0 && <button type="button" className={ui.btnPrimarySm} onClick={buildPlates}>สร้างรายการแผ่นจาก mark</button>} />
@@ -315,7 +364,7 @@ export function MoPartNew() {
           </section>
         )}
 
-        {projectId && (
+        {ready && (
           <section className={ui.panel}>
             <StepHead n={materialList && marks.length > 0 && lines.some(l => l.mark) ? 5 : 4} title={`รายการแผ่น (${lines.length})`} />
             <PartLinesReviewTable lines={lines} onChange={setLines} marks={markNames} />
@@ -323,7 +372,7 @@ export function MoPartNew() {
         )}
 
         <section className={ui.panel}>
-          <StepHead n={projectId ? (materialList && marks.length > 0 && lines.some(l => l.mark) ? 6 : 5) : 3} title="ข้อมูล MO" />
+          <StepHead n={ready ? (materialList && marks.length > 0 && lines.some(l => l.mark) ? 6 : 5) : 3} title="ข้อมูล MO" />
           <div className="grid grid-cols-4 gap-3">
             <label className="flex flex-col gap-1"><span className={ui.label}>Mark prefix</span>
               <select className={ui.select} value={prefix} onChange={e => setPrefix(e.target.value)}>

@@ -62,6 +62,8 @@ export interface MoPartHistoryEntry {
 
 export interface CreateMoPartPayload {
   project_id: number
+  zone_id: number
+  sub_zone_id?: number | null
   primary_mark_prefix_code: string
   routing_template_id: number
   part_sources: PartSource[]
@@ -95,6 +97,7 @@ export interface MoListItem {
   routing_template: { id: number; code: string; name: string }
   assembly_count: number
   part_line_count: number
+  zone?: { id: number; code: string; label: string } | null
   operation_count: number
   create_date: string
 }
@@ -167,6 +170,8 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   project: { id: number; project_code: string; name: string } | null
   part_sources: PartSource[]
   source_files: { kind: PartSource; filename: string; at: string }[]
+  zone: { id: number; code: string; label: string } | null
+  sub_zone: { id: number; name: string; code: string | null } | null
   part_marks: MoPartMarkRow[]
   // Prisma Decimal columns arrive as strings — convert with Number() before math.
   part_lines: MoPartLineRow[]

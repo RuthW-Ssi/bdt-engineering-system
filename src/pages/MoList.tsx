@@ -106,7 +106,7 @@ export function MoList() {
               </div>
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>
                 {mo.kind === 'PART'
-                  ? <span><strong style={{ color: '#333' }}>{mo.part_line_count}</strong> part sizes</span>
+                  ? <span><strong style={{ color: '#333' }}>{mo.part_line_count}</strong> part sizes{mo.zone && <span className="ml-2 text-chrome-400">· {mo.zone.label}</span>}</span>
                   : <span><strong style={{ color: '#333' }}>{mo.assembly_count}</strong> assemblies</span>}
                 <span><strong style={{ color: '#333' }}>{mo.operation_count}</strong> ops</span>
                 <span>Plan: <strong style={{ color: '#333' }}>{fmtDate(mo.plan_start)} – {fmtDate(mo.plan_finish)}</strong> <DaysRemainingBadge planFinish={mo.plan_finish} /></span>
