@@ -2,8 +2,8 @@
  * Backfill PL-profile bom_part.weight_kg from each dispatch's stored Part List
  * (plate-weight bug, fixed for new uploads 2026-10-06). Dry-run by default.
  *
- *   npx ts-node -T scripts/backfill-plate-weights.ts            # dry-run
- *   npx ts-node -T scripts/backfill-plate-weights.ts --apply    # write
+ *   npx ts-node -T prisma/backfill-plate-weights.ts            # dry-run
+ *   npx ts-node -T prisma/backfill-plate-weights.ts --apply    # write
  *
  * Reads files with the LOCAL storage driver (FILE_STORAGE_LOCAL_PATH or
  * ./storage). Run against staging/Supabase only with the user's go-ahead —

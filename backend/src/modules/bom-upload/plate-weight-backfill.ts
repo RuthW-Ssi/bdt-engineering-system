@@ -1,7 +1,7 @@
 // Backfill plan for the plate-weight bug (memory project_bom_plate_weight_bug,
 // fixed in buildDedupedParts 2026-10-06): existing PL-profile bom_part rows
 // hold the NC kg/m² value. The correct per-piece weight is in the dispatch's
-// stored Part List xlsx. Pure — the script in backend/scripts does the I/O.
+// stored Part List xlsx. Pure — the script in backend/prisma does the I/O.
 
 export interface PlatePartRow { id: number; dispatch_id: number; part_mark: string; profile: string | null; weight_kg: number | null }
 export interface PlateFix { id: number; dispatch_id: number; part_mark: string; from: number | null; to: number }
