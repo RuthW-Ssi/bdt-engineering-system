@@ -77,7 +77,9 @@ export class ManufacturingOrderController {
   @RequiresPermission('orders', 'create')
   @ApiOperation({ summary: 'MO Part · parse NC1 files (not stored) into one line per part mark' })
   @ApiConsumes('multipart/form-data')
-  @UseInterceptors(FilesInterceptor('files', 3000, { storage: memoryStorage(), limits: { fileSize: 1024 * 1024 } }))
+  // NC1 files are tiny (Bangna: 675 plates, largest 1.9 KB) — cap per file
+  // and count so one request can't hold more than ~128 MB in memory.
+  @UseInterceptors(FilesInterceptor('files', 2000, { storage: memoryStorage(), limits: { fileSize: 64 * 1024, files: 2000 } }))
   importNc(@UploadedFiles() files?: { originalname: string; buffer: Buffer }[]) {
     if (!files?.length) throw new BadRequestException('files are required')
     const notNc = files.filter(f => !/\.nc1?$/i.test(f.originalname)).map(f => f.originalname)
