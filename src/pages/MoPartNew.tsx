@@ -27,6 +27,8 @@ const SOURCE_LABEL: Record<PartSource, string> = {
   MATERIAL_LIST: 'อัปโหลด Material List',
   BOM_PART_LIST: 'ดึงจาก Part List (BOM)',
   MANUAL: 'กรอกเอง',
+  DISPATCH_NOTE: 'Dispatch Note',
+  NC: 'NC (.nc1)',
 }
 
 function apiMessage(e: unknown, fallback: string) {

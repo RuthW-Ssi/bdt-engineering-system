@@ -3,7 +3,8 @@ import type { PartLine } from '../api/mo'
 // Mirrors backend mo-part/part-lines.ts rules so the review table can show
 // errors per cell before Save; the server re-validates (wiki
 // features/mo-part-import-plan §5).
-const key = (l: PartLine) => `${l.profile.trim().toUpperCase()}|${l.grade.trim().toUpperCase()}|${Number(l.length_mm)}`
+// Same size is fine under different marks / part marks (round 3).
+const key = (l: PartLine) => `${l.mark ?? '-'}|${l.part_mark ?? '-'}|${l.profile.trim().toUpperCase()}|${l.grade.trim().toUpperCase()}|${Number(l.length_mm)}`
 
 export function rowErrors(lines: PartLine[]): Map<number, string[]> {
   const out = new Map<number, string[]>()

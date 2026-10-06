@@ -6,9 +6,22 @@ export type MoStatus = 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'DONE' | 'CANCELL
 // MO Part (wiki features/mo-part-import-plan): ASSEMBLY = mark-based MO,
 // PART = size-based lines pre-filled from one source, then freely edited.
 export type MoKind = 'ASSEMBLY' | 'PART'
-export type PartSource = 'MATERIAL_LIST' | 'BOM_PART_LIST' | 'MANUAL'
+export type PartSource = 'MATERIAL_LIST' | 'DISPATCH_NOTE' | 'BOM_PART_LIST' | 'MANUAL' | 'NC'
+
+// Round 3: a Dispatch Note mark (or typed). tw/tf optional.
+export interface PartMark {
+  mark: string
+  set_qty: number
+  length_mm: number | null
+  width_mm: number | null
+  height_mm: number | null
+  weight_kg?: number | null
+  tw_mm?: number | null
+  tf_mm?: number | null
+}
 
 export interface PartLine {
+  mark?: string | null
   profile: string
   grade: string
   length_mm: number
@@ -16,6 +29,8 @@ export interface PartLine {
   unit_weight_kg?: number | null
   part_mark?: string | null
   bom_part_ids?: number[]
+  holes?: { diameter_mm: number; count: number }[]
+  cut_length_mm?: number | null
 }
 
 export interface MoPartLineRow extends PartLine {

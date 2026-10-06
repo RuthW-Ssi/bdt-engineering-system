@@ -11,6 +11,10 @@ describe('moPartLines', () => {
   it('duplicateGroups finds same size ignoring case', () => {
     expect(duplicateGroups([L, { ...L, length_mm: 8550 }, { ...L, profile: 'pl25x400' }])).toEqual([[0, 2]])
   })
+  it('duplicateGroups ignores the same size under different marks or part marks', () => {
+    expect(duplicateGroups([{ ...L, mark: 'A' }, { ...L, mark: 'B' }, { ...L, part_mark: 'x-p1' }, { ...L, part_mark: 'x-p2' }])).toEqual([])
+    expect(duplicateGroups([{ ...L, mark: 'A' }, { ...L, mark: 'A' }])).toEqual([[0, 1]])
+  })
   it('mergeRows sums qty into the first row and unions bom ids', () => {
     const merged = mergeRows([{ ...L, bom_part_ids: [1] }, { ...L, length_mm: 8550 }, { ...L, qty: 2, bom_part_ids: [2] }], [0, 2])
     expect(merged).toEqual([{ ...L, qty: 6, bom_part_ids: [1, 2] }, { ...L, length_mm: 8550 }])

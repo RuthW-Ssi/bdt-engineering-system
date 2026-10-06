@@ -14,6 +14,8 @@ const SOURCE_LABEL: Record<PartSource, string> = {
   MATERIAL_LIST: 'Material List',
   BOM_PART_LIST: 'Part List (BOM)',
   MANUAL: 'กรอกเอง',
+  DISPATCH_NOTE: 'Dispatch Note',
+  NC: 'NC (.nc1)',
 }
 const STATUS_COLOR: Record<MoStatus, string> = {
   DRAFT: '#888', CONFIRMED: '#1F6FEB', IN_PROGRESS: '#D97706', DONE: '#15803D', CANCELLED: '#B91C1C',
