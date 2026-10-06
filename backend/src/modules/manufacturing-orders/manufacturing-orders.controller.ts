@@ -11,10 +11,11 @@ import {
   Query,
   Res,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common'
-import { FileInterceptor } from '@nestjs/platform-express'
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
 import type { Response } from 'express'
 import { ApiBearerAuth, ApiConsumes, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger'
@@ -35,6 +36,9 @@ import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 import { CreateMoPartDto, UpdateMoPartDto } from './dto/create-mo-part.dto'
 import { MoPartService } from './mo-part/mo-part.service'
 import { parseMaterialList } from './mo-part/material-list-parser'
+import { parseDispatchNote } from './mo-part/dispatch-note-parser'
+import { ncDetailsToLines } from './mo-part/nc-lines'
+import { parseNcDetail } from '../bom-upload/nc-parser'
 
 @ApiTags('Manufacturing Orders')
 @ApiBearerAuth()
@@ -57,6 +61,29 @@ export class ManufacturingOrderController {
   importMaterialList(@UploadedFile() file?: { originalname: string; buffer: Buffer }) {
     if (!file) throw new BadRequestException('file is required')
     return { ...parseMaterialList(file.buffer), filename: file.originalname }
+  }
+
+  @Post('part/import/dispatch-note')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'MO Part · parse a Dispatch Note (first sheet, not stored) into marks' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  importDispatchNote(@UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('file is required')
+    return { ...parseDispatchNote(file.buffer), filename: file.originalname }
+  }
+
+  @Post('part/import/nc')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'MO Part · parse NC1 files (not stored) into one line per part mark' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FilesInterceptor('files', 3000, { storage: memoryStorage(), limits: { fileSize: 1024 * 1024 } }))
+  importNc(@UploadedFiles() files?: { originalname: string; buffer: Buffer }[]) {
+    if (!files?.length) throw new BadRequestException('files are required')
+    const notNc = files.filter(f => !/\.nc1?$/i.test(f.originalname)).map(f => f.originalname)
+    if (notNc.length) throw new BadRequestException(`Not NC1 files: ${notNc.slice(0, 5).join(', ')}${notNc.length > 5 ? ' …' : ''}`)
+    const details = files.map(f => parseNcDetail(f.originalname, f.buffer.toString('utf-8')))
+    return { ...ncDetailsToLines(details), files_count: files.length }
   }
 
   @Get('part/import/bom-parts')
@@ -122,6 +149,13 @@ export class ManufacturingOrderController {
   @ApiOperation({ summary: 'Aggregated parts (bom_part) across all assemblies in the MO' })
   getParts(@Param('id', ParseIntPipe) id: number) {
     return this.svc.getParts(id)
+  }
+
+  @Get(':id/part-history')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'MO Part · change log, newest first' })
+  getPartHistory(@Param('id', ParseIntPipe) id: number) {
+    return this.moPart.history(id)
   }
 
   @Get(':id/history')
