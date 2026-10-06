@@ -18,8 +18,11 @@ export const ui = {
   select: 'w-full border border-chrome-200 rounded-md bg-white px-2 py-1.5 text-[13px] text-chrome-900 focus:outline-none focus:border-steel-600 disabled:bg-chrome-50',
   file: 'text-xs text-chrome-600 file:mr-2 file:rounded-md file:border file:border-chrome-200 file:bg-white file:px-3 file:py-1 file:text-xs file:text-chrome-800 hover:file:bg-chrome-50 disabled:opacity-50',
   table: 'w-full border-collapse',
-  th: 'px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-chrome-400 bg-chrome-50 border-b border-chrome-100 whitespace-nowrap',
-  thRight: 'px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wide text-chrome-400 bg-chrome-50 border-b border-chrome-100 whitespace-nowrap',
+  // Long lists (e.g. 675 NC lines) scroll inside the panel instead of the page.
+  scrollBox: 'max-h-[60vh] overflow-auto scroll-thin rounded-md border border-chrome-100',
+  // sticky: header stays visible inside a scrollBox (no effect elsewhere).
+  th: 'sticky top-0 z-10 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wide text-chrome-400 bg-chrome-50 border-b border-chrome-100 whitespace-nowrap',
+  thRight: 'sticky top-0 z-10 px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wide text-chrome-400 bg-chrome-50 border-b border-chrome-100 whitespace-nowrap',
   td: 'px-2 py-1 border-b border-chrome-50 text-xs text-chrome-800',
   tdRight: 'px-2 py-1 border-b border-chrome-50 text-xs text-chrome-800 text-right font-mono',
   tdMuted: 'px-2 py-1 border-b border-chrome-50 text-xs text-chrome-400',

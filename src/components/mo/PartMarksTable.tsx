@@ -20,6 +20,7 @@ export function PartMarksTable({ marks, onChange }: { marks: PartMark[]; onChang
   return (
     <div>
       {marks.length > 0 && (
+        <div className={ui.scrollBox}>
         <table className={ui.table}>
           <thead>
             <tr>
@@ -47,6 +48,7 @@ export function PartMarksTable({ marks, onChange }: { marks: PartMark[]; onChang
             ))}
           </tbody>
         </table>
+        </div>
       )}
       <button type="button" className={`${ui.btnAdd} mt-2`} onClick={() => onChange([...marks, { mark: '', set_qty: 1, length_mm: null, width_mm: null, height_mm: null }])}>
         <Plus size={13} /> เพิ่ม mark

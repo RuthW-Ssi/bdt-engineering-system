@@ -128,7 +128,7 @@ export function MoPartDetail({ mo }: { mo: MoDetail }) {
 
         <section className={ui.panel}>
           <div className={`${ui.label} mb-2`}>รายการแผ่น ({lines.length})</div>
-          <div className="overflow-x-auto scroll-thin">
+          <div className={ui.scrollBox}>
             <table className={ui.table}>
               <thead>
                 <tr>

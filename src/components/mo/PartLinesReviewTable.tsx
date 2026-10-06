@@ -33,7 +33,7 @@ export function PartLinesReviewTable({ lines, onChange, marks = [] }: { lines: P
         </div>
       ))}
 
-      <div className="overflow-x-auto scroll-thin">
+      <div className={ui.scrollBox}>
         <table className={ui.table}>
           <thead>
             <tr>
