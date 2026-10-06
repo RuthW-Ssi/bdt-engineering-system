@@ -35,7 +35,7 @@ function make(over: Partial<Record<string, unknown>> = {}, txOver: Partial<Recor
     project_zone: { findFirst: jest.fn().mockResolvedValue({ id: 3 }) },
     sub_zone: { findFirst: jest.fn().mockResolvedValue({ id: 8 }) },
     mark_prefix_master: { findUnique: jest.fn().mockResolvedValue({ code: 'FLG' }) },
-    routing_template: { findUnique: jest.fn().mockResolvedValue({ id: 3 }) },
+    routing_template: { findUnique: jest.fn().mockResolvedValue({ id: 3 }), findFirst: jest.fn().mockResolvedValue({ id: 20 }) },
     bom_dispatch: { findUnique: jest.fn().mockResolvedValue({ id: 10 }) },
     bom_part: { findMany: jest.fn().mockResolvedValue([]) },
     mo_part_change: { findMany: jest.fn().mockResolvedValue([]) },
@@ -95,6 +95,19 @@ describe('MoPartService.create', () => {
     const { svc } = make({ bom_part: { findMany: jest.fn().mockResolvedValue([{ id: 1 }]) } })
     await expect(svc.create({ ...INPUT, part_sources: ['BOM_PART_LIST'], part_marks: [], part_lines: [{ ...LINE, bom_part_ids: [1, 2] }] }, 1, 'tao'))
       .rejects.toThrow(new BadRequestException('bom_part_ids not found in this zone: 2'))
+  })
+  it('fills prefix OTH and the PART routing automatically when not given', async () => {
+    const { svc, tx, prisma } = make()
+    const { primary_mark_prefix_code: _p, routing_template_id: _r, ...auto } = INPUT
+    await svc.create(auto, 1, 'tao')
+    expect(tx.manufacturing_order.create.mock.calls[0][0].data).toMatchObject({ primary_mark_prefix_code: 'OTH', routing_template_id: 20 })
+    expect((prisma as any).routing_template.findFirst.mock.calls[0][0].where).toEqual({ code: 'PART', active: true })
+  })
+  it('saves with no routing when no PART template exists', async () => {
+    const { svc, tx } = make({ routing_template: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) } })
+    const { primary_mark_prefix_code: _p, routing_template_id: _r, ...auto } = INPUT
+    await svc.create(auto, 1, 'tao')
+    expect(tx.manufacturing_order.create.mock.calls[0][0].data.routing_template_id).toBeNull()
   })
   it('rejects a zone that is not in the project', async () => {
     const { svc, prisma } = make({ project_zone: { findFirst: jest.fn().mockResolvedValue(null) } })

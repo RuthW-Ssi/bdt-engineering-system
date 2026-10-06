@@ -527,7 +527,7 @@ export class MoPrintService {
       where: { id: moId },
       select: { routing_template_id: true },
     })
-    if (!mo) return []
+    if (!mo || mo.routing_template_id == null) return []
 
     const templateOps = await this.prisma.mrp_routing_workcenter.findMany({
       where: { template_id: mo.routing_template_id },

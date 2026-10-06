@@ -52,16 +52,12 @@ export function MoPartNew() {
   const updateMut = useUpdateMoPart(editId ?? 0)
   const { data: existing, isLoading: loadingExisting } = useMo(editId ?? 0)
   const { data: projects } = useProjects({ limit: 100 })
-  // Full mark_prefix_master list (GET /mark-prefixes) — includes OTH "อื่นๆ" (D7).
-  const { data: prefixes } = useQuery({
-    queryKey: ['mark-prefixes', 'master'],
-    queryFn: () => apiClient.get('/mark-prefixes').then(r => r.data as { code: string; label: string; active: boolean }[]),
-  })
-  // GET /routing-templates is paginated ({ data: [...] }); active templates only.
-  const { data: routings } = useQuery({
-    queryKey: ['routing-templates', 'mo-part'],
-    queryFn: () => apiClient.get('/routing-templates', { params: { state: 'active', limit: 100 } })
-      .then(r => r.data.data as { id: number; code: string; name: string }[]),
+  // Mark prefix and routing are not asked (user, 2026-10-06): the server sets
+  // prefix OTH and the active `PART` routing template. Show what will be used.
+  const { data: partRouting } = useQuery({
+    queryKey: ['routing-templates', 'PART'],
+    queryFn: () => apiClient.get('/routing-templates', { params: { search: 'PART', state: 'active', limit: 20 } })
+      .then(r => (r.data.data as { id: number; code: string; name: string }[]).find(t => t.code === 'PART') ?? null),
   })
 
   const [projectId, setProjectId] = useState<number | null>(null)
@@ -79,8 +75,6 @@ export function MoPartNew() {
   const [dispatchId, setDispatchId] = useState<number | null>(null)
   const [slot, setSlot] = useState<'' | 'MAIN' | 'ACC'>('')
   const [buildWarnings, setBuildWarnings] = useState<string[]>([])
-  const [prefix, setPrefix] = useState('')
-  const [routingId, setRoutingId] = useState<number | null>(null)
   const [planStart, setPlanStart] = useState('')
   const [planFinish, setPlanFinish] = useState('')
   const [note, setNote] = useState('')
@@ -115,8 +109,6 @@ export function MoPartNew() {
       unit_weight_kg: n(l.unit_weight_kg), part_mark: l.part_mark, bom_part_ids: l.bom_part_ids,
       holes: l.holes ?? [], cut_length_mm: n(l.cut_length_mm),
     })))
-    setPrefix(existing.primary_mark_prefix_code)
-    setRoutingId(existing.routing_template_id)
     setPlanStart(toDatetimeLocal(existing.plan_start))
     setPlanFinish(toDatetimeLocal(existing.plan_finish))
   }, [isEdit, existing, editable])
@@ -211,15 +203,13 @@ export function MoPartNew() {
 
   const invalid = rowErrors(lines, markNames).size > 0 || duplicateGroups(lines).length > 0 || marks.some(m => !m.mark.trim() || !(m.set_qty > 0))
   const hasContent = lines.length > 0 || marks.length > 0
-  const canSave = canWrite && editable && !!projectId && !!zoneId && !!prefix && !!routingId && hasContent && !invalid
+  const canSave = canWrite && editable && !!projectId && !!zoneId && hasContent && !invalid
   const saving = createMut.isPending || updateMut.isPending
 
   async function save(confirm: boolean) {
-    if (!canSave || !projectId || !zoneId || !routingId) return
+    if (!canSave || !projectId || !zoneId) return
     setSaveError(null)
     const common = {
-      primary_mark_prefix_code: prefix,
-      routing_template_id: routingId,
       plan_start: planStart ? new Date(planStart).toISOString() : undefined,
       plan_finish: planFinish ? new Date(planFinish).toISOString() : undefined,
       part_marks: marks.map(m => ({ ...m, mark: m.mark.trim() })),
@@ -259,7 +249,10 @@ export function MoPartNew() {
   }
   const ready = projectId != null && zoneId != null
   const totalQty = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0)
-  const routingName = routings?.find(r => r.id === routingId)?.name
+  const shownPrefix = isEdit ? existing?.primary_mark_prefix_code ?? '—' : 'OTH'
+  const shownRouting = isEdit
+    ? (existing?.routing_template ? `${existing.routing_template.code} · ${existing.routing_template.name}` : '—')
+    : (partRouting ? `${partRouting.code} · ${partRouting.name}` : 'ไม่มี (ยังไม่ได้ตั้ง template PART)')
 
   return (
     <div className={ui.page}>
@@ -374,18 +367,12 @@ export function MoPartNew() {
         <section className={ui.panel}>
           <StepHead n={ready ? (materialList && marks.length > 0 && lines.some(l => l.mark) ? 6 : 5) : 3} title="ข้อมูล MO" />
           <div className="grid grid-cols-4 gap-3">
-            <label className="flex flex-col gap-1"><span className={ui.label}>Mark prefix</span>
-              <select className={ui.select} value={prefix} onChange={e => setPrefix(e.target.value)}>
-                <option value="">— เลือก —</option>
-                {prefixes?.filter(p => p.active).map(p => <option key={p.code} value={p.code}>{p.code} · {p.label}</option>)}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1"><span className={ui.label}>Routing</span>
-              <select className={ui.select} value={routingId ?? ''} onChange={e => setRoutingId(e.target.value ? Number(e.target.value) : null)}>
-                <option value="">— เลือก —</option>
-                {routings?.map(r => <option key={r.id} value={r.id}>{r.code} · {r.name}</option>)}
-              </select>
-            </label>
+            <div className="flex flex-col gap-1"><span className={ui.label}>Mark prefix</span>
+              <div className="rounded-md border border-chrome-100 bg-chrome-50 px-2 py-1.5 text-[13px] text-chrome-800">{shownPrefix}{!isEdit && ' · อื่นๆ'} <span className="text-[11px] text-chrome-400">(อัตโนมัติ)</span></div>
+            </div>
+            <div className="flex flex-col gap-1"><span className={ui.label}>Routing</span>
+              <div className="truncate rounded-md border border-chrome-100 bg-chrome-50 px-2 py-1.5 text-[13px] text-chrome-800">{shownRouting} <span className="text-[11px] text-chrome-400">(อัตโนมัติ)</span></div>
+            </div>
             <label className="flex flex-col gap-1"><span className={ui.label}>เริ่ม (แผน)</span>
               <input type="datetime-local" className={ui.select} value={planStart} onChange={e => setPlanStart(e.target.value)} />
             </label>
@@ -404,10 +391,10 @@ export function MoPartNew() {
 
       <div className={ui.saveBar}>
         <div className="flex gap-5 text-xs text-chrome-600">
-          <span>Prefix: <strong className="text-chrome-900">{prefix || '—'}</strong></span>
+          <span>Prefix: <strong className="text-chrome-900">{shownPrefix}</strong></span>
           <span>Mark: <strong className="text-chrome-900">{marks.length}</strong></span>
           <span>แผ่น: <strong className="text-chrome-900">{lines.length}</strong> แถว · <strong className="text-chrome-900">{totalQty}</strong> ชิ้น</span>
-          <span>Routing: <strong className="text-chrome-900">{routingName ?? '—'}</strong></span>
+          <span>Routing: <strong className="text-chrome-900">{shownRouting}</strong></span>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" className={ui.btnNeutral} onClick={() => navigate(isEdit ? `/mo/${editId}` : '/order?tab=mo')}>ยกเลิก</button>

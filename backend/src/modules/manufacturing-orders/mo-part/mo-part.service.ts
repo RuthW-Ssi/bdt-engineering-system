@@ -15,8 +15,10 @@ export interface CreateMoPartInput {
   project_id: number
   zone_id: number
   sub_zone_id?: number | null
-  primary_mark_prefix_code: string
-  routing_template_id: number
+  // Both automatic for MO Part (user, 2026-10-06): prefix OTH, routing = the
+  // active `PART` template if one exists, else none.
+  primary_mark_prefix_code?: string
+  routing_template_id?: number | null
   part_sources: PartSource[]
   source_files?: SourceFileInput[]
   plan_start?: string
@@ -27,8 +29,8 @@ export interface CreateMoPartInput {
 }
 
 export interface UpdateMoPartInput {
-  primary_mark_prefix_code: string
-  routing_template_id: number
+  primary_mark_prefix_code?: string
+  routing_template_id?: number | null
   plan_start?: string
   plan_finish?: string
   part_marks?: PartMarkInput[]
@@ -37,6 +39,9 @@ export interface UpdateMoPartInput {
   source_files?: SourceFileInput[]
   note?: string
 }
+
+const PART_PREFIX = 'OTH'
+const PART_ROUTING_CODE = 'PART'
 
 const dec = (v: number | null | undefined) => (v == null ? null : new Prisma.Decimal(v))
 const num = (v: unknown) => (v == null ? null : Number(v))
@@ -105,7 +110,9 @@ export class MoPartService {
     if (!project) throw new NotFoundException(`Project ${input.project_id} not found`)
     await this.assertZone(input.project_id, input.zone_id, input.sub_zone_id)
     await this.assertBomPartsInZone(input.part_lines, input.project_id, input.zone_id)
-    await this.assertPrefixAndRouting(input.primary_mark_prefix_code, input.routing_template_id)
+    const prefixCode = input.primary_mark_prefix_code ?? PART_PREFIX
+    const routingId = input.routing_template_id !== undefined ? input.routing_template_id : await this.defaultPartRouting()
+    await this.assertPrefixAndRouting(prefixCode, routingId)
 
     const status = input.confirm === true ? 'CONFIRMED' : 'DRAFT'
     const files = stampFiles(input.source_files)
@@ -120,8 +127,8 @@ export class MoPartService {
           sub_zone_id: input.sub_zone_id ?? null,
           part_sources: [...new Set(input.part_sources)],
           source_files: files,
-          primary_mark_prefix_code: input.primary_mark_prefix_code,
-          routing_template_id: input.routing_template_id,
+          primary_mark_prefix_code: prefixCode,
+          routing_template_id: routingId,
           status,
           plan_start: input.plan_start ? new Date(input.plan_start) : null,
           plan_finish: input.plan_finish ? new Date(input.plan_finish) : null,
@@ -171,9 +178,11 @@ export class MoPartService {
       const sources = [...new Set([...(mo.part_sources ?? []), ...(input.part_sources ?? [])])]
       assertInput(marks, input.part_lines, sources)
       if (mo.project_id != null) await this.assertBomPartsInZone(input.part_lines, mo.project_id, mo.zone_id)
-      await this.assertPrefixAndRouting(input.primary_mark_prefix_code, input.routing_template_id)
+      const prefixCode = input.primary_mark_prefix_code ?? mo.primary_mark_prefix_code
+      const routingId = input.routing_template_id !== undefined ? input.routing_template_id : mo.routing_template_id
+      await this.assertPrefixAndRouting(prefixCode, routingId)
 
-      const header = (m: { primary_mark_prefix_code: string; routing_template_id: number; plan_start?: Date | string | null; plan_finish?: Date | string | null }) => ({
+      const header = (m: { primary_mark_prefix_code?: string; routing_template_id?: number | null; plan_start?: Date | string | null; plan_finish?: Date | string | null }) => ({
         primary_mark_prefix_code: m.primary_mark_prefix_code,
         routing_template_id: m.routing_template_id,
         plan_start: m.plan_start ? new Date(m.plan_start) : null,
@@ -190,7 +199,7 @@ export class MoPartService {
           unit_weight_kg: num(l.unit_weight_kg), cut_length_mm: num(l.cut_length_mm), holes: (l.holes as never) ?? [], bom_part_ids: l.bom_part_ids,
         })),
       }
-      const after: MoPartSnapshot = { header: header(input), marks, lines: input.part_lines }
+      const after: MoPartSnapshot = { header: header({ ...input, primary_mark_prefix_code: prefixCode, routing_template_id: routingId }), marks, lines: input.part_lines }
       const changes = diffMoPart(before, after)
 
       await tx.mo_part_line.deleteMany({ where: { mo_id: id } })
@@ -199,7 +208,7 @@ export class MoPartService {
       const updated = await tx.manufacturing_order.update({
         where: { id },
         data: {
-          ...header(input),
+          ...header({ ...input, primary_mark_prefix_code: prefixCode, routing_template_id: routingId }),
           part_sources: sources,
           source_files: [...((mo.source_files as unknown[]) ?? []), ...stampFiles(input.source_files)] as Prisma.InputJsonValue,
           write_uid: userId,
@@ -272,12 +281,17 @@ export class MoPartService {
     const missing = ids.filter(id => !ok.has(id))
     if (missing.length) throw new BadRequestException(`bom_part_ids not found in this ${zoneId != null ? 'zone' : 'project'}: ${missing.join(', ')}`)
   }
-  private async assertPrefixAndRouting(prefixCode: string, routingId: number) {
+  private async defaultPartRouting(): Promise<number | null> {
+    const t = await this.prisma.routing_template.findFirst({ where: { code: PART_ROUTING_CODE, active: true }, select: { id: true } })
+    return t?.id ?? null
+  }
+
+  private async assertPrefixAndRouting(prefixCode: string, routingId: number | null) {
     const [prefix, template] = await Promise.all([
       this.prisma.mark_prefix_master.findUnique({ where: { code: prefixCode } }),
-      this.prisma.routing_template.findUnique({ where: { id: routingId } }),
+      routingId == null ? null : this.prisma.routing_template.findUnique({ where: { id: routingId } }),
     ])
     if (!prefix) throw new NotFoundException(`Mark prefix ${prefixCode} not found`)
-    if (!template) throw new NotFoundException(`Routing template ${routingId} not found`)
+    if (routingId != null && !template) throw new NotFoundException(`Routing template ${routingId} not found`)
   }
 }

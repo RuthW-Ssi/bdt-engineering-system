@@ -64,8 +64,9 @@ export interface CreateMoPartPayload {
   project_id: number
   zone_id: number
   sub_zone_id?: number | null
-  primary_mark_prefix_code: string
-  routing_template_id: number
+  // Optional: the server fills OTH and the PART routing (user, 2026-10-06).
+  primary_mark_prefix_code?: string
+  routing_template_id?: number | null
   part_sources: PartSource[]
   source_files?: { kind: PartSource; filename: string }[]
   plan_start?: string
@@ -94,7 +95,8 @@ export interface MoListItem {
   plan_start: string | null
   plan_finish: string | null
   mark_prefix: MarkPrefix
-  routing_template: { id: number; code: string; name: string }
+  // null only on MO Parts without the PART routing template
+  routing_template: { id: number; code: string; name: string } | null
   assembly_count: number
   part_line_count: number
   zone?: { id: number; code: string; label: string } | null
@@ -161,8 +163,9 @@ interface MoAssemblyLine {
 }
 
 export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
-  routing_template: { id: number; code: string; name: string; operations: RoutingOp[] }
-  routing_template_id: number
+  // null only on MO Parts without the PART routing template
+  routing_template: { id: number; code: string; name: string; operations: RoutingOp[] } | null
+  routing_template_id: number | null
   primary_mark_prefix_code: string
   actual_start: string | null
   actual_finish: string | null

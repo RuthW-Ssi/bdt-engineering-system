@@ -187,7 +187,7 @@ export function MoDetail() {
       {/* Body */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#F7F7F7' }}>
         {tab === 'Overview' && <OverviewTab mo={mo} canWrite={canWrite} onEditActualDates={() => openDatesModal('edit')} />}
-        {tab === 'Work Orders' && <WorkOrdersTab moId={moId} operations={mo.routing_template.operations} />}
+        {tab === 'Work Orders' && <WorkOrdersTab moId={moId} operations={(mo.routing_template?.operations ?? [])} />}
         {tab === 'Assemblies' && <AssembliesTab moId={moId} />}
         {tab === 'Parts' && <PartsTab moId={moId} />}
         {tab === 'History' && <HistoryTab moId={moId} />}
@@ -235,7 +235,7 @@ export function MoDetail() {
       {printPickerOpen && (
         <PrintSelectModal
           moId={moId}
-          operations={mo.routing_template.operations}
+          operations={(mo.routing_template?.operations ?? [])}
           printing={printing}
           error={printError}
           onClose={() => { setPrintPickerOpen(false); setPrintError(null) }}
@@ -466,11 +466,11 @@ function OverviewTab({ mo, canWrite, onEditActualDates }: { mo: import('../api/m
 
       {/* Routing operations */}
       <Card title="Routing">
-        {!mo.routing_template.operations.length ? (
+        {!(mo.routing_template?.operations ?? []).length ? (
           <span style={{ color: '#B0B0B0', fontSize: 13 }}>No operations on this routing template.</span>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {mo.routing_template.operations.map(op => {
+            {(mo.routing_template?.operations ?? []).map(op => {
               const color = op.op_type?.color ?? '#9CA3AF'
               return (
               <div key={op.id} style={{ border: '1px solid #EEEEEE', borderRadius: 10, overflow: 'hidden' }}>

@@ -158,11 +158,12 @@ export class ManufacturingOrderService {
       plan_start: r.plan_start,
       plan_finish: r.plan_finish,
       mark_prefix: r.primary_mark_prefix,
-      routing_template: { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name },
+      // MO Parts may have no routing (routing_template_id is optional for PART).
+      routing_template: r.routing_template ? { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name } : null,
       assembly_count: r._count.assembly_lines,
       part_line_count: r._count.part_lines,
       zone: r.zone ?? null,
-      operation_count: r.routing_template._count.operations, // from routing template (ops no longer stored on MO)
+      operation_count: r.routing_template?._count.operations ?? 0, // from routing template (ops no longer stored on MO)
       create_date: r.create_date,
     }))
   }
@@ -217,7 +218,7 @@ export class ManufacturingOrderService {
 
     // Collect source_activity_ids for consumable lookup across all ops
     const allActivityIds = new Set<number>()
-    for (const op of mo.routing_template.operations) {
+    for (const op of mo.routing_template?.operations ?? []) {
       if ((op as any).operation_template?.activities?.length) {
         for (const a of (op as any).operation_template.activities) {
           if (a.source_activity_id) allActivityIds.add(a.source_activity_id)
@@ -252,7 +253,7 @@ export class ManufacturingOrderService {
       consumeMap.set(row.activity_id, list)
     }
 
-    const enrichedOperations = mo.routing_template.operations.map(op => {
+    const enrichedOperations = (mo.routing_template?.operations ?? []).map(op => {
       const opAny = op as any
       let activities: { name: string; measure: string | null; labors: { skill: string; qty: number; level?: string | null }[]; consumables: { resource_id: number; code: string; name: string }[] }[]
 
@@ -286,7 +287,7 @@ export class ManufacturingOrderService {
       projects_involved: [...projectsMap.values()],
       zones_involved: [...zonesMap.values()],
       sub_zones_involved: [...subZonesMap.values()],
-      routing_template: { ...mo.routing_template, operations: enrichedOperations },
+      routing_template: mo.routing_template ? { ...mo.routing_template, operations: enrichedOperations } : null,
       stale_assembly_warnings: mo.status === 'DRAFT' ? staleWarnings : [],
     }
   }

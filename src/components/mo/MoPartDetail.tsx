@@ -96,7 +96,7 @@ export function MoPartDetail({ mo }: { mo: MoDetail }) {
           <Field label="โปรเจกต์">{mo.project ? `${mo.project.project_code} · ${mo.project.name}` : '—'}</Field>
           <Field label="Zone">{mo.zone ? `${mo.zone.code} · ${mo.zone.label}` : '—'}{mo.sub_zone && <div className="text-xs text-chrome-400">{mo.sub_zone.name}</div>}</Field>
           <Field label="Mark prefix">{mo.mark_prefix?.code ?? mo.primary_mark_prefix_code} · {mo.mark_prefix?.label ?? ''}</Field>
-          <Field label="Routing">{mo.routing_template.code} · {mo.routing_template.name}</Field>
+          <Field label="Routing">{mo.routing_template ? `${mo.routing_template.code} · ${mo.routing_template.name}` : '—'}</Field>
           <Field label="แหล่งข้อมูล">
             {mo.part_sources?.length ? mo.part_sources.map(s => SOURCE_LABEL[s] ?? s).join(', ') : '—'}
             {mo.source_files?.length ? <div className="truncate text-xs text-chrome-400">{mo.source_files.map(f => f.filename).join(', ')}</div> : null}

@@ -42,8 +42,9 @@ export class CreateMoPartDto {
   @IsInt() @IsPositive() project_id: number
   @IsInt() @IsPositive() zone_id: number
   @IsOptional() @IsInt() @IsPositive() sub_zone_id?: number | null
-  @IsString() @Length(1, 10) primary_mark_prefix_code: string
-  @IsInt() @IsPositive() routing_template_id: number
+  // Optional: default prefix OTH, routing = active `PART` template (or none).
+  @IsOptional() @IsString() @Length(1, 10) primary_mark_prefix_code?: string
+  @IsOptional() @IsInt() @IsPositive() routing_template_id?: number | null
   @IsArray() @IsIn(PART_SOURCES, { each: true }) part_sources: PartSource[]
   @IsOptional() @IsArray() @ArrayMaxSize(10) @ValidateNested({ each: true }) @Type(() => SourceFileDto) source_files?: SourceFileDto[]
   @IsOptional() @IsISO8601() plan_start?: string
@@ -54,8 +55,8 @@ export class CreateMoPartDto {
 }
 
 export class UpdateMoPartDto {
-  @IsString() @Length(1, 10) primary_mark_prefix_code: string
-  @IsInt() @IsPositive() routing_template_id: number
+  @IsOptional() @IsString() @Length(1, 10) primary_mark_prefix_code?: string
+  @IsOptional() @IsInt() @IsPositive() routing_template_id?: number | null
   @IsOptional() @IsISO8601() plan_start?: string
   @IsOptional() @IsISO8601() plan_finish?: string
   @IsOptional() @IsArray() @IsIn(PART_SOURCES, { each: true }) part_sources?: PartSource[]

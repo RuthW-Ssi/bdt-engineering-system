@@ -1500,8 +1500,10 @@ model manufacturing_order {
   primary_mark_prefix_code String             @db.VarChar(10)
   primary_mark_prefix      mark_prefix_master @relation(fields: [primary_mark_prefix_code], references: [code])
   // P12: exactly 1 routing template per MO. Operations snapshotted at create (ADR-0012).
-  routing_template_id      Int
-  routing_template         routing_template   @relation(fields: [routing_template_id], references: [id])
+  // Required for ASSEMBLY MOs (enforced in CreateMoDto). PART MOs may have
+  // none: they get the `PART` template automatically when it exists.
+  routing_template_id      Int?
+  routing_template         routing_template?  @relation(fields: [routing_template_id], references: [id], onDelete: Restrict)
   status                   MoStatus           @default(DRAFT)
   kind                     MoKind             @default(ASSEMBLY)
   // PART only (null on ASSEMBLY — those derive projects from their lines).
