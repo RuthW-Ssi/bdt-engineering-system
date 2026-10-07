@@ -96,13 +96,18 @@ export function MoList() {
                 <Package size={18} style={{ color: '#8E8E8E' }} />
               </div>
               <div style={{ minWidth: 120 }}>
-                <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{mo.mo_code}</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>
+                  {mo.mo_code}
+                  {mo.kind === 'PART' && <span className="ml-1.5 rounded-full border border-ssi-100 bg-ssi-50 px-1.5 py-px font-sans text-[10px] font-bold text-ssi-600">Part</span>}
+                </div>
                 <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 2 }}>
                   {mo.mark_prefix?.code} · {mo.routing_template?.name}
                 </div>
               </div>
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>
-                <span><strong style={{ color: '#333' }}>{mo.assembly_count}</strong> assemblies</span>
+                {mo.kind === 'PART'
+                  ? <span><strong style={{ color: '#333' }}>{mo.part_line_count}</strong> part sizes{mo.zone && <span className="ml-2 text-chrome-400">· {mo.zone.label}</span>}</span>
+                  : <span><strong style={{ color: '#333' }}>{mo.assembly_count}</strong> assemblies</span>}
                 <span><strong style={{ color: '#333' }}>{mo.operation_count}</strong> ops</span>
                 <span>Plan: <strong style={{ color: '#333' }}>{fmtDate(mo.plan_start)} – {fmtDate(mo.plan_finish)}</strong> <DaysRemainingBadge planFinish={mo.plan_finish} /></span>
               </div>

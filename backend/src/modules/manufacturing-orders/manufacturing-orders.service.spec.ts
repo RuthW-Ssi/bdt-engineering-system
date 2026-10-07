@@ -500,3 +500,51 @@ describe('ManufacturingOrderService.updateActualDates', () => {
     expect(prisma.manufacturing_order.update).not.toHaveBeenCalled()
   })
 })
+describe('ManufacturingOrderService — PART MO guards', () => {
+  function svcWith(mo: unknown) {
+    const prisma = { manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) } }
+    return new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any)
+  }
+  it('refuses to create a WO on a PART MO', async () => {
+    await expect(svcWith({ id: 1, status: 'CONFIRMED', kind: 'PART' }).createWorkOrder(1, { team_id: 1 } as any, 'tao', 1))
+      .rejects.toThrow(new ConflictException('Work orders for MO Part are not supported yet'))
+  })
+  it('refuses to preview a WO on a PART MO', async () => {
+    await expect(svcWith({ id: 1, status: 'CONFIRMED', kind: 'PART' }).previewWorkOrder(1, { operation_id: 1, marks: [] } as any))
+      .rejects.toThrow(new ConflictException('Work orders for MO Part are not supported yet'))
+  })
+  it('refuses to edit a PART MO through the assembly edit route', async () => {
+    await expect(svcWith({ id: 1, status: 'DRAFT', kind: 'PART' }).update(1, {} as any, 1))
+      .rejects.toThrow(new ConflictException('MO 1 is an MO Part — edit it with PATCH /mo/part/1'))
+  })
+})
+
+describe('ManufacturingOrderService.findAll — MO Part', () => {
+  const row = (over: Record<string, unknown>) => ({
+    id: 1, mo_code: 'MO-1', status: 'DRAFT', kind: 'ASSEMBLY', plan_start: null, plan_finish: null, create_date: new Date(0),
+    primary_mark_prefix: { code: 'CO' }, routing_template: { id: 1, code: 'RT', name: 'R', _count: { operations: 3 } },
+    _count: { assembly_lines: 2, part_lines: 0 }, ...over,
+  })
+  function svcWith(rows: unknown[]) {
+    const prisma = { manufacturing_order: { findMany: jest.fn().mockResolvedValue(rows) } }
+    return { svc: new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any), prisma }
+  }
+  it('returns the zone of a PART MO', async () => {
+    const { svc } = svcWith([row({ id: 3, kind: 'PART', zone: { id: 4, code: 'Z1', label: 'Zone 1' }, _count: { assembly_lines: 0, part_lines: 2 } })])
+    const [r] = await svc.findAll({})
+    expect(r.zone).toEqual({ id: 4, code: 'Z1', label: 'Zone 1' })
+  })
+  it('returns kind and part_line_count', async () => {
+    const { svc } = svcWith([row({ id: 2, kind: 'PART', _count: { assembly_lines: 0, part_lines: 8 } })])
+    const [r] = await svc.findAll({})
+    expect(r).toMatchObject({ kind: 'PART', assembly_count: 0, part_line_count: 8 })
+  })
+  it('project filter also matches PART MOs by their own project_id', async () => {
+    const { svc, prisma } = svcWith([])
+    await svc.findAll({ project_id: 5 })
+    expect(prisma.manufacturing_order.findMany.mock.calls[0][0].where.OR).toEqual([
+      { assembly_lines: { some: { bom_assembly: { dispatch: { project_id: 5 } } } } },
+      { project_id: 5 },
+    ])
+  })
+})

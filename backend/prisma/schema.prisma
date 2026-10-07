@@ -334,6 +334,7 @@ model project {
   bim_models              bim_model[]             @relation("ProjectBimModels")
   drawings                drawing[]
   progress_change_batches progress_change_batch[]
+  part_mos                manufacturing_order[]   @relation("ProjectPartMos")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -362,8 +363,9 @@ model project_zone {
 
   products   products[]
   sub_zones  sub_zone[]
-  dispatches bom_dispatch[] @relation("ZoneDispatches")
+  dispatches bom_dispatch[]        @relation("ZoneDispatches")
   drawings   drawing[]
+  part_mos   manufacturing_order[] @relation("ZonePartMos")
 
   @@unique([project_id, code])
 }
@@ -383,8 +385,9 @@ model sub_zone {
   create_date DateTime     @default(now()) @db.Timestamptz
   write_date  DateTime     @updatedAt @db.Timestamptz
 
-  dispatches bom_dispatch[] @relation("SubZoneDispatches")
+  dispatches bom_dispatch[]        @relation("SubZoneDispatches")
   drawings   drawing[]
+  part_mos   manufacturing_order[] @relation("SubZonePartMos")
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -1474,6 +1477,14 @@ model repair_ticket_seq {
 //   per-op timestamps — those belong to Work Order, Sprint 14+).
 // ═══════════════════════════════════════════════════════════════
 
+// MO Part (2026-10-06, wiki features/mo-part-import-plan): ASSEMBLY = the
+// original mark-based MO (mo_assembly_line); PART = size-based lines
+// (mo_part_line) for single-part cutting/drilling.
+enum MoKind {
+  ASSEMBLY
+  PART
+}
+
 enum MoStatus {
   DRAFT // editable · allocation locked from DRAFT (P15)
   CONFIRMED // ready for execution · no edits
@@ -1489,9 +1500,24 @@ model manufacturing_order {
   primary_mark_prefix_code String             @db.VarChar(10)
   primary_mark_prefix      mark_prefix_master @relation(fields: [primary_mark_prefix_code], references: [code])
   // P12: exactly 1 routing template per MO. Operations snapshotted at create (ADR-0012).
-  routing_template_id      Int
-  routing_template         routing_template   @relation(fields: [routing_template_id], references: [id])
+  // Required for ASSEMBLY MOs (enforced in CreateMoDto). PART MOs may have
+  // none: they get the `PART` template automatically when it exists.
+  routing_template_id      Int?
+  routing_template         routing_template?  @relation(fields: [routing_template_id], references: [id], onDelete: Restrict)
   status                   MoStatus           @default(DRAFT)
+  kind                     MoKind             @default(ASSEMBLY)
+  // PART only (null on ASSEMBLY — those derive projects from their lines).
+  project_id               Int?
+  project                  project?           @relation("ProjectPartMos", fields: [project_id], references: [id])
+  // PART only: one MO Part = one zone (sub-zone optional); fixed after create.
+  zone_id                  Int?
+  zone                     project_zone?      @relation("ZonePartMos", fields: [zone_id], references: [id])
+  sub_zone_id              Int?
+  sub_zone                 sub_zone?          @relation("SubZonePartMos", fields: [sub_zone_id], references: [id])
+  // PART only: every source that contributed — MATERIAL_LIST | DISPATCH_NOTE |
+  // BOM_PART_LIST | MANUAL | NC (round 3 R1). source_files: [{ kind, filename, at }].
+  part_sources             String[]           @default([])
+  source_files             Json               @default("[]")
   // Planned production window, set at create time — replaces the old single
   // due_date (P21) with a start/finish pair. Date+time, matching
   // work_order's own plan_start/plan_finish (2026-09-22).
@@ -1511,10 +1537,14 @@ model manufacturing_order {
   write_date               DateTime           @updatedAt @db.Timestamptz
 
   assembly_lines mo_assembly_line[]
+  part_lines     mo_part_line[]
+  part_marks     mo_part_mark[]
+  part_changes   mo_part_change[]
   status_history mo_status_history[]
   work_orders    work_order[] // Sprint 14: execution layer (F-WO)
 
   @@index([status])
+  @@index([kind])
   @@index([primary_mark_prefix_code])
   @@index([routing_template_id])
 }
@@ -1531,6 +1561,63 @@ model mo_assembly_line {
 
   @@unique([mo_id, bom_assembly_id]) // no duplicate assemblies within one MO
   @@index([bom_assembly_id])
+}
+
+// MO Part line = one size (D5). bom_part_ids: soft refs, filled only when
+// part_source = BOM_PART_LIST (traceability back to the BOM).
+model mo_part_line {
+  id             Int                 @id @default(autoincrement())
+  mo_id          Int
+  mo             manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  line_seq       Int                 @default(0)
+  profile        String              @db.VarChar(60)
+  grade          String              @db.VarChar(20)
+  length_mm      Decimal             @db.Decimal(10, 2)
+  qty            Decimal             @db.Decimal(12, 3)
+  unit_weight_kg Decimal?            @db.Decimal(12, 3)
+  part_mark      String?             @db.VarChar(60)
+  bom_part_ids   Int[]               @default([])
+  // NC source (round 3 §A): per-piece holes [{ diameter_mm, count }] and
+  // outer+inner contour cut length — what the cutting/drilling MO needs.
+  holes          Json                @default("[]")
+  cut_length_mm  Decimal?            @db.Decimal(12, 2)
+  mark_id        Int?
+  mark           mo_part_mark?       @relation(fields: [mark_id], references: [id], onDelete: SetNull)
+
+  @@index([mo_id])
+}
+
+// MO Part mark (round 3): one row per Dispatch Note mark (or typed). tw/tf
+// optional (R4) — when blank, plates are derived from the Material List.
+model mo_part_mark {
+  id        Int                 @id @default(autoincrement())
+  mo_id     Int
+  mo        manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  mark      String              @db.VarChar(60)
+  set_qty   Decimal             @db.Decimal(12, 3)
+  length_mm Decimal?            @db.Decimal(10, 2)
+  width_mm  Decimal?            @db.Decimal(10, 2)
+  height_mm Decimal?            @db.Decimal(10, 2)
+  weight_kg Decimal?            @db.Decimal(12, 3)
+  tw_mm     Decimal?            @db.Decimal(6, 2)
+  tf_mm     Decimal?            @db.Decimal(6, 2)
+  lines     mo_part_line[]
+
+  @@unique([mo_id, mark])
+}
+
+// MO Part change log (round 3 R2): one row per save that changed something;
+// changes = [{ entity: header|mark|line, key, field, old, new }].
+model mo_part_change {
+  id         Int                 @id @default(autoincrement())
+  mo_id      Int
+  mo         manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  changed_by String              @db.VarChar(120)
+  changed_at DateTime            @default(now()) @db.Timestamptz
+  note       String?             @db.Text
+  changes    Json
+
+  @@index([mo_id])
 }
 
 // MO-level audit trail only (operation activity → WO, Sprint 14+).

@@ -10,8 +10,8 @@ import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
-import { parseNcFile } from './nc-parser'
-import type { NcFileParsed } from './nc-parser'
+import { parseNcDetail } from './nc-parser'
+import type { NcDetail } from './nc-parser'
 import type { QueryDispatchDto } from './dto/dispatch.dto'
 import type { DispatchMappingDto } from './dto/mapping.dto'
 
@@ -52,6 +52,8 @@ const PROCURED_MARK_PATTERN = /(?:^|-)(?:lpx|px)\d/i
 // export (SD3A PHASE 2) that every in-house-fabricated part with a "PL"
 // (plate) profile has one, while angle/pipe/round-bar/H-beam sections (cut by
 // saw, not CNC) never do.
+const isPlateProfile = (profile: string | null | undefined) => (profile ?? '').trim().toUpperCase().startsWith('PL')
+
 export function requiresNcFile(part: Pick<ParsedPart, 'profile' | 'part_mark'>): boolean {
   if (PROCURED_MARK_PATTERN.test(part.part_mark)) return false
   return (part.profile ?? '').trim().toUpperCase().startsWith('PL')
@@ -109,9 +111,9 @@ export class BomUploadService {
     }
 
     // 3. Parse NC files → build canonical map (part_mark → NC data)
-    const ncMap = new Map<string, NcFileParsed>()
+    const ncMap = new Map<string, NcDetail>()
     for (const nc of ncFiles) {
-      const data = parseNcFile(nc.originalname, nc.buffer.toString('utf-8'))
+      const data = parseNcDetail(nc.originalname, nc.buffer.toString('utf-8'))
       ncMap.set(data.partMark, data)
     }
 
@@ -855,7 +857,7 @@ export class BomUploadService {
 
   private buildDedupedParts(
     parts: ParsedBomFile['parts'],
-    ncMap: Map<string, NcFileParsed>,
+    ncMap: Map<string, NcDetail>,
   ): ParsedBomFile['parts'] {
     const seen = new Set<string>()
     const result: ParsedBomFile['parts'] = []
@@ -893,7 +895,13 @@ export class BomUploadService {
         grade: nc.grade ?? p.grade,
         profile: nc.profileBase ?? p.profile,
         length_mm: nc.lengthMm ?? p.length_mm,
-        weight_kg: nc.weightKg ?? p.weight_kg,
+        // Plates: the NC weight line is kg/m² (7.85 × thickness), not per
+        // piece — keep the Part List's per-piece weight, else the weight
+        // computed from the NC contour. Other profiles unchanged (2026-10-06,
+        // memory project_bom_plate_weight_bug).
+        weight_kg: isPlateProfile(nc.profileBase ?? p.profile)
+          ? p.weight_kg ?? nc.pieceWeightKg ?? undefined
+          : nc.weightKg ?? p.weight_kg,
       })
     }
 

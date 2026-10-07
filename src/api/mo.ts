@@ -3,6 +3,83 @@ import { apiClient } from './client'
 
 // ── Enums (mirror Prisma) ─────────────────────────────────────────────────────
 export type MoStatus = 'DRAFT' | 'CONFIRMED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED'
+// MO Part (wiki features/mo-part-import-plan): ASSEMBLY = mark-based MO,
+// PART = size-based lines pre-filled from one source, then freely edited.
+export type MoKind = 'ASSEMBLY' | 'PART'
+export type PartSource = 'MATERIAL_LIST' | 'DISPATCH_NOTE' | 'BOM_PART_LIST' | 'MANUAL' | 'NC'
+
+// Round 3: a Dispatch Note mark (or typed). tw/tf optional.
+export interface PartMark {
+  mark: string
+  set_qty: number
+  length_mm: number | null
+  width_mm: number | null
+  height_mm: number | null
+  weight_kg?: number | null
+  tw_mm?: number | null
+  tf_mm?: number | null
+}
+
+export interface PartLine {
+  mark?: string | null
+  profile: string
+  grade: string
+  length_mm: number
+  qty: number
+  unit_weight_kg?: number | null
+  part_mark?: string | null
+  bom_part_ids?: number[]
+  holes?: { diameter_mm: number; count: number }[]
+  cut_length_mm?: number | null
+}
+
+// Decimal columns arrive as strings — convert with Number() before math.
+export interface MoPartLineRow extends Omit<PartLine, 'mark'> {
+  id: number
+  line_seq: number
+  mark: { mark: string } | null
+}
+
+export interface MoPartMarkRow extends PartMark {
+  id: number
+}
+
+export interface MoPartChange {
+  entity: 'header' | 'mark' | 'line'
+  key: string
+  field: string
+  old: unknown
+  new: unknown
+}
+
+export interface MoPartHistoryEntry {
+  id: number
+  changed_by: string
+  changed_at: string
+  note: string | null
+  changes: MoPartChange[]
+}
+
+export interface CreateMoPartPayload {
+  project_id: number
+  zone_id: number
+  sub_zone_id?: number | null
+  // Optional: the server fills OTH and the PART routing (user, 2026-10-06).
+  primary_mark_prefix_code?: string
+  routing_template_id?: number | null
+  part_sources: PartSource[]
+  source_files?: { kind: PartSource; filename: string }[]
+  plan_start?: string
+  plan_finish?: string
+  confirm?: boolean
+  part_marks?: PartMark[]
+  part_lines: PartLine[]
+}
+
+export type UpdateMoPartPayload = Pick<CreateMoPartPayload, 'primary_mark_prefix_code' | 'routing_template_id' | 'plan_start' | 'plan_finish' | 'part_marks' | 'part_lines' | 'source_files'> & {
+  part_sources?: PartSource[]
+  note?: string
+}
 
 export interface MarkPrefix {
   code: string
@@ -14,11 +91,15 @@ export interface MoListItem {
   id: number
   mo_code: string
   status: MoStatus
+  kind: MoKind
   plan_start: string | null
   plan_finish: string | null
   mark_prefix: MarkPrefix
-  routing_template: { id: number; code: string; name: string }
+  // null only on MO Parts without the PART routing template
+  routing_template: { id: number; code: string; name: string } | null
   assembly_count: number
+  part_line_count: number
+  zone?: { id: number; code: string; label: string } | null
   operation_count: number
   create_date: string
 }
@@ -82,12 +163,21 @@ interface MoAssemblyLine {
 }
 
 export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
-  routing_template: { id: number; code: string; name: string; operations: RoutingOp[] }
-  routing_template_id: number
+  // null only on MO Parts without the PART routing template
+  routing_template: { id: number; code: string; name: string; operations: RoutingOp[] } | null
+  routing_template_id: number | null
   primary_mark_prefix_code: string
   actual_start: string | null
   actual_finish: string | null
   assembly_lines: MoAssemblyLine[]
+  project: { id: number; project_code: string; name: string } | null
+  part_sources: PartSource[]
+  source_files: { kind: PartSource; filename: string; at: string }[]
+  zone: { id: number; code: string; label: string } | null
+  sub_zone: { id: number; name: string; code: string | null } | null
+  part_marks: MoPartMarkRow[]
+  // Prisma Decimal columns arrive as strings — convert with Number() before math.
+  part_lines: MoPartLineRow[]
   projects_involved: { id: number; project_code: string; name: string }[]
   zones_involved: { id: number; label: string }[]
   sub_zones_involved: { id: number; name: string }[]
@@ -342,6 +432,48 @@ export async function getMoConsumeSummary(id: number): Promise<MoConsumeSummaryR
 
 export async function getMoHistory(id: number): Promise<MoHistoryEntry[]> {
   return (await apiClient.get(`/mo/${id}/history`)).data
+}
+
+export function importMaterialList(file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiClient
+    .post('/mo/part/import/material-list', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data as { project_number: string | null; lines: PartLine[]; warnings: string[]; filename: string })
+}
+
+export function importBomParts(dispatchId: number, slot?: 'MAIN' | 'ACC') {
+  return apiClient
+    .get('/mo/part/import/bom-parts', { params: { dispatch_id: dispatchId, slot } })
+    .then(r => r.data as { lines: PartLine[]; skipped: string[] })
+}
+
+export function importDispatchNote(file: File) {
+  const fd = new FormData()
+  fd.append('file', file)
+  return apiClient
+    .post('/mo/part/import/dispatch-note', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data as { marks: PartMark[]; warnings: string[]; filename: string })
+}
+
+export function importNc(files: File[]) {
+  const fd = new FormData()
+  for (const f of files) fd.append('files', f)
+  return apiClient
+    .post('/mo/part/import/nc', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data as { lines: PartLine[]; warnings: string[]; files_count: number })
+}
+
+export function getMoPartHistory(id: number) {
+  return apiClient.get(`/mo/${id}/part-history`).then(r => r.data as MoPartHistoryEntry[])
+}
+
+export function createMoPart(payload: CreateMoPartPayload) {
+  return apiClient.post('/mo/part', payload).then(r => r.data as { id: number; mo_code: string })
+}
+
+export function updateMoPart(id: number, payload: UpdateMoPartPayload) {
+  return apiClient.patch(`/mo/part/${id}`, payload).then(r => r.data as { id: number; mo_code: string })
 }
 
 export async function createMo(payload: CreateMoPayload): Promise<MoDetail> {

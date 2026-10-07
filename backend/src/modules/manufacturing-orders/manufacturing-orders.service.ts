@@ -39,6 +39,11 @@ const ALLOWED_TRANSITIONS: Record<MoStatus, MoStatus[]> = {
 
 const DETAIL_INCLUDE = {
   primary_mark_prefix: true,
+  project: { select: { id: true, project_code: true, name: true } },
+  zone: { select: { id: true, code: true, label: true } },
+  sub_zone: { select: { id: true, name: true, code: true } },
+  part_marks: { orderBy: { mark: 'asc' as const } },
+  part_lines: { orderBy: { line_seq: 'asc' as const }, include: { mark: { select: { mark: true } } } },
   create_user: { select: { id: true, name: true, login: true } },
   write_user: { select: { id: true, name: true, login: true } },
   routing_template: {
@@ -121,11 +126,14 @@ export class ManufacturingOrderService {
       ...(opts.search
         ? { mo_code: { contains: opts.search, mode: 'insensitive' } }
         : {}),
+      // ASSEMBLY MOs reach their project through their lines; PART MOs carry
+      // project_id themselves.
       ...(opts.project_id
         ? {
-            assembly_lines: {
-              some: { bom_assembly: { dispatch: { project_id: opts.project_id } } },
-            },
+            OR: [
+              { assembly_lines: { some: { bom_assembly: { dispatch: { project_id: opts.project_id } } } } },
+              { project_id: opts.project_id },
+            ],
           }
         : {}),
     }
@@ -138,19 +146,24 @@ export class ManufacturingOrderService {
         routing_template: {
           select: { id: true, code: true, name: true, _count: { select: { operations: true } } },
         },
-        _count: { select: { assembly_lines: true } },
+        zone: { select: { id: true, code: true, label: true } },
+        _count: { select: { assembly_lines: true, part_lines: true } },
       },
     })
     return rows.map((r) => ({
       id: r.id,
       mo_code: r.mo_code,
       status: r.status,
+      kind: r.kind,
       plan_start: r.plan_start,
       plan_finish: r.plan_finish,
       mark_prefix: r.primary_mark_prefix,
-      routing_template: { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name },
+      // MO Parts may have no routing (routing_template_id is optional for PART).
+      routing_template: r.routing_template ? { id: r.routing_template.id, code: r.routing_template.code, name: r.routing_template.name } : null,
       assembly_count: r._count.assembly_lines,
-      operation_count: r.routing_template._count.operations, // from routing template (ops no longer stored on MO)
+      part_line_count: r._count.part_lines,
+      zone: r.zone ?? null,
+      operation_count: r.routing_template?._count.operations ?? 0, // from routing template (ops no longer stored on MO)
       create_date: r.create_date,
     }))
   }
@@ -205,7 +218,7 @@ export class ManufacturingOrderService {
 
     // Collect source_activity_ids for consumable lookup across all ops
     const allActivityIds = new Set<number>()
-    for (const op of mo.routing_template.operations) {
+    for (const op of mo.routing_template?.operations ?? []) {
       if ((op as any).operation_template?.activities?.length) {
         for (const a of (op as any).operation_template.activities) {
           if (a.source_activity_id) allActivityIds.add(a.source_activity_id)
@@ -240,7 +253,7 @@ export class ManufacturingOrderService {
       consumeMap.set(row.activity_id, list)
     }
 
-    const enrichedOperations = mo.routing_template.operations.map(op => {
+    const enrichedOperations = (mo.routing_template?.operations ?? []).map(op => {
       const opAny = op as any
       let activities: { name: string; measure: string | null; labors: { skill: string; qty: number; level?: string | null }[]; consumables: { resource_id: number; code: string; name: string }[] }[]
 
@@ -274,7 +287,7 @@ export class ManufacturingOrderService {
       projects_involved: [...projectsMap.values()],
       zones_involved: [...zonesMap.values()],
       sub_zones_involved: [...subZonesMap.values()],
-      routing_template: { ...mo.routing_template, operations: enrichedOperations },
+      routing_template: mo.routing_template ? { ...mo.routing_template, operations: enrichedOperations } : null,
       stale_assembly_warnings: mo.status === 'DRAFT' ? staleWarnings : [],
     }
   }
@@ -601,6 +614,9 @@ export class ManufacturingOrderService {
     if (mo.status !== 'DRAFT') {
       throw new ConflictException(`Only DRAFT MOs can be edited (current: ${mo.status})`)
     }
+    if (mo.kind === 'PART') {
+      throw new ConflictException(`MO ${id} is an MO Part — edit it with PATCH /mo/part/${id}`)
+    }
 
     if (dto.assembly_lines) {
       await this.assertQtyWithinRemaining(dto.assembly_lines, id)
@@ -729,7 +745,8 @@ export class ManufacturingOrderService {
   // the WO for (this MO, operation_id), then add a work_order_mark row for each
   // assembly_line_id not already on it. See WorkOrderAutoCreateService.createOrAddMarks().
   async createWorkOrder(moId: number, dto: CreateWoDto, userName: string, userId: number) {
-    await this.requireMo(moId)
+    const mo = await this.requireMo(moId)
+    if (mo.kind === 'PART') throw new ConflictException('Work orders for MO Part are not supported yet')
     // Internal teams cap headcount at their own active-operator count — the
     // frontend auto-fills and clamps this, but re-check server-side since
     // that's just UX, not enforcement (2026-09-25). External teams have no
@@ -809,7 +826,8 @@ export class ManufacturingOrderService {
 
   /** POST /mo/:id/work-orders/preview — read-only, see WorkOrderAutoCreateService.previewMarksImpact(). */
   async previewWorkOrder(moId: number, dto: PreviewWoDto) {
-    await this.requireMo(moId)
+    const mo = await this.requireMo(moId)
+    if (mo.kind === 'PART') throw new ConflictException('Work orders for MO Part are not supported yet')
     const marks = dto.marks.map((m) => ({ assembly_line_id: m.assembly_line_id, qty: m.qty }))
     return this.woAutoCreate.previewMarksImpact(this.prisma, moId, dto.operation_id, marks)
   }
