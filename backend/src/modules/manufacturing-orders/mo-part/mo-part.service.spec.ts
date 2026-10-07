@@ -96,14 +96,22 @@ describe('MoPartService.create', () => {
     await expect(svc.create({ ...INPUT, part_sources: ['BOM_PART_LIST'], part_marks: [], part_lines: [{ ...LINE, bom_part_ids: [1, 2] }] }, 1, 'tao'))
       .rejects.toThrow(new BadRequestException('bom_part_ids not found in this zone: 2'))
   })
-  it('fills prefix OTH and the PART routing automatically when not given', async () => {
+  it('fills prefix OTH and the routing whose Mark Prefix is OTH when not given', async () => {
     const { svc, tx, prisma } = make()
     const { primary_mark_prefix_code: _p, routing_template_id: _r, ...auto } = INPUT
     await svc.create(auto, 1, 'tao')
     expect(tx.manufacturing_order.create.mock.calls[0][0].data).toMatchObject({ primary_mark_prefix_code: 'OTH', routing_template_id: 20 })
-    expect((prisma as any).routing_template.findFirst.mock.calls[0][0].where).toEqual({ code: 'PART', active: true })
+    // Routings made in the UI get an RT-xxxx code, so match on Mark Prefix
+    // (applies_to_product_type) like suggestByMarkPrefix — OTH only, not ALL.
+    expect((prisma as any).routing_template.findFirst.mock.calls[0][0]).toEqual({
+      where: { applies_to_product_type: 'OTH', active: true }, orderBy: { id: 'asc' }, select: { id: true, code: true, name: true },
+    })
   })
-  it('saves with no routing when no PART template exists', async () => {
+  it('exposes the default routing it would use, for the form preview', async () => {
+    const { svc } = make({ routing_template: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue({ id: 21, code: 'RT-0021', name: 'PART' }) } })
+    await expect(svc.defaultRouting()).resolves.toEqual({ id: 21, code: 'RT-0021', name: 'PART' })
+  })
+  it('saves with no routing when no OTH routing exists', async () => {
     const { svc, tx } = make({ routing_template: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) } })
     const { primary_mark_prefix_code: _p, routing_template_id: _r, ...auto } = INPUT
     await svc.create(auto, 1, 'tao')

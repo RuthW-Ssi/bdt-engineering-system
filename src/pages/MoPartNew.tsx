@@ -53,11 +53,10 @@ export function MoPartNew() {
   const { data: existing, isLoading: loadingExisting } = useMo(editId ?? 0)
   const { data: projects } = useProjects({ limit: 100 })
   // Mark prefix and routing are not asked (user, 2026-10-06): the server sets
-  // prefix OTH and the active `PART` routing template. Show what will be used.
+  // prefix OTH and the routing whose Mark Prefix is OTH. Show what will be used.
   const { data: partRouting } = useQuery({
-    queryKey: ['routing-templates', 'PART'],
-    queryFn: () => apiClient.get('/routing-templates', { params: { search: 'PART', state: 'active', limit: 20 } })
-      .then(r => (r.data.data as { id: number; code: string; name: string }[]).find(t => t.code === 'PART') ?? null),
+    queryKey: ['mo-part-default-routing'],
+    queryFn: () => apiClient.get<{ id: number; code: string; name: string } | null>('/mo/part/default-routing').then(r => r.data || null),
   })
 
   const [projectId, setProjectId] = useState<number | null>(null)
@@ -252,7 +251,7 @@ export function MoPartNew() {
   const shownPrefix = isEdit ? existing?.primary_mark_prefix_code ?? '—' : 'OTH'
   const shownRouting = isEdit
     ? (existing?.routing_template ? `${existing.routing_template.code} · ${existing.routing_template.name}` : '—')
-    : (partRouting ? `${partRouting.code} · ${partRouting.name}` : 'ไม่มี (ยังไม่ได้ตั้ง template PART)')
+    : (partRouting ? `${partRouting.code} · ${partRouting.name}` : 'ไม่มี (ยังไม่มี routing ที่ตั้ง Mark Prefix เป็น OTH)')
 
   return (
     <div className={ui.page}>

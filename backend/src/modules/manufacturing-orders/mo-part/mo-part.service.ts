@@ -41,7 +41,6 @@ export interface UpdateMoPartInput {
 }
 
 const PART_PREFIX = 'OTH'
-const PART_ROUTING_CODE = 'PART'
 
 const dec = (v: number | null | undefined) => (v == null ? null : new Prisma.Decimal(v))
 const num = (v: unknown) => (v == null ? null : Number(v))
@@ -111,7 +110,7 @@ export class MoPartService {
     await this.assertZone(input.project_id, input.zone_id, input.sub_zone_id)
     await this.assertBomPartsInZone(input.part_lines, input.project_id, input.zone_id)
     const prefixCode = input.primary_mark_prefix_code ?? PART_PREFIX
-    const routingId = input.routing_template_id !== undefined ? input.routing_template_id : await this.defaultPartRouting()
+    const routingId = input.routing_template_id !== undefined ? input.routing_template_id : (await this.defaultRouting())?.id ?? null
     await this.assertPrefixAndRouting(prefixCode, routingId)
 
     const status = input.confirm === true ? 'CONFIRMED' : 'DRAFT'
@@ -281,9 +280,15 @@ export class MoPartService {
     const missing = ids.filter(id => !ok.has(id))
     if (missing.length) throw new BadRequestException(`bom_part_ids not found in this ${zoneId != null ? 'zone' : 'project'}: ${missing.join(', ')}`)
   }
-  private async defaultPartRouting(): Promise<number | null> {
-    const t = await this.prisma.routing_template.findFirst({ where: { code: PART_ROUTING_CODE, active: true }, select: { id: true } })
-    return t?.id ?? null
+  /** GET /mo/part/default-routing — the routing create() fills in when none is given. */
+  async defaultRouting(): Promise<{ id: number; code: string; name: string } | null> {
+    // Matched on Mark Prefix (applies_to_product_type), the way suggestByMarkPrefix
+    // binds routings to prefixes — the UI gives new templates an RT-xxxx code, so a
+    // fixed code can't be set there. OTH only: an ALL template (e.g. fit-up) is no
+    // part routing.
+    return this.prisma.routing_template.findFirst({
+      where: { applies_to_product_type: PART_PREFIX, active: true }, orderBy: { id: 'asc' }, select: { id: true, code: true, name: true },
+    })
   }
 
   private async assertPrefixAndRouting(prefixCode: string, routingId: number | null) {

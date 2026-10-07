@@ -96,6 +96,13 @@ export class ManufacturingOrderController {
     return this.moPart.bomPartLines(dispatchId, slot as 'MAIN' | 'ACC' | undefined)
   }
 
+  @Get('part/default-routing')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'MO Part · routing a new MO Part gets automatically (Mark Prefix OTH), or null' })
+  defaultPartRouting() {
+    return this.moPart.defaultRouting()
+  }
+
   @Post('part')
   @RequiresPermission('orders', 'create')
   @ApiOperation({ summary: 'Create MO Part (size lines from one source)' })
