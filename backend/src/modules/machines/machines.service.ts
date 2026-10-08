@@ -178,12 +178,19 @@ export class MachinesService {
   }
 
   // ── Team (renamed from subcontractor, 2026-09-22) ───────────────────────────
+  // Allowlist matching the `Team` type in src/api/laborSkills.ts — columns not
+  // listed here (e.g. rate / rate_unit) stay server-side.
+  private teamSelect = { id: true, code: true, name: true, team_type: true, active: true } as const
+
   async findAllTeams() {
-    return this.prisma.team.findMany({ orderBy: { id: 'asc' } })
+    return this.prisma.team.findMany({ select: this.teamSelect, orderBy: { id: 'asc' } })
   }
 
   async createTeam(dto: CreateTeamDto) {
-    return this.prisma.team.create({ data: { code: dto.code, name: dto.name, team_type: dto.team_type, active: true } })
+    return this.prisma.team.create({
+      data: { code: dto.code, name: dto.name, team_type: dto.team_type, active: true },
+      select: this.teamSelect,
+    })
   }
 
   async updateTeam(id: number, dto: UpdateTeamDto) {
@@ -206,6 +213,7 @@ export class MachinesService {
               ...(dto.name !== undefined && { name: dto.name }),
               ...(dto.team_type !== undefined && { team_type: dto.team_type }),
               ...(dto.active !== undefined && { active: dto.active }) },
+      select: this.teamSelect,
     })
   }
 
