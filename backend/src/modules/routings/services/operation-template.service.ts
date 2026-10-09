@@ -50,12 +50,17 @@ export class OperationTemplateService {
   ) {}
 
   async findAll(search?: string, page = 1, limit = 20) {
-    const where = search ? {
-      OR: [
-        { op_code: { contains: search, mode: 'insensitive' as const } },
-        { name:    { contains: search, mode: 'insensitive' as const } },
-      ],
-    } : undefined
+    // status 'system' = op 000 Build-up(Pre-Shop) (2026-10-07) — attached by the
+    // system to PRE_SHOP MOs, never listed in the library or the routing builder.
+    const where = {
+      status: { not: 'system' },
+      ...(search ? {
+        OR: [
+          { op_code: { contains: search, mode: 'insensitive' as const } },
+          { name:    { contains: search, mode: 'insensitive' as const } },
+        ],
+      } : {}),
+    }
     const [data, total] = await Promise.all([
       this.prisma.operation_template.findMany({
         where,

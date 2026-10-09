@@ -97,11 +97,11 @@ export function MoList() {
               </div>
               <div style={{ minWidth: 120 }}>
                 <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>
-                  {mo.mo_code}
+                  {mo.mo_code}{mo.kind === 'ASSEMBLY' && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: '#8E8E8E' }}>Rev.{mo.revision ?? 0}</span>}
                   {mo.kind === 'PART' && <span className="ml-1.5 rounded-full border border-ssi-100 bg-ssi-50 px-1.5 py-px font-sans text-[10px] font-bold text-ssi-600">Part</span>}
                 </div>
                 <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 2 }}>
-                  {mo.mark_prefix?.code} · {mo.routing_template?.name}
+                  {mo.kind === 'ASSEMBLY' ? (mo.shop_type === 'PRE_SHOP' ? 'Pre-shop' : 'Full shop') : mo.mark_prefix?.code}{mo.routing_template && ` · ${mo.routing_template.name}`}
                 </div>
               </div>
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>

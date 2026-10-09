@@ -92,6 +92,8 @@ export interface MoListItem {
   mo_code: string
   status: MoStatus
   kind: MoKind
+  shop_type?: MoShopType
+  revision?: number // MO version — +1 when printed assembly/part data changes after Confirm (2026-10-09)
   plan_start: string | null
   plan_finish: string | null
   mark_prefix: MarkPrefix
@@ -131,6 +133,11 @@ export interface MoAssemblyRow {
   bom_assembly_id: number
   assembly_mark: string
   name: string | null
+  length_mm?: number | null
+  width_mm?: number | null
+  height_mm?: number | null
+  weight_kg?: number | null // per set
+  surface_area_m2?: number | null // per set
   project: string | null
   zone: string | null
   sub_zone: string | null
@@ -143,6 +150,9 @@ export interface MoAssemblyRow {
   // of the same operation. Distinct from `remaining` above (cross-MO).
   wo_remaining: number | null
   allocation_breakdown: { mo_code: string; qty: number }[]
+  preshop: boolean // from a pre-shop upload — parts editable on the MO
+  source_label: string // 'Pre-shop' | 'BOM rev N' (2026-10-09)
+  parts: { part_mark: string; profile: string | null; grade: string | null; length_mm: number | null; qty_per_set: number; weight_kg: number | null }[]
 }
 
 export interface MoHistoryEntry {
@@ -166,7 +176,8 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   // null only on MO Parts without the PART routing template
   routing_template: { id: number; code: string; name: string; operations: RoutingOp[] } | null
   routing_template_id: number | null
-  primary_mark_prefix_code: string
+  primary_mark_prefix_code: string | null // optional since the MO-type change (2026-10-07)
+  print_logs?: { revision: number; printed_by: string; printed_at: string }[] // last packet printed (2026-10-09)
   actual_start: string | null
   actual_finish: string | null
   assembly_lines: MoAssemblyLine[]
@@ -196,12 +207,50 @@ export interface MoDetail extends Omit<MoListItem, 'routing_template'> {
   stale_assembly_warnings: { mo_assembly_line_id: number; assembly_mark: string; delta_types: string[] }[]
 }
 
+// MO type replaces the mark-prefix choice (2026-10-07).
+export type MoShopType = 'FULL_SHOP' | 'PRE_SHOP'
+export const SHOP_TYPE_LABEL: Record<MoShopType, string> = { FULL_SHOP: 'Full shop drawing', PRE_SHOP: 'Pre-shop drawing' }
+
+/** One assembly of a pre-shop upload (Dispatch Note row / pre-shop drawing BOM); parts per set. */
+export interface PreshopAssembly {
+  assembly_mark: string
+  name?: string | null // Dispatch Note's Name column (2026-10-09)
+  qty: number // sets
+  weight_kg: number | null // per set
+  surface_area_m2: number | null
+  length_mm: number | null
+  width_mm?: number | null
+  height_mm?: number | null
+  parts: PreshopPart[]
+  source_file?: string // the uploaded file it came from (from the server; display only)
+  // Upload modal only, never stored (2026-10-08 — Dispatch Note + pre-shop
+  // drawing read together): what each file said for this mark, and the
+  // fields the two files disagree on that the user still has to pick.
+  sources?: { DN?: PreshopSourceValues; PDF?: PreshopSourceValues }
+  conflicts?: PreshopConflictField[]
+}
+
+export interface PreshopSourceValues { file: string; qty: number; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null; parts: PreshopPart[] }
+export type PreshopConflictField = 'length_mm' | 'width_mm' | 'height_mm' | 'weight_kg' | 'surface_area_m2' | 'parts'
+
+export interface PreshopPart { part_mark: string; profile: string; length_mm: number; grade: string; qty: number; unit_weight_kg: number } // qty per set
+
+/** PUT /mo/:id/lines/:lineId/parts — a pre-shop assembly's whole part list (2026-10-08). */
+export async function updatePreshopParts(id: number, lineId: number, parts: PreshopPart[]): Promise<MoAssemblyRow[]> {
+  return (await apiClient.put(`/mo/${id}/lines/${lineId}/parts`, { parts })).data
+}
+
 export interface CreateMoPayload {
-  primary_mark_prefix_code: string
-  routing_template_id: number
+  shop_type?: MoShopType
+  primary_mark_prefix_code?: string
+  routing_template_id: number // required for every MO (2026-10-08)
+  project_id?: number
+  zone_id?: number
+  sub_zone_id?: number | null
   plan_start?: string
   plan_finish?: string
   assembly_lines: { bom_assembly_id: number; qty: number }[]
+  preshop_assemblies?: PreshopAssembly[]
   confirm?: boolean
 }
 
@@ -476,6 +525,62 @@ export function updateMoPart(id: number, payload: UpdateMoPartPayload) {
   return apiClient.patch(`/mo/part/${id}`, payload).then(r => r.data as { id: number; mo_code: string })
 }
 
+/** POST /mo/preshop/import/dispatch-note — ONE Dispatch Note → assemblies (not stored). */
+export async function importPreshopDispatchNote(file: File): Promise<{ filename: string; assemblies: PreshopAssembly[]; warnings: string[] }> {
+  const form = new FormData()
+  form.append('file', file)
+  return (await apiClient.post('/mo/preshop/import/dispatch-note', form, { headers: { 'Content-Type': 'multipart/form-data' } })).data
+}
+
+/** POST /mo/preshop/import/pdf — pre-shop drawing PDFs → assemblies + parts (not stored). */
+export async function importPreshopPdf(files: File[]): Promise<{ files: string[]; assemblies: PreshopAssembly[]; warnings: string[] }> {
+  const form = new FormData()
+  files.forEach(f => form.append('files', f))
+  return (await apiClient.post('/mo/preshop/import/pdf', form, { headers: { 'Content-Type': 'multipart/form-data' } })).data
+}
+
+/** GET /mo/zone-bom — whether the zone has a real BOM (Full shop needs one, 2026-10-08). */
+export async function getZoneHasBom(zoneId: number): Promise<boolean> {
+  return (await apiClient.get('/mo/zone-bom', { params: { zone_id: zoneId } })).data.has_bom
+}
+
+/** GET /mo/zone-check — the live MO already holding this zone (1 zone = 1 MO), or null. */
+export async function getZoneMo(zoneId: number): Promise<{ id: number; mo_code: string } | null> {
+  return (await apiClient.get('/mo/zone-check', { params: { zone_id: zoneId } })).data || null
+}
+
+/** An uploaded mark vs the MO (2026-10-08): new, or already in the MO — then
+ *  its current values come back so the user compares old vs new and chooses
+ *  (status 'same' = sizes and parts already match). */
+export interface PreshopMergeRow {
+  assembly_mark: string
+  status: 'new' | 'same' | 'changed'
+  existing: {
+    qty: number
+    name?: string | null
+    length_mm: number | null
+    width_mm?: number | null
+    height_mm?: number | null
+    weight_kg: number | null
+    surface_area_m2?: number | null
+    parts: PreshopPart[]
+    wo_qty: number // sets WOs already planned — the floor
+    wo_parts: string[] // part marks on a WO — can't be dropped
+  } | null
+}
+
+/** POST /mo/:id/preshop — add / fill in assemblies of a PRE_SHOP MO from ONE source. */
+export async function mergePreshop(id: number, body: {
+  source: 'DISPATCH_NOTE' | 'PRESHOP_PDF' | 'DN_PDF' | 'BOM' // DN_PDF = both read together (2026-10-08)
+  filename?: string
+  dry_run?: boolean
+  notes?: string[] // file-reader warnings, logged with the upload
+  preshop_assemblies?: PreshopAssembly[]
+  assembly_lines?: { bom_assembly_id: number; qty: number }[]
+}): Promise<{ rows: PreshopMergeRow[]; warnings?: string[]; changed?: number }> {
+  return (await apiClient.post(`/mo/${id}/preshop`, body)).data
+}
+
 export async function createMo(payload: CreateMoPayload): Promise<MoDetail> {
   return (await apiClient.post('/mo', payload)).data
 }
@@ -489,7 +594,7 @@ export async function updateMo(id: number, payload: Partial<CreateMoPayload>): P
 // auto-fills them on Start).
 export async function changeMoStatus(
   id: number,
-  body: { to_status: MoStatus; reason: string; actual_start?: string; actual_finish?: string },
+  body: { to_status: MoStatus; reason?: string; actual_start?: string; actual_finish?: string },
 ): Promise<MoDetail> {
   return (await apiClient.patch(`/mo/${id}/status`, body)).data
 }
@@ -564,4 +669,41 @@ export async function fetchMoPrintPacketBlob(id: number, woIds?: number[], inclu
     }
     throw err
   }
+}
+
+// ── Pre-shop MO vs the zone's real BOM (2026-10-08) ─────────────────────────
+export interface BomValues { qty: number; name?: string | null; length_mm: number | null; width_mm?: number | null; height_mm?: number | null; weight_kg: number | null; surface_area_m2?: number | null; parts: PreshopPart[] }
+export interface BomCompare {
+  bom: { dispatch_id: number; revision: number; uploaded_at: string } | null
+  rows: {
+    line_id: number
+    assembly_mark: string
+    kind: 'preshop' | 'bom' // pre-shop data (pick every value) · a Full shop BOM line (new version or keep)
+    status: 'same' | 'changed' | 'not_in_bom'
+    reviewed: boolean // already checked against this BOM row
+    existing: BomValues & { wo_qty: number; wo_parts: string[] }
+    bom: (BomValues & { assembly_id: number; assembly_mark: string }) | null
+    part_pairs?: PartPair[] // matched by name: how its parts line up with the BOM's
+    candidates?: (BomValues & { assembly_id: number; assembly_mark: string; score: number; part_pairs: PartPair[] })[] // not in the BOM by name: likely renamed to
+  }[]
+  bom_only: (BomValues & { assembly_id: number; assembly_mark: string })[]
+  pool: (BomValues & { assembly_id: number; assembly_mark: string })[] // every BOM mark the MO doesn't have (renamed marks are among these)
+  pending: number
+}
+/** One part of an MO mark and its counterpart in the BOM (2026-10-09): same name, same spec (renamed) or none. */
+export interface PartPair { from: string; to: string | null; how: 'name' | 'spec' | 'none' }
+/** Operation × mark still short of QC-passed sets — Complete waits for an empty list (2026-10-09). */
+export interface QcShortfall { assembly_mark: string; operation: string; passed: number; need: number }
+export async function getQcCheck(id: number): Promise<QcShortfall[]> {
+  return (await apiClient.get(`/mo/${id}/qc-check`)).data
+}
+export async function getBomCompare(id: number): Promise<BomCompare> {
+  return (await apiClient.get(`/mo/${id}/bom-compare`)).data
+}
+export async function linkBom(id: number, body: {
+  dispatch_id: number
+  marks?: { assembly_mark: string; action: 'apply' | 'keep' | 'remove'; final?: { qty: number; name?: string | null; length_mm: number | null; width_mm?: number | null; height_mm?: number | null; weight_kg: number | null; surface_area_m2?: number | null; parts: PreshopPart[] }; pair_with?: number; part_map?: { from: string; to: string | null }[] }[]
+  add?: { bom_assembly_id: number; qty: number }[]
+}): Promise<BomCompare> {
+  return (await apiClient.post(`/mo/${id}/bom-link`, body)).data
 }

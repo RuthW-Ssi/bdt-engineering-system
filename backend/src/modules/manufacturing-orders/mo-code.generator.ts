@@ -15,6 +15,11 @@ import { PrismaService } from '../../prisma/prisma.service'
  * every one after it — no separate SELECT-then-INSERT window where two
  * concurrent first-of-the-year creates could collide.
  *
+ * 2026-10-09 (user): an assembly MO's code shows its type — MO-F2600024
+ * (Full shop) / MO-P2600024 (Pre-shop): F|P + 2-digit year + 5-digit counter
+ * from the same per-year sequence. Without a type (MO Part) the old
+ * MO-YYNNNNNN shape stays.
+ *
  * Mirrors products/product-code.generator.ts. Accepts an optional transaction
  * client so the code is allocated inside the same tx that creates the MO row.
  */
@@ -22,13 +27,13 @@ import { PrismaService } from '../../prisma/prisma.service'
 export class MoCodeGenerator {
   constructor(private readonly prisma: PrismaService) {}
 
-  async generate(tx?: Prisma.TransactionClient): Promise<string> {
-    const run = (client: Prisma.TransactionClient) => this.next(client)
+  async generate(tx?: Prisma.TransactionClient, shopType?: 'FULL_SHOP' | 'PRE_SHOP'): Promise<string> {
+    const run = (client: Prisma.TransactionClient) => this.next(client, shopType)
     if (tx) return run(tx)
     return this.prisma.$transaction((client) => run(client))
   }
 
-  private async next(tx: Prisma.TransactionClient): Promise<string> {
+  private async next(tx: Prisma.TransactionClient, shopType?: 'FULL_SHOP' | 'PRE_SHOP'): Promise<string> {
     const year = new Date().getFullYear() % 100
     const rows = await tx.$queryRaw<{ allocated: number }[]>`
       INSERT INTO mo_code_seq (year, next_val) VALUES (${year}, 2)
@@ -36,6 +41,8 @@ export class MoCodeGenerator {
       RETURNING next_val - 1 AS allocated
     `
     const n = rows[0].allocated
-    return `MO-${year.toString().padStart(2, '0')}${n.toString().padStart(6, '0')}`
+    const yy = year.toString().padStart(2, '0')
+    if (shopType) return `MO-${shopType === 'FULL_SHOP' ? 'F' : 'P'}${yy}${n.toString().padStart(5, '0')}`
+    return `MO-${yy}${n.toString().padStart(6, '0')}`
   }
 }

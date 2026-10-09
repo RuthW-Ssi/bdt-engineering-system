@@ -7,7 +7,7 @@ import { computeActivityDuration, type ActivityDurationBreakdownItem } from '../
 import { buildMoPrintPdf } from './mo-print-pdf-builder'
 import type { PrintLang } from './mo-print-labels'
 import { findLatestPdfForMark } from './mark-drawing-match'
-import { summarizeOperations, type OperationSummary } from './mo-print-format'
+import { summarizeOperations, type OperationSummary, renamesForRev, sourceLabelOf } from './mo-print-format'
 
 export interface MoPrintWorkOrderRow {
   wo: {
@@ -125,12 +125,16 @@ export interface MoPrintConsumeItem {
 // prints one drawing page per mark, not one per WO (see buildMoPrintPdf).
 export interface MoPrintAssemblyMarkRow {
   assemblyMark: string
+  sourceLabel: string // 'Pre-shop' | 'BOM rev N' — printed in the Mark cell (2026-10-09)
+  renamedFrom: string | null // old mark, only for the Rev that renamed it
   name: string | null
   qty: number | null
   weight_kg: number | null
   // version + upload date (2026-10-05, print option A) — stamped on the
   // drawing page next to the WO · mark label.
-  drawing: { file_key: string; file_name: string; version: number; uploaded_at: Date }
+  // null = no PDF drawing yet (e.g. a pre-shop MO) — the mark still prints
+  // on its traveler, just without a drawing page (2026-10-07).
+  drawing: { file_key: string; file_name: string; version: number; uploaded_at: Date } | null
 }
 
 // One assembly (mo_assembly_line) and the bom_parts cut for it — printed
@@ -156,6 +160,8 @@ export interface MoPrintAssemblyPartGroup {
 export interface MoPrintMarkItem {
   seq: number
   assemblyMark: string
+  sourceLabel: string
+  renamedFrom: string | null
   name: string | null
   width_mm: number | null
   length_mm: number | null
@@ -173,7 +179,12 @@ export interface MoPrintPacketPlan {
     actual_start: Date | null
     actual_finish: Date | null
     status: string
-    primary_mark_prefix_code: string
+    primary_mark_prefix_code: string | null // optional since the MO-type change
+    // MO type + version + whether any mark is still pre-shop data (2026-10-09) —
+    // printed inside existing cells (MO Type replaces Mark Prefix; Rev rides on the MO code)
+    shop_type: 'FULL_SHOP' | 'PRE_SHOP'
+    revision: number
+    preshopRemaining: boolean
     // Moved here from each Assembly List row (2026-09-22: "เอา project zone
     // ออกจาก assembly แล้วเอาไปไว้ตรง mo info แทน") — every assembly's
     // dispatch project/zone is the same one an MO is now scoped to at
@@ -212,12 +223,10 @@ const zoneKey = (zoneId: number, subZoneId: number | null) => `${zoneId}:${subZo
 // Orchestrates the data behind a printable MO/WO packet: pulls every
 // non-cancelled WO on the MO, resolves every one of its marks' latest PDF
 // drawings (findLatestPdfForMark — the mark's own newest PDF, same rule as the WO
-// Visual Tab uses, ported server-side), and refuses to build a partial
-// packet — any mark missing a drawing blocks the whole MO (P0 decision,
-// 2026-09-15 brainstorm; narrowed from "any WO" to "any mark" on
-// 2026-09-22 once a WO started printing one drawing page per mark, not
-// one per WO), same "reject the whole thing, zero partial writes" shape as
-// bom-matching.service.ts's findMissingMarkPrefixes.
+// Visual Tab uses, ported server-side). A mark with no PDF drawing still
+// prints on its traveler, just without a drawing page (2026-10-07, user:
+// "ในกรณีที่ไม่มี drawing ก็ print ได้" — pre-shop MOs have no shop drawing
+// yet); this used to block the whole packet (P0 decision 2026-09-15).
 @Injectable()
 export class MoPrintService {
   constructor(
@@ -227,7 +236,7 @@ export class MoPrintService {
     private readonly mo: ManufacturingOrderService,
   ) {}
 
-  // Composes buildPlan (data + the missing-drawing gate) with buildMoPrintPdf
+  // Composes buildPlan (data + each mark's drawing, if any) with buildMoPrintPdf
   // (layout + merge), reading each matched drawing's bytes directly via
   // FileStorageService.getObject — NOT getDownloadUrl. getDownloadUrl is
   // built for a browser: the local driver points it back at this same
@@ -239,22 +248,30 @@ export class MoPrintService {
   // `includeManifest` (2026-09-21) — the MO overview page is its own toggle,
   // independent of `workOrderIds`, so "just the MO" (no WOs) is a valid ask.
   // `lang` (2026-09-29) — the form's own labels only; see mo-print-labels.ts.
-  async buildPdf(moId: number, workOrderIds?: number[], includeManifest = true, lang: PrintLang = 'en'): Promise<Uint8Array> {
+  // `printedBy` given → the print is logged with the Rev it carries (2026-10-09),
+  // only after the PDF built, so a failed print leaves no trace.
+  async buildPdf(moId: number, workOrderIds?: number[], includeManifest = true, lang: PrintLang = 'en', printedBy?: string): Promise<Uint8Array> {
     const plan = await this.buildPlan(moId, workOrderIds, includeManifest)
-    return buildMoPrintPdf(
+    const bytes = await buildMoPrintPdf(
       plan,
       async (row, mark) => {
         try {
-          return await this.fileStorage.getObject(mark.drawing.file_key)
+          return await this.fileStorage.getObject(mark.drawing!.file_key)
         } catch (err) {
           throw new Error(
-            `Failed to read drawing "${mark.drawing.file_name}" for ${row.wo.wo_code} (mark ${mark.assemblyMark}): ${err instanceof Error ? err.message : err}`,
+            `Failed to read drawing "${mark.drawing!.file_name}" for ${row.wo.wo_code} (mark ${mark.assemblyMark}): ${err instanceof Error ? err.message : err}`,
           )
         }
       },
       includeManifest,
       lang,
     )
+    if (printedBy) {
+      await this.prisma.mo_print_log.create({
+        data: { mo_id: moId, revision: plan.mo.revision, wo_ids: plan.rows.map(r => r.wo.id), include_manifest: includeManifest, printed_by: printedBy },
+      })
+    }
+    return bytes
   }
 
   // `workOrderIds` (2026-09-21 selective print) — restricts which WOs get a
@@ -280,12 +297,16 @@ export class MoPrintService {
       },
     })
     const qtyByAssembly = new Map<number, number>(lines.map(l => [l.bom_assembly_id, Number(l.qty)]))
+    // a mark renamed by the change that produced the current Rev prints "(เดิม …)"
+    const renames = renamesForRev((await this.prisma.mo_status_history.findMany({ where: { mo_id: moId }, select: { reason: true } })).map(h => h.reason ?? ''), mo.revision)
 
     const marks: MoPrintMarkItem[] = lines.map((l, i) => {
       const assembly = l.bom_assembly
       return {
         seq: i + 1,
         assemblyMark: assembly.assembly_mark,
+        sourceLabel: sourceLabelOf(assembly.dispatch),
+        renamedFrom: renames.get(assembly.assembly_mark) ?? null,
         name: assembly.name,
         width_mm: assembly.width_mm != null ? Number(assembly.width_mm) : null,
         length_mm: assembly.length_mm != null ? Number(assembly.length_mm) : null,
@@ -395,7 +416,6 @@ export class MoPrintService {
     // table on the manifest, computed from the same underlying formulas.
     const consumeByWo = await this.mo.getConsumeSummaryByWorkOrder(moId)
 
-    const missing: string[] = []
     const rows: MoPrintWorkOrderRow[] = []
     for (const wo of workOrders) {
       // Project/Zone and the dimension-driven Activities breakdown are
@@ -417,25 +437,21 @@ export class MoPrintService {
       // becomes one row of its Assembly List & QC table. But one drawing
       // page PER MARK, not per WO (2026-09-22: "wo มีหลายมาก mark ทำไมถึง
       // แสดงแค่ print แค่ 1 drawing ต้อง print ทุก drawing ที่มี mark") — a
-      // mark missing its own drawing is recorded here and rejects the whole
-      // packet below, same "reject the whole thing" policy as before, just
-      // checked per mark now instead of only the WO's primary one.
+      // mark without one keeps drawing: null (no drawing page, 2026-10-07).
       const marks: MoPrintAssemblyMarkRow[] = []
       for (const mark of wo.marks) {
         const assembly = mark.bom_assembly
         const dispatch = assembly.dispatch
         const zoneDrawings = drawingsByZone.get(zoneKey(dispatch.zone_id, dispatch.sub_zone_id)) ?? []
         const drawing = findLatestPdfForMark(zoneDrawings, assembly.assembly_mark)
-        if (!drawing) {
-          missing.push(`${wo.wo_code} (mark ${assembly.assembly_mark})`)
-          continue
-        }
         marks.push({
           assemblyMark: assembly.assembly_mark,
+          sourceLabel: sourceLabelOf(dispatch),
+          renamedFrom: renames.get(assembly.assembly_mark) ?? null,
           name: assembly.name ?? null,
           qty: qtyByAssembly.get(mark.bom_assembly_id) ?? null,
           weight_kg: assembly.weight_kg != null ? Number(assembly.weight_kg) : null,
-          drawing: { file_key: drawing.file_key, file_name: drawing.file_name, version: drawing.version, uploaded_at: new Date(drawing.create_date) },
+          drawing: drawing ? { file_key: drawing.file_key, file_name: drawing.file_name, version: drawing.version, uploaded_at: new Date(drawing.create_date) } : null,
         })
       }
 
@@ -461,7 +477,8 @@ export class MoPrintService {
           ? routingOpMap.get(wo.source_routing_op_id)?.operation_template?.icon ?? null
           : null,
         activities: breakdown,
-        woUrl: `${FRONTEND_BASE_URL}/order/wo/${wo.id}`,
+        // ?rev= — the WO page warns a scanner when this paper is older than the MO now (2026-10-09)
+        woUrl: `${FRONTEND_BASE_URL}/order/wo/${wo.id}?rev=${mo.revision}`,
         consume: consumeByWo.get(wo.id) ?? [],
         marks,
         assignedTo: wo.subcontractor?.name ?? wo.assigned_to ?? null,
@@ -469,10 +486,6 @@ export class MoPrintService {
         planStart: starts.length > 0 ? new Date(Math.min(...starts)) : wo.plan_start,
         planEnd: ends.length > 0 ? new Date(Math.max(...ends)) : wo.plan_finish,
       })
-    }
-
-    if (missing.length > 0) {
-      throw new ConflictException(`Cannot print — no drawing PDF uploaded yet for: ${missing.join(', ')}`)
     }
 
     const assemblyParts: MoPrintAssemblyPartGroup[] = lines.map(l => {
@@ -504,6 +517,7 @@ export class MoPrintService {
       projectName: firstDispatch?.zone.project.name ?? null,
       zoneLabel: firstDispatch?.zone.label ?? null,
       subZoneName: firstDispatch?.sub_zone?.name ?? null,
+      preshopRemaining: lines.some(l => l.bom_assembly.dispatch.source === 'PRE_SHOP'),
     }
 
     return { mo: moWithScope, rows, routingOps, marks, assemblyParts }

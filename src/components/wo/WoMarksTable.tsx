@@ -468,6 +468,8 @@ function FieldGroup({ label, children }: { label: string; children: React.ReactN
 // Labels for the per-mark event types in the panel's history (2026-10-05).
 const MARK_EVENT_LABEL: Record<string, string> = {
   PROGRESS_UPDATE: 'Progress updated',
+  CREATED: 'Created',
+  EDIT: 'Edited',
   MARK_REMOVED: 'Mark removed',
   ACCEPT_VERSION: 'BOM version accepted',
 }

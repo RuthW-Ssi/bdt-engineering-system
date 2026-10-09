@@ -1,3 +1,4 @@
+import type { NestExpressApplication } from '@nestjs/platform-express'
 import { NestFactory, HttpAdapterHost } from '@nestjs/core'
 import { ValidationPipe } from '@nestjs/common'
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
@@ -6,7 +7,9 @@ import { AppModule } from './app.module'
 import { LoggingExceptionFilter } from './common/filters/logging-exception.filter'
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create<NestExpressApplication>(AppModule)
+  // a pre-shop upload saves every mark + part as JSON — 100 KB (Express default) is too small (2026-10-09)
+  app.useBodyParser('json', { limit: '5mb' })
   // Compresses large JSON responses (e.g. bim-models/:id/elements) before
   // they leave the container — cuts response size well under Cloud Run's
   // 32MiB response cap for the text-heavy JSON this API returns.

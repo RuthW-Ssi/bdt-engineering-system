@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { computeActivityDurationRaw } from './activity-duration.util'
+import { opBelongsToMo } from '../manufacturing-orders/preshop/preshop-op'
 import { evalFormulaExpr } from './consume-formula.util'
 
 /**
@@ -49,13 +50,13 @@ export class WorkOrderAutoCreateService {
   ): Promise<{ work_order_id: number; wo_code: string; marks_added: number }> {
     const mo = await tx.manufacturing_order.findUnique({
       where: { id: moId },
-      select: { id: true, routing_template_id: true },
+      select: { id: true, routing_template_id: true, shop_type: true, status: true },
     })
     if (!mo) throw new NotFoundException(`MO ${moId} not found`)
 
     const op = await this.loadOperation(tx, operationId)
     if (!op) throw new NotFoundException(`Routing operation ${operationId} not found`)
-    if (op.template_id !== mo.routing_template_id) {
+    if (!(await opBelongsToMo(tx, op, mo))) {
       throw new BadRequestException(
         `Routing operation ${operationId} does not belong to MO ${moId}'s bound routing template`,
       )
@@ -65,7 +66,7 @@ export class WorkOrderAutoCreateService {
     const uniqueLineIds = [...qtyByLineId.keys()]
     const lines = await tx.mo_assembly_line.findMany({
       where: { id: { in: uniqueLineIds }, mo_id: moId },
-      include: { bom_assembly: { select: { id: true, dispatch_id: true } } },
+      include: { bom_assembly: { select: { id: true, dispatch_id: true, assembly_mark: true } } },
     })
     const foundLineIds = new Set(lines.map((l) => l.id))
     const missing = uniqueLineIds.filter((id) => !foundLineIds.has(id))
@@ -143,6 +144,13 @@ export class WorkOrderAutoCreateService {
     await this.recomputeDuration(tx, wo.id)
     await this.recomputeConsume(tx, wo.id, userName)
     await this.recomputeParts(tx, moId, wo.id, userName)
+
+    // History (2026-10-08): the new WO in its own events and in its MO's History.
+    const markList = `${lines.length} mark: ${lines.map(l => `${l.bom_assembly.assembly_mark} ×${qtyByLineId.get(l.id)}`).join(', ')}`
+    await tx.work_order_event.create({ data: { work_order_id: wo.id, event_type: 'CREATED', notes: `สร้าง WO · ${markList}`, recorded_by: userName } })
+    await tx.mo_status_history.create({
+      data: { mo_id: moId, from_status: mo.status, to_status: mo.status, changed_by: userName, reason: `สร้าง ${wo.wo_code} (Operation ${String(op.sequence).padStart(3, '0')} · ${markList})` },
+    })
 
     return {
       work_order_id: wo.id,
@@ -543,13 +551,13 @@ export class WorkOrderAutoCreateService {
   }> {
     const mo = await client.manufacturing_order.findUnique({
       where: { id: moId },
-      select: { id: true, routing_template_id: true },
+      select: { id: true, routing_template_id: true, shop_type: true },
     })
     if (!mo) throw new NotFoundException(`MO ${moId} not found`)
 
     const op = await this.loadOperation(client, operationId)
     if (!op) throw new NotFoundException(`Routing operation ${operationId} not found`)
-    if (op.template_id !== mo.routing_template_id) {
+    if (!(await opBelongsToMo(client, op, mo))) {
       throw new BadRequestException(
         `Routing operation ${operationId} does not belong to MO ${moId}'s bound routing template`,
       )

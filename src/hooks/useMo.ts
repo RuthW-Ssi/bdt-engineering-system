@@ -168,8 +168,7 @@ export function useAssembliesByPrefix(
   return useQuery({
     queryKey: ['mo', 'assembly-picker', mark_prefix_id, pendingOnly, group_by],
     queryFn: () =>
-      getBomAssembliesByPrefix({ mark_prefix_id: mark_prefix_id!, pending_mo: pendingOnly, group_by }),
-    enabled: !!mark_prefix_id,
+      getBomAssembliesByPrefix({ mark_prefix_id: mark_prefix_id ?? undefined, pending_mo: pendingOnly, group_by }),
     refetchOnMount: 'always',
   })
 }

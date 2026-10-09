@@ -13,8 +13,7 @@ import {
   UploadedFile,
   UploadedFiles,
   UseGuards,
-  UseInterceptors,
-} from '@nestjs/common'
+  UseInterceptors, Put } from '@nestjs/common'
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express'
 import { memoryStorage } from 'multer'
 import type { Response } from 'express'
@@ -28,7 +27,7 @@ import { JwtPayload } from '../auth/auth.service'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
 import { MoPrintService } from './mo-print/mo-print.service'
 import { parsePrintLang } from './mo-print/mo-print-labels'
-import { CreateMoDto } from './dto/create-mo.dto'
+import { CreateMoDto, LinkBomDto, MergePreshopDto, UpdatePreshopPartsDto } from './dto/create-mo.dto'
 import { UpdateMoDto } from './dto/update-mo.dto'
 import { ChangeStatusDto } from './dto/change-status.dto'
 import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
@@ -38,6 +37,8 @@ import { MoPartService } from './mo-part/mo-part.service'
 import { parseMaterialList } from './mo-part/material-list-parser'
 import { parseDispatchNote } from './mo-part/dispatch-note-parser'
 import { ncDetailsToLines } from './mo-part/nc-lines'
+import { PreshopService } from './preshop/preshop.service'
+import { checkPdfUploads, parseBomRows, pdfRows } from './preshop/preshop-pdf-parser'
 import { parseNcDetail } from '../bom-upload/nc-parser'
 
 @ApiTags('Manufacturing Orders')
@@ -49,6 +50,7 @@ export class ManufacturingOrderController {
     private readonly svc: ManufacturingOrderService,
     private readonly moPrint: MoPrintService,
     private readonly moPart: MoPartService,
+    private readonly preshop: PreshopService,
   ) {}
 
   // ── MO Part (wiki features/mo-part-import-plan) — declared before the
@@ -86,6 +88,82 @@ export class ManufacturingOrderController {
     if (notNc.length) throw new BadRequestException(`Not NC1 files: ${notNc.slice(0, 5).join(', ')}${notNc.length > 5 ? ' …' : ''}`)
     const details = files.map(f => parseNcDetail(f.originalname, f.buffer.toString('utf-8')))
     return { ...ncDetailsToLines(details), files_count: files.length }
+  }
+
+  // ── Pre-shop MO uploads (2026-10-07) — parsed in memory, never stored ──────
+  @Post('preshop/import/dispatch-note')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'Pre-shop MO · parse ONE Dispatch Note (first sheet) into assemblies (sets, H×B×L, weight per set)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  importPreshopDispatchNote(@UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('file is required')
+    if (!/\.xlsx?$/i.test(file.originalname)) throw new BadRequestException('Dispatch Note: .xls or .xlsx only')
+    const { marks, warnings } = parseDispatchNote(file.buffer)
+    return { filename: file.originalname, assemblies: this.preshop.fromDispatchNote(marks), warnings }
+  }
+
+  @Post('preshop/import/pdf')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'Pre-shop MO · parse pre-shop drawing PDFs (Tekla BILL OF MATERIAL) into assemblies + parts per set' })
+  @ApiConsumes('multipart/form-data')
+  // Celestica's 4-drawing PDF is 112 KB — 100 files × 10 MB caps one request's memory.
+  @UseInterceptors(FilesInterceptor('files', 100, { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024, files: 100 } }))
+  async importPreshopPdf(@UploadedFiles() files?: { originalname: string; size: number; buffer: Buffer }[]) {
+    if (!files?.length) throw new BadRequestException('files are required')
+    checkPdfUploads(files)
+    const parsed: { filename: string; assemblies: ReturnType<typeof parseBomRows> }[] = []
+    for (const f of files) parsed.push({ filename: f.originalname, assemblies: parseBomRows(await pdfRows(f.buffer)) })
+    return { ...this.preshop.mergeFiles(parsed), files: files.map(f => f.originalname) }
+  }
+
+  @Post(':id/preshop')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'PRE_SHOP MO · add / fill in assemblies from ONE source (Dispatch Note, pre-shop drawing, BOM) — any status but DONE/CANCELLED, logged in History' })
+  mergePreshop(@Param('id', ParseIntPipe) id: number, @Body() dto: MergePreshopDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.mergePreshop(id, dto, user.sub, user.login)
+  }
+
+  @Get(':id/qc-check')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'What still keeps the MO from Complete: each operation × mark whose QC-passed sets are short of its sets (empty = ready)' })
+  qcCheck(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.qcShortfalls(id)
+  }
+
+  @Get(':id/bom-compare')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'PRE_SHOP MO · its marks vs the zone\'s real BOM (latest upload) — what differs, what is only on one side, what is already reviewed' })
+  bomCompare(@Param('id', ParseIntPipe) id: number) {
+    return this.svc.bomCompare(id)
+  }
+
+  @Post(':id/bom-link')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'PRE_SHOP MO · apply the user\'s decisions against the real BOM (per mark apply / keep / remove, add BOM-only marks) — logged in History' })
+  linkBom(@Param('id', ParseIntPipe) id: number, @Body() dto: LinkBomDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.linkBom(id, dto, user.sub, user.login)
+  }
+
+  @Put(':id/lines/:lineId/parts')
+  @RequiresPermission('orders', 'update')
+  @ApiOperation({ summary: 'PRE_SHOP MO · replace one assembly\'s part list (per set) — parts on a WO cannot be removed; logged in History' })
+  updatePreshopParts(@Param('id', ParseIntPipe) id: number, @Param('lineId', ParseIntPipe) lineId: number, @Body() dto: UpdatePreshopPartsDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.updatePreshopParts(id, lineId, dto.parts, user.sub, user.login)
+  }
+
+  @Get('zone-bom')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'Whether a zone has a real BOM (needed for a Full shop MO)' })
+  async zoneBom(@Query('zone_id', ParseIntPipe) zoneId: number) {
+    return { has_bom: await this.svc.zoneHasBom(zoneId) }
+  }
+
+  @Get('zone-check')
+  @RequiresPermission('orders', 'create')
+  @ApiOperation({ summary: 'The live MO already holding a zone (1 zone = 1 MO), or null' })
+  zoneCheck(@Query('zone_id', ParseIntPipe) zoneId: number) {
+    return this.svc.zoneMo(zoneId)
   }
 
   @Get('part/import/bom-parts')
@@ -196,7 +274,7 @@ export class ManufacturingOrderController {
     @Body() dto: UpdateMoDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.update(id, dto, user.sub)
+    return this.svc.update(id, dto, user.sub, user.login)
   }
 
   @Patch(':id/status')
@@ -218,7 +296,7 @@ export class ManufacturingOrderController {
     @Body() dto: UpdateMoActualDatesDto,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.svc.updateActualDates(id, dto, user.sub)
+    return this.svc.updateActualDates(id, dto, user.sub, user.login)
   }
 
   @Delete(':id')
@@ -276,6 +354,7 @@ export class ManufacturingOrderController {
     @Query('wo_ids') woIdsRaw: string | undefined,
     @Query('include_manifest') includeManifestRaw: string | undefined,
     @Query('lang') langRaw: string | undefined,
+    @CurrentUser() user: JwtPayload,
     @Res() res: Response,
   ) {
     // `!== undefined` (not a truthy check) — the frontend's picker sends
@@ -288,7 +367,7 @@ export class ManufacturingOrderController {
       ? woIdsRaw.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n))
       : undefined
     const includeManifest = includeManifestRaw !== 'false'
-    const bytes = await this.moPrint.buildPdf(id, woIds, includeManifest, parsePrintLang(langRaw))
+    const bytes = await this.moPrint.buildPdf(id, woIds, includeManifest, parsePrintLang(langRaw), user.login)
     res.set({ 'Content-Type': 'application/pdf' })
     res.send(Buffer.from(bytes))
   }

@@ -74,12 +74,13 @@ export function formatShortDate(d: Date | string): string {
  *  the job was issued. Upload date vs WO creation, no stored WO↔drawing link. */
 export function drawingsUpdatedAfter(
   woCreatedAt: Date | string,
-  marks: { assemblyMark: string; drawing: { version: number; uploaded_at: Date | string } }[],
+  marks: { assemblyMark: string; drawing: { version: number; uploaded_at: Date | string } | null }[],
 ): string[] {
   const created = new Date(woCreatedAt).getTime()
+  // A mark with no drawing yet (pre-shop, 2026-10-07) has nothing to flag.
   return marks
-    .filter(m => new Date(m.drawing.uploaded_at).getTime() > created)
-    .map(m => `${m.assemblyMark} v${m.drawing.version} (${formatShortDate(m.drawing.uploaded_at)})`)
+    .flatMap(m => (m.drawing && new Date(m.drawing.uploaded_at).getTime() > created ? [{ mark: m.assemblyMark, d: m.drawing }] : []))
+    .map(({ mark, d }) => `${mark} v${d.version} (${formatShortDate(d.uploaded_at)})`)
 }
 
 // MO page Routing checklist: one row per routing operation (by sequence),
@@ -122,4 +123,33 @@ export function formatPrintPacketTitle(moCode: string, now: Date): string {
   const date = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
   const time = `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
   return `${moCode}-${date}-${time}`
+}
+
+// ── New-system info inside the existing cells (2026-10-09) ────────────────────
+// The printed form keeps its layout ("อย่าทำเกินจากของเดิม"); MO type, the MO
+// Rev and each mark's data source / old name ride along in cells already there.
+
+/** "MO-P2600023 · Rev.3" */
+export function moCodeCell(moCode: string, revision: number): string {
+  return `${moCode} · Rev.${revision}`
+}
+
+/** Where a mark's data comes from: "Pre-shop" or "BOM rev N". */
+export function sourceLabelOf(dispatch: { source: string; revision: number }): string {
+  return dispatch.source === 'PRE_SHOP' ? 'Pre-shop' : `BOM rev ${dispatch.revision}`
+}
+
+/** "C1-BUH1-3 (เดิม BUH1-3) · BOM rev 1" — the old name only for the Rev that renamed it. */
+export function markCell(mark: string, source: string, renamedFrom: string | null, formerly: string): string {
+  return `${mark}${renamedFrom ? ` (${formerly} ${renamedFrom})` : ''} · ${source}`
+}
+
+/** new mark → old mark, for renames made by the History entry that raised the
+ *  MO to `revision` ("… X ชื่อ mark OLD → NEW … · Rev.(n-1) → Rev.n"). */
+export function renamesForRev(reasons: string[], revision: number): Map<string, string> {
+  const out = new Map<string, string>()
+  const entry = reasons.find(r => r.includes(`→ Rev.${revision}`))
+  if (!entry) return out
+  for (const m of entry.matchAll(/\S+ ชื่อ mark (\S+) → (\S+)/g)) out.set(m[2], m[1])
+  return out
 }

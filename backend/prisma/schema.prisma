@@ -1480,6 +1480,11 @@ model repair_ticket_seq {
 // MO Part (2026-10-06, wiki features/mo-part-import-plan): ASSEMBLY = the
 // original mark-based MO (mo_assembly_line); PART = size-based lines
 // (mo_part_line) for single-part cutting/drilling.
+enum MoShopType {
+  FULL_SHOP
+  PRE_SHOP
+}
+
 enum MoKind {
   ASSEMBLY
   PART
@@ -1497,8 +1502,19 @@ model manufacturing_order {
   id                       Int                @id @default(autoincrement())
   mo_code                  String             @unique @db.VarChar(20) // MO-26000001 · race-safe via mo_code_seq (P5)
   // P12: exactly 1 mark prefix per MO. FK by code (mark_prefix_master PK = code).
-  primary_mark_prefix_code String             @db.VarChar(10)
-  primary_mark_prefix      mark_prefix_master @relation(fields: [primary_mark_prefix_code], references: [code])
+  // Optional since the MO-type change (2026-10-07): MOs are no longer created
+  // per mark prefix; older MOs keep theirs.
+  primary_mark_prefix_code String?             @db.VarChar(10)
+  primary_mark_prefix      mark_prefix_master? @relation(fields: [primary_mark_prefix_code], references: [code])
+  // FULL_SHOP = marks picked from the uploaded BOM (the original flow).
+  // PRE_SHOP = marks come from a Dispatch Note / pre-shop drawing upload (or
+  // the BOM) before the full shop drawing exists; its operations start with
+  // the system op 000 "Build-up(Pre-Shop)" (routing template SYS-PRESHOP).
+  shop_type                MoShopType          @default(FULL_SHOP)
+  // MO version (2026-10-09): +1 each time the assembly / part data that goes on
+  // the printed MO/WO changes after Confirm — uploads, part edits, BOM compare
+  // results, mark renames. Plan-date edits and DRAFT changes don't count.
+  revision                 Int                 @default(0)
   // P12: exactly 1 routing template per MO. Operations snapshotted at create (ADR-0012).
   // Required for ASSEMBLY MOs (enforced in CreateMoDto). PART MOs may have
   // none: they get the `PART` template automatically when it exists.
@@ -1541,6 +1557,7 @@ model manufacturing_order {
   part_marks     mo_part_mark[]
   part_changes   mo_part_change[]
   status_history mo_status_history[]
+  print_logs     mo_print_log[]
   work_orders    work_order[] // Sprint 14: execution layer (F-WO)
 
   @@index([status])
@@ -1630,6 +1647,21 @@ model mo_status_history {
   reason      String              @db.Text
   changed_by  String              @db.VarChar(120)
   changed_at  DateTime            @default(now()) @db.Timestamptz
+
+  @@index([mo_id])
+}
+
+// Each MO/WO packet printed (2026-10-09) — which Rev went on paper, so the MO
+// page can warn when the paper on the floor is older than the MO now.
+model mo_print_log {
+  id               Int                 @id @default(autoincrement())
+  mo_id            Int
+  mo               manufacturing_order @relation(fields: [mo_id], references: [id], onDelete: Cascade)
+  revision         Int
+  wo_ids           Int[]               @default([])
+  include_manifest Boolean             @default(true)
+  printed_by       String              @db.VarChar(120)
+  printed_at       DateTime            @default(now()) @db.Timestamptz
 
   @@index([mo_id])
 }
@@ -1857,6 +1889,8 @@ enum WoEventType {
   UNHOLD // manual resume from ON_HOLD (multi-mark redesign, 2026-09-17)
   MARK_REMOVED // a mark removed from its WO — BOM-removed or manual (multi-mark redesign, 2026-09-17)
   PROGRESS_UPDATE // per-mark progress save / any qty change, values in `changes` (2026-10-05)
+  CREATED // the WO was created, with its marks (2026-10-08)
+  EDIT // actual dates / consume / part withdrawals edited, old → new in notes (2026-10-08)
 }
 
 // ═══════════════════════════════════════════════════════════════
