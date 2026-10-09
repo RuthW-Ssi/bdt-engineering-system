@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, markCell, moCodeCell, renamesForRev, sourceLabelOf, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
 
 describe('fmt2', () => {
   it('pads a whole number to 2 decimal places', () => {
@@ -174,5 +174,37 @@ describe('drawingsUpdatedAfter', () => {
 
   it('is empty when every drawing predates the WO', () => {
     expect(drawingsUpdatedAfter(new Date('2026-10-05T00:00:00Z'), [mark('CTR1', 2, '2026-10-01T00:00:00Z')])).toEqual([])
+  })
+})
+
+describe('drawingsUpdatedAfter — marks without a drawing (2026-10-07)', () => {
+  it('skips a mark whose drawing is null', () => {
+    expect(drawingsUpdatedAfter('2026-10-01T00:00:00Z', [
+      { assemblyMark: 'BUH1-3', drawing: null },
+      { assemblyMark: 'CTR10', drawing: { version: 3, uploaded_at: '2026-10-02T03:00:00Z' } },
+    ])).toEqual(['CTR10 v3 (02/10/26)'])
+  })
+})
+
+// New-system info printed inside the existing cells (2026-10-09, user: keep
+// the old form, only show more — "อย่าทำเกินจากของเดิม").
+describe('print cells for MO type / Rev / mark source', () => {
+  it('MO code carries the Rev', () => {
+    expect(moCodeCell('MO-P2600023', 3)).toBe('MO-P2600023 · Rev.3')
+    expect(moCodeCell('MO-26000001', 0)).toBe('MO-26000001 · Rev.0')
+  })
+  it('a mark says where its data comes from, and its old name for one Rev after a rename', () => {
+    expect(sourceLabelOf({ source: 'PRE_SHOP', revision: 0 })).toBe('Pre-shop')
+    expect(sourceLabelOf({ source: 'BOM_UPLOAD', revision: 2 })).toBe('BOM rev 2')
+    expect(markCell('BUH1A-14', 'BOM rev 1', null, 'เดิม')).toBe('BUH1A-14 · BOM rev 1')
+    expect(markCell('C1-BUH1-3', 'BOM rev 1', 'BUH1-3', 'เดิม')).toBe('C1-BUH1-3 (เดิม BUH1-3) · BOM rev 1')
+  })
+  it('finds the marks renamed in the change that made the current Rev', () => {
+    const reasons = [
+      'เทียบกับ BOM จริง (rev 1): C1-BUH1-3 ชื่อ mark BUH1-3 → C1-BUH1-3 · C1-BUH1-3 ผูกกับ BOM จริง · Rev.2 → Rev.3',
+      'เพิ่มข้อมูลจาก Dispatch Note: X9 ชื่อ mark X → X9 · Rev.1 → Rev.2',
+    ]
+    expect(renamesForRev(reasons, 3)).toEqual(new Map([['C1-BUH1-3', 'BUH1-3']]))
+    expect(renamesForRev(reasons, 4)).toEqual(new Map())
   })
 })

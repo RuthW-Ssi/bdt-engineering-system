@@ -60,4 +60,12 @@ describe('MoCodeGenerator', () => {
     expect(mockPrisma.$transaction).not.toHaveBeenCalled()
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1)
   })
+
+  // 2026-10-09, user: the code shows the MO type — MO-F2600024 (Full shop) /
+  // MO-P2600024 (Pre-shop): F|P + 2-digit year + 5-digit counter, same counter.
+  it('prefixes F for a Full shop MO and P for a Pre-shop MO, with a 5-digit counter', async () => {
+    const tx = { $queryRaw: jest.fn(async () => [{ allocated: 24 }]) }
+    expect(await generator.generate(tx as any, 'FULL_SHOP')).toBe('MO-F2600024')
+    expect(await generator.generate(tx as any, 'PRE_SHOP')).toBe('MO-P2600024')
+  })
 })

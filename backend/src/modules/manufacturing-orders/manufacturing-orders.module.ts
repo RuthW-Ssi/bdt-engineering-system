@@ -8,12 +8,13 @@ import { ManufacturingOrderService } from './manufacturing-orders.service'
 import { MoCodeGenerator } from './mo-code.generator'
 import { MoAllocationService } from './mo-allocation.service'
 import { MoPrintService } from './mo-print/mo-print.service'
+import { PreshopService } from './preshop/preshop.service'
 import { MoPartService } from './mo-part/mo-part.service'
 
 @Module({
   imports: [MailModule, WorkOrdersModule, DrawingsModule, FileStorageModule],
   controllers: [ManufacturingOrderController],
-  providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService, MoPrintService, MoPartService],
+  providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService, MoPrintService, MoPartService, PreshopService],
   exports: [ManufacturingOrderService, MoAllocationService],
 })
 export class ManufacturingOrdersModule {}

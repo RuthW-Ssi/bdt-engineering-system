@@ -99,6 +99,8 @@ function makeTx(overrides: Record<string, unknown> = {}) {
     // wo_code carries IN/EX from the chosen team's team_type (2026-10-01).
     team: { findUnique: jest.fn().mockResolvedValue({ team_type: 'internal' }) },
     $executeRaw: jest.fn().mockResolvedValue(undefined),
+    work_order_event: { create: jest.fn().mockResolvedValue({}) },
+    mo_status_history: { create: jest.fn().mockResolvedValue({}) },
     ...overrides,
   }
   return tx
@@ -931,5 +933,19 @@ describe('WorkOrderAutoCreateService.computeMarkBudget', () => {
     const result = await svc.computeMarkBudget(tx, 1, 10, 100, 1)
 
     expect(result).toEqual({ total: 1, committed: 0, remaining: 1 })
+  })
+})
+
+// Every change is in History (2026-10-08, user: "ทุกการแก้ไขต้องถูกบันทึกลงใน history"):
+// a new WO lands in its own History and in its MO's.
+describe('WorkOrderAutoCreateService.createOrAddMarks — history', () => {
+  it('logs CREATED on the WO and a line on the MO History', async () => {
+    const tx = makeTx({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, routing_template_id: 1, status: 'IN_PROGRESS' }) },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue([makeLine({ bom_assembly: { id: 100, dispatch_id: 10, assembly_mark: 'BUH1-3' } })]) },
+    })
+    const r = await new WorkOrderAutoCreateService().createOrAddMarks(tx, 1, 1, [{ assembly_line_id: 1, qty: 2 }], 'tao')
+    expect(tx.work_order_event.create).toHaveBeenCalledWith({ data: { work_order_id: 900, event_type: 'CREATED', notes: 'สร้าง WO · 1 mark: BUH1-3 ×2', recorded_by: 'tao' } })
+    expect(tx.mo_status_history.create).toHaveBeenCalledWith({ data: { mo_id: 1, from_status: 'IN_PROGRESS', to_status: 'IN_PROGRESS', changed_by: 'tao', reason: `สร้าง ${r.wo_code} (Operation 010 · 1 mark: BUH1-3 ×2)` } })
   })
 })

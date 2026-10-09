@@ -8,11 +8,13 @@ import * as XLSX from 'xlsx'
 
 export interface PartMarkInput {
   mark: string
+  name?: string | null // "Name" column, e.g. WEB / COLUMN (2026-10-09)
   set_qty: number
   length_mm: number | null
   width_mm: number | null
   height_mm: number | null
   weight_kg?: number | null
+  area_m2?: number | null // "Paint / Area" column, all sets (2026-10-09)
   tw_mm?: number | null
   tf_mm?: number | null
 }
@@ -31,8 +33,10 @@ const findCol = (header: string[], aliases: string[]) => {
 }
 
 const MARK = ['mark no.', 'mark no', 'mark', 'assembly mark', 'ass mk']
+const NAME = ['name', 'description']
 const SET = ['set', 'qty', "q'ty", 'quantity']
 const WEIGHT = ['weightkg.', 'weightkg', 'weight', 'weight (kg)', 'weight(kg)']
+const AREA = ['paint', 'paint area', 'area', 'surface area']
 const LENGTH = ['length', 'length (mm)', 'length(mm)']
 const WIDTH = ['width', 'width (mm)', 'width(mm)']
 const HEIGHT = ['higth', 'height', 'height (mm)', 'height(mm)']
@@ -51,8 +55,8 @@ export function parseDispatchNote(buffer: Buffer): { marks: PartMarkInput[]; war
   if (headerIdx < 0) throw new BadRequestException('Dispatch Note: cannot find Mark No. column')
   const header = rows[headerIdx].map(norm)
   const col = {
-    mark: findCol(header, MARK), set: findCol(header, SET), weight: findCol(header, WEIGHT),
-    length: findCol(header, LENGTH), width: findCol(header, WIDTH), height: findCol(header, HEIGHT),
+    mark: findCol(header, MARK), name: findCol(header, NAME), set: findCol(header, SET), weight: findCol(header, WEIGHT),
+    area: findCol(header, AREA), length: findCol(header, LENGTH), width: findCol(header, WIDTH), height: findCol(header, HEIGHT),
   }
   if (col.set < 0) throw new BadRequestException('Dispatch Note: cannot find Set column')
 
@@ -68,8 +72,10 @@ export function parseDispatchNote(buffer: Buffer): { marks: PartMarkInput[]; war
       warnings.push(`${mark}: missing or invalid Set — skipped`)
       continue
     }
+    const name = String(at(r, col.name) ?? '').trim()
     const m: PartMarkInput = {
       mark,
+      ...(col.name >= 0 ? { name: name || null } : {}),
       set_qty: set,
       length_mm: num(at(r, col.length)),
       width_mm: num(at(r, col.width)),
@@ -77,6 +83,8 @@ export function parseDispatchNote(buffer: Buffer): { marks: PartMarkInput[]; war
     }
     const w = num(at(r, col.weight))
     if (w != null) m.weight_kg = w
+    const area = num(at(r, col.area))
+    if (area != null) m.area_m2 = area
     marks.push(m)
   }
   return { marks, warnings }

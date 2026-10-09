@@ -1,15 +1,22 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer } from 'lucide-react'
+import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer, Upload, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useUpdateMoActualDates, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
 import { MoPartDetail } from '../components/mo/MoPartDetail'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { partErrors } from '../lib/preshop'
+import { PreshopPartsEditor } from '../components/mo/PreshopPartsEditor'
+import { MoHistoryTimeline } from '../components/mo/MoHistoryTimeline'
+import { PreshopUploadModal } from '../components/mo/PreshopUploadModal'
+import { BomCompareModal } from '../components/mo/BomCompareModal'
 import { useWos } from '../hooks/useWo'
 import { useTeams, useLaborSkills } from '../hooks/useLaborSkills'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
-import { fetchMoPrintPacketBlob, type PrintLang, type MoStatus, type RoutingOp, type MoAssemblyRow } from '../api/mo'
+import { fetchMoPrintPacketBlob, SHOP_TYPE_LABEL, type PrintLang, type MoStatus, type RoutingOp, type MoAssemblyRow, updatePreshopParts, type PreshopPart, getBomCompare, getQcCheck } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
+import { ASM_FIELDS, norm, showValue } from '../lib/asmFields'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
@@ -47,8 +54,22 @@ export function MoDetail() {
   // 'complete' = IN_PROGRESS → DONE (dates + reason), 'edit' = DONE-only fix.
   const [datesModal, setDatesModal] = useState<'complete' | 'edit' | null>(null)
   const [datesError, setDatesError] = useState<string | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [bomOpen, setBomOpen] = useState(false)
 
   const { data: mo, isLoading } = useMo(moId)
+  // Pre-shop MO vs the zone's real BOM (2026-10-08) — only asked when one exists.
+  const { data: bomCmp } = useQuery({
+    queryKey: ['mo', moId, 'bom-compare'],
+    queryFn: () => getBomCompare(moId),
+    enabled: !!mo && mo.kind === 'ASSEMBLY',
+  })
+  // Complete waits until every mark passed QC in full on every operation (2026-10-09)
+  const { data: qcShort } = useQuery({
+    queryKey: ['mo', moId, 'qc-check'],
+    queryFn: () => getQcCheck(moId),
+    enabled: !!mo && mo.kind === 'ASSEMBLY' && mo.status === 'IN_PROGRESS',
+  })
   const changeStatus = useChangeMoStatus(moId)
   const updateActualDates = useUpdateMoActualDates(moId)
   const canWrite = usePermission('orders', 'update')
@@ -57,6 +78,16 @@ export function MoDetail() {
     return <div className="flex items-center justify-center" style={{ height: 'calc(100vh - 56px)' }}><Loader2 size={22} className="animate-spin" style={{ color: '#C2C2C2' }} /></div>
   }
   if (mo.kind === 'PART') return <MoPartDetail mo={mo} />
+
+  // PRE_SHOP (2026-10-07): created empty, filled by uploads any time until DONE;
+  // Confirm / Start wait for assemblies and a routing.
+  const isPreshop = mo.shop_type === 'PRE_SHOP'
+  // Upload is the only way to add assemblies (2026-10-08) — Full shop: BOM only.
+  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'
+  const preshopBlock = !isPreshop ? null
+    : mo.assembly_lines.length === 0 ? 'ยังไม่มี assembly — กด Upload แล้วเลือก Dispatch Note หรือ Pre-shop drawing ก่อน'
+    : mo.routing_template_id == null ? 'ยังไม่ได้เลือก routing — กด Edit แล้วเลือก routing ก่อน'
+    : null
 
   async function applyStatus() {
     if (!reasonModal || !reason.trim()) return
@@ -120,7 +151,10 @@ export function MoDetail() {
       <div className="bg-white flex items-center gap-3 border-b border-chrome-100 px-6" style={{ minHeight: 56, flexShrink: 0 }}>
         <button onClick={() => navigate('/mo')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', display: 'flex' }}><ArrowLeft size={18} /></button>
         <span style={{ fontFamily: 'monospace', fontSize: 17, fontWeight: 700, color: '#1A1A1A' }}>{mo.mo_code}</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#C8202A', background: '#FCEBEB', borderRadius: 4, padding: '1px 7px' }}>{mo.mark_prefix?.code}</span>
+        <span title="MO version — ขึ้นเมื่อข้อมูล assembly / part ที่พิมพ์ลงใบเปลี่ยนหลัง Confirm" style={{ fontSize: 12, fontWeight: 700, color: '#3A3A3A', border: '1px solid #C2C2C2', borderRadius: 6, padding: '1px 7px' }}>Rev.{mo.revision ?? 0}</span>
+        {/* MO type replaced the mark prefix (2026-10-07); older MOs still show theirs. */}
+        <span style={{ fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: '2px 10px', ...(mo.shop_type === 'PRE_SHOP' ? { color: '#41566F', background: '#EEF2F6' } : { color: '#555', background: '#F0F0F0' }) }}>{SHOP_TYPE_LABEL[mo.shop_type ?? 'FULL_SHOP']}</span>
+        {mo.mark_prefix && <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#C8202A', background: '#FCEBEB', borderRadius: 4, padding: '1px 7px' }}>{mo.mark_prefix.code}</span>}
         <MoStatusPill status={mo.status} />
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
@@ -132,6 +166,15 @@ export function MoDetail() {
           >
             {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Print
           </button>
+          {canUpload && (
+            <button
+              onClick={() => setUploadOpen(true)}
+              className="flex items-center gap-1.5"
+              style={{ height: 34, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: '1px solid #C2C2C2', background: '#fff', color: '#333' }}
+            >
+              <Upload size={14} /> Upload
+            </button>
+          )}
           {canWrite && mo.status === 'DRAFT' && (
             <button
               onClick={() => navigate(`/mo/${moId}/edit`)}
@@ -141,25 +184,79 @@ export function MoDetail() {
               <Pencil size={14} /> Edit
             </button>
           )}
-          {canWrite && ACTIONS[mo.status].map(a => (
+          {canWrite && ACTIONS[mo.status].map(a => {
+            // Complete waits for the BOM compare to be finished (2026-10-09)
+            const bomPending = a.to === 'DONE' && (bomCmp?.pending ?? 0) > 0
+            // …and for QC on every operation — greyed out with what is still short
+            const qcPending = a.to === 'DONE' && (qcShort?.length ?? 0) > 0
+            const qcHint = qcPending ? `ยัง QC ผ่านไม่ครบ ${qcShort!.length} รายการ:\n${qcShort!.slice(0, 8).map(x => `• ${x.assembly_mark} · ${x.operation}: QC ผ่าน ${x.passed}/${x.need}`).join('\n')}${qcShort!.length > 8 ? `\nและอีก ${qcShort!.length - 8} รายการ` : ''}` : null
+            const blocked = (!!preshopBlock && (a.to === 'CONFIRMED' || a.to === 'IN_PROGRESS')) || bomPending || qcPending
+            return (
             <button
               key={a.to}
+              disabled={blocked}
+              title={bomPending ? `ยังเทียบกับ BOM ไม่ครบ ${bomCmp!.pending} mark — กด "เทียบกับ BOM" ให้เสร็จก่อนปิดงาน` : qcHint ?? (blocked ? preshopBlock! : undefined)}
               onClick={() => {
                 // Complete collects the actual dates too (2026-10-01) — its own modal.
                 if (a.to === 'DONE') { openDatesModal('complete'); return }
+                // Confirm and Start go straight through — no reason (2026-10-09)
+                if (a.to === 'CONFIRMED' || a.to === 'IN_PROGRESS') { changeStatus.mutateAsync({ to_status: a.to }).catch(e => toast.error(getErrorMessage(e, `${a.label} ไม่สำเร็จ`))); return }
                 setReason(''); setReasonModal({ to: a.to, label: a.label })
               }}
               style={{
-                height: 34, padding: '0 16px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                height: 34, padding: '0 16px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: blocked ? 'not-allowed' : 'pointer',
                 border: a.danger ? '1px solid #E8A0A0' : 'none',
-                background: a.danger ? '#fff' : '#C8202A', color: a.danger ? '#C8202A' : '#fff',
+                background: a.danger ? '#fff' : blocked ? '#C2C2C2' : '#C8202A', color: a.danger ? '#C8202A' : '#fff',
               }}
             >
               {a.label}
             </button>
-          ))}
+            )
+          })}
         </div>
       </div>
+
+      {preshopBlock && mo.status !== 'DONE' && mo.status !== 'CANCELLED' && (
+        <div className="flex items-center gap-2 border-b border-molten-100 bg-molten-50 text-molten-600" style={{ fontSize: 13, fontWeight: 500, padding: '9px 24px', flexShrink: 0 }}>
+          <AlertTriangle size={15} /> {preshopBlock}
+        </div>
+      )}
+
+      {bomCmp?.bom && mo.status !== 'DONE' && mo.status !== 'CANCELLED' && (
+        bomCmp.pending > 0
+          ? (
+            <div className="flex items-center gap-2 border-b border-steel-100 bg-steel-50 text-steel-800" style={{ fontSize: 13, fontWeight: 600, padding: '8px 24px', flexShrink: 0 }}>
+              <Info size={15} />
+              <span>{mo.shop_type === 'PRE_SHOP' ? 'มี BOM จริงของ zone นี้แล้ว' : 'BOM ของ zone นี้มี version ใหม่'} (rev {bomCmp.bom.revision}) — ยังไม่ได้เทียบ {bomCmp.pending} mark{bomCmp.bom_only.length > 0 && ` · มีใน BOM แต่ยังไม่มีใน MO ${bomCmp.bom_only.length} mark`}</span>
+              {canWrite && (
+                <button type="button" onClick={() => setBomOpen(true)}
+                  style={{ marginLeft: 'auto', height: 28, padding: '0 12px', fontSize: 12.5, fontWeight: 700, borderRadius: 6, border: 'none', background: '#185FA5', color: '#fff', cursor: 'pointer' }}>
+                  เทียบกับ BOM
+                </button>
+              )}
+            </div>
+          )
+          : (
+            // the "done" strip is for a pre-shop MO; a Full shop MO on the latest BOM shows nothing
+            mo.shop_type === 'PRE_SHOP' ? (
+              <div className="flex items-center gap-2 border-b border-green-200 bg-green-50 text-green-800" style={{ fontSize: 12.5, fontWeight: 600, padding: '6px 24px', flexShrink: 0 }}>
+                <CheckCircle2 size={14} /> เทียบกับ BOM จริง rev {bomCmp.bom.revision} ครบแล้ว
+              </div>
+            ) : null
+          )
+      )}
+
+      {(() => {
+        // paper on the floor older than the MO (2026-10-09) — the print itself stays unchanged
+        const last = mo.print_logs?.[0]
+        if (!last || last.revision >= (mo.revision ?? 0) || mo.status === 'DONE' || mo.status === 'CANCELLED') return null
+        const at = new Date(last.printed_at).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+        return (
+          <div className="flex items-center gap-2 border-b border-molten-100 bg-molten-50 text-molten-600" style={{ fontSize: 13, fontWeight: 600, padding: '8px 24px', flexShrink: 0 }}>
+            <Printer size={15} /> ใบงานที่พิมพ์ล่าสุดเป็น Rev.{last.revision} (พิมพ์ {at} โดย {last.printed_by}) — ตอนนี้ MO เป็น Rev.{mo.revision} แล้ว ให้พิมพ์ใหม่และเก็บใบเก่าออกจากหน้างาน
+          </div>
+        )
+      })()}
 
       {printError && (
         <div style={{ background: '#FCEBEB', color: '#C8202A', fontSize: 13, padding: '8px 24px', flexShrink: 0 }}>
@@ -188,7 +285,7 @@ export function MoDetail() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#F7F7F7' }}>
         {tab === 'Overview' && <OverviewTab mo={mo} canWrite={canWrite} onEditActualDates={() => openDatesModal('edit')} />}
         {tab === 'Work Orders' && <WorkOrdersTab moId={moId} operations={(mo.routing_template?.operations ?? [])} />}
-        {tab === 'Assemblies' && <AssembliesTab moId={moId} />}
+        {tab === 'Assemblies' && <AssembliesTab moId={moId} preshop={mo.shop_type === 'PRE_SHOP'} editable={canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'} />}
         {tab === 'Parts' && <PartsTab moId={moId} />}
         {tab === 'History' && <HistoryTab moId={moId} />}
       </div>
@@ -217,6 +314,9 @@ export function MoDetail() {
           </div>
         </div>
       )}
+
+      {uploadOpen && <PreshopUploadModal mo={mo} onClose={() => setUploadOpen(false)} />}
+      {bomOpen && bomCmp?.bom && <BomCompareModal mo={mo} data={bomCmp} onClose={() => setBomOpen(false)} />}
 
       {datesModal && (
         <ActualDatesModal
@@ -383,28 +483,6 @@ function Chips({ items }: { items: string[] }) {
   )
 }
 
-// Non-blocking, informational — mirrors DiffWarningBanner.tsx's amber styling
-// (components/bom) but supports a per-line list since an MO can have several
-// stale assembly lines at once. Only ever non-empty while mo.status ===
-// 'DRAFT' (backend gate — see MoDetail type in api/mo.ts), so no extra
-// frontend status check is needed here.
-function StaleAssemblyWarningsBanner({ warnings }: { warnings: import('../api/mo').MoDetail['stale_assembly_warnings'] }) {
-  if (!warnings.length) return null
-  return (
-    <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', fontSize: 13, color: '#92400E', marginBottom: 16 }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>
-        ⚠ Newer BOM version available for {warnings.length} assembly line{warnings.length > 1 ? 's' : ''}
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {warnings.map(w => (
-          <div key={w.mo_assembly_line_id}>
-            <strong>{w.assembly_mark}</strong>: {w.delta_types.join(' · ') || 'change'}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 function ConsumeSummaryCard({ moId }: { moId: number }) {
   const { data, isLoading } = useMoConsumeSummary(moId)
@@ -440,12 +518,12 @@ function ConsumeSummaryCard({ moId }: { moId: number }) {
 function OverviewTab({ mo, canWrite, onEditActualDates }: { mo: import('../api/mo').MoDetail; canWrite: boolean; onEditActualDates: () => void }) {
   return (
     <>
-      <StaleAssemblyWarningsBanner warnings={mo.stale_assembly_warnings} />
 
       {/* Order info */}
       <Card title="Order">
-        <Row k="MO Code" v={mo.mo_code} />
-        <Row k="Mark Prefix" v={`${mo.mark_prefix?.code} · ${mo.mark_prefix?.label}`} />
+        <Row k="MO Code" v={`${mo.mo_code} · Rev.${mo.revision ?? 0}`} />
+        <Row k="MO Type" v={SHOP_TYPE_LABEL[mo.shop_type ?? 'FULL_SHOP']} />
+        {mo.mark_prefix && <Row k="Mark Prefix" v={`${mo.mark_prefix.code} · ${mo.mark_prefix.label}`} />}
         <Row k="Routing Template" v={mo.routing_template?.name} />
         <Row k="Status" v={<MoStatusPill status={mo.status} />} />
         <Row k="Plan Start" v={fmtDate(mo.plan_start)} />
@@ -559,30 +637,120 @@ function OverviewTab({ mo, canWrite, onEditActualDates }: { mo: import('../api/m
   )
 }
 
-function AssembliesTab({ moId }: { moId: number }) {
+// Each assembly expands to its parts per set (2026-10-08: a pre-shop MO must
+// show which parts each assembly uses — opened by default there).
+function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boolean; editable: boolean }) {
   const { data, isLoading } = useMoAssemblies(moId)
+  const qc = useQueryClient()
+  const [toggled, setToggled] = useState<Set<number>>(new Set())
+  // Pre-shop parts are edited per assembly (2026-10-08) — one at a time.
+  const [editing, setEditing] = useState<{ lineId: number; parts: PreshopPart[] } | null>(null)
+  const [savingParts, setSavingParts] = useState(false)
+  async function saveParts() {
+    if (!editing) return
+    setSavingParts(true)
+    try {
+      await updatePreshopParts(moId, editing.lineId, editing.parts.map(p => ({ ...p, part_mark: p.part_mark.trim(), profile: p.profile.trim(), grade: p.grade.trim() })))
+      await qc.invalidateQueries({ queryKey: ['mo'] })
+      toast.success('บันทึก part แล้ว')
+      setEditing(null)
+    } catch (e) {
+      toast.error(getErrorMessage(e, 'บันทึก part ไม่สำเร็จ'))
+    } finally {
+      setSavingParts(false)
+    }
+  }
   if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
   const rows = data ?? []
   if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>No assemblies.</div>
+  const isOpen = (id: number) => preshop !== toggled.has(id)
+  const toggle = (id: number) => setToggled(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const grid = '28px 50px 1.3fr 1fr 90px 90px 1fr'
   return (
     <div style={{ border: '1px solid #E8E8E8', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '50px 1.3fr 1fr 90px 90px 1fr', background: '#F5F5F5', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888' }}>
-        {['Line', 'Assembly', 'Project / Zone', 'Qty', 'Total', 'Allocation'].map(h => <div key={h} style={{ padding: '8px 12px' }}>{h}</div>)}
+      <div style={{ display: 'grid', gridTemplateColumns: grid, background: '#F5F5F5', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: '#888' }}>
+        {['', 'Line', 'Assembly', 'Project / Zone', 'Qty', 'Total', 'Allocation'].map((h, i) => <div key={i} style={{ padding: '8px 12px' }}>{h}</div>)}
       </div>
       {rows.map(r => (
-        <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '50px 1.3fr 1fr 90px 90px 1fr', borderTop: '1px solid #EEE', fontSize: 13, alignItems: 'center' }}>
-          <div style={{ padding: '10px 12px', color: '#999' }}>{r.line_seq + 1}</div>
-          <div style={{ padding: '10px 12px' }}>
-            <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.assembly_mark}</span>
-            {r.name && <div style={{ fontSize: 11, color: '#999' }}>{r.name}</div>}
+        <div key={r.id} style={{ borderTop: '1px solid #EEE' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: grid, fontSize: 13, alignItems: 'center' }}>
+            <div style={{ paddingLeft: 10 }}>
+              {(r.parts.length > 0 || (editable && r.preshop)) && (
+                <button type="button" onClick={() => toggle(r.id)} aria-label={`ดู part ของ ${r.assembly_mark}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', padding: 0, display: 'flex' }}>
+                  {isOpen(r.id) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                </button>
+              )}
+            </div>
+            <div style={{ padding: '10px 12px', color: '#999' }}>{r.line_seq + 1}</div>
+            <div style={{ padding: '10px 12px' }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.assembly_mark}</span>
+              <span className={r.preshop ? 'bg-molten-50 text-molten-600' : 'bg-steel-50 text-steel-800'} style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999 }}>{r.source_label}</span>
+              <span style={{ marginLeft: 8, fontSize: 11, color: '#999' }}>{r.parts.length ? `${r.parts.length} part` : 'ยังไม่มี part'}</span>
+              {editable && r.preshop && editing?.lineId !== r.id && (
+                <button type="button" onClick={() => { setEditing({ lineId: r.id, parts: r.parts.map(p => ({ part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '', length_mm: p.length_mm ?? 0, qty: p.qty_per_set, unit_weight_kg: p.weight_kg ?? 0 })) }); setToggled(s => { const n = new Set(s); if (preshop) n.delete(r.id); else n.add(r.id); return n }) }}
+                  className="inline-flex items-center gap-1" style={{ marginLeft: 10, height: 24, padding: '0 8px', fontSize: 11.5, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}>
+                  <Pencil size={11} /> Edit parts
+                </button>
+              )}
+              {/* every value of the mark (2026-10-09) */}
+              <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                {ASM_FIELDS.filter(f => norm(r, f.key) != null).map(f => (f.key === 'name' ? String(r.name) : `${f.label} ${showValue(norm(r, f.key))}`)).join(' · ')}
+              </div>
+            </div>
+            <div style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{[r.project, r.zone, r.sub_zone].filter(Boolean).join(' · ') || '—'}</div>
+            <div style={{ padding: '10px 12px', fontWeight: 700, color: '#C8202A' }}>{r.qty}</div>
+            <div style={{ padding: '10px 12px', color: '#555' }}>{r.total}</div>
+            <div style={{ padding: '10px 12px', fontSize: 11, color: '#666', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Info size={12} style={{ color: '#0C447C', flexShrink: 0 }} />
+              {r.allocation_breakdown.map(b => `${b.mo_code} (${b.qty})`).join(' · ') || '—'}
+            </div>
           </div>
-          <div style={{ padding: '10px 12px', fontSize: 12, color: '#666' }}>{[r.project, r.zone, r.sub_zone].filter(Boolean).join(' · ') || '—'}</div>
-          <div style={{ padding: '10px 12px', fontWeight: 700, color: '#C8202A' }}>{r.qty}</div>
-          <div style={{ padding: '10px 12px', color: '#555' }}>{r.total}</div>
-          <div style={{ padding: '10px 12px', fontSize: 11, color: '#666', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Info size={12} style={{ color: '#0C447C', flexShrink: 0 }} />
-            {r.allocation_breakdown.map(b => `${b.mo_code} (${b.qty})`).join(' · ') || '—'}
-          </div>
+          {editing?.lineId === r.id && (
+            <div style={{ padding: '0 16px 12px 88px' }}>
+              <div style={{ background: '#FAFAFA', border: '1px solid #EEE', borderRadius: 6, padding: 10 }}>
+                <PreshopPartsEditor parts={editing.parts} onChange={parts => setEditing({ lineId: r.id, parts })} sets={r.qty} />
+                {partErrors(editing.parts).map(e => <div key={e} className="text-ssi-600" style={{ fontSize: 12, marginTop: 4 }}>{e}</div>)}
+                <div className="flex items-center justify-end gap-2" style={{ marginTop: 8 }}>
+                  <button type="button" onClick={() => setEditing(null)} style={{ height: 30, padding: '0 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}>Cancel</button>
+                  <button type="button" disabled={savingParts || partErrors(editing.parts).length > 0} onClick={() => void saveParts()}
+                    style={{ height: 30, padding: '0 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 6, border: 'none', color: '#fff', display: 'inline-flex', alignItems: 'center', gap: 6,
+                      background: savingParts || partErrors(editing.parts).length > 0 ? '#C2C2C2' : '#C8202A', cursor: savingParts || partErrors(editing.parts).length > 0 ? 'not-allowed' : 'pointer' }}>
+                    {savingParts && <Loader2 size={12} className="animate-spin" />} Save parts
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {r.parts.length > 0 && isOpen(r.id) && editing?.lineId !== r.id && (
+            <div style={{ padding: '0 16px 12px 88px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: '#FAFAFA', borderRadius: 6 }}>
+                <thead>
+                  <tr style={{ color: '#888', fontSize: 10.5, textTransform: 'uppercase', textAlign: 'left' }}>
+                    <th style={{ padding: '6px 10px' }}>Part</th>
+                    <th style={{ padding: '6px 10px' }}>Profile</th>
+                    <th style={{ padding: '6px 10px' }}>Grade</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>L (mm)</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>ต่อชุด</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>รวม ({r.qty} ชุด)</th>
+                    <th style={{ padding: '6px 10px', textAlign: 'right' }}>kg / ชิ้น</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.parts.map(p => (
+                    <tr key={p.part_mark} style={{ borderTop: '1px solid #EEE' }}>
+                      <td style={{ padding: '6px 10px', fontFamily: 'monospace', fontWeight: 600 }}>{p.part_mark}</td>
+                      <td style={{ padding: '6px 10px' }}>{p.profile ?? '—'}</td>
+                      <td style={{ padding: '6px 10px' }}>{p.grade ?? '—'}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.length_mm ?? '—'}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.qty_per_set}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', fontWeight: 700 }}>{p.qty_per_set * r.qty}</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right' }}>{p.weight_kg == null ? '—' : p.weight_kg.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -1053,24 +1221,6 @@ function HistoryTab({ moId }: { moId: number }) {
   const { data, isLoading } = useMoHistory(moId)
   if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
   const rows = data ?? []
-  if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>No status changes yet.</div>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {rows.map((h, i) => (
-        <div key={h.id} className="flex gap-3" style={{ position: 'relative', paddingBottom: 18 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ width: 10, height: 10, borderRadius: 999, background: '#C8202A', marginTop: 4 }} />
-            {i < rows.length - 1 && <div style={{ width: 2, flex: 1, background: '#E0E0E0', marginTop: 2 }} />}
-          </div>
-          <div style={{ paddingBottom: 4 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
-              {h.from_status} → {h.to_status}
-            </div>
-            <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{h.reason}</div>
-            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtDate(h.changed_at)} · {h.changed_by}</div>
-          </div>
-        </div>
-      ))}
-    </div>
-  )
+  if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>ยังไม่มีประวัติ</div>
+  return <MoHistoryTimeline rows={rows} />
 }

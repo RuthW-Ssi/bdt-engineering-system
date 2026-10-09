@@ -181,7 +181,7 @@ export class MoPartService {
       const routingId = input.routing_template_id !== undefined ? input.routing_template_id : mo.routing_template_id
       await this.assertPrefixAndRouting(prefixCode, routingId)
 
-      const header = (m: { primary_mark_prefix_code?: string; routing_template_id?: number | null; plan_start?: Date | string | null; plan_finish?: Date | string | null }) => ({
+      const header = (m: { primary_mark_prefix_code?: string | null; routing_template_id?: number | null; plan_start?: Date | string | null; plan_finish?: Date | string | null }) => ({
         primary_mark_prefix_code: m.primary_mark_prefix_code,
         routing_template_id: m.routing_template_id,
         plan_start: m.plan_start ? new Date(m.plan_start) : null,
@@ -291,12 +291,12 @@ export class MoPartService {
     })
   }
 
-  private async assertPrefixAndRouting(prefixCode: string, routingId: number | null) {
+  private async assertPrefixAndRouting(prefixCode: string | null, routingId: number | null) {
     const [prefix, template] = await Promise.all([
-      this.prisma.mark_prefix_master.findUnique({ where: { code: prefixCode } }),
+      prefixCode == null ? null : this.prisma.mark_prefix_master.findUnique({ where: { code: prefixCode } }),
       routingId == null ? null : this.prisma.routing_template.findUnique({ where: { id: routingId } }),
     ])
-    if (!prefix) throw new NotFoundException(`Mark prefix ${prefixCode} not found`)
+    if (prefixCode != null && !prefix) throw new NotFoundException(`Mark prefix ${prefixCode} not found`)
     if (routingId != null && !template) throw new NotFoundException(`Routing template ${routingId} not found`)
   }
 }

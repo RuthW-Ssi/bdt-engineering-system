@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, drawingsUpdatedAfter, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes } from './mo-print-format'
+import { capList, drawingsUpdatedAfter, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
 import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
@@ -182,7 +182,7 @@ async function buildManifestPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels,
     {
       height: 30,
       cells: [
-        { label: L.manufacturingOrder, value: plan.mo.mo_code },
+        { label: L.manufacturingOrder, value: moCodeCell(plan.mo.mo_code, plan.mo.revision) },
         // Static plant identifier, not the MO's workflow status — this
         // system only prints packets for the BIF factory (2026-09-16).
         { label: L.manufacturingFactory, value: 'BIF' },
@@ -204,7 +204,9 @@ async function buildManifestPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels,
       // Below Project/Zone (2026-09-22: "เอา mark prfix ลงมาอยู่ใต้ project zone").
       height: 30,
       cells: [
-        { label: L.markPrefix, value: plan.mo.primary_mark_prefix_code },
+        // Mark Prefix → MO Type (2026-10-09, the prefix system is gone); a
+        // pre-shop mark still on the MO says so here rather than in a new band
+        { label: L.moType, value: `${plan.mo.shop_type === 'PRE_SHOP' ? L.preShop : L.fullShop}${plan.mo.preshopRemaining ? ` (${L.notRealBom})` : ''}` },
       ],
     },
     {
@@ -312,7 +314,7 @@ const moAssemblyColumns = (L: PrintLabels): [label: string, weight: number][] =>
 function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan, x: number, top: number): void {
   const markValues = (mark: MoPrintPacketPlan['marks'][number]) => [
     String(mark.seq),
-    mark.assemblyMark,
+    markCell(mark.assemblyMark, mark.sourceLabel, mark.renamedFrom, L.formerly),
     mark.name ?? '—',
     mark.width_mm != null ? fmt2(mark.width_mm) : '—',
     mark.length_mm != null ? fmt2(mark.length_mm) : '—',
@@ -573,7 +575,7 @@ async function drawWoDetails(doc: PDFDocument, page: PDFPage, fonts: Fonts, L: P
   const qrGap = 10
   const gridWidth = width - qrColWidth - qrGap
   const gridHeight = drawFormGrid(page, fonts, x, top, gridWidth, [
-    { height: 40, cells: [{ label: L.manufacturingOrder, value: plan.mo.mo_code }, { label: L.workOrder, value: row.wo.wo_code }] },
+    { height: 40, cells: [{ label: L.manufacturingOrder, value: moCodeCell(plan.mo.mo_code, plan.mo.revision) }, { label: L.workOrder, value: row.wo.wo_code }] },
     {
       height: 40,
       cells: [
@@ -820,7 +822,7 @@ function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, L: PrintLabels, mar
     for (const j of [3, 5, 7]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, L.passed, L.notPassed)
     for (const j of [4, 6, 8]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, L.signature, L.dateTime)
     const values = [
-      mark.assemblyMark,
+      markCell(mark.assemblyMark, mark.sourceLabel, mark.renamedFrom, L.formerly),
       mark.name ?? '—',
       mark.qty != null ? fmt0(mark.qty) : '—',
     ]
@@ -983,7 +985,7 @@ async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels, 
   // Which revision this sheet is (2026-10-05, print option A) rides at the
   // end of the corner label and as the watermark's third line ("เอามาอยู่
   // ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย").
-  const stamp = L.drawingStamp(`v${mark.drawing.version} · ${formatShortDate(mark.drawing.uploaded_at)}`)
+  const stamp = L.drawingStamp(`v${mark.drawing!.version} · ${formatShortDate(mark.drawing!.uploaded_at)}`)
   const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
   const labelSize = 12
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
@@ -1122,8 +1124,8 @@ function drawMoWatermark(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan): 
 // `fetchDrawingBytes` is injected so this function stays pure/testable —
 // the caller (MoPrintService) owns actually reaching file storage, and now
 // takes the specific mark being drawn alongside its row. Callers must have
-// already resolved plan.rows[].marks[] against findLatestPdfForMark; this
-// function trusts every mark has a drawing.
+// already resolved plan.rows[].marks[] against findLatestPdfForMark; a mark
+// whose drawing is null gets no drawing page (2026-10-07).
 // `includeManifest` (2026-09-21 selective print) — the MO overview page is
 // now its own toggle, independent of which WO travelers are picked, so
 // "just the MO" (no WOs) and "just some WOs, no MO page" are both valid.
@@ -1153,6 +1155,7 @@ export async function buildMoPrintPdf(
   for (const row of plan.rows) {
     await buildTravelerPage(doc, fonts, L, plan, row)
     for (const mark of row.marks) {
+      if (!mark.drawing) continue // no drawing yet (pre-shop) — traveler only, 2026-10-07
       const drawingBytes = await fetchDrawingBytes(row, mark)
       const drawingDoc = await PDFDocument.load(drawingBytes)
       await buildDrawingPage(doc, fonts, L, row, mark, drawingDoc)
