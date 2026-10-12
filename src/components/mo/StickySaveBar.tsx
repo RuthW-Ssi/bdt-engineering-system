@@ -2,7 +2,7 @@ import { Loader2 } from 'lucide-react'
 
 /** Live summary + actions, pinned to bottom of the single-page form (P11). */
 export function StickySaveBar({
-  markPrefix,
+  typeLabel,
   assemblyCount,
   totalQty,
   routingName,
@@ -12,7 +12,7 @@ export function StickySaveBar({
   onSaveDraft,
   onSaveConfirm,
 }: {
-  markPrefix: string | null
+  typeLabel: string | null // MO type (replaced the mark prefix, 2026-10-07)
   assemblyCount: number
   totalQty: number
   routingName: string | null
@@ -20,7 +20,7 @@ export function StickySaveBar({
   saving: boolean
   onCancel: () => void
   onSaveDraft: () => void
-  onSaveConfirm: () => void
+  onSaveConfirm?: () => void // omitted = no "Save + Confirm" (an empty PRE_SHOP MO)
 }) {
   return (
     <div
@@ -28,7 +28,7 @@ export function StickySaveBar({
       style={{ height: 60, background: '#fff', flexShrink: 0, boxShadow: '0 -2px 8px rgba(0,0,0,0.04)' }}
     >
       <div style={{ fontSize: 12, color: '#666', display: 'flex', gap: 18 }}>
-        <span>Prefix: <strong style={{ color: '#1A1A1A' }}>{markPrefix ?? '—'}</strong></span>
+        <span>MO type: <strong style={{ color: '#1A1A1A' }}>{typeLabel ?? '—'}</strong></span>
         <span>Assemblies: <strong style={{ color: '#1A1A1A' }}>{assemblyCount}</strong></span>
         <span>Total qty: <strong style={{ color: '#1A1A1A' }}>{totalQty}</strong></span>
         <span>Routing: <strong style={{ color: '#1A1A1A' }}>{routingName ?? '—'}</strong></span>
@@ -47,13 +47,13 @@ export function StickySaveBar({
         >
           {saving ? <Loader2 size={13} className="animate-spin" /> : 'Save as Draft'}
         </button>
-        <button
+        {onSaveConfirm && <button
           onClick={onSaveConfirm}
           disabled={!canSave || saving}
           style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, borderRadius: 6, border: 'none', background: canSave && !saving ? '#C8202A' : '#C2C2C2', color: '#fff', cursor: canSave && !saving ? 'pointer' : 'not-allowed' }}
         >
           Save + Confirm
-        </button>
+        </button>}
       </div>
     </div>
   )

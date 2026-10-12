@@ -10,6 +10,7 @@ import { RemoveMarkDto } from './dto/remove-mark.dto'
 import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
 import { UpdateMarkProgressDto } from './dto/update-mark-progress.dto'
+import { fmtBkk } from '../../common/history-format'
 import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField } from './progress-changes'
 
 /**
@@ -103,6 +104,7 @@ type BomAssemblyLike = {
   dispatch_id: number
   assembly_mark: string
   qty: Prisma.Decimal | number | null
+  name?: string | null
   weight_kg: Prisma.Decimal | null
   surface_area_m2: Prisma.Decimal | null
   length_mm: Prisma.Decimal | null
@@ -209,7 +211,7 @@ export class WorkOrdersService {
       where: { id },
       include: {
         manufacturing_order: {
-          select: { id: true, mo_code: true, status: true, primary_mark_prefix_code: true, primary_mark_prefix: true },
+          select: { id: true, mo_code: true, revision: true, status: true, primary_mark_prefix_code: true, primary_mark_prefix: true },
         },
         mrp_workcenter: { select: { id: true, code: true, name: true, machine: true } },
         subcontractor: { select: { id: true, code: true, name: true } },
@@ -815,6 +817,10 @@ export class WorkOrdersService {
     const tracking = actualsTracking(wo, actuals)
     if (tracking.length > 0) {
       await this.prisma.work_order.update({ where: { id }, data: { ...actuals, updated_by: userName } })
+      const dates = (['actual_start', 'actual_finish'] as const).filter(f => tracking.some(t => t.field === f))
+        .map(f => `${f === 'actual_start' ? 'เริ่ม' : 'เสร็จ'} ${fmtBkk(wo[f])} → ${fmtBkk(actuals[f])}`)
+      const other = tracking.filter(t => t.field === 'timeliness' || t.field === 'delay_note').map(t => `${t.field === 'timeliness' ? 'สถานะเวลา' : 'เหตุผลล่าช้า'} ${t.old_value ?? '—'} → ${t.new_value ?? '—'}`)
+      await this.prisma.work_order_event.create({ data: { work_order_id: id, event_type: 'EDIT', recorded_by: userName, notes: `แก้วันที่จริง: ${[...dates, ...other].join(' · ')}` } })
       await this.mail.log({
         model: 'work_order',
         res_id: id,
@@ -1085,7 +1091,7 @@ export class WorkOrdersService {
     await this.requireWo(id)
     const existing = await this.prisma.work_order_consume.findMany({
       where: { work_order_id: id },
-      select: { material_id: true },
+      select: { material_id: true, qty_actual: true, material: { select: { default_code: true } } },
     })
     const existingIds = new Set(existing.map((r) => r.material_id))
     const unknown = dto.consume.filter((c) => !existingIds.has(c.material_id))
@@ -1103,6 +1109,11 @@ export class WorkOrdersService {
         }),
       ),
     )
+    // History (2026-10-08): old → new per material that changed.
+    const before = new Map(existing.map(r => [r.material_id, r]))
+    const changed = dto.consume.filter(c => Number(before.get(c.material_id)?.qty_actual ?? 0) !== c.qty_actual)
+      .map(c => `${before.get(c.material_id)?.material?.default_code ?? c.material_id} ${Number(before.get(c.material_id)?.qty_actual ?? 0)} → ${c.qty_actual}`)
+    if (changed.length) await this.prisma.work_order_event.create({ data: { work_order_id: id, event_type: 'EDIT', recorded_by: userName, notes: `แก้ consume: ${changed.join(' · ')}` } })
 
     return this.findOne(id)
   }
@@ -1118,7 +1129,7 @@ export class WorkOrdersService {
     const wo = await this.requireWo(id)
     const existing = await this.prisma.work_order_part.findMany({
       where: { work_order_id: id },
-      select: { bom_assembly_part_id: true },
+      select: { bom_assembly_part_id: true, qty: true, bom_assembly_part: { select: { part: { select: { part_mark: true } } } } },
     })
     const existingIds = new Set(existing.map((r) => r.bom_assembly_part_id))
     const unknown = dto.parts.filter((p) => !existingIds.has(p.bom_assembly_part_id))
@@ -1161,6 +1172,12 @@ export class WorkOrdersService {
         }),
       ),
     )
+
+    // History (2026-10-08): old → new pieces per part that changed.
+    const before = new Map(existing.map(r => [r.bom_assembly_part_id, r]))
+    const changed = dto.parts.filter(p => Number(before.get(p.bom_assembly_part_id)?.qty ?? 0) !== p.qty)
+      .map(p => `${before.get(p.bom_assembly_part_id)?.bom_assembly_part?.part?.part_mark ?? p.bom_assembly_part_id} ${Number(before.get(p.bom_assembly_part_id)?.qty ?? 0)} → ${p.qty}`)
+    if (changed.length) await this.prisma.work_order_event.create({ data: { work_order_id: id, event_type: 'EDIT', recorded_by: userName, notes: `แก้ยอดเบิก part: ${changed.join(' · ')}` } })
 
     return this.findOne(id)
   }
@@ -1591,11 +1608,16 @@ export class WorkOrdersService {
     assembly: BomAssemblyLike,
     group: { project_id: number; zone_id: number; sub_zone_id: number | null },
   ) {
+    // A pre-shop mark is compared with the real BOM on its MO, where the user
+    // decides every value (2026-10-08) — never a WO-level "newer version".
+    const own = await this.prisma.bom_dispatch.findUnique({ where: { id: assembly.dispatch_id }, select: { source: true } })
+    if (own?.source === 'PRE_SHOP') return this.classifyAssemblyDelta(assembly, assembly)
+    // Pre-shop uploads are never a "newer version" of anything either.
     const latestAsm = await this.prisma.bom_assembly.findFirst({
       where: {
         assembly_mark: assembly.assembly_mark,
         status: 'ACTIVE',
-        dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id },
+        dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id, source: { not: 'PRE_SHOP' } },
       },
     })
     return this.classifyAssemblyDelta(assembly, latestAsm)
@@ -1662,6 +1684,7 @@ export class WorkOrdersService {
   }
 
   private specOf(a: {
+    name?: string | null
     weight_kg: Prisma.Decimal | null
     surface_area_m2: Prisma.Decimal | null
     length_mm: Prisma.Decimal | null
@@ -1670,6 +1693,7 @@ export class WorkOrdersService {
     attributes: Prisma.JsonValue
   }) {
     return {
+      name: a.name?.trim() || null, // every value (2026-10-09)
       weight_kg: a.weight_kg ? Number(a.weight_kg) : null,
       surface_area_m2: a.surface_area_m2 ? Number(a.surface_area_m2) : null,
       length_mm: a.length_mm ? Number(a.length_mm) : null,
@@ -1733,7 +1757,7 @@ export class WorkOrdersService {
         status: 'ACTIVE',
         OR: [...tuples.values()].map((t) => ({
           assembly_mark: t.assembly_mark,
-          dispatch: { project_id: t.project_id, zone_id: t.zone_id, sub_zone_id: t.sub_zone_id },
+          dispatch: { project_id: t.project_id, zone_id: t.zone_id, sub_zone_id: t.sub_zone_id, source: { not: 'PRE_SHOP' } },
         })),
       },
       include: { dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
@@ -1752,7 +1776,8 @@ export class WorkOrdersService {
       for (const m of r.marks) {
         const d = m.bom_assembly.dispatch
         const key = keyOf(m.bom_assembly.assembly_mark, d.project_id, d.zone_id, d.sub_zone_id)
-        const cmp = this.classifyAssemblyDelta(m.bom_assembly, activeByKey.get(key) ?? null)
+        const latest = d.source === 'PRE_SHOP' ? m.bom_assembly : activeByKey.get(key) ?? null // pre-shop: decided on the MO
+        const cmp = this.classifyAssemblyDelta(m.bom_assembly, latest)
         if (cmp.is_outdated && this.isSignificantDelta(cmp)) {
           outdated.add(r.id)
           break

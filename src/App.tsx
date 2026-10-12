@@ -29,6 +29,7 @@ import { Dashboard } from './pages/Dashboard'
 import { MachineDetail } from './pages/MachineDetail'
 import { ResourceList } from './pages/ResourceList'
 import { MoNew } from './pages/MoNew'
+import { MoPartNew } from './pages/MoPartNew'
 import { MoDetail } from './pages/MoDetail'
 import { OrderHub } from './pages/OrderHub'
 import { ProductionSchedule } from './pages/ProductionSchedule'
@@ -153,6 +154,8 @@ export default function App() {
             {/* Sprint 13: Manufacturing Order · /mo list now aliases into the hub */}
             <Route path="/mo" element={<Navigate to="/order?tab=mo" replace />} />
             <Route path="/mo/new" element={<ProtectedRoute viewModules={['orders']}><MoNew /></ProtectedRoute>} />
+            <Route path="/mo/new-part" element={<ProtectedRoute viewModules={['orders']}><MoPartNew /></ProtectedRoute>} />
+            <Route path="/mo/:id/edit-part" element={<ProtectedRoute viewModules={['orders']}><MoPartNew /></ProtectedRoute>} />
             <Route path="/mo/:id/edit" element={<ProtectedRoute viewModules={['orders']}><MoNew /></ProtectedRoute>} />
             <Route path="/mo/:id" element={<ProtectedRoute viewModules={['orders']}><MoDetail /></ProtectedRoute>} />
             <Route path="/eco" element={<Placeholder title="ECO" />} />

@@ -14,10 +14,11 @@ import { toast } from 'sonner'
 import { usePermission } from '../hooks/usePermission'
 import { apiClient } from '../api/client'
 import { useActivities } from '../hooks/useActivities'
-import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
+import { useMarkPrefixMaster } from '../hooks/useMarkPrefixes'
 import { ActivityBuilderModal } from './ActivityBuilder'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import type { MarkPrefixDTO } from '../api/types'
+import { scopeWorkcenters } from '../lib/workcenterScope'
 
 // ── Safe arithmetic evaluator — no eval / no new Function ──────
 
@@ -899,22 +900,9 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
   const selectedOt = opTypes.find(t => t.id === Number(form.op_type_id))
   const headerColor = selectedOt?.color ?? '#555'
 
-  // Work Station options scoped to the selected Operation Type — mirrors
-  // OperationBuilder.tsx's fix: no real op_type↔workcenter many-to-many in
-  // the schema, only a single default_wc per type, so this groups by that
-  // default's category name (e.g. "Cutting") as a heuristic. Some op types'
-  // default_wc is a now-inactive workcenter — when that category has zero
-  // ACTIVE matches, fall back to the full list rather than leaving the
-  // dropdown with nothing pickable.
-  const wcCategory = selectedOt?.default_wc?.name ?? null
-  const categoryWorkcenters = wcCategory ? workcenters.filter(wc => wc.name === wcCategory) : []
-  const filteredWorkcenters = categoryWorkcenters.length > 0 ? categoryWorkcenters : workcenters
-  // Keep whatever's already selected visible even if it falls outside the
-  // filter (e.g. picked before switching Operation Type).
-  const selectedWorkcenter = workcenters.find(wc => wc.id === Number(form.workcenter_id))
-  const workcenterOptions = selectedWorkcenter && !filteredWorkcenters.some(wc => wc.id === selectedWorkcenter.id)
-    ? [selectedWorkcenter, ...filteredWorkcenters]
-    : filteredWorkcenters
+  // Work Station options scoped to the selected Operation Type — see scopeWorkcenters().
+  const { category: wcCategory, options: workcenterOptions } =
+    scopeWorkcenters(selectedOt?.default_wc?.id, workcenters, form.workcenter_id ? Number(form.workcenter_id) : null)
   const addedIds = new Set(form.activities.map(a => a.source_activity_template_id).filter((id): id is number => id !== null))
   const canDone = !!(form.name.trim() && form.op_code.trim())
 
@@ -984,7 +972,8 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                 <div style={labelStyle}>Operation Type</div>
                 <select value={form.op_type_id} onChange={e => {
                   const ot = opTypes.find(t => t.id === Number(e.target.value))
-                  patch({ op_type_id: ot?.id ?? '', ...(ot?.default_wc && !form.workcenter_id ? { workcenter_id: ot.default_wc.id } : {}) })
+                  const defaultId = scopeWorkcenters(ot?.default_wc?.id, workcenters, null).defaultId
+                  patch({ op_type_id: ot?.id ?? '', ...(defaultId && !form.workcenter_id ? { workcenter_id: defaultId } : {}) })
                 }} disabled={!canWrite} style={{ ...sInp, cursor: 'pointer' }}>
                   <option value="">— Select type —</option>
                   {opTypes.map(ot => <option key={ot.id} value={ot.id}>{ot.label}</option>)}
@@ -1001,7 +990,7 @@ const InspectorDrawer = memo(function InspectorDrawer({ nodeId, initialData, onC
                   <select value={form.workcenter_id} onChange={e => patch({ workcenter_id: e.target.value ? Number(e.target.value) : '' })}
                     disabled={!canWrite}
                     style={{ ...sInp, cursor: 'pointer', color: form.workcenter_id ? '#1F1F1F' : '#9E9E9E' }}>
-                    <option value="">{wcCategory && categoryWorkcenters.length > 0 ? `— Select (${wcCategory}) —` : '— Select —'}</option>
+                    <option value="">{wcCategory ? `— Select (${wcCategory}) —` : '— Select —'}</option>
                     {workcenterOptions.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
                   </select>
                   {(() => {
@@ -1528,7 +1517,7 @@ const LAYOUT_START = { x: 60, y: 200 }
 // ── MarkPrefixPicker ───────────────────────────────────────────
 
 // Synthetic pseudo-prefix meaning "applies to every mark prefix" — NOT a real
-// mark_prefix_master row, so it must never be sourced from useMarkPrefixes()
+// mark_prefix_master row, so it must never be sourced from useMarkPrefixMaster()
 // or merged into its cache. The backend treats the sentinel string 'ALL' as
 // matching every mark prefix when suggesting/matching a routing template for
 // a Manufacturing Order. Exported so tests can assert its exact shape.
@@ -1656,9 +1645,9 @@ function RoutingBuilderInner() {
   const [code, setCode] = useState('')
   const [templateName, setTemplateName] = useState('')
   const [productType, setProductType] = useState('')
-  const { data: markPrefixes = [] } = useMarkPrefixes()
+  const { data: markPrefixes = [] } = useMarkPrefixMaster()
   // Compose the picker's option list with the synthetic 'ALL' entry prepended
-  // — never mutate markPrefixes itself, it's the shared useMarkPrefixes() cache.
+  // — never mutate markPrefixes itself, it's the shared useMarkPrefixMaster() cache.
   const markPrefixOptions = useMemo(() => [ALL_MARK_PREFIX_OPTION, ...markPrefixes], [markPrefixes])
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const dropDataRef = useRef<Record<string, OperationData>>({})

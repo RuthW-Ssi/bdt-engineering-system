@@ -149,6 +149,16 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // isSignificantDelta — pure function, unaffected by the multi-mark redesign.
 // ═══════════════════════════════════════════════════════════════════════════
+// every value counts as a spec change (2026-10-09, user: "ต้องเปรียบเทียบกันทุกค่า")
+describe('WorkOrdersService — a newer BOM row differing only in name', () => {
+  it('is a SPEC_CHANGED like L / W / H / kg / area', () => {
+    const svc = new WorkOrdersService({} as any, {} as any, {} as any)
+    const row = { id: 1, dispatch_id: 10, assembly_mark: 'A', qty: 1, name: 'WEB', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, attributes: {} }
+    expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, name: 'BUILT-UP H' }).delta_types).toEqual(['SPEC_CHANGED'])
+    expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11 }).delta_types).toEqual([])
+  })
+})
+
 describe('WorkOrdersService.isSignificantDelta', () => {
   const svc = new WorkOrdersService({} as any, {} as any, {} as any)
 
@@ -1609,7 +1619,7 @@ describe('WorkOrdersService.updateActuals', () => {
   const DTO = { actual_start: '2026-09-29T01:00:00.000Z', actual_finish: '2026-09-30T10:00:00.000Z', timeliness: 'DELAYED', delay_note: ' late steel ' }
 
   function makeService(wo: Record<string, unknown> | null) {
-    const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(wo), update: jest.fn() } }
+    const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(wo), update: jest.fn() }, work_order_event: { create: jest.fn() } }
     const mail = { log: jest.fn().mockResolvedValue({}) }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, mail as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
@@ -1678,6 +1688,7 @@ describe('WorkOrdersService.updateConsumeActuals', () => {
         findMany: jest.fn().mockResolvedValue(existingMaterialIds.map((material_id) => ({ material_id }))),
         update: jest.fn().mockResolvedValue({}),
       },
+      work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation((ops: any[]) => Promise.all(ops)),
     }
     return prisma
@@ -1732,6 +1743,7 @@ describe('WorkOrdersService.updatePartActuals', () => {
       bom_assembly_part: {
         findMany: jest.fn().mockResolvedValue(existingPartIds.map((id) => ({ id, part: { weight_kg: 1 } }))),
       },
+      work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation((ops: any[]) => Promise.all(ops)),
     }
     return prisma
@@ -1890,5 +1902,84 @@ describe('WorkOrdersService.updateMarkProgress (2026-10-05)', () => {
     )
     await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_not_started: 5 } as any, 'tao')).rejects.toThrow(/Not Started \+ In Progress \+ Done/)
     await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_qc_passed: 8, qty_rework: 1 } as any, 'tao')).rejects.toThrow(/QC Passed \+ Rework \+ Renew/)
+  })
+})
+
+// Every change is in History (2026-10-08): edits to a WO's actual dates,
+// consume and part withdrawals become EDIT events with old → new.
+describe('WorkOrdersService — edits are logged as EDIT events', () => {
+  function make(wo: Record<string, unknown> = {}) {
+    const prisma: any = {
+      work_order: { findUnique: jest.fn().mockResolvedValue({ id: 7, wo_code: 'WO-7', mo_id: 3, status: 'DONE', actual_start: new Date('2026-10-01T01:00:00Z'), actual_finish: null, timeliness: 'ON_PLAN', delay_note: null, ...wo }), update: jest.fn() },
+      work_order_consume: {
+        findMany: jest.fn().mockResolvedValue([{ material_id: 11, qty_actual: '2', material: { default_code: 'WIRE-1' } }]),
+        update: jest.fn(),
+      },
+      work_order_part: {
+        findMany: jest.fn().mockResolvedValue([{ bom_assembly_part_id: 21, qty: '1', bom_assembly_part: { part: { part_mark: 'C-f1' } } }]),
+        update: jest.fn(),
+      },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([{ id: 21, part: { weight_kg: '10' } }]) },
+      work_order_event: { create: jest.fn() },
+      $transaction: jest.fn((x: any) => (Array.isArray(x) ? Promise.all(x) : x(prisma))),
+    }
+    const auto = { computePartBudget: jest.fn().mockResolvedValue({ total: 10, committed: 0 }) }
+    const svc = new WorkOrdersService(prisma, auto as any, { log: jest.fn() } as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 7 } as any)
+    return { svc, prisma }
+  }
+
+  it('actual dates', async () => {
+    const { svc, prisma } = make()
+    await svc.updateActuals(7, { actual_start: '2026-10-01T02:00:00.000Z', actual_finish: '2026-10-02T10:00:00.000Z', timeliness: 'ON_PLAN' } as any, 'tao', 1)
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({ data: { work_order_id: 7, event_type: 'EDIT', recorded_by: 'tao',
+      notes: 'แก้วันที่จริง: เริ่ม 2026-10-01 08:00 → 2026-10-01 09:00 · เสร็จ — → 2026-10-02 17:00' } })
+  })
+
+  it('consume', async () => {
+    const { svc, prisma } = make()
+    await svc.updateConsumeActuals(7, { consume: [{ material_id: 11, qty_actual: 3.5 }] } as any, 'tao')
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({ data: { work_order_id: 7, event_type: 'EDIT', recorded_by: 'tao', notes: 'แก้ consume: WIRE-1 2 → 3.5' } })
+  })
+
+  it('part withdrawals', async () => {
+    const { svc, prisma } = make()
+    await svc.updatePartActuals(7, { parts: [{ bom_assembly_part_id: 21, qty: 4 }] } as any, 'tao')
+    expect(prisma.work_order_event.create).toHaveBeenCalledWith({ data: { work_order_id: 7, event_type: 'EDIT', recorded_by: 'tao', notes: 'แก้ยอดเบิก part: C-f1 1 → 4' } })
+  })
+
+  it('nothing changed → nothing logged', async () => {
+    const { svc, prisma } = make()
+    await svc.updateConsumeActuals(7, { consume: [{ material_id: 11, qty_actual: 2 }] } as any, 'tao')
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
+  })
+})
+
+// Pre-shop data belongs to its own MO (2026-10-08, user saw "Newer BOM version
+// available" on MO-26000016 because a cancelled MO's pre-shop upload of the
+// same marks in the same zone was still ACTIVE). Only a real BOM upload is a
+// newer version — for a pre-shop mark that's the link to the real BOM.
+describe('WorkOrdersService.compareAssemblyToLatest — pre-shop rows', () => {
+  const GROUP = { project_id: 16, zone_id: 33, sub_zone_id: null }
+  const own = makeBomAssembly({ id: 2078, dispatch_id: 21, assembly_mark: 'BUH1-3' })
+  function make(realBom: unknown) {
+    const prisma: any = {
+      bom_assembly: { findFirst: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.dispatch.source?.not === 'PRE_SHOP' ? realBom : makeBomAssembly({ id: 2050, dispatch_id: 14, assembly_mark: 'BUH1-3' }))) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue({ source: 'PRE_SHOP' }) },
+    }
+    return { svc: new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any), prisma }
+  }
+
+  it("another MO's pre-shop row of the same mark is not a newer version", async () => {
+    const { svc } = make(null)
+    await expect(svc.compareAssemblyToLatest(own as any, GROUP)).resolves.toMatchObject({ is_outdated: false })
+  })
+
+  // Real BOM vs pre-shop is compared and decided on the MO (2026-10-08, user:
+  // the user sees every difference and decides) — never via a WO's
+  // "Accept new version", which would bypass that.
+  it('a real BOM row is not a WO-level alert for a pre-shop mark either', async () => {
+    const { svc } = make(makeBomAssembly({ id: 3000, dispatch_id: 40, assembly_mark: 'BUH1-3', weight_kg: 9999 }))
+    await expect(svc.compareAssemblyToLatest(own as any, GROUP)).resolves.toMatchObject({ is_outdated: false })
   })
 })

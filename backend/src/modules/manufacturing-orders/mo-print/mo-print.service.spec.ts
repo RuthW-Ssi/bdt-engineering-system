@@ -5,6 +5,8 @@ function makeDispatch(overrides: Record<string, any> = {}) {
   return {
     zone_id: 23,
     sub_zone_id: null,
+    source: 'BOM_UPLOAD',
+    revision: 1,
     zone: { id: 23, label: 'BIF Zone 1', project: { id: 6, project_code: 'DBN', name: 'Smash golf driving range Bangna' } },
     sub_zone: null,
     ...overrides,
@@ -92,8 +94,10 @@ function makePdfDrawing(overrides: Record<string, any> = {}) {
 
 function makePrisma(overrides: Record<string, any> = {}) {
   return {
+    mo_status_history: { findMany: jest.fn().mockResolvedValue([]) },
+    mo_print_log: { create: jest.fn() },
     manufacturing_order: {
-      findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', routing_template_id: 17 }),
+      findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', revision: 0, routing_template_id: 17 }),
     },
     mo_assembly_line: {
       findMany: jest.fn().mockResolvedValue([makeMoLine()]),
@@ -156,7 +160,7 @@ describe('MoPrintService.buildPlan', () => {
     expect(plan.rows).toHaveLength(1)
     expect(plan.rows[0]).toMatchObject({ workCenterName: 'Cutting' })
     expect(plan.rows[0].marks).toEqual([{
-      assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450,
+      assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
       // version + upload date (2026-10-05, print option A) — stamped on the
       // drawing page and compared against the WO's own create_date.
       drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
@@ -382,6 +386,8 @@ describe('MoPrintService.buildPlan', () => {
       {
         seq: 1,
         assemblyMark: 'DBN-A1-CTR1',
+        sourceLabel: 'BOM rev 1',
+        renamedFrom: null,
         name: 'Column A1',
         width_mm: 200,
         length_mm: 6000,
@@ -446,6 +452,29 @@ describe('MoPrintService.buildPlan', () => {
     const plan = await svc.buildPlan(85)
 
     expect(plan.marks[0]).toMatchObject({ seq: 1, assemblyMark: 'DBN-A1-CTR2', name: null, width_mm: null, qty: 2 })
+  })
+
+  // MO type / Rev / mark source ride inside the existing print cells (2026-10-09)
+  it('tells the print where each mark comes from, which marks the current Rev renamed, and that pre-shop data remains', async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-P2600023', status: 'CONFIRMED', shop_type: 'PRE_SHOP', revision: 3, routing_template_id: 17 }) },
+      mo_status_history: { findMany: jest.fn().mockResolvedValue([
+        { reason: 'เพิ่มข้อมูลจาก Dispatch Note: X1 ชุด 2 → 3 · Rev.1 → Rev.2' },
+        { reason: 'เทียบกับ BOM จริง (rev 1): C1-BUH1-3 ชื่อ mark BUH1-3 → C1-BUH1-3 · C1-BUH1-3 ผูกกับ BOM จริง · Rev.2 → Rev.3' },
+      ]) },
+      mo_assembly_line: {
+        findMany: jest.fn().mockResolvedValue([
+          makeMoLine({ line_seq: 1, bom_assembly_id: 1, qty: 2, bom_assembly: { id: 1, assembly_mark: 'C1-BUH1-3', name: null, width_mm: null, length_mm: 6000, height_mm: null, weight_kg: 100, assembly_parts: [], dispatch: makeDispatch() } }),
+          makeMoLine({ line_seq: 2, bom_assembly_id: 2, qty: 1, bom_assembly: { id: 2, assembly_mark: 'X1', name: null, width_mm: null, length_mm: 3000, height_mm: null, weight_kg: 50, assembly_parts: [], dispatch: makeDispatch({ source: 'PRE_SHOP', revision: 0 }) } }),
+        ]),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.mo).toMatchObject({ shop_type: 'PRE_SHOP', revision: 3, preshopRemaining: true })
+    expect(plan.marks.map(m => [m.assemblyMark, m.sourceLabel, m.renamedFrom])).toEqual([['C1-BUH1-3', 'BOM rev 1', 'BUH1-3'], ['X1', 'Pre-shop', null]])
   })
 
   it("resolves each row's routing-operation label (op_code — name) from its source_routing_op_id snapshot, batched into one findMany", async () => {
@@ -604,16 +633,19 @@ describe('MoPrintService.buildPlan', () => {
     await expect(svc.buildPlan(85, undefined, false)).rejects.toThrow(ConflictException)
   })
 
-  it('blocks the whole packet — throws ConflictException naming the WO/mark — when any WO has no matching PDF drawing', async () => {
+  // 2026-10-07 (user: "ในกรณีที่ไม่มี drawing ก็ print ได้"): used to block the
+  // whole packet — a pre-shop MO has no shop drawing yet. A mark with no PDF
+  // drawing still lists on its traveler; it just gets no drawing page.
+  it('still prints when a mark has no PDF drawing — the mark keeps its row, drawing is null', async () => {
     const prisma = makePrisma({
       work_order: { findMany: jest.fn().mockResolvedValue([makeWo(), makeWo({ id: 1399, wo_code: 'WO-00000740', sequence: 20 })]) },
     })
     const drawings = makeDrawings({ findByZone: jest.fn().mockResolvedValue([]) })
     const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
 
-    await expect(svc.buildPlan(85)).rejects.toMatchObject({
-      message: expect.stringContaining('WO-00000739'),
-    })
+    const plan = await svc.buildPlan(85)
+    expect(plan.rows.map(r => r.wo.wo_code)).toEqual(['WO-00000739', 'WO-00000740'])
+    expect(plan.rows[0].marks).toEqual([expect.objectContaining({ assemblyMark: 'DBN-A1-CTR1', drawing: null })])
   })
 
   // 2026-10-05 (print option A): used to 409 — the zone's newest batch held
@@ -686,8 +718,8 @@ describe('MoPrintService.buildPlan', () => {
 
     expect(plan.rows).toHaveLength(1)
     expect(plan.rows[0].marks).toEqual([
-      { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }) },
-      { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 3, weight_kg: 220, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' }) },
+      { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }) },
+      { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 3, weight_kg: 220, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' }) },
     ])
   })
 
@@ -717,13 +749,29 @@ describe('MoPrintService.buildPdf', () => {
     const fileStorage = makeFileStorage({ getObject: jest.fn().mockResolvedValue(drawingBytes) })
     const svc = new MoPrintService(prisma as any, drawings as any, fileStorage as any, makeMoService() as any)
 
-    const bytes = await svc.buildPdf(85)
+    const bytes = await svc.buildPdf(85, undefined, true, 'en', 'tao')
     const merged = await PDFDocument.load(bytes)
+    expect(prisma.mo_print_log.create).toHaveBeenCalledWith({ data: { mo_id: 85, revision: 0, wo_ids: [1398], include_manifest: true, printed_by: 'tao' } })
 
     expect(fileStorage.getObject).toHaveBeenCalledWith('drawings/dbn-a1-ctr1-rev1.pdf')
     expect(fileStorage.getDownloadUrl).not.toHaveBeenCalled()
     // MO page + Assembly Part List page (one assembly) + traveler + drawing.
     expect(merged.getPageCount()).toBe(4)
+  })
+
+  // Print log (2026-10-09): which Rev went on paper, so the MO page can warn about old paper.
+  it('logs the Rev, WOs and who printed once the packet is built, and puts the Rev in the QR link', async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-P2600023', status: 'CONFIRMED', revision: 3, routing_template_id: 17 }) },
+      mo_print_log: { create: jest.fn() },
+    })
+    const fileStorage = makeFileStorage({ getObject: jest.fn().mockRejectedValue(new Error('ENOENT')) })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, fileStorage as any, makeMoService() as any)
+    const plan = await svc.buildPlan(85)
+    expect(plan.rows[0].woUrl).toMatch(/\/order\/wo\/1398\?rev=3$/)
+
+    await expect(svc.buildPdf(85, undefined, true, 'en', 'tao')).rejects.toThrow()
+    expect(prisma.mo_print_log.create).not.toHaveBeenCalled() // nothing printed, nothing logged
   })
 
   it('throws a message naming the WO/drawing when reading a drawing fails', async () => {

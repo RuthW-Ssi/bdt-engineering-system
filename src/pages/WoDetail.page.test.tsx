@@ -132,19 +132,21 @@ describe('WoDetail — Complete', () => {
   })
 })
 
-describe('WoDetail — Events tab', () => {
-  it('labels a PROGRESS_UPDATE "Progress updated" with its mark and renders the changes', () => {
+// Events → History in the MO History design (2026-10-09)
+describe('WoDetail — History tab', () => {
+  it('shows a PROGRESS_UPDATE as a progress card: its mark with each quantity old → new', () => {
     events = [{
       id: 1, work_order_id: 7, work_order_mark_id: 1, event_type: 'PROGRESS_UPDATE', notes: null,
       changes: [{ field: 'qty_done', old: 5, new: 8 }, { field: 'qty_qc_passed', old: 4, new: 6 }],
       recorded_by: 'tao', recorded_at: '2026-10-05T08:00:00Z',
     }]
     renderPage()
-    fireEvent.click(screen.getByRole('button', { name: 'Events' }))
+    fireEvent.click(screen.getByRole('button', { name: 'History' }))
 
-    expect(screen.getByText('Progress updated')).toBeInTheDocument()
-    expect(screen.getByText('· A1')).toBeInTheDocument()
-    expect(screen.getByText('Done 5 → 8, QC Passed 4 → 6')).toBeInTheDocument()
+    expect(screen.getByText('อัปเดตความคืบหน้า')).toBeInTheDocument()
+    expect(screen.getByText('A1')).toBeInTheDocument()
+    expect(screen.getByText('QC Passed')).toBeInTheDocument()
+    expect(screen.getByText('8')).toBeInTheDocument()
   })
 })
 

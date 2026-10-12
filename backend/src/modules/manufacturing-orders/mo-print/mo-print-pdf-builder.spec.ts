@@ -150,7 +150,7 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
     consume: [],
     operationLabel: 'OP-WELD-SAW — SAW auto weld',
     marks: [{
-      assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450,
+      assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
       drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }],
     assignedTo: null,
@@ -164,7 +164,7 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
 
 function makePlan(rows: MoPrintWorkOrderRow[], overrides: Partial<MoPrintPacketPlan> = {}): MoPrintPacketPlan {
   return {
-    mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', projectCode: null, projectName: null, zoneLabel: null, subZoneName: null },
+    mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', shop_type: 'FULL_SHOP' as const, revision: 0, preshopRemaining: false, projectCode: null, projectName: null, zoneLabel: null, subZoneName: null },
     rows,
     routingOps: [],
     marks: [],
@@ -195,13 +195,21 @@ describe('buildMoPrintPdf', () => {
     expect(fetchDrawingBytes).toHaveBeenCalledTimes(2)
   })
 
+  it('2026-10-07: a mark with no drawing keeps its traveler page but gets no drawing page (nothing fetched)', async () => {
+    const plan = makePlan([makeRow({ marks: [{ assemblyMark: 'BUH1-3', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, qty: 2, weight_kg: 3561.15, drawing: null }] })])
+    const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
+    const merged = await PDFDocument.load(await buildMoPrintPdf(plan, fetchDrawingBytes))
+    expect(merged.getPageCount()).toBe(1 + 1)
+    expect(fetchDrawingBytes).not.toHaveBeenCalled()
+  })
+
   // The packet is opened via a blob: URL in a new browser tab (MoDetail.tsx's
   // handlePrint), not downloaded directly — a Content-Disposition header
   // has no effect there, so the PDF's own /Title metadata is what a
   // browser's native PDF viewer actually suggests as the filename on Save
   // (2026-09-16).
   it("sets the PDF's Title metadata to the MO code plus a timestamp, so 'Save' suggests a sane filename", async () => {
-    const plan = makePlan([makeRow()], { mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', projectCode: null, projectName: null, zoneLabel: null, subZoneName: null } })
+    const plan = makePlan([makeRow()], { mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', shop_type: 'FULL_SHOP' as const, revision: 0, preshopRemaining: false, projectCode: null, projectName: null, zoneLabel: null, subZoneName: null } })
 
     const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
     const merged = await PDFDocument.load(bytes)
@@ -312,7 +320,7 @@ describe('buildMoPrintPdf', () => {
     const plan = makePlan([
       makeRow({
         marks: [{
-          assemblyMark: 'DBN-A1-CTR1', name: 'เสาเหล็ก Column A1', qty: 1, weight_kg: 450,
+          assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'เสาเหล็ก Column A1', qty: 1, weight_kg: 450,
           drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
         }],
         assignedTo: 'ทีมช่างเชื่อม',
@@ -337,7 +345,7 @@ describe('buildMoPrintPdf', () => {
       }),
     ], {
       routingOps: [{ sequence: 10, operationLabel: 'SAW auto weld', workCenterName: 'Cutting', woCodes: ['WO-00000739'] }],
-      marks: [{ seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 }],
+      marks: [{ seq: 1, assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 }],
       assemblyParts: [{ assemblyMark: 'DBN-A1-CTR1', name: 'COLUMN', qty: 1, parts: [{ part_mark: 'DBN-A1-m1', profile: 'PIPE', grade: 'SS400', qty: 1, weight_kg: 10 }] }],
     })
 
@@ -370,8 +378,8 @@ describe('buildMoPrintPdf', () => {
     it('does not add extra pages for a normal-sized mark list', async () => {
       const plan = makePlan([makeRow()], {
         marks: [
-          { seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 },
-          { seq: 2, assemblyMark: 'DBN-A1-CTR2', name: null, width_mm: null, length_mm: 3000, height_mm: 200, weight_kg: null, qty: 2 },
+          { seq: 1, assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 },
+          { seq: 2, assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, width_mm: null, length_mm: 3000, height_mm: 200, weight_kg: null, qty: 2 },
         ],
       })
 
@@ -395,8 +403,8 @@ describe('buildMoPrintPdf', () => {
     // the file's other tests for that established limitation.
     it('renders MO Info with a project/zone (and sub-zone) on plan.mo without throwing', async () => {
       const plan = makePlan([makeRow()], {
-        mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', projectCode: 'DBN', projectName: 'Smash golf driving range Bangna', zoneLabel: 'BIF Zone 1', subZoneName: 'North Bay' },
-        marks: [{ seq: 1, assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 }],
+        mo: { id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', shop_type: 'FULL_SHOP' as const, revision: 0, preshopRemaining: false, projectCode: 'DBN', projectName: 'Smash golf driving range Bangna', zoneLabel: 'BIF Zone 1', subZoneName: 'North Bay' },
+        marks: [{ seq: 1, assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1 }],
       })
 
       const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1))
@@ -407,7 +415,7 @@ describe('buildMoPrintPdf', () => {
 
     it('continues a long mark list onto extra pages, without drawing past the page border', async () => {
       const longMarkList = Array.from({ length: 60 }, (_, i) => ({
-        seq: i + 1, assemblyMark: `M-${i}`, name: `Assembly ${i}`, projectCode: 'DBN', projectName: 'Smash golf driving range Bangna',
+        seq: i + 1, assemblyMark: `M-${i}`, sourceLabel: 'BOM rev 1', renamedFrom: null, name: `Assembly ${i}`, projectCode: 'DBN', projectName: 'Smash golf driving range Bangna',
         zoneLabel: 'BIF Zone 1', subZoneName: null, width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1,
       }))
       const plan = makePlan([makeRow()], { marks: longMarkList })
@@ -483,7 +491,7 @@ describe('buildMoPrintPdf', () => {
 
     it('overflows onto extra pages for a long list — including mid-group — without drawing past the page border', async () => {
       const assemblyParts = Array.from({ length: 6 }, (_, a) => ({
-        assemblyMark: `M-${a}`, name: 'COLUMN', qty: 1,
+        assemblyMark: `M-${a}`, sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'COLUMN', qty: 1,
         parts: Array.from({ length: 25 }, (_, p) => ({ part_mark: `M-${a}-p${p}`, profile: 'PL', grade: 'SS400', qty: 1, weight_kg: 1 })),
       }))
       const plan = makePlan([makeRow()], { assemblyParts })
@@ -512,7 +520,7 @@ describe('buildMoPrintPdf', () => {
         wo: { id: sequence * 10 + i, wo_code: `WO-000000${sequence}${i}`, sequence, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') },
       })))
       const marks = ['M-1', 'M-2'].map((assemblyMark, i) => ({
-        seq: i + 1, assemblyMark, name: 'โครงหลังคา', projectCode: 'DBN', projectName: 'x', zoneLabel: 'BIF Zone 1',
+        seq: i + 1, assemblyMark, sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'โครงหลังคา', projectCode: 'DBN', projectName: 'x', zoneLabel: 'BIF Zone 1',
         subZoneName: null, width_mm: 200, length_mm: 6000, height_mm: 300, weight_kg: 450, qty: 1,
       }))
 
@@ -652,8 +660,8 @@ describe('buildMoPrintPdf', () => {
     it('embeds one drawing page per mark on a multi-mark WO, not just the primary mark, each fetched and labeled separately', async () => {
       const plan = makePlan([makeRow({
         marks: [
-          { assemblyMark: 'DBN-A1-CTR1', name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
-          { assemblyMark: 'DBN-A1-CTR2', name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
+          { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
+          { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
         ],
       })])
       const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
@@ -684,7 +692,7 @@ describe('buildMoPrintPdf', () => {
       material_id: i, code: `MAT-${i}`, name: `Material ${i}`, qty: 1, unit: 'kg',
     }))
     const longMarks = Array.from({ length: 30 }, (_, i) => ({
-      assemblyMark: `DBN-A1-CTR${i}`, name: `Column ${i}`, qty: 1, weight_kg: 450,
+      assemblyMark: `DBN-A1-CTR${i}`, sourceLabel: 'BOM rev 1', renamedFrom: null, name: `Column ${i}`, qty: 1, weight_kg: 450,
       drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf`, version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }))
 
@@ -711,7 +719,7 @@ describe('buildMoPrintPdf', () => {
       const plan = makePlan([makeRow({
         activities: [], consume: [], assignedTo: null, planStart: null, planEnd: null,
         marks: [{
-          assemblyMark: 'DBN-A1-CTR1', name: null, qty: null, weight_kg: null,
+          assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, qty: null, weight_kg: null,
           drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
         }],
       })])
@@ -791,7 +799,7 @@ describe('buildMoPrintPdf', () => {
       return textOriginYs(doc, pageIndex).filter(y => y > height - 40).length
     }
     const updatedRow = () => makeRow({
-      marks: [{ ...makeRow().marks[0], drawing: { ...makeRow().marks[0].drawing, version: 3, uploaded_at: new Date('2026-10-02T03:00:00Z') } }],
+      marks: [{ ...makeRow().marks[0], drawing: { ...makeRow().marks[0].drawing!, version: 3, uploaded_at: new Date('2026-10-02T03:00:00Z') } }],
     })
     const traveler = async (row: MoPrintWorkOrderRow) => PDFDocument.load(await buildMoPrintPdf(makePlan([row]), async () => fakePdfBytes(1)))
 

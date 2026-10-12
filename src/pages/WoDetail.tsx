@@ -1,6 +1,7 @@
-import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Cpu, Wrench, FlaskConical, Users } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { WoHistoryTimeline } from '../components/wo/WoHistoryTimeline'
+import { AlertTriangle, ArrowLeft, Loader2, Cpu, Wrench, FlaskConical, Users } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useWo, useWoEvents, useWoSchedule, useBomVersionStatus,
@@ -9,7 +10,6 @@ import {
 } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { WoMarksTable } from '../components/wo/WoMarksTable'
-import { formatProgressChanges } from '../components/wo/progressChanges'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from '../components/wo/QcBreakdownFields'
 import { WoVisualTab } from '../components/wo/WoVisualTab'
 import type {
@@ -22,7 +22,7 @@ import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 
-const TABS = ['Overview', 'Schedule', 'Events', 'Visual'] as const
+const TABS = ['Overview', 'Schedule', 'History', 'Visual'] as const // Events → History (2026-10-09)
 type Tab = (typeof TABS)[number]
 
 type ActionDef = { action: WoAction; label: string; needs?: 'reason' }
@@ -102,6 +102,8 @@ export function WoDetail() {
   const { id } = useParams<{ id: string }>()
   const woId = Number(id)
   const navigate = useNavigate()
+  // ?rev= comes from the traveler's QR (2026-10-09): the MO Rev that paper was printed at
+  const printedRev = useSearchParams()[0].get('rev')
   const [tab, setTab] = useState<Tab>('Overview')
 
   const [reasonModal, setReasonModal] = useState<{ action: ReasonModalAction } | null>(null)
@@ -220,7 +222,8 @@ export function WoDetail() {
       <div className="bg-white flex items-center gap-3 border-b border-chrome-100 px-6" style={{ minHeight: 56, flexShrink: 0 }}>
         <button onClick={() => navigate('/order?tab=wo')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#666', display: 'flex' }}><ArrowLeft size={18} /></button>
         <span style={{ fontFamily: 'monospace', fontSize: 17, fontWeight: 700, color: '#1A1A1A' }}>{wo.wo_code}</span>
-        <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#C8202A', background: '#FCEBEB', borderRadius: 4, padding: '1px 7px' }}>{wo.mark_prefix?.code}</span>
+        {/* MOs no longer carry a prefix since the MO type (2026-10-07) — no empty chip */}
+        {wo.mark_prefix?.code && <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#C8202A', background: '#FCEBEB', borderRadius: 4, padding: '1px 7px' }}>{wo.mark_prefix.code}</span>}
         <WoStatusPill status={wo.status} />
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
@@ -256,6 +259,12 @@ export function WoDetail() {
 
       {actionError && (
         <div style={{ background: '#FCEBEB', color: '#C8202A', fontSize: 13, padding: '8px 24px', flexShrink: 0 }}>{actionError}</div>
+      )}
+
+      {printedRev != null && Number(printedRev) < (wo.manufacturing_order.revision ?? 0) && (
+        <div className="flex items-center gap-2 border-b border-molten-100 bg-molten-50 text-molten-600" style={{ fontSize: 13, fontWeight: 600, padding: '9px 24px', flexShrink: 0 }}>
+          <AlertTriangle size={15} /> ใบงานที่สแกนนี้พิมพ์จาก MO Rev.{printedRev} — ตอนนี้ MO เป็น Rev.{wo.manufacturing_order.revision} แล้ว ข้อมูลบนกระดาษอาจไม่ตรง ให้ดูข้อมูลในหน้านี้และขอใบงานใหม่
+        </div>
       )}
 
       {/* Tabs */}
@@ -298,7 +307,7 @@ export function WoDetail() {
           />
         )}
         {tab === 'Schedule' && <ScheduleTab woId={woId} />}
-        {tab === 'Events' && <EventsTab woId={woId} marks={wo.marks} />}
+        {tab === 'History' && <HistoryTab woId={woId} marks={wo.marks} />}
         {tab === 'Visual' && (
           <WoVisualTab
             woId={woId}
@@ -701,39 +710,10 @@ function ScheduleTab({ woId }: { woId: number }) {
   )
 }
 
-const EVENT_LABEL: Record<string, string> = {
-  START: 'Started', PAUSE: 'Paused', RESUME: 'Resumed', DONE: 'Completed', CANCEL: 'Cancelled',
-  ACCEPT_VERSION: 'Accepted BOM version', HOLD: 'Put on hold', UNHOLD: 'Resumed from hold', MARK_REMOVED: 'Mark removed',
-  PROGRESS_UPDATE: 'Progress updated',
-}
-
-function EventsTab({ woId, marks }: { woId: number; marks: WoMark[] }) {
+function HistoryTab({ woId, marks }: { woId: number; marks: WoMark[] }) {
   const { data, isLoading } = useWoEvents(woId)
+  const markList = useMemo(() => marks.map(m => ({ id: m.id, mark: m.bom_assembly.assembly_mark })), [marks])
   if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
-  const rows = data ?? []
-  if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>No events yet.</div>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-      {rows.map((e, i) => {
-        const relatedMark = e.work_order_mark_id != null ? marks.find(m => m.id === e.work_order_mark_id) : undefined
-        return (
-          <div key={e.id} className="flex gap-3" style={{ position: 'relative', paddingBottom: 18 }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ width: 10, height: 10, borderRadius: 999, background: '#C8202A', marginTop: 4 }} />
-              {i < rows.length - 1 && <div style={{ width: 2, flex: 1, background: '#E0E0E0', marginTop: 2 }} />}
-            </div>
-            <div style={{ paddingBottom: 4 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1A1A' }}>
-                {EVENT_LABEL[e.event_type] ?? e.event_type}
-                {relatedMark && <span style={{ fontWeight: 500, color: '#888' }}> · {relatedMark.bom_assembly.assembly_mark}</span>}
-              </div>
-              {!!e.changes?.length && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{formatProgressChanges(e.changes)}</div>}
-              {e.notes && <div style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{e.notes}</div>}
-              <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtDateTime(e.recorded_at)} · {e.recorded_by}</div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  )
+  if (!data?.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>ยังไม่มีประวัติ</div>
+  return <WoHistoryTimeline events={data} marks={markList} />
 }

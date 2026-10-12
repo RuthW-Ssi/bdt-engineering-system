@@ -4,7 +4,7 @@ import { Search, Layers, AlertCircle, Plus, Trash2 } from 'lucide-react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { apiClient } from '../api/client'
-import { useMarkPrefixes } from '../hooks/useMarkPrefixes'
+import { useMarkPrefixMaster } from '../hooks/useMarkPrefixes'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { PaginationBar } from '../components/PaginationBar'
 import { usePermission } from '../hooks/usePermission'
@@ -96,7 +96,7 @@ export function RoutingList() {
   const total = paged?.total ?? 0
   const totalPages = paged?.totalPages ?? 1
 
-  const { data: markPrefixes = [] } = useMarkPrefixes()
+  const { data: markPrefixes = [] } = useMarkPrefixMaster()
   const prefixMap = new Map(markPrefixes.map(p => [p.code, p.label]))
 
   const confirm = useConfirm()

@@ -11,6 +11,7 @@ import { ActivityBuilderModal } from './ActivityBuilder'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { usePermission } from '../hooks/usePermission'
 import type { ActivityDto } from '../api/activities'
+import { scopeWorkcenters } from '../lib/workcenterScope'
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -223,24 +224,10 @@ export default function OperationBuilder() {
     staleTime: 10 * 60 * 1000,
   })
 
-  // Work Station options scoped to the selected Operation Type — there's no
-  // real op_type↔workcenter many-to-many in the schema, only a single
-  // default_wc per type, so this groups by that default's category name
-  // (e.g. "Cutting") as a heuristic. Some op types' default_wc is a
-  // now-inactive workcenter (a separate data-hygiene issue) — when that
-  // category has zero ACTIVE matches, fall back to the full list rather
-  // than leaving the dropdown with nothing pickable.
+  // Work Station options scoped to the selected Operation Type — see scopeWorkcenters().
   const selectedOpType = opTypes.find(t => t.id === Number(form.op_type_id))
-  const wcCategory = selectedOpType?.default_wc?.name ?? null
-  const categoryWorkcenters = wcCategory ? workcenters.filter(wc => wc.name === wcCategory) : []
-  const filteredWorkcenters = categoryWorkcenters.length > 0 ? categoryWorkcenters : workcenters
-  // Keep whatever's already selected visible even if it falls outside the
-  // filter (e.g. picked before switching Operation Type) — otherwise the
-  // <select> would silently show blank while form state still holds it.
-  const selectedWorkcenter = workcenters.find(wc => wc.id === Number(form.workcenter_id))
-  const workcenterOptions = selectedWorkcenter && !filteredWorkcenters.some(wc => wc.id === selectedWorkcenter.id)
-    ? [selectedWorkcenter, ...filteredWorkcenters]
-    : filteredWorkcenters
+  const { category: wcCategory, options: workcenterOptions } =
+    scopeWorkcenters(selectedOpType?.default_wc_id, workcenters, form.workcenter_id ? Number(form.workcenter_id) : null)
 
   const buildPayload = (overrides: Record<string, unknown> = {}) => ({
     op_code:      form.op_code.trim().toUpperCase(),
@@ -406,10 +393,10 @@ export default function OperationBuilder() {
               <div style={label}>Operation Type</div>
               <select value={form.op_type_id} onChange={e => {
                 const ot = opTypes.find(t => t.id === Number(e.target.value))
-                const wc = ot?.default_wc
+                const defaultId = scopeWorkcenters(ot?.default_wc_id, workcenters, null).defaultId
                 patch({
                   op_type_id: ot?.id ?? '',
-                  ...(wc && !form.workcenter_id ? { workcenter_id: wc.id } : {}),
+                  ...(defaultId && !form.workcenter_id ? { workcenter_id: defaultId } : {}),
                 })
               }} style={selectStyle}>
                 <option value="">— Select type —</option>
@@ -429,7 +416,7 @@ export default function OperationBuilder() {
               <div>
                 <div style={label}>Work Station *</div>
                 <select value={form.workcenter_id} onChange={e => patch({ workcenter_id: e.target.value ? Number(e.target.value) : '' })} style={{ ...selectStyle, color: form.workcenter_id ? '#1F1F1F' : '#9E9E9E' }}>
-                  <option value="">{wcCategory && categoryWorkcenters.length > 0 ? `— Select (${wcCategory}) —` : '— Select —'}</option>
+                  <option value="">{wcCategory ? `— Select (${wcCategory}) —` : '— Select —'}</option>
                   {workcenterOptions.map(wc => <option key={wc.id} value={wc.id}>{wc.code} · {wc.name}</option>)}
                 </select>
                 {(() => {

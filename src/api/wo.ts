@@ -18,6 +18,7 @@ export type WoTimeliness = 'ON_PLAN' | 'DELAYED'
 export type WoEventType =
   | 'START' | 'PAUSE' | 'RESUME' | 'DONE' | 'CANCEL' | 'ACCEPT_VERSION' | 'HOLD' | 'UNHOLD' | 'MARK_REMOVED'
   | 'PROGRESS_UPDATE' // per-mark progress save / any qty change (2026-10-05)
+  | 'CREATED' | 'EDIT' // WO created · actual dates / consume / part withdrawals edited (2026-10-08)
 
 // The "simple" transitions — a bare {reason?/notes?} body, POSTed to
 // `/wo/:id/<action>`. done/cancel/remove-mark/accept-new-version each have
@@ -212,7 +213,7 @@ export interface WoDetail {
   updated_at: string
   created_by: string
   updated_by: string | null
-  manufacturing_order: { id: number; mo_code: string; status: string; primary_mark_prefix_code: string; primary_mark_prefix: MarkPrefix }
+  manufacturing_order: { id: number; mo_code: string; revision?: number; status: string; primary_mark_prefix_code: string; primary_mark_prefix: MarkPrefix }
   mrp_workcenter: { id: number; code: string; name: string; machine: string | null }
   mark_prefix: MarkPrefix
   marks: WoMark[]

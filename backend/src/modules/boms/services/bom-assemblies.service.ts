@@ -49,7 +49,8 @@ export class BomAssembliesService {
     const codes = prefixes.map((p) => p.code).sort((a, b) => b.length - a.length)
 
     const assemblies = await this.prisma.bom_assembly.findMany({
-      where: { status: 'ACTIVE' },
+      // Pre-shop uploads (source PRE_SHOP) belong to their own MO only — never offered in the picker.
+      where: { status: 'ACTIVE', dispatch: { source: { not: 'PRE_SHOP' } } },
       include: {
         product: { select: { mark_prefix: true } },
         dispatch: { include: { project: true, zone: true, sub_zone: true } },

@@ -86,7 +86,8 @@ describe('BomAssembliesService.byMarkPrefix', () => {
     const result = await svc.byMarkPrefix({})
 
     expect(prisma.bom_assembly.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { status: 'ACTIVE' } }),
+      // ACTIVE only, and never a pre-shop upload's assemblies (2026-10-07)
+      expect.objectContaining({ where: { status: 'ACTIVE', dispatch: { source: { not: 'PRE_SHOP' } } } }),
     )
     expect(result.total).toBe(1)
     expect(result.groups[0].items.map((i) => i.id)).toEqual([1])
