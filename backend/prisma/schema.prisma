@@ -43,6 +43,7 @@ model res_users {
   boms_created product_bom[] @relation("bom_create")
   boms_written product_bom[] @relation("bom_write")
   drawings     drawing[]
+  documents    document[]
 
   // Sprint 4: Routing audit
   workcenters_created mrp_workcenter[]         @relation("wc_create")
@@ -591,6 +592,28 @@ model drawing {
   aps_urn                String? @db.VarChar(200)
   aps_translation_status String? @db.VarChar(20) // null | processing | complete | failed
   aps_translation_error  String?
+}
+
+// Document Center (2026-10-05, wiki features/document-center.md): admin-managed
+// PDF library (user manuals first). One row per document — a new version
+// replaces file_key in place, no history kept. `audience` decides who sees it:
+// employee | customer | all.
+model document {
+  id             Int       @id @default(autoincrement())
+  title          String    @db.VarChar(200)
+  category       String    @default("user-manual") @db.VarChar(50)
+  audience       String    @default("employee") @db.VarChar(20)
+  version        String    @db.VarChar(30)
+  description    String?
+  file_key       String    @db.VarChar(500)
+  file_name      String    @db.VarChar(255)
+  file_size      Int
+  uploaded_by_id Int
+  uploaded_by    res_users @relation(fields: [uploaded_by_id], references: [id])
+  create_date    DateTime  @default(now()) @db.Timestamptz
+  write_date     DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  @@index([category])
 }
 
 // ═══════════════════════════════════════════════════════════════

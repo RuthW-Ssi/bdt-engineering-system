@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
-  ClipboardList, Scissors, Cuboid, UserCog, FileText, CalendarClock,
+  ClipboardList, Scissors, Cuboid, UserCog, FileText, CalendarClock, LifeBuoy,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { canViewAny, customerCanOpen, isCustomer } from '../../lib/moduleAccess'
@@ -71,6 +71,12 @@ export const SECTIONS: { title: string; items: NavItem[] }[] = [
       { label: 'Order', icon: <ClipboardList size={18} />, path: '/order', viewModules: ['orders'] },
       { label: 'Production Schedule', icon: <CalendarClock size={18} />, path: '/production-schedule', viewModules: ['orders'] },
       { label: 'Machine & Resources', icon: <Cog size={18} />, path: '/resources', viewModules: ['machines'] },
+    ],
+  },
+  {
+    title: 'Help',
+    items: [
+      { label: 'Documents', icon: <LifeBuoy size={18} />, path: '/documents' },
     ],
   },
   // Not-yet-developed features (still `<Placeholder>` routes) — grouped

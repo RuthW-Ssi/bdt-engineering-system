@@ -40,6 +40,8 @@ import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
 import { BimViewer } from './pages/BimViewer'
 import { DrawingList } from './pages/DrawingList'
 import { UsersPage } from './pages/UsersPage'
+import { DocumentCenter } from './pages/DocumentCenter'
+import { MobileDocumentList } from './pages/mobile/MobileDocumentList'
 import { MobileViewportGate } from './components/mobile/MobileViewportGate'
 import { MobileNavShell } from './components/mobile/MobileNavShell'
 import { DesktopViewportGate } from './components/mobile/DesktopViewportGate'
@@ -93,6 +95,7 @@ export default function App() {
               <Route path="/m/projects/:code/zones/:zoneId" element={<MobileAssemblyList />} />
               <Route path="/m/projects/:code/zones/:zoneId/assemblies/:assemblyId" element={<MobileProgressForm />} />
               <Route path="/m/projects/:code/history" element={<MobileProgressHistory />} />
+              <Route path="/m/documents" element={<MobileDocumentList />} />
             </Route>
           </Route>
           <Route
@@ -125,6 +128,7 @@ export default function App() {
             <Route path="/admin/workcenters" element={<ProtectedRoute viewModules={['routings']}><WorkcenterMaster /></ProtectedRoute>} />
             <Route path="/admin/binding-rules" element={<ProtectedRoute viewModules={['routings']}><BindingRuleManager /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute roles={['admin']}><UsersPage /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute><DocumentCenter /></ProtectedRoute>} />
 
             {/* New canonical routes */}
             <Route path="/operation-library" element={<ProtectedRoute viewModules={['routings']}><OperationLibraryList /></ProtectedRoute>} />
