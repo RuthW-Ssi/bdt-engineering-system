@@ -40,6 +40,7 @@ import { CuttingPlanModule } from './modules/cutting-plan/cutting-plan.module'
 import { BimModule } from './modules/bim/bim.module'
 // Sprint 27
 import { UsersModule } from './modules/users/users.module'
+import { DocumentsModule } from './modules/documents/documents.module'
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { UsersModule } from './modules/users/users.module'
     BimModule,
     // Sprint 27
     UsersModule,
+    DocumentsModule,
   ],
   // Customer users: default-deny + project scoping + weight/date stripping
   providers: [{ provide: APP_INTERCEPTOR, useClass: CustomerScopeInterceptor }],
