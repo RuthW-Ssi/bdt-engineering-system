@@ -48,7 +48,7 @@ export class CustomerScopeInterceptor implements NestInterceptor {
 
     if (opts.projectList) {
       req.query.customer_id = String(user.partner_id)
-    } else {
+    } else if (!opts.global) {
       const owners = await this.resolveProjectOwners(req, opts)
       if (owners.length === 0) throw new ForbiddenException('A project scope is required')
       if (owners.some((o) => o !== user.partner_id)) throw new NotFoundException('Not found')

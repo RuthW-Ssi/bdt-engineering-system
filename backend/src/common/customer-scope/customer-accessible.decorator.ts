@@ -11,6 +11,8 @@ export interface CustomerAccessOptions {
   projectList?: boolean
   // No project scope and any HTTP method (auth endpoints: me, change-password, logout)
   selfService?: boolean
+  // GET only, but not project-owned data (Document Center) — the service filters rows itself
+  global?: boolean
 }
 
 // Allowlists a route for customer users (default-deny otherwise, see CustomerScopeInterceptor).
