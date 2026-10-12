@@ -1683,3 +1683,25 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
     expect(data.map((r: any) => r.cut).sort()).toEqual([20, 90])
   })
 })
+
+// Plate weight bug (memory project_bom_plate_weight_bug, fixed 2026-10-06):
+// for PL profiles the NC "weight" line is kg/m², not a per-piece weight.
+describe('BomUploadService.buildDedupedParts — plate weight', () => {
+  const svc = new BomUploadService({} as any, {} as any, {} as any, {} as any, {} as any)
+  const build = (parts: any[], nc: Record<string, any>) =>
+    (svc as any).buildDedupedParts(parts, new Map(Object.entries(nc)))
+  const ncOf = (o: Partial<Record<string, unknown>>) => ({ partMark: 'X', grade: 'HY370', qty: 1, profileBase: 'PL10', lengthMm: 358.77, weightKg: 78.5, pieceWeightKg: 7.03, ...o })
+
+  it('PL part keeps the Part List per-piece weight, not the NC kg/m²', () => {
+    const [p] = build([{ part_mark: 'A-p1', profile: 'PL10', qty: 1, weight_kg: 7.02 }], { 'A-p1': ncOf({}) })
+    expect(p.weight_kg).toBe(7.02)
+  })
+  it('PL part without a Part List weight uses the NC contour piece weight', () => {
+    const [p] = build([{ part_mark: 'A-p1', profile: 'PL10', qty: 1, weight_kg: null }], { 'A-p1': ncOf({}) })
+    expect(p.weight_kg).toBe(7.03)
+  })
+  it('non-PL part is unchanged: NC weight wins', () => {
+    const [p] = build([{ part_mark: 'A-r1', profile: 'PIPE113.5X2.4', qty: 1, weight_kg: 22 }], { 'A-r1': ncOf({ profileBase: 'PIPE113.5X2.4', weightKg: 21.94, pieceWeightKg: 21.94 }) })
+    expect(p.weight_kg).toBe(21.94)
+  })
+})

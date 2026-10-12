@@ -2,6 +2,7 @@ import { Type } from 'class-transformer'
 import {
   ArrayMinSize,
   IsArray,
+  IsIn,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -16,6 +17,12 @@ import { MoAssemblyLineInputDto } from './create-mo.dto'
  * remaining, P13); changing routing_template_id re-snapshots operations.
  */
 export class UpdateMoDto {
+  // 2026-10-08: the Edit page changes only MO type, routing and plan —
+  // assemblies come in through POST /mo/:id/preshop (the Upload button).
+  @IsOptional()
+  @IsIn(['FULL_SHOP', 'PRE_SHOP'])
+  shop_type?: 'FULL_SHOP' | 'PRE_SHOP'
+
   @IsOptional()
   @IsInt()
   @IsPositive()

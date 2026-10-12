@@ -63,6 +63,15 @@ export function OrderHub() {
             <Plus size={14} />New MO
           </button>
         )}
+        {tab === 'mo' && canCreateMo && (
+          <button
+            onClick={() => navigate('/mo/new-part')}
+            className="flex items-center gap-1.5 rounded-md"
+            style={{ height: 36, padding: '0 16px', marginLeft: 8, fontSize: 13, fontWeight: 600, background: '#fff', color: '#C8202A', border: '1px solid #C8202A', cursor: 'pointer' }}
+          >
+            <Plus size={14} />New MO Part
+          </button>
+        )}
       </div>
 
       {/* Body */}

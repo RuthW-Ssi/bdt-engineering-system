@@ -67,7 +67,8 @@ export function AssemblyPicker({
   onSetQty,
   filter,
 }: {
-  markPrefix: string
+  // null = every prefix (MO type replaced the prefix choice, 2026-10-07)
+  markPrefix: string | null
   selected: Record<number, { item: AssemblyPickerItem; qty: number }>
   onSetQty: (item: AssemblyPickerItem, qty: number) => void
   filter: AssemblyFilter

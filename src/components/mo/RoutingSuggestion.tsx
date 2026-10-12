@@ -54,7 +54,7 @@ export function RoutingSuggestion({
   )
 }
 
-function RoutingCard({
+export function RoutingCard({
   t, selected, onClick, onDetail,
 }: {
   t: RoutingTemplateLite
