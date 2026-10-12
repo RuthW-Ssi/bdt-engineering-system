@@ -12,6 +12,8 @@ interface Props {
 }
 
 const inputStyle = { height: 36, padding: '0 10px', fontSize: 13, borderRadius: 6, border: '1px solid #E0E0E0', width: '100%' }
+// Matches the backend cap (Cloud Run's 32 MiB request limit, 2026-10-12)
+const MAX_MB = 30
 const labelStyle = { fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 4, display: 'block' }
 
 export function DocumentFormModal({ doc, saving, onSave, onClose }: Props) {
@@ -26,7 +28,8 @@ export function DocumentFormModal({ doc, saving, onSave, onClose }: Props) {
   const set = (k: keyof DocumentFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setFields(f => ({ ...f, [k]: e.target.value }))
 
-  const canSave = fields.title.trim() && fields.version.trim() && (doc || file) && !saving
+  const tooBig = !!file && file.size > MAX_MB * 1024 * 1024
+  const canSave = fields.title.trim() && fields.version.trim() && (doc || file) && !tooBig && !saving
 
   return (
     <div
@@ -69,6 +72,8 @@ export function DocumentFormModal({ doc, saving, onSave, onClose }: Props) {
           <label style={labelStyle}>{doc ? 'Replace PDF with a new version (optional)' : 'PDF file'}</label>
           <input type="file" accept="application/pdf,.pdf" onChange={e => setFile(e.target.files?.[0] ?? null)} style={{ fontSize: 13 }} />
           {doc && !file && <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 4 }}>Current file: {doc.file_name}</div>}
+          {tooBig && <div style={{ fontSize: 12, color: '#C8202A', marginTop: 4 }}>ไฟล์ใหญ่เกิน {MAX_MB} MB — ลดขนาด PDF ก่อนอัปโหลด</div>}
+          {!tooBig && <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 4 }}>PDF ไม่เกิน {MAX_MB} MB</div>}
           {doc && file && <div style={{ fontSize: 12, color: '#854F0B', marginTop: 4 }}>The current file will be replaced — remember to update the version.</div>}
         </div>
 

@@ -23,6 +23,8 @@ const SELECT = {
   write_date: true,
   uploaded_by: { select: { id: true, name: true } },
 } as const
+// Staff names are internal — customers get the list without uploaded_by (security review L1, 2026-10-12)
+const { uploaded_by: _staffOnly, ...CUSTOMER_SELECT } = SELECT
 
 // Which audiences a viewer may see — customers never see employee-only docs and vice
 // versa; admin sees everything (they manage the customer manuals too).
@@ -44,10 +46,11 @@ export class DocumentsService {
   ) {}
 
   async list(userId: number) {
+    const viewer = await this.viewer(userId)
     return this.prisma.document.findMany({
-      where: { audience: { in: await this.audiencesFor(userId) } },
+      where: { audience: { in: visibleAudiences(viewer) } },
       orderBy: [{ category: 'asc' }, { title: 'asc' }],
-      select: SELECT,
+      select: viewer?.user_type === 'customer' ? CUSTOMER_SELECT : SELECT,
     })
   }
 
@@ -110,10 +113,12 @@ export class DocumentsService {
     return { id }
   }
 
+  private viewer(userId: number) {
+    return this.prisma.res_users.findUnique({ where: { id: userId }, select: { user_type: true, role: true } })
+  }
+
   private async audiencesFor(userId: number): Promise<DocumentAudience[]> {
-    return visibleAudiences(
-      await this.prisma.res_users.findUnique({ where: { id: userId }, select: { user_type: true, role: true } }),
-    )
+    return visibleAudiences(await this.viewer(userId))
   }
 
   // Checks the bytes, not the client-sent MIME type — only real PDFs get stored.

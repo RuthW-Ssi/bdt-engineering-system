@@ -1,4 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
+import { GUARDS_METADATA } from '@nestjs/common/constants'
+import { AdminGuard } from '../../common/guards/admin.guard'
+import { DocumentsController } from './documents.controller'
 import { DocumentsService, visibleAudiences } from './documents.service'
 
 const pdf = (name = 'manual.pdf') => ({ originalname: name, size: 9, buffer: Buffer.from('%PDF-1.7\n') })
@@ -81,5 +84,61 @@ describe('DocumentsService', () => {
     await svc.update(1, { title: 'New' }, undefined, 1)
     expect(prisma.document.update.mock.calls[0][0].data.file_key).toBeUndefined()
     expect(storage.delete).not.toHaveBeenCalled()
+  })
+
+  // Security review L1 (2026-10-12): staff names are internal — customers get no uploaded_by
+  it('list hides who uploaded from customers', async () => {
+    const { svc, prisma } = setup('customer')
+    await svc.list(5)
+    expect(prisma.document.findMany.mock.calls[0][0].select.uploaded_by).toBeUndefined()
+  })
+
+  it('list shows who uploaded to employees', async () => {
+    const { svc, prisma } = setup('employee')
+    await svc.list(5)
+    expect(prisma.document.findMany.mock.calls[0][0].select.uploaded_by).toBeDefined()
+  })
+
+  it('remove deletes the row and its stored file', async () => {
+    const { svc, prisma, storage } = setup()
+    prisma.document.findUnique.mockResolvedValue({ id: 1, file_key: 'documents/a.pdf' })
+    await expect(svc.remove(1)).resolves.toEqual({ id: 1 })
+    expect(prisma.document.delete).toHaveBeenCalledWith({ where: { id: 1 } })
+    expect(storage.delete).toHaveBeenCalledWith('documents/a.pdf')
+  })
+
+  it('remove of an unknown id is a 404 and deletes nothing', async () => {
+    const { svc, prisma, storage } = setup()
+    prisma.document.findUnique.mockResolvedValue(null)
+    await expect(svc.remove(9)).rejects.toBeInstanceOf(NotFoundException)
+    expect(prisma.document.delete).not.toHaveBeenCalled()
+    expect(storage.delete).not.toHaveBeenCalled()
+  })
+
+  it('create without a file is a 400', async () => {
+    const { svc, storage } = setup()
+    await expect(svc.create({ title: 'T', version: 'v1' } as never, undefined, 1)).rejects.toBeInstanceOf(BadRequestException)
+    expect(storage.putObject).not.toHaveBeenCalled()
+  })
+
+  it('update with a non-PDF replacement is a 400 and keeps the row and old file', async () => {
+    const { svc, prisma, storage } = setup()
+    prisma.document.findUnique.mockResolvedValue({ id: 1, file_key: 'documents/old.pdf' })
+    await expect(svc.update(1, {}, { originalname: 'x.pdf', size: 3, buffer: Buffer.from('abc') }, 1)).rejects.toBeInstanceOf(BadRequestException)
+    expect(prisma.document.update).not.toHaveBeenCalled()
+    expect(storage.delete).not.toHaveBeenCalled()
+  })
+})
+
+// QA review M2 (2026-10-12): writes stay admin-only — dropping a guard must fail a test
+describe('DocumentsController guards', () => {
+  it.each(['create', 'update', 'remove'] as const)('%s requires AdminGuard', (method) => {
+    const guards = Reflect.getMetadata(GUARDS_METADATA, DocumentsController.prototype[method]) ?? []
+    expect(guards).toContain(AdminGuard)
+  })
+
+  it.each(['list', 'file'] as const)('%s is open to any signed-in user', (method) => {
+    const guards = Reflect.getMetadata(GUARDS_METADATA, DocumentsController.prototype[method]) ?? []
+    expect(guards).not.toContain(AdminGuard)
   })
 })

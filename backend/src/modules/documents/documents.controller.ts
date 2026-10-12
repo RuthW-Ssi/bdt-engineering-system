@@ -13,7 +13,9 @@ import type { JwtPayload } from '../auth/auth.service'
 import { DocumentsService, UploadedPdf } from './documents.service'
 import { CreateDocumentDto, UpdateDocumentDto } from './dto/document.dto'
 
-const pdfUpload = FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
+// 30 MB: Cloud Run rejects request bodies over 32 MiB before they reach Nest (QA review M1, 2026-10-12).
+export const MAX_DOCUMENT_MB = 30
+const pdfUpload = FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: MAX_DOCUMENT_MB * 1024 * 1024 } })
 
 @ApiTags('documents')
 @ApiBearerAuth()
