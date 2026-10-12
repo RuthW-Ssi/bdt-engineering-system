@@ -24,6 +24,8 @@ const CUSTOMER_PATHS = [
   /^\/projects$/, /^\/projects\/[^/]+\/progress$/, /^\/zones$/,
   // Mobile: read-only project → zone → assembly list (no progress form, no history)
   /^\/m\/projects$/, /^\/m\/projects\/[^/]+\/zones$/, /^\/m\/projects\/[^/]+\/zones\/\d+$/,
+  // Document Center — the backend only lists customer/all-audience documents to them
+  /^\/documents$/, /^\/m\/documents$/,
 ]
 export const CUSTOMER_HOME = '/projects'
 export const CUSTOMER_MOBILE_HOME = '/m/projects'

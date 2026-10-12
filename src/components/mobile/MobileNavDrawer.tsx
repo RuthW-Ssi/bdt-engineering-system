@@ -12,6 +12,7 @@ import { useIsCustomer } from '../../hooks/useIsCustomer'
 // with the working items or silently omitted.
 const MOBILE_READY: Record<string, string> = {
   '/projects': '/m/projects',
+  '/documents': '/m/documents',
 }
 
 // A child-menu item (Routings' sub-items) shown in the unavailable list
