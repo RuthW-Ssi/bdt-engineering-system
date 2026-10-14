@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ProgressChips, ProgressTable } from '../components/mo/MarkProgress'
 import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer, Upload, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useUpdateMoActualDates, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
@@ -285,7 +286,7 @@ export function MoDetail() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px', background: '#F7F7F7' }}>
         {tab === 'Overview' && <OverviewTab mo={mo} canWrite={canWrite} onEditActualDates={() => openDatesModal('edit')} />}
         {tab === 'Work Orders' && <WorkOrdersTab moId={moId} operations={(mo.routing_template?.operations ?? [])} />}
-        {tab === 'Assemblies' && <AssembliesTab moId={moId} preshop={mo.shop_type === 'PRE_SHOP'} editable={canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'} />}
+        {tab === 'Assemblies' && <AssembliesTab moId={moId} editable={canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'} />}
         {tab === 'Parts' && <PartsTab moId={moId} />}
         {tab === 'History' && <HistoryTab moId={moId} />}
       </div>
@@ -639,7 +640,7 @@ function OverviewTab({ mo, canWrite, onEditActualDates }: { mo: import('../api/m
 
 // Each assembly expands to its parts per set (2026-10-08: a pre-shop MO must
 // show which parts each assembly uses — opened by default there).
-function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boolean; editable: boolean }) {
+function AssembliesTab({ moId, editable }: { moId: number; editable: boolean }) {
   const { data, isLoading } = useMoAssemblies(moId)
   const qc = useQueryClient()
   const [toggled, setToggled] = useState<Set<number>>(new Set())
@@ -663,7 +664,8 @@ function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boo
   if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
   const rows = data ?? []
   if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>No assemblies.</div>
-  const isOpen = (id: number) => preshop !== toggled.has(id)
+  // Every row starts collapsed, pre-shop too (user 2026-10-14: "เปิดมาและยุบไว้ยังไม่ต้องขยายก่อน").
+  const isOpen = (id: number) => toggled.has(id)
   const toggle = (id: number) => setToggled(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
   const grid = '28px 50px 1.3fr 1fr 90px 90px 1fr'
   return (
@@ -675,7 +677,7 @@ function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boo
         <div key={r.id} style={{ borderTop: '1px solid #EEE' }}>
           <div style={{ display: 'grid', gridTemplateColumns: grid, fontSize: 13, alignItems: 'center' }}>
             <div style={{ paddingLeft: 10 }}>
-              {(r.parts.length > 0 || (editable && r.preshop)) && (
+              {(r.parts.length > 0 || r.progress.length > 0 || (editable && r.preshop)) && (
                 <button type="button" onClick={() => toggle(r.id)} aria-label={`ดู part ของ ${r.assembly_mark}`} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', padding: 0, display: 'flex' }}>
                   {isOpen(r.id) ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 </button>
@@ -687,7 +689,7 @@ function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boo
               <span className={r.preshop ? 'bg-molten-50 text-molten-600' : 'bg-steel-50 text-steel-800'} style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999 }}>{r.source_label}</span>
               <span style={{ marginLeft: 8, fontSize: 11, color: '#999' }}>{r.parts.length ? `${r.parts.length} part` : 'ยังไม่มี part'}</span>
               {editable && r.preshop && editing?.lineId !== r.id && (
-                <button type="button" onClick={() => { setEditing({ lineId: r.id, parts: r.parts.map(p => ({ part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '', length_mm: p.length_mm ?? 0, qty: p.qty_per_set, unit_weight_kg: p.weight_kg ?? 0 })) }); setToggled(s => { const n = new Set(s); if (preshop) n.delete(r.id); else n.add(r.id); return n }) }}
+                <button type="button" onClick={() => { setEditing({ lineId: r.id, parts: r.parts.map(p => ({ part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '', length_mm: p.length_mm ?? 0, qty: p.qty_per_set, unit_weight_kg: p.weight_kg ?? 0 })) }); setToggled(s => new Set(s).add(r.id)) }}
                   className="inline-flex items-center gap-1" style={{ marginLeft: 10, height: 24, padding: '0 8px', fontSize: 11.5, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}>
                   <Pencil size={11} /> Edit parts
                 </button>
@@ -702,7 +704,8 @@ function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boo
             <div style={{ padding: '10px 12px', color: '#555' }}>{r.total}</div>
             <div style={{ padding: '10px 12px', fontSize: 11, color: '#666', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Info size={12} style={{ color: '#0C447C', flexShrink: 0 }} />
-              {r.allocation_breakdown.map(b => `${b.mo_code} (${b.qty})`).join(' · ') || '—'}
+              {/* progress per operation (user feedback 2026-10-14) */}
+              <ProgressChips ops={r.progress} />
             </div>
           </div>
           {editing?.lineId === r.id && (
@@ -749,6 +752,12 @@ function AssembliesTab({ moId, preshop, editable }: { moId: number; preshop: boo
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+          {r.progress.length > 0 && isOpen(r.id) && (
+            <div style={{ padding: '0 16px 12px 88px' }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: '#888', margin: '4px 0 6px' }}>ความคืบหน้าการผลิต</div>
+              <ProgressTable ops={r.progress} />
             </div>
           )}
         </div>
@@ -1203,9 +1212,12 @@ function PartsTab({ moId }: { moId: number }) {
             <div style={{ padding: '10px 14px', fontWeight: 500, color: '#333', textAlign: 'right' }}>{r.total_weight_kg != null ? r.total_weight_kg.toFixed(2) : '—'}</div>
             <div style={{ padding: '10px 14px', fontSize: 11, color: '#666', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Info size={12} style={{ color: '#0C447C', flexShrink: 0 }} />
-              {r.mo_breakdown.length
-                ? r.mo_breakdown.map(b => `${b.mo_code} (${b.qty})`).join(' · ')
-                : '—'}
+              {/* this MO's WOs, not other MOs (user feedback 2026-10-14) */}
+              <span style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 8px' }}>
+                {r.wo_breakdown.length ? r.wo_breakdown.map(b => (
+                  <Link key={b.wo_id} to={`/order/wo/${b.wo_id}`} style={{ color: '#0C447C', textDecoration: 'none', whiteSpace: 'nowrap' }}>{b.wo_code} ({b.qty})</Link>
+                )) : '—'}
+              </span>
             </div>
           </div>
         ))}

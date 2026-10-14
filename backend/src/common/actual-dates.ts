@@ -28,6 +28,18 @@ export function parseActualDates(
   return { actual_start: start, actual_finish: finish }
 }
 
+/** A WO mark's finish date (2026-10-14) — same rules as above, one field. */
+export function parseMarkFinish(actual_finish: string | null | undefined, now = new Date()): Date {
+  const finish = actual_finish ? new Date(actual_finish) : null
+  if (!finish || isNaN(finish.getTime())) {
+    throw new BadRequestException('Finish Date is required when QC Passed equals Quantity')
+  }
+  if (finish.getTime() > now.getTime() + CLOCK_SKEW_MS) {
+    throw new BadRequestException('Finish Date must not be in the future')
+  }
+  return finish
+}
+
 /** mail_message tracking rows for just the fields whose value changed (Dates as ISO strings). */
 export function actualsTracking(old: Record<string, unknown>, next: Record<string, unknown>) {
   const norm = (v: unknown) => (v instanceof Date ? v.toISOString() : (v ?? null))
