@@ -1,5 +1,5 @@
 import type { WoEvent } from '../api/wo'
-import { isProgressNoise, PROGRESS_FIELD_LABEL } from '../components/wo/progressChanges'
+import { isProgressNoise, PROGRESS_FIELD_LABEL, showChangeValue } from '../components/wo/progressChanges'
 import { historyView, type MarkGroup } from './moHistory'
 
 // WO Events as History (2026-10-09, user: "events ของ wo … เปลี่ยนเป็น history …
@@ -15,14 +15,12 @@ const STATUS_TITLE: Record<string, string> = {
   HOLD: 'พักไว้ (Hold)', UNHOLD: 'ปลด Hold', ACCEPT_VERSION: 'รับ BOM version ใหม่',
 }
 
-const show = (v: number | null) => (v == null ? '—' : String(v))
-
 export function woHistoryView(e: WoEvent, marks: { id: number; mark: string }[]): WoHistoryView {
   const markOf = e.work_order_mark_id != null ? marks.find(m => m.id === e.work_order_mark_id)?.mark : undefined
   const notes = e.notes?.trim() ?? ''
 
   if (e.event_type === 'PROGRESS_UPDATE') {
-    const values = (e.changes ?? []).filter(c => !isProgressNoise(c)).map(c => ({ field: PROGRESS_FIELD_LABEL[c.field] ?? c.field, from: show(c.old), to: show(c.new) }))
+    const values = (e.changes ?? []).filter(c => !isProgressNoise(c)).map(c => ({ field: PROGRESS_FIELD_LABEL[c.field] ?? c.field, from: showChangeValue(c.field, c.old), to: showChangeValue(c.field, c.new) }))
     return { kind: 'progress', title: 'อัปเดตความคืบหน้า', groups: values.length ? [{ mark: markOf ?? 'mark', isNew: false, values, parts: [] }] : [], lines: notes ? [notes] : [], warnings: [] }
   }
   if (e.event_type === 'CREATED') return { kind: 'create', title: notes || 'สร้าง WO', groups: [], lines: [], warnings: [] }

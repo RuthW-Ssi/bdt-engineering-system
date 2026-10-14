@@ -18,6 +18,12 @@ describe('woHistoryView', () => {
     ] })
   })
 
+  it('a mark finish date reads as a date in the progress card (2026-10-14)', () => {
+    const v = woHistoryView(ev('PROGRESS_UPDATE', { work_order_mark_id: 5, changes: [{ field: 'actual_finish', old: null, new: '2026-10-14T12:00:00.000Z' }] }), [{ id: 5, mark: 'BUH1-3' }])
+    expect(v.groups[0].values[0]).toMatchObject({ field: 'Finish Date', from: '—' })
+    expect(v.groups[0].values[0].to).toMatch(/^14\/10\/2026 \d\d:\d\d$/)
+  })
+
   it('an edit that followed the MO is grouped by mark like MO History', () => {
     const v = woHistoryView(ev('EDIT', { notes: 'อัปเดตตามการแก้ที่ MO: BUH1-3 L 10550 → 10600 · BUH1-3 C-wx58 L 10550 → 10600' }), [])
     expect(v.kind).toBe('mo')

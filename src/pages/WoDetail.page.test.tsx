@@ -64,6 +64,7 @@ function makeMark(overrides: Partial<WoMark> = {}): WoMark {
     removed_at: null,
     removed_by: null,
     removed_reason: null,
+    actual_finish: '2026-10-01T00:00:00Z', // a finished mark — Complete needs it (2026-10-14)
     created_at: '2026-10-01T00:00:00Z',
     created_by: 'tester',
     bom_version_status: null,

@@ -29,6 +29,7 @@ function makeMark(overrides: Partial<WoMark> = {}): WoMark {
     removed_at: null,
     removed_by: null,
     removed_reason: null,
+    actual_finish: null,
     created_at: '2026-01-01T00:00:00Z',
     created_by: 'tester',
     bom_version_status: null,
@@ -253,6 +254,120 @@ async function openEditor(index = 0) {
   return screen.findAllByRole('spinbutton')
 }
 
+// Pieces move Not Started → In Progress → Done (user feedback 2026-10-14):
+// typing In Progress takes from Not Started; Done can only take from In Progress.
+describe('WoMarksTable — Not Started → In Progress → Done flow', () => {
+  it('Not Started is read-only and shows Quantity − In Progress − Done', async () => {
+    const loaded = makeMark({ qty_planned: 10, qty_in_progress: 3, qty_done: 2 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]) })} />)
+
+    const [notStartedInput] = await openEditor()
+    expect(notStartedInput).toHaveValue(5)
+    expect(notStartedInput).toHaveAttribute('readonly')
+  })
+
+  it('typing In Progress takes pieces from Not Started, capped at Quantity − Done', async () => {
+    const loaded = makeMark({ qty_planned: 10, qty_done: 4 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]) })} />)
+
+    const [notStartedInput, inProgressInput] = await openEditor()
+    fireEvent.change(inProgressInput, { target: { value: '2' } })
+    expect(notStartedInput).toHaveValue(4)
+
+    fireEvent.change(inProgressInput, { target: { value: '9' } }) // only 6 left
+    expect(inProgressInput).toHaveValue(6)
+    expect(notStartedInput).toHaveValue(0)
+  })
+
+  it('Done cannot go up while nothing is In Progress', async () => {
+    const loaded = makeMark({ qty_planned: 10, qty_done: 1 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]) })} />)
+
+    const [, , doneInput] = await openEditor()
+    fireEvent.change(doneInput, { target: { value: '4' } })
+    expect(doneInput).toHaveValue(1)
+  })
+
+  it('raising Done takes pieces from In Progress; lowering Done gives them back', async () => {
+    const loaded = makeMark({ qty_planned: 10, qty_in_progress: 3 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]) })} />)
+
+    const [notStartedInput, inProgressInput, doneInput] = await openEditor()
+    fireEvent.change(doneInput, { target: { value: '2' } })
+    expect(inProgressInput).toHaveValue(1)
+    expect(notStartedInput).toHaveValue(7)
+
+    fireEvent.change(doneInput, { target: { value: '9' } }) // only 3 can be done
+    expect(doneInput).toHaveValue(3)
+    expect(inProgressInput).toHaveValue(0)
+
+    fireEvent.change(doneInput, { target: { value: '1' } })
+    expect(inProgressInput).toHaveValue(2)
+    expect(notStartedInput).toHaveValue(7)
+  })
+
+  it('Confirm sends Not Started as Quantity − In Progress − Done', async () => {
+    const onSaveProgress = vi.fn().mockResolvedValue(undefined)
+    const loaded = makeMark({ qty_planned: 10, qty_not_started: 10 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]), onSaveProgress })} />)
+
+    const [, inProgressInput, doneInput] = await openEditor()
+    fireEvent.change(inProgressInput, { target: { value: '4' } })
+    fireEvent.change(doneInput, { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(onSaveProgress).toHaveBeenCalledWith(1, expect.objectContaining({
+      qty_not_started: 6, qty_in_progress: 3, qty_done: 1,
+    })))
+  })
+})
+
+// Per-mark finish date (user feedback 2026-10-14): the field only appears once
+// QC Passed = Quantity, and is required then.
+describe('WoMarksTable — mark finish date', () => {
+  const done = makeMark({ qty_planned: 2, qty_done: 2, qty_not_started: 0, qty_in_progress: 0 })
+  const open = async (m = done, onSaveProgress = vi.fn().mockResolvedValue(undefined)) => {
+    render(<WoMarksTable {...baseProps({ marks: [m], onReloadMarks: vi.fn().mockResolvedValue([m]), onSaveProgress })} />)
+    const inputs = await openEditor()
+    return { inputs, onSaveProgress }
+  }
+
+  it('is hidden until QC Passed equals Quantity', async () => {
+    const { inputs } = await open()
+    expect(screen.queryByLabelText('Finish Date')).not.toBeInTheDocument()
+    fireEvent.change(inputs[3], { target: { value: '1' } })
+    expect(screen.queryByLabelText('Finish Date')).not.toBeInTheDocument()
+    fireEvent.change(inputs[3], { target: { value: '2' } })
+    expect(screen.getByLabelText('Finish Date')).toBeInTheDocument()
+  })
+
+  it('Confirm is refused without a finish date once QC Passed equals Quantity', async () => {
+    const { inputs, onSaveProgress } = await open()
+    fireEvent.change(inputs[3], { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Finish Date is required'))
+    expect(onSaveProgress).not.toHaveBeenCalled()
+  })
+
+  it('Confirm sends the typed finish date as an ISO instant', async () => {
+    const { inputs, onSaveProgress } = await open()
+    fireEvent.change(inputs[3], { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Finish Date'), { target: { value: '2026-10-14T09:30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(onSaveProgress).toHaveBeenCalledWith(1, expect.objectContaining({
+      qty_qc_passed: 2, actual_finish: new Date('2026-10-14T09:30').toISOString(),
+    })))
+  })
+
+  it('a saved finish date is pre-filled and shown in the table', async () => {
+    const m = makeMark({ qty_planned: 2, qty_done: 2, qty_qc_passed: 2, actual_finish: '2026-10-14T12:00:00.000Z' })
+    render(<WoMarksTable {...baseProps({ marks: [m], onReloadMarks: vi.fn().mockResolvedValue([m]) })} />)
+    expect(screen.getByText(/^14\/10\/2026 \d\d:\d\d$/)).toBeInTheDocument()
+    await openEditor()
+    expect((screen.getByLabelText('Finish Date') as HTMLInputElement).value).toMatch(/^2026-10-14T\d\d:00$/)
+  })
+})
+
 describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () => {
   it('clicking ✎ reloads the WO first, then seeds the inputs from the reloaded values', async () => {
     const onReloadMarks = vi.fn().mockResolvedValue([makeMark({ qty_done: 4, qty_qc_passed: 3 })])
@@ -270,14 +385,13 @@ describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () =>
     render(<WoMarksTable {...baseProps({ onSaveProgress })} />)
 
     const [notStartedInput, inProgressInput, doneInput] = await openEditor()
-    fireEvent.change(notStartedInput, { target: { value: '2' } })
-    fireEvent.change(inProgressInput, { target: { value: '3' } })
-    fireEvent.change(doneInput, { target: { value: '5' } })
+    fireEvent.change(inProgressInput, { target: { value: '5' } })
+    fireEvent.change(doneInput, { target: { value: '2' } })
 
     expect(onSaveProgress).not.toHaveBeenCalled()
-    expect(notStartedInput).toHaveValue(2)
+    expect(notStartedInput).toHaveValue(5)
     expect(inProgressInput).toHaveValue(3)
-    expect(doneInput).toHaveValue(5)
+    expect(doneInput).toHaveValue(2)
   })
 
   it('Confirm saves the six numbers (blank → 0) with expected = the values as loaded, toasts, then collapses', async () => {
@@ -285,14 +399,15 @@ describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () =>
     const loaded = makeMark({ qty_not_started: 10 })
     render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]), onSaveProgress })} />)
 
-    const [notStartedInput, , doneInput] = await openEditor()
-    fireEvent.change(notStartedInput, { target: { value: '3' } })
+    // Same edit: 7 pieces started, then all 7 finished (user 2026-10-14: ก. ทำได้).
+    const [, inProgressInput, doneInput] = await openEditor()
+    fireEvent.change(inProgressInput, { target: { value: '7' } })
     fireEvent.change(doneInput, { target: { value: '7' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('A1 saved'))
     expect(onSaveProgress).toHaveBeenCalledWith(1, {
-      qty_not_started: 3, qty_in_progress: 0, qty_done: 7, qty_qc_passed: 0, qty_rework: 0, qty_renew: 0,
+      qty_not_started: 3, qty_in_progress: 0, qty_done: 7, qty_qc_passed: 0, qty_rework: 0, qty_renew: 0, actual_finish: null,
       expected: { qty_not_started: 10, qty_in_progress: null, qty_done: null, qty_qc_passed: null, qty_rework: null, qty_renew: null },
     })
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
@@ -302,8 +417,8 @@ describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () =>
 
   it('a 409 STALE_PROGRESS toasts "updated by someone else", reloads, re-seeds the inputs and keeps the row open', async () => {
     const onReloadMarks = vi.fn()
-      .mockResolvedValueOnce([makeMark({ qty_done: 2 })])
-      .mockResolvedValueOnce([makeMark({ qty_done: 5 })])
+      .mockResolvedValueOnce([makeMark({ qty_in_progress: 3, qty_done: 2 })])
+      .mockResolvedValueOnce([makeMark({ qty_in_progress: 3, qty_done: 5 })])
     const onSaveProgress = vi.fn()
       .mockRejectedValueOnce(httpError(409, { message: 'This mark was updated by someone else — latest values reloaded', code: 'STALE_PROGRESS' }))
       .mockResolvedValueOnce(undefined)
@@ -333,7 +448,7 @@ describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () =>
     ['a 400', 400, 'QC Passed + Rework + Renew exceeds Done'],
     ['a non-stale 409 (status gate)', 409, 'Progress can only be recorded while the work order is in progress or paused (status ON_HOLD)'],
   ])('%s toasts the server message and keeps the row open without reloading', async (_label, status, message) => {
-    const onReloadMarks = vi.fn().mockResolvedValue([makeMark()])
+    const onReloadMarks = vi.fn().mockResolvedValue([makeMark({ qty_in_progress: 5 })])
     const onSaveProgress = vi.fn().mockRejectedValue(httpError(status, { message }))
     render(<WoMarksTable {...baseProps({ onReloadMarks, onSaveProgress })} />)
 
@@ -348,29 +463,28 @@ describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () =>
     expect(toast.success).not.toHaveBeenCalled()
   })
 
-  it('Confirm shows an error toast and does NOT save when Not Started + In Progress + Done exceeds Quantity', async () => {
+  it('Confirm shows an error toast and does NOT save when stored In Progress + Done already exceed Quantity', async () => {
+    // Only reachable from legacy data (e.g. Quantity lowered after progress was entered).
     const onSaveProgress = vi.fn()
-    render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 5 })], onSaveProgress })} />)
+    const loaded = makeMark({ qty_planned: 5, qty_in_progress: 2, qty_done: 4 })
+    render(<WoMarksTable {...baseProps({ marks: [loaded], onReloadMarks: vi.fn().mockResolvedValue([loaded]), onSaveProgress })} />)
 
-    const [notStartedInput, inProgressInput, doneInput] = await openEditor()
-    fireEvent.change(notStartedInput, { target: { value: '2' } })
-    fireEvent.change(inProgressInput, { target: { value: '2' } })
-    fireEvent.change(doneInput, { target: { value: '2' } }) // 2+2+2=6 > 5
+    await openEditor()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
 
-    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Not Started + In Progress + Done exceeds Quantity'))
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('In Progress + Done exceeds Quantity'))
     expect(toast.success).not.toHaveBeenCalled()
     expect(onSaveProgress).not.toHaveBeenCalled()
     // Row stays open — the draft is preserved, not discarded.
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeInTheDocument()
-    expect(notStartedInput).toHaveValue(2)
   })
 
   it('Confirm shows an error toast and does NOT save when QC Passed + Rework + Renew exceeds Qty Done', async () => {
     const onSaveProgress = vi.fn()
     render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 10 })], onSaveProgress })} />)
 
-    const [, , doneInput, qcPassedInput, reworkInput] = await openEditor()
+    const [, inProgressInput, doneInput, qcPassedInput, reworkInput] = await openEditor()
+    fireEvent.change(inProgressInput, { target: { value: '5' } })
     fireEvent.change(doneInput, { target: { value: '5' } })
     fireEvent.change(qcPassedInput, { target: { value: '3' } })
     fireEvent.change(reworkInput, { target: { value: '3' } }) // 3+3=6 > 5
@@ -417,11 +531,11 @@ describe('WoMarksTable — qty editing (server-seeded, saved on Confirm)', () =>
   it('clamps a staged value to [0, qty_planned] while typing, same as the max/min fix', async () => {
     render(<WoMarksTable {...baseProps({ marks: [makeMark({ qty_planned: 1 })] })} />)
 
-    const [notStartedInput] = await openEditor()
-    fireEvent.change(notStartedInput, { target: { value: '32' } })
-    expect(notStartedInput).toHaveValue(1)
-    fireEvent.change(notStartedInput, { target: { value: '-5' } })
-    expect(notStartedInput).toHaveValue(0)
+    const [, inProgressInput] = await openEditor()
+    fireEvent.change(inProgressInput, { target: { value: '32' } })
+    expect(inProgressInput).toHaveValue(1)
+    fireEvent.change(inProgressInput, { target: { value: '-5' } })
+    expect(inProgressInput).toHaveValue(0)
   })
 
   it('does not show the edit action when canEditQty is false', () => {
@@ -576,7 +690,7 @@ describe('WoMarksTable — history inside the edit panel', () => {
 
     const region = screen.getByRole('region', { name: 'History' })
     expect(within(region).getAllByRole('columnheader').map(h => h.textContent)).toEqual(
-      ['Not Started', 'In Progress', 'Qty Done', 'QC Passed', 'Rework', 'Renew', 'When · By', 'Note'],
+      ['Not Started', 'In Progress', 'Qty Done', 'QC Passed', 'Rework', 'Renew', 'Finish Date', 'When · By', 'Note'],
     )
     const rows = historyRows()
     //            Not St    In Prog   Done      QC        Rework  Renew
@@ -592,8 +706,9 @@ describe('WoMarksTable — history inside the edit panel', () => {
     rows.forEach((cells, i) => {
       const [changeCells, who, note] = expected[i]
       expect(cells.slice(0, 6)).toEqual(changeCells)
-      expect(cells[6]).toMatch(WHEN_BY(who))
-      expect(cells[7]).toBe(note)
+      expect(cells[6]).toBe('') // Finish Date — none of these rows set it
+      expect(cells[7]).toMatch(WHEN_BY(who))
+      expect(cells[8]).toBe(note)
     })
 
     for (const control of [screen.getAllByRole('spinbutton')[5], screen.getByRole('button', { name: 'Confirm' }), screen.getByRole('button', { name: 'Cancel' })]) {
@@ -612,7 +727,7 @@ describe('WoMarksTable — history inside the edit panel', () => {
     const rows = historyRows()
     expect(rows).toHaveLength(1)
     expect(rows[0][2]).toBe('0 → 3')
-    expect(rows[0][6]).toMatch(WHEN_BY('bob'))
+    expect(rows[0][7]).toMatch(WHEN_BY('bob'))
   })
 
   it('shows "Loading history…" while the events load', async () => {

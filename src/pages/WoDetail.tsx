@@ -14,7 +14,7 @@ import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdo
 import { WoVisualTab } from '../components/wo/WoVisualTab'
 import type {
   WoAction, WoStatus, WoDetail as WoDetailT, WoMark, WoEvent, SourceRoutingOp,
-  MarkDispositionInput, MarkProgressValues, MarkProgressExpected,
+  MarkDispositionInput, MarkProgressBody,
 } from '../api/wo'
 import { siblingQtyDone } from '../api/wo'
 import { usePermission } from '../hooks/usePermission'
@@ -89,13 +89,14 @@ export function buildCancelPayload(
  * as buildCancelPayload.
  */
 export function allMarksQcPassed(
-  marks: Pick<WoMark, 'removed_at' | 'qty_planned' | 'qty_qc_passed'>[],
+  marks: Pick<WoMark, 'removed_at' | 'qty_planned' | 'qty_qc_passed' | 'actual_finish'>[],
 ): boolean {
   const activeMarks = marks.filter(m => !m.removed_at)
   if (!activeMarks.length) return false
   // null never passes (fix wave 2026-10-05) — the server's rule is
   // toNum(qc) === Number(planned), and toNum(null) is null.
-  return activeMarks.every(m => m.qty_qc_passed != null && Number(m.qty_qc_passed) === Number(m.qty_planned))
+  // …and each mark carries its finish date (2026-10-14, same as the server)
+  return activeMarks.every(m => m.qty_qc_passed != null && Number(m.qty_qc_passed) === Number(m.qty_planned) && m.actual_finish != null)
 }
 
 export function WoDetail() {
@@ -607,7 +608,7 @@ function OverviewTab({
 }: {
   wo: WoDetailT
   bomList: import('../api/wo').BomVersionStatus[]
-  onSaveProgress: (markId: number, body: MarkProgressValues & { expected: MarkProgressExpected }) => Promise<unknown>
+  onSaveProgress: (markId: number, body: MarkProgressBody) => Promise<unknown>
   onReloadMarks: () => Promise<WoMark[] | undefined>
   events: WoEvent[]
   eventsLoading: boolean

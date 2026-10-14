@@ -8,7 +8,7 @@ import { MoStatus, Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MailMessageService } from '../mail/mail-message.service'
 import { MoCodeGenerator } from './mo-code.generator'
-import { MoAllocationService, ALLOCATING_STATUSES } from './mo-allocation.service'
+import { MoAllocationService } from './mo-allocation.service'
 import { WorkOrderAutoCreateService } from '../work-orders/wo-auto-create.service'
 import { WorkOrdersService } from '../work-orders/work-orders.service'
 import { CreateMoDto, LinkBomDto, LinkBomMarkDto, MergePreshopDto, MoAssemblyLineInputDto, PreshopPartDto } from './dto/create-mo.dto'
@@ -455,7 +455,7 @@ export class ManufacturingOrderService {
   // logic changes. Distinct from the always-present `remaining` field above,
   // which is the mark's cross-MO allocation remainder, not operation-scoped.
   async getAssemblies(id: number, operationId?: number) {
-    await this.requireMo(id)
+    const mo = await this.requireMo(id)
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: { mo_id: id },
       orderBy: { line_seq: 'asc' },
@@ -467,6 +467,32 @@ export class ManufacturingOrderService {
           },
         },
       },
+    })
+
+    // Production progress per mark (user feedback 2026-10-14): every operation in
+    // routing order with this mark's numbers in each live WO — matched by
+    // operation sequence, like qcShortfalls(). Cancelled WOs / removed marks hold nothing.
+    const ops = await this.moOperations(mo)
+    const woMarks = await this.prisma.work_order_mark.findMany({
+      where: { removed_at: null, work_order: { mo_id: id, status: { not: 'CANCELLED' } } },
+      select: {
+        bom_assembly_id: true, qty_planned: true, qty_not_started: true, qty_in_progress: true, qty_done: true,
+        qty_qc_passed: true, qty_rework: true, qty_renew: true, actual_finish: true,
+        work_order: { select: { id: true, wo_code: true, status: true, sequence: true } },
+      },
+      orderBy: { work_order: { wo_code: 'asc' } },
+    })
+    const n = (v: unknown) => (v == null ? null : Number(v))
+    const progressOf = (bomAssemblyId: number, need: number) => ops.map(op => {
+      const wos = woMarks
+        .filter(m => m.bom_assembly_id === bomAssemblyId && m.work_order.sequence === op.sequence)
+        .map(m => ({
+          wo_id: m.work_order.id, wo_code: m.work_order.wo_code, status: m.work_order.status, qty_planned: Number(m.qty_planned),
+          qty_not_started: n(m.qty_not_started), qty_in_progress: n(m.qty_in_progress), qty_done: n(m.qty_done),
+          qty_qc_passed: n(m.qty_qc_passed), qty_rework: n(m.qty_rework), qty_renew: n(m.qty_renew),
+          actual_finish: m.actual_finish ? new Date(m.actual_finish).toISOString() : null,
+        }))
+      return { sequence: op.sequence, op_code: op.op_code, name: op.name, need, qc_passed: wos.reduce((t, w) => t + (w.qty_qc_passed ?? 0), 0), wos }
     })
 
     return Promise.all(
@@ -500,7 +526,8 @@ export class ManufacturingOrderService {
           allocated,
           remaining: total - allocated,
           wo_remaining,
-          allocation_breakdown: breakdown, // [{ mo_code, qty }]
+          allocation_breakdown: breakdown, // [{ mo_code, qty }] — cross-MO, still used by MO create
+          progress: progressOf(line.bom_assembly_id, Number(line.qty)), // per operation, routing order (2026-10-14)
           preshop: line.bom_assembly.dispatch.source === 'PRE_SHOP', // its parts are editable on the MO
           // where this mark's data comes from (2026-10-09): Pre-shop or the BOM revision
           source_label: line.bom_assembly.dispatch.source === 'PRE_SHOP' ? 'Pre-shop' : `BOM rev ${line.bom_assembly.dispatch.revision}`,
@@ -548,7 +575,7 @@ export class ManufacturingOrderService {
       total_qty: number
       total_weight_kg: number | null
       assembly_marks: string[]
-      mo_breakdown: { mo_code: string; qty: number }[]
+      wo_breakdown: { wo_id: number; wo_code: string; qty: number }[]
     }>()
 
     for (const line of lines) {
@@ -574,55 +601,34 @@ export class ManufacturingOrderService {
             total_qty: lineQty,
             total_weight_kg: part.weight_kg != null ? Number(part.weight_kg) * lineQty : null,
             assembly_marks: [line.bom_assembly.assembly_mark],
-            mo_breakdown: [],
+            wo_breakdown: [],
           })
         }
       }
     }
 
-    // 4. Cross-MO breakdown: every allocating MO line of the same assembly mark
-    //    in the same project/zone/sub-zone — the Assemblies tab's rule (mark +
-    //    group, MoAllocationService), not the bom_assembly id: pre-shop MOs of one
-    //    zone come from different uploads (2026-10-07, user chose "ก"). Each
-    //    MO's own assembly parts give its part quantities.
-    const groups = new Map<string, { assembly_mark: string; dispatch: { project_id: number; zone_id: number; sub_zone_id: number | null } }>()
-    for (const l of lines) {
-      const d = l.bom_assembly.dispatch
-      groups.set(`${l.bom_assembly.assembly_mark}|${d.project_id}|${d.zone_id}|${d.sub_zone_id}`, {
-        assembly_mark: l.bom_assembly.assembly_mark,
-        dispatch: { project_id: d.project_id, zone_id: d.zone_id, sub_zone_id: d.sub_zone_id },
-      })
-    }
-    const crossLines = groups.size
-      ? await this.prisma.mo_assembly_line.findMany({
-          where: {
-            mo: { status: { in: ALLOCATING_STATUSES } },
-            OR: [...groups.values()].map(g => ({ bom_assembly: g })),
-          },
-          include: {
-            mo: { select: { mo_code: true } },
-            bom_assembly: { include: { assembly_parts: { include: { part: { select: { part_mark: true } } } } } },
-          },
-        })
-      : []
-
-    for (const cl of crossLines) {
-      const moCode = cl.mo.mo_code
-      const clQty = Number(cl.qty) || 1
-      for (const ap of cl.bom_assembly.assembly_parts) {
+    // 4. Allocation = this MO's work orders (user feedback 2026-10-14, same as the
+    //    Assemblies tab): a WO holding N sets of a mark holds N × per-set of each
+    //    part. Cancelled WOs and removed marks hold nothing.
+    const woMarks = await this.prisma.work_order_mark.findMany({
+      where: { removed_at: null, work_order: { mo_id: id, status: { not: 'CANCELLED' } } },
+      select: {
+        qty_planned: true,
+        work_order: { select: { id: true, wo_code: true } },
+        bom_assembly: { select: { assembly_parts: { select: { qty: true, part: { select: { part_mark: true } } } } } },
+      },
+    })
+    for (const wm of woMarks) {
+      for (const ap of wm.bom_assembly.assembly_parts) {
         const entry = partMap.get(ap.part.part_mark)
         if (!entry) continue
-        const contrib = clQty * (Number(ap.qty) || 1)
-        const existing = entry.mo_breakdown.find(b => b.mo_code === moCode)
+        const contrib = Number(wm.qty_planned) * (Number(ap.qty) || 1)
+        const existing = entry.wo_breakdown.find(b => b.wo_id === wm.work_order.id)
         if (existing) existing.qty += contrib
-        else entry.mo_breakdown.push({ mo_code: moCode, qty: contrib })
+        else entry.wo_breakdown.push({ wo_id: wm.work_order.id, wo_code: wm.work_order.wo_code, qty: contrib })
       }
     }
-
-    // Sort breakdown by mo_code
-    for (const entry of partMap.values()) {
-      entry.mo_breakdown.sort((a, b) => a.mo_code.localeCompare(b.mo_code))
-    }
+    for (const entry of partMap.values()) entry.wo_breakdown.sort((a, b) => a.wo_code.localeCompare(b.wo_code))
 
     return [...partMap.values()].sort((a, b) => a.part_mark.localeCompare(b.part_mark))
   }
@@ -1408,13 +1414,7 @@ export class ManufacturingOrderService {
   async qcShortfalls(id: number): Promise<{ assembly_mark: string; operation: string; passed: number; need: number }[]> {
     const mo = await this.requireMo(id)
     if (mo.kind !== 'ASSEMBLY' || mo.routing_template_id == null) return []
-    const opSelect = { id: true, sequence: true, op_code: true, name: true } as const
-    const ops = [
-      ...(mo.shop_type === 'PRE_SHOP'
-        ? await this.prisma.mrp_routing_workcenter.findMany({ where: { template: { code: PRESHOP_TEMPLATE_CODE } }, orderBy: { sequence: 'asc' }, select: opSelect })
-        : []),
-      ...(await this.prisma.mrp_routing_workcenter.findMany({ where: { template_id: mo.routing_template_id }, orderBy: { sequence: 'asc' }, select: opSelect })),
-    ]
+    const ops = await this.moOperations(mo)
     const lines = await this.prisma.mo_assembly_line.findMany({ where: { mo_id: id }, orderBy: { line_seq: 'asc' }, select: { bom_assembly_id: true, qty: true, bom_assembly: { select: { assembly_mark: true } } } })
     const marks = await this.prisma.work_order_mark.findMany({
       where: { removed_at: null, work_order: { mo_id: id, status: { not: 'CANCELLED' } } },
@@ -1676,6 +1676,18 @@ export class ManufacturingOrderService {
       const sub = await this.prisma.sub_zone.findFirst({ where: { id: subZoneId, zone_id: zoneId }, select: { id: true } })
       if (!sub) throw new BadRequestException(`Sub-zone ${subZoneId} is not in zone ${zoneId}`)
     }
+  }
+
+  /** The MO's operations in routing order — op 000 first on a pre-shop MO. */
+  private async moOperations(mo: { shop_type: string | null; routing_template_id: number | null }) {
+    if (mo.routing_template_id == null) return []
+    const opSelect = { id: true, sequence: true, op_code: true, name: true } as const
+    return [
+      ...(mo.shop_type === 'PRE_SHOP'
+        ? await this.prisma.mrp_routing_workcenter.findMany({ where: { template: { code: PRESHOP_TEMPLATE_CODE } }, orderBy: { sequence: 'asc' }, select: opSelect })
+        : []),
+      ...(await this.prisma.mrp_routing_workcenter.findMany({ where: { template_id: mo.routing_template_id }, orderBy: { sequence: 'asc' }, select: opSelect })),
+    ]
   }
 
   private async requireMo(id: number) {

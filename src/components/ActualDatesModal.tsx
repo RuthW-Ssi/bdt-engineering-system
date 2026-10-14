@@ -28,7 +28,7 @@ interface ActualDatesForm {
  */
 export function validateActualDatesForm(
   form: ActualDatesForm,
-  opts: { withTimeliness: boolean; withReason: boolean; now: Date },
+  opts: { withTimeliness: boolean; withReason: boolean; now: Date; planFinish?: string | null },
 ): string[] {
   const errors: string[] = []
   if (!form.start) errors.push('Actual Start is required')
@@ -41,6 +41,12 @@ export function validateActualDatesForm(
   if (opts.withTimeliness) {
     if (!form.timeliness) errors.push('Select On Plan or Delayed')
     else if (form.timeliness === 'DELAYED' && !form.delayNote.trim()) errors.push('Delay reason is required')
+    // The result must agree with the dates (user 2026-10-14) — Actual vs Plan Finish.
+    if (opts.planFinish && form.finish && form.timeliness) {
+      const late = finish > new Date(opts.planFinish).getTime()
+      if (form.timeliness === 'ON_PLAN' && late) errors.push('Finished after the plan — choose Delayed')
+      if (form.timeliness === 'DELAYED' && !late) errors.push('Finished within the plan — choose On Plan')
+    }
   }
   if (opts.withReason && !form.reason.trim()) errors.push('A reason is required')
   return errors
@@ -57,8 +63,10 @@ const Req = () => <span style={{ color: '#C8202A' }}>*</span>
 
 // Shared by MO + WO detail pages (2026-10-01): Complete (MO adds the status
 // reason, WO adds On Plan / Delayed) and the DONE-only "edit actual dates".
-// Fields start EMPTY unless `initial` is given — never prefilled with now or
-// the plan dates, the user must type what actually happened.
+// Fields start EMPTY unless `initial` is given — never prefilled with now.
+// Choosing On Plan copies the plan dates into EMPTY fields (user 2026-10-14:
+// "ถ้ากด on plan ให้ดึงวันที่ จาก plan มาใส่ auto เลย") — still the user's own
+// click, still editable, never replaces a date already there.
 export function ActualDatesModal({
   title, subtitle, plan, initial, withTimeliness = false, withReason = false, pending = false, error, onConfirm, onClose,
 }: {
@@ -84,12 +92,23 @@ export function ActualDatesModal({
   // Don't nag on first open — messages show once the user has touched a field.
   const [touched, setTouched] = useState(false)
   const now = new Date()
-  const errors = validateActualDatesForm(form, { withTimeliness, withReason, now })
+  const errors = validateActualDatesForm(form, { withTimeliness, withReason, now, planFinish: plan?.finish })
   const valid = errors.length === 0
   const maxNow = toDatetimeLocal(now.toISOString())
 
   function set<K extends keyof ActualDatesForm>(key: K, value: ActualDatesForm[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
+    setTouched(true)
+  }
+
+  function choosePlan() {
+    setForm(prev => ({
+      ...prev,
+      timeliness: 'ON_PLAN',
+      // only empty fields — never overwrite typed or stored dates (QA F-1)
+      start: prev.start || toDatetimeLocal(plan?.start),
+      finish: prev.finish || toDatetimeLocal(plan?.finish),
+    }))
     setTouched(true)
   }
 
@@ -140,7 +159,7 @@ export function ActualDatesModal({
                 <label key={value} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
                   <input
                     type="radio" name={`${id}-timeliness`} value={value} checked={form.timeliness === value}
-                    onChange={() => set('timeliness', value)} style={{ accentColor: '#C8202A' }}
+                    onChange={() => (value === 'ON_PLAN' ? choosePlan() : set('timeliness', value))} style={{ accentColor: '#C8202A' }}
                   />
                   {label}
                 </label>
