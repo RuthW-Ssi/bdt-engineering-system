@@ -64,8 +64,9 @@ const Req = () => <span style={{ color: '#C8202A' }}>*</span>
 // Shared by MO + WO detail pages (2026-10-01): Complete (MO adds the status
 // reason, WO adds On Plan / Delayed) and the DONE-only "edit actual dates".
 // Fields start EMPTY unless `initial` is given — never prefilled with now.
-// Choosing On Plan copies the plan dates in (user 2026-10-14: "ถ้ากด on plan
-// ให้ดึงวันที่ จาก plan มาใส่ auto เลย") — still the user's own click, still editable.
+// Choosing On Plan copies the plan dates into EMPTY fields (user 2026-10-14:
+// "ถ้ากด on plan ให้ดึงวันที่ จาก plan มาใส่ auto เลย") — still the user's own
+// click, still editable, never replaces a date already there.
 export function ActualDatesModal({
   title, subtitle, plan, initial, withTimeliness = false, withReason = false, pending = false, error, onConfirm, onClose,
 }: {
@@ -104,8 +105,9 @@ export function ActualDatesModal({
     setForm(prev => ({
       ...prev,
       timeliness: 'ON_PLAN',
-      start: plan?.start ? toDatetimeLocal(plan.start) : prev.start,
-      finish: plan?.finish ? toDatetimeLocal(plan.finish) : prev.finish,
+      // only empty fields — never overwrite typed or stored dates (QA F-1)
+      start: prev.start || toDatetimeLocal(plan?.start),
+      finish: prev.finish || toDatetimeLocal(plan?.finish),
     }))
     setTouched(true)
   }

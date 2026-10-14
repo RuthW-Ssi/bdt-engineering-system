@@ -103,6 +103,23 @@ describe('ActualDatesModal', () => {
     expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled()
   })
 
+  // QA F-1 (2026-10-14): On Plan only fills EMPTY fields — never overwrites typed or stored dates.
+  it('On Plan keeps dates the user already typed, and stored dates when editing', () => {
+    const plan = { start: '2025-01-05T01:00:00.000Z', finish: '2025-01-06T10:30:00.000Z' }
+    const { unmount } = render(<ActualDatesModal title="t" plan={plan} withTimeliness onConfirm={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText(/Actual Start/), { target: { value: '2025-01-04T08:00' } })
+    fireEvent.click(screen.getByLabelText('On Plan'))
+    expect(screen.getByLabelText(/Actual Start/)).toHaveValue('2025-01-04T08:00')
+    expect(screen.getByLabelText(/Actual Finish/)).toHaveValue(toDatetimeLocal(plan.finish))
+    unmount()
+
+    const stored = { actual_start: '2025-01-03T01:00:00.000Z', actual_finish: '2025-01-07T01:00:00.000Z', timeliness: 'DELAYED' as const, delay_note: 'x' }
+    render(<ActualDatesModal title="t" plan={plan} initial={stored} withTimeliness onConfirm={vi.fn()} onClose={vi.fn()} />)
+    fireEvent.click(screen.getByLabelText('On Plan'))
+    expect(screen.getByLabelText(/Actual Start/)).toHaveValue(toDatetimeLocal(stored.actual_start))
+    expect(screen.getByLabelText(/Actual Finish/)).toHaveValue(toDatetimeLocal(stored.actual_finish))
+  })
+
   it('shows Delay Reason only after choosing Delayed, and requires it', () => {
     render(<ActualDatesModal title="t" withTimeliness onConfirm={vi.fn()} onClose={vi.fn()} />)
     fillDates()

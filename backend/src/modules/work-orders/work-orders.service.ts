@@ -250,6 +250,7 @@ export class WorkOrdersService {
           removed_at: m.removed_at,
           removed_by: m.removed_by,
           removed_reason: m.removed_reason,
+          actual_finish: m.actual_finish, // per-mark finish date (2026-10-14)
           created_at: m.created_at,
           created_by: m.created_by,
           bom_version_status,
@@ -651,6 +652,11 @@ export class WorkOrdersService {
       const notPassed = wo.marks.filter((m) => toNum(m.qty_qc_passed) !== Number(m.qty_planned))
       if (notPassed.length > 0) {
         throw new BadRequestException(`Every mark needs QC Passed = Quantity before completing: ${notPassed.map((m) => m.bom_assembly_id).join(', ')}`)
+      }
+      // Finish date per mark (2026-10-14, QA F-2) — required once QC is full.
+      const noFinish = wo.marks.filter((m) => m.actual_finish == null)
+      if (noFinish.length > 0) {
+        throw new BadRequestException(`Every mark needs a Finish Date before completing: ${noFinish.map((m) => m.bom_assembly_id).join(', ')}`)
       }
       const actuals = this.resolveActuals(dto, wo.plan_finish)
       await this.prisma.$transaction(async (tx) => {
@@ -1517,7 +1523,11 @@ export class WorkOrdersService {
     // provided leaves them untouched. Audited (2026-10-05) on the
     // ACCEPT_VERSION event itself.
     const qc = provided ? this.qcBreakdownWrite(dto) : null
-    const changes = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
+    const changes: (ProgressChange | FinishChange)[] = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
+    // A finish date only stands while QC Passed = Quantity (2026-10-14, QA F-2).
+    const qcAfter = toNum(qc ? qc.qty_qc_passed : mark.qty_qc_passed)
+    const clearFinish = mark.actual_finish != null && qcAfter !== Number(newQtyPlanned)
+    if (clearFinish) changes.push({ field: 'actual_finish', old: mark.actual_finish!.toISOString(), new: null })
 
     await this.prisma.$transaction(async (tx) => {
       await tx.work_order_mark.update({
@@ -1529,6 +1539,7 @@ export class WorkOrdersService {
           qty_qc_passed: qc?.qty_qc_passed,
           qty_rework: qc?.qty_rework,
           qty_renew: qc?.qty_renew,
+          ...(clearFinish ? { actual_finish: null } : {}),
         },
       })
       await tx.work_order_event.create({

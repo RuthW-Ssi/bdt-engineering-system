@@ -424,6 +424,25 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     expect(result).toEqual({ id: 1 })
   })
 
+  // QA F-2 (2026-10-14): a new Quantity that QC Passed no longer equals clears the mark's finish date.
+  it('clears actual_finish (audited) when the new Quantity no longer equals QC Passed; keeps it when it still does', async () => {
+    const FIN = new Date('2026-10-10T03:00:00.000Z')
+    const raised = makeMark({ qty_done: 5, qty_qc_passed: 5, actual_finish: FIN } as any)
+    const prisma = makePrisma(raised, { ...raised.bom_assembly, id: 200, dispatch_id: 20, qty: 8 })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
+    expect(prisma.work_order_mark.update.mock.calls[0][0].data.actual_finish).toBeNull()
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toContainEqual({ field: 'actual_finish', old: FIN.toISOString(), new: null })
+
+    const same = makeMark({ qty_done: 5, qty_qc_passed: 5, actual_finish: FIN } as any)
+    const prisma2 = makePrisma(same, { ...same.bom_assembly, id: 200, dispatch_id: 20, qty: 5 })
+    const svc2 = new WorkOrdersService(prisma2, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc2, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc2.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
+    expect(prisma2.work_order_mark.update.mock.calls[0][0].data).not.toHaveProperty('actual_finish')
+  })
+
   it('requires a QC breakdown when qty_done already exceeds the newly-adopted qty', async () => {
     const mark = makeMark({ qty_done: 5 })
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 3 }
@@ -830,13 +849,22 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   })
 
   it('without marks: validates the SAVED values and completes without touching marks', async () => {
-    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0 } as any])
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0, actual_finish: new Date('2026-09-30T09:00:00.000Z') } as any])
     const prisma = makePrisma(wo)
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
     await svc.done(1, { ...ACTUALS } as any, 'tester')
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
     expect(prisma.work_order.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'DONE' }) }))
+  })
+
+  // QA F-2 (2026-10-14): every mark needs its finish date before the WO completes.
+  it('without marks: 400s when a fully QC-passed mark has no Finish Date', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0, actual_finish: null } as any])
+    const svc = new WorkOrdersService(makePrisma(wo), makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(
+      new BadRequestException('Every mark needs a Finish Date before completing: 100'),
+    )
   })
 
   it('without marks: 400s when a saved mark is not fully QC-passed', async () => {
