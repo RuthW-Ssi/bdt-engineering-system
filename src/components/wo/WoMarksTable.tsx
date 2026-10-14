@@ -2,10 +2,11 @@ import { Fragment, useMemo, useRef, useState } from 'react'
 import { isAxiosError } from 'axios'
 import { AlertTriangle, ChevronUp, History, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import type { BomVersionStatus, MarkProgressExpected, MarkProgressValues, WoEvent, WoMark } from '../../api/wo'
+import type { BomVersionStatus, MarkProgressBody, MarkProgressExpected, MarkProgressValues, WoEvent, WoMark } from '../../api/wo'
+import { datetimeLocalToIso, toDatetimeLocal } from '../../lib/datetimeLocal'
 import { getErrorMessage } from '../../lib/getErrorMessage'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from './QcBreakdownFields'
-import { isProgressNoise } from './progressChanges'
+import { fmtFinish, isProgressNoise, showChangeValue } from './progressChanges'
 
 type QtyField = keyof MarkProgressValues
 const QTY_FIELDS: QtyField[] = ['qty_not_started', 'qty_in_progress', 'qty_done', 'qty_qc_passed', 'qty_rework', 'qty_renew']
@@ -22,7 +23,7 @@ interface Props {
   // Saves ONE mark's progress (PATCH /wo/:id/marks/:markId/progress) —
   // markId = work_order_mark.id. Rejects with a 409 STALE_PROGRESS when the
   // row changed since `expected` was loaded.
-  onSaveProgress: (markId: number, body: MarkProgressValues & { expected: MarkProgressExpected }) => Promise<unknown>
+  onSaveProgress: (markId: number, body: MarkProgressBody) => Promise<unknown>
   // Refetches the WO and resolves to its fresh marks — ✎ seeds from these.
   onReloadMarks: () => Promise<WoMark[] | undefined>
   // The WO's events — the open edit panel lists the mark's own history from them.
@@ -65,6 +66,28 @@ function clampQty(value: string, max: number): string {
   if (n < 0) return '0'
   return n > max ? String(max) : value
 }
+
+/**
+ * Pieces move Not Started → In Progress → Done (user feedback 2026-10-14:
+ * "เวลากรอก in progress และไปลดจำนวน not start … ถ้าไม่มี in progress user
+ * จะไม่สามารถใส่ยอด done ได้"). Not Started is never typed — it is always
+ * Quantity − In Progress − Done. In Progress takes from Not Started (≤
+ * Quantity − Done); Done takes from In Progress (≤ Done + In Progress), and
+ * lowering either hands the pieces back one step. Moving a piece all the way
+ * to Done within one edit is fine (user: "ก. ทำได้").
+ */
+function moveDraft(
+  d: Partial<Record<QtyField, string>>, field: 'qty_in_progress' | 'qty_done', value: string, planned: number,
+): Partial<Record<QtyField, string>> {
+  const ip = num(d.qty_in_progress ?? '')
+  const done = num(d.qty_done ?? '')
+  if (field === 'qty_in_progress') return { ...d, qty_in_progress: clampQty(value, Math.max(planned - done, 0)) }
+  const next = clampQty(value, done + ip)
+  return { ...d, qty_done: next, qty_in_progress: String(ip - (num(next) - done)) }
+}
+
+/** A datetime-local value later than now (the backend allows a few minutes of skew). */
+const isFuture = (local: string) => new Date(local).getTime() > Date.now()
 
 function dispatchLabel(d: WoMark['snapshot_dispatch']): string {
   if (!d) return ''
@@ -134,6 +157,8 @@ export function WoMarksTable({
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [draft, setDraft] = useState<Partial<Record<QtyField, string>>>({})
   const [loaded, setLoaded] = useState<MarkProgressExpected | null>(null)
+  // The mark's finish date as a datetime-local value (2026-10-14).
+  const [finish, setFinish] = useState('')
   const [reloading, setReloading] = useState(false)
   // Show/hide the open panel's history (user: a toggle beside the outdated
   // note, hidden until asked for). The choice carries over between marks.
@@ -164,6 +189,7 @@ export function WoMarksTable({
     setReloading(false)
     setExpandedId(m.id)
     setDraft(byQtyField(f => serverValue(fresh, f)))
+    setFinish(toDatetimeLocal(fresh.actual_finish))
     setLoaded(byQtyField(f => (fresh[f] != null ? Number(fresh[f]) : null)))
     return true
   }
@@ -172,23 +198,35 @@ export function WoMarksTable({
     setReloading(false)
     setExpandedId(null)
     setDraft({})
+    setFinish('')
     setLoaded(null)
   }
   async function confirmEdit(m: WoMark) {
-    const values: MarkProgressValues = byQtyField(f => num(draft[f] ?? ''))
     const planned = Number(m.qty_planned)
+    const values: MarkProgressValues = byQtyField(f => num(draft[f] ?? ''))
+    values.qty_not_started = planned - values.qty_in_progress - values.qty_done
 
-    if (values.qty_not_started + values.qty_in_progress + values.qty_done > planned) {
-      toast.error(`Not Started + In Progress + Done exceeds Quantity (${planned}) for ${m.bom_assembly.assembly_mark}`)
+    if (values.qty_not_started < 0) {
+      toast.error(`In Progress + Done exceeds Quantity (${planned}) for ${m.bom_assembly.assembly_mark}`)
       return
     }
     if (values.qty_qc_passed + values.qty_rework + values.qty_renew > values.qty_done) {
       toast.error(`QC Passed + Rework + Renew exceeds Qty Done (${values.qty_done}) for ${m.bom_assembly.assembly_mark}`)
       return
     }
+    // Finish date (user feedback 2026-10-14): required once every piece passed QC.
+    const qcFull = values.qty_qc_passed === planned
+    if (qcFull && !finish) {
+      toast.error(`Finish Date is required when QC Passed equals Quantity for ${m.bom_assembly.assembly_mark}`)
+      return
+    }
+    if (qcFull && isFuture(finish)) {
+      toast.error(`Finish Date must not be in the future for ${m.bom_assembly.assembly_mark}`)
+      return
+    }
 
     try {
-      await onSaveProgress(m.id, { ...values, expected: loaded! })
+      await onSaveProgress(m.id, { ...values, actual_finish: qcFull ? datetimeLocalToIso(finish) : null, expected: loaded! })
     } catch (err) {
       if (isStaleProgress(err)) {
         if (await openEdit(m)) toast.error('This mark was updated by someone else. Latest values loaded.')
@@ -201,7 +239,9 @@ export function WoMarksTable({
     toast.success(`${m.bom_assembly.assembly_mark} saved`)
   }
   const setDraftField = (m: WoMark, field: QtyField, value: string) =>
-    setDraft(d => ({ ...d, [field]: clampQty(value, Number(m.qty_planned)) }))
+    setDraft(d => (field === 'qty_in_progress' || field === 'qty_done'
+      ? moveDraft(d, field, value, Number(m.qty_planned))
+      : { ...d, [field]: clampQty(value, Number(m.qty_planned)) }))
 
   const totalPlanned = activeMarks.reduce((s, m) => s + Number(m.qty_planned), 0)
   const totalNotStarted = activeMarks.reduce((s, m) => s + num(serverValue(m, 'qty_not_started')), 0)
@@ -251,6 +291,7 @@ export function WoMarksTable({
             <th style={{ ...th, textAlign: 'right' }}>QC Passed</th>
             <th style={{ ...th, textAlign: 'right' }}>Rework</th>
             <th style={{ ...th, textAlign: 'right' }}>Renew</th>
+            <th style={{ ...th, textAlign: 'right' }}>Finished</th>
             <th style={{ ...th, textAlign: 'center' }}>Actions</th>
           </tr>
         </thead>
@@ -282,6 +323,7 @@ export function WoMarksTable({
                   <td style={{ ...td, textAlign: 'right', ...mono, color: '#1E6B36' }}>{serverValue(m, 'qty_qc_passed') || '—'}</td>
                   <td style={{ ...td, textAlign: 'right', ...mono, color: '#946200' }}>{serverValue(m, 'qty_rework') || '—'}</td>
                   <td style={{ ...td, textAlign: 'right', ...mono, color: '#888' }}>{serverValue(m, 'qty_renew') || '—'}</td>
+                  <td style={{ ...td, textAlign: 'right', ...mono, color: '#1E6B36', whiteSpace: 'nowrap' }}>{m.actual_finish ? fmtFinish(m.actual_finish) : '—'}</td>
                   <td style={{ ...td, textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: 6 }}>
                       {canEditQty && (
@@ -308,14 +350,13 @@ export function WoMarksTable({
                 </tr>
                 {expanded && (
                   <tr>
-                    <td colSpan={9} style={{ padding: '10px 14px 16px', background: '#FAFAFA', borderBottom: '1px solid #EEE' }}>
+                    <td colSpan={10} style={{ padding: '10px 14px 16px', background: '#FAFAFA', borderBottom: '1px solid #EEE' }}>
                       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                         <FieldGroup label="Not Started">
                           <input
-                            type="number" min={0} max={Number(m.qty_planned)}
-                            value={draft.qty_not_started ?? ''}
-                            onChange={e => setDraftField(m, 'qty_not_started', e.target.value)}
-                            style={{ width: 110, padding: '6px 8px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                            type="number" readOnly tabIndex={-1} title="Quantity − In Progress − Done"
+                            value={Number(m.qty_planned) - num(draft.qty_in_progress ?? '') - num(draft.qty_done ?? '')}
+                            style={{ width: 110, padding: '6px 8px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 4, background: '#F0F0F0', color: '#555555' }}
                           />
                         </FieldGroup>
                         <FieldGroup label="In Progress">
@@ -328,7 +369,7 @@ export function WoMarksTable({
                         </FieldGroup>
                         <FieldGroup label="Qty Done">
                           <input
-                            type="number" min={0} max={Number(m.qty_planned)}
+                            type="number" min={0} max={num(draft.qty_done ?? '') + num(draft.qty_in_progress ?? '')}
                             value={draft.qty_done ?? ''}
                             onChange={e => setDraftField(m, 'qty_done', e.target.value)}
                             style={{ width: 110, padding: '6px 8px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
@@ -375,6 +416,19 @@ export function WoMarksTable({
                           <HistoryToggle open={historyOpen} count={historyRows.length} onToggle={() => setHistoryOpen(open => !open)} />
                         </div>
                       </div>
+                      {/* Finish date on its own line under the inputs (user 2026-10-14: buttons stay on top). */}
+                      {num(draft.qty_qc_passed ?? '') === Number(m.qty_planned) && (
+                        <div style={{ marginTop: 10 }}>
+                          <FieldGroup label="Finish Date">
+                            <input
+                              type="datetime-local" aria-label="Finish Date" max={toDatetimeLocal(new Date().toISOString())}
+                              value={finish}
+                              onChange={e => setFinish(e.target.value)}
+                              style={{ width: FINISH_W, padding: '5px 8px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, boxSizing: 'border-box' }}
+                            />
+                          </FieldGroup>
+                        </div>
+                      )}
                       {outdated && (
                         <div style={{ marginTop: 10, fontSize: 11.5, color: '#8A2A0D' }}>
                           Dispatch #{bom!.latest_dispatch_id} changed this mark: {bom!.delta_types.join(' · ') || 'unspecified change'}.
@@ -390,7 +444,7 @@ export function WoMarksTable({
           })}
           {!activeMarks.length && (
             <tr>
-              <td colSpan={9} style={{ ...td, textAlign: 'center', color: '#AAA', padding: 20 }}>No marks on this work order.</td>
+              <td colSpan={10} style={{ ...td, textAlign: 'center', color: '#AAA', padding: 20 }}>No marks on this work order.</td>
             </tr>
           )}
         </tbody>
@@ -409,6 +463,7 @@ export function WoMarksTable({
               <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, ...mono, borderTop: '1px solid #E0E0E0' }}>{totalQcPassed}</td>
               <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, ...mono, borderTop: '1px solid #E0E0E0' }}>{totalRework}</td>
               <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, ...mono, borderTop: '1px solid #E0E0E0' }}>{totalRenew}</td>
+              <td style={{ borderTop: '1px solid #E0E0E0' }} />
               <td style={{ borderTop: '1px solid #E0E0E0' }} />
             </tr>
           </tfoot>
@@ -490,15 +545,18 @@ const HISTORY_FIELDS: { field: string; label: string }[] = [
   { field: 'qty_qc_passed', label: 'QC Passed' },
   { field: 'qty_rework', label: 'Rework' },
   { field: 'qty_renew', label: 'Renew' },
+  { field: 'actual_finish', label: 'Finish Date' },
 ]
+const FINISH_W = 190
 const HISTORY_GRID: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(6, 110px) minmax(110px, auto) minmax(120px, 1fr)', columnGap: 16, alignItems: 'center',
+  display: 'grid', gridTemplateColumns: `repeat(6, 110px) ${FINISH_W}px minmax(110px, auto) minmax(120px, 1fr)`, columnGap: 16, alignItems: 'center',
 }
 const SR_ONLY: React.CSSProperties = {
   position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', whiteSpace: 'nowrap', border: 0,
 }
 
-const fmtQty = (v: number | null) => (v == null ? '–' : String(v))
+const fmtQty = (v: number | string | null) => (v == null ? '–' : String(v))
+const chipValue = (field: string, v: number | string | null) => (v == null ? '–' : showChangeValue(field, v))
 
 /** What the row was, when it wasn't a plain save: "Start", "Cancel disposition",
  *  "BOM version accepted · Quantity 10 → 8", "Mark removed". */
@@ -542,12 +600,12 @@ function HistoryToggle({ open, count, onToggle }: { open: boolean; count: number
   )
 }
 
-function ChangeChip({ from, to }: { from: number | null; to: number | null }) {
+function ChangeChip({ from, to }: { from: string; to: string }) {
   return (
     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5, padding: '2px 8px', borderRadius: 4, background: '#fff', border: '1px solid #E6E6E6', ...mono, fontSize: 12 }}>
-      <span style={{ color: '#A6A6A6' }}>{fmtQty(from)}</span>
+      <span style={{ color: '#A6A6A6' }}>{from}</span>
       <span style={{ color: '#C4C4C4', fontSize: 11 }}> → </span>
-      <span style={{ color: '#1A1A1A', fontWeight: 700 }}>{fmtQty(to)}</span>
+      <span style={{ color: '#1A1A1A', fontWeight: 700 }}>{to}</span>
     </span>
   )
 }
@@ -588,7 +646,7 @@ function MarkHistory({ rows, loading }: { rows: MarkHistoryRow[]; loading: boole
               <div key={e.id} role="row" style={{ ...HISTORY_GRID, minHeight: 38, padding: '6px 0', borderBottom: '1px solid #EFEFEF' }}>
                 {HISTORY_FIELDS.map(f => {
                   const c = changes.find(x => x.field === f.field)
-                  return <span key={f.field} role="cell">{c && <ChangeChip from={c.old} to={c.new} />}</span>
+                  return <span key={f.field} role="cell">{c && <ChangeChip from={chipValue(c.field, c.old)} to={chipValue(c.field, c.new)} />}</span>
                 })}
                 <span role="cell" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
                   <span style={{ fontSize: 12, color: '#3A3A3A', ...mono }}>{fmtShort(e.recorded_at)}</span>

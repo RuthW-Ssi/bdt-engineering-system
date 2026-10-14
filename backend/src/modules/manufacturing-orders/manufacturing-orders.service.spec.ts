@@ -688,24 +688,36 @@ describe('ManufacturingOrderService.update — MO type, routing, plan + edit log
 // same as the Assemblies tab (2026-10-07, user chose "ก."): two pre-shop MOs of
 // one zone come from different uploads (different bom_assembly ids) but are the
 // same physical marks.
-describe('ManufacturingOrderService.getParts — cross-MO by mark + zone', () => {
-  const DISPATCH = { project_id: 16, zone_id: 33, sub_zone_id: null }
-  const asm = (id: number, partQty: number) => ({
-    id, assembly_mark: 'BUH1-3', dispatch: DISPATCH,
-    assembly_parts: [{ part_id: 900 + id, qty: partQty, part: { part_mark: 'C-f1', description: null, profile: 'PL25x400', grade: 'SM520', length_mm: 10550, weight_kg: 828.17 } }],
+// Parts Allocation = this MO's work orders (user feedback 2026-10-14, same as
+// the Assemblies tab): a WO holding N sets of a mark holds N × per-set of each part.
+describe('ManufacturingOrderService.getParts — WO allocation', () => {
+  const part = (mark: string) => ({ part_mark: mark, description: null, profile: 'PL25x400', grade: 'SM520', length_mm: 10550, weight_kg: 828.17 })
+  const asm = (id: number, mark: string, parts: [string, number][]) => ({
+    id, assembly_mark: mark, dispatch: { project_id: 16, zone_id: 33, sub_zone_id: null },
+    assembly_parts: parts.map(([m, q]) => ({ qty: q, part: part(m) })),
   })
-  it('lists every allocating MO of the same mark+zone, using each MO\'s own parts', async () => {
-    const own = [{ bom_assembly_id: 701, qty: '6', bom_assembly: asm(701, 2) }]
-    const cross = [
-      { qty: '6', mo: { mo_code: 'MO-26000013' }, bom_assembly: asm(701, 2) },
-      { qty: '2', mo: { mo_code: 'MO-26000014' }, bom_assembly: asm(700, 2) },
+  it('sums each part per WO from the marks it holds (non-cancelled WOs, active marks)', async () => {
+    const own = [
+      { bom_assembly_id: 700, qty: '2', bom_assembly: asm(700, 'BUH1-3', [['C-f1', 2]]) },
+      { bom_assembly_id: 701, qty: '1', bom_assembly: asm(701, 'BUH1A-12', [['C-f1', 2], ['C-wx26', 1]]) },
     ]
-    const findMany = jest.fn().mockResolvedValueOnce(own).mockResolvedValueOnce(cross)
-    const prisma = { manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 36 }) }, mo_assembly_line: { findMany } }
+    const woMarks = [
+      { qty_planned: '2', work_order: { id: 9, wo_code: 'WO-9' }, bom_assembly: asm(700, 'BUH1-3', [['C-f1', 2]]) },
+      { qty_planned: '1', work_order: { id: 9, wo_code: 'WO-9' }, bom_assembly: asm(701, 'BUH1A-12', [['C-f1', 2], ['C-wx26', 1]]) },
+      { qty_planned: '1', work_order: { id: 8, wo_code: 'WO-8' }, bom_assembly: asm(700, 'BUH1-3', [['C-f1', 2]]) },
+    ]
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 36 }) },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue(own) },
+      work_order_mark: { findMany: jest.fn().mockResolvedValue(woMarks) },
+    }
     const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, {} as any, {} as any)
-    const [p] = await svc.getParts(36)
-    expect(p).toMatchObject({ part_mark: 'C-f1', total_qty: 12, mo_breakdown: [{ mo_code: 'MO-26000013', qty: 12 }, { mo_code: 'MO-26000014', qty: 4 }] })
-    expect(findMany.mock.calls[1][0].where.OR).toEqual([{ bom_assembly: { assembly_mark: 'BUH1-3', dispatch: DISPATCH } }])
+    const [f1, wx26] = await svc.getParts(36)
+    expect(f1).toMatchObject({ part_mark: 'C-f1', total_qty: 6, wo_breakdown: [{ wo_id: 8, wo_code: 'WO-8', qty: 2 }, { wo_id: 9, wo_code: 'WO-9', qty: 6 }] })
+    expect(wx26).toMatchObject({ part_mark: 'C-wx26', wo_breakdown: [{ wo_id: 9, wo_code: 'WO-9', qty: 1 }] })
+    expect(prisma.work_order_mark.findMany.mock.calls[0][0].where).toEqual({
+      removed_at: null, work_order: { mo_id: 36, status: { not: 'CANCELLED' } },
+    })
   })
 })
 
@@ -1025,12 +1037,62 @@ describe('ManufacturingOrderService.getAssemblies — parts per set', () => {
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 36, kind: 'ASSEMBLY' }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([line]) },
+      work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
     const [r] = await svc.getAssemblies(36)
     expect(r.parts).toEqual([{ part_mark: 'C-f1', profile: 'PL25x400', grade: 'SM520', length_mm: 10550, qty_per_set: 2, weight_kg: 828.17 }])
     expect(r.source_label).toBe('BOM rev 3')
     expect(prisma.mo_assembly_line.findMany.mock.calls[0][0].include.bom_assembly.include.assembly_parts).toEqual({ include: { part: true }, orderBy: { sequence: 'asc' } })
+  })
+})
+
+// Per-mark production progress (user feedback 2026-10-14): every operation of the
+// MO in routing order (op 000 first on pre-shop) with this mark's numbers in each
+// live WO — an operation without a WO still listed. Done = QC Passed ≥ the MO's sets.
+describe('ManufacturingOrderService.getAssemblies — progress per operation', () => {
+  const OPS = [{ id: 900, sequence: 0, op_code: 'OP-000', name: 'Build-up(Pre-Shop)' }, { id: 101, sequence: 10, op_code: 'OP-FITUP-01', name: 'Fit-Up' }]
+  const line = { id: 1, line_seq: 0, bom_assembly_id: 700, qty: '2', bom_assembly: { assembly_mark: 'BUH1-3', name: null, qty: '2', dispatch: { project: null, zone: null, sub_zone: null, source: 'BOM_UPLOAD', revision: 1 }, assembly_parts: [] } }
+  const wm = (woId: number, seq: number, q: Record<string, string | null>) => ({
+    bom_assembly_id: 700, qty_planned: '2', qty_not_started: null, qty_in_progress: null, qty_done: null, qty_qc_passed: null, qty_rework: null, qty_renew: null, actual_finish: null, ...q,
+    work_order: { id: woId, wo_code: `WO-${woId}`, status: 'IN_PROGRESS', sequence: seq },
+  })
+
+  it('lists each operation with the WOs holding the mark and the QC-passed total', async () => {
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 51, kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', routing_template_id: 17 }) },
+      mrp_routing_workcenter: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.template?.code ? [OPS[0]] : OPS.slice(1))) },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue([line]) },
+      work_order_mark: { findMany: jest.fn().mockResolvedValue([wm(9, 0, { qty_done: '2', qty_qc_passed: '2', actual_finish: '2026-10-14T03:30:00.000Z' })]) },
+    }
+    const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
+    const [r] = await svc.getAssemblies(51)
+    expect(r.progress).toEqual([
+      { sequence: 0, op_code: 'OP-000', name: 'Build-up(Pre-Shop)', need: 2, qc_passed: 2, wos: [{
+        wo_id: 9, wo_code: 'WO-9', status: 'IN_PROGRESS', qty_planned: 2, qty_not_started: null, qty_in_progress: null,
+        qty_done: 2, qty_qc_passed: 2, qty_rework: null, qty_renew: null, actual_finish: '2026-10-14T03:30:00.000Z',
+      }] },
+      { sequence: 10, op_code: 'OP-FITUP-01', name: 'Fit-Up', need: 2, qc_passed: 0, wos: [] },
+    ])
+    expect(prisma.work_order_mark.findMany.mock.calls[0][0].where).toEqual({
+      removed_at: null, work_order: { mo_id: 51, status: { not: 'CANCELLED' } },
+    })
+  })
+
+  it('a mark split across several WOs of one operation lists each with its own qty; QC Passed adds up', async () => {
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 51, kind: 'ASSEMBLY', shop_type: 'FULL_SHOP', routing_template_id: 17 }) },
+      mrp_routing_workcenter: { findMany: jest.fn().mockResolvedValue(OPS.slice(1)) },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue([{ ...line, qty: '3' }]) },
+      work_order_mark: { findMany: jest.fn().mockResolvedValue([
+        { ...wm(9, 10, { qty_qc_passed: '1' }), qty_planned: '2' },
+        { ...wm(10, 10, { qty_qc_passed: '1' }), qty_planned: '1' },
+      ]) },
+    }
+    const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
+    const [r] = await svc.getAssemblies(51)
+    expect(r.progress[0]).toMatchObject({ sequence: 10, need: 3, qc_passed: 2 })
+    expect(r.progress[0].wos.map(w => [w.wo_code, w.qty_planned])).toEqual([['WO-9', 2], ['WO-10', 1]])
   })
 })
 

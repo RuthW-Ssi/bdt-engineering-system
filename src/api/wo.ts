@@ -135,6 +135,7 @@ export interface WoMark {
   removed_at: string | null
   removed_by: string | null
   removed_reason: string | null
+  actual_finish: string | null // when this mark finished (2026-10-14) — typed once QC Passed = Quantity
   created_at: string
   created_by: string
   bom_version_status: BomVersionStatus | null
@@ -226,8 +227,8 @@ export interface WoDetail {
 // (qty_planned included); null = the field was/became empty.
 export interface WoProgressChange {
   field: string
-  old: number | null
-  new: number | null
+  old: number | string | null // ISO string for actual_finish (2026-10-14)
+  new: number | string | null
 }
 
 export interface WoEvent {
@@ -399,11 +400,13 @@ export interface MarkProgressValues {
 }
 
 export type MarkProgressExpected = { [K in keyof MarkProgressValues]: number | null }
+// actual_finish (2026-10-14): ISO instant, required by the server once QC Passed = Quantity, else null.
+export type MarkProgressBody = MarkProgressValues & { actual_finish: string | null; expected: MarkProgressExpected }
 
 export async function updateMarkProgress(
   woId: number,
   markId: number,
-  body: MarkProgressValues & { expected: MarkProgressExpected },
+  body: MarkProgressBody,
 ): Promise<WoDetail> {
   return (await apiClient.patch(`/wo/${woId}/marks/${markId}/progress`, body)).data
 }

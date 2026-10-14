@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { Prisma, WoEventType, WoStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MailMessageService } from '../mail/mail-message.service'
-import { actualsTracking, parseActualDates } from '../../common/actual-dates'
+import { actualsTracking, parseActualDates, parseMarkFinish } from '../../common/actual-dates'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 import { AcceptVersionDto } from './dto/accept-version.dto'
 import { CancelWoDto, WoActualsDto, WoDoneDto } from './dto/wo-transition.dto'
@@ -11,7 +11,7 @@ import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
 import { UpdateMarkProgressDto } from './dto/update-mark-progress.dto'
 import { fmtBkk } from '../../common/history-format'
-import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField } from './progress-changes'
+import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField, type FinishChange, type ProgressChange } from './progress-changes'
 
 /**
  * WO list default sort tiebreak (T-WO.09): active work first, terminal last.
@@ -652,7 +652,7 @@ export class WorkOrdersService {
       if (notPassed.length > 0) {
         throw new BadRequestException(`Every mark needs QC Passed = Quantity before completing: ${notPassed.map((m) => m.bom_assembly_id).join(', ')}`)
       }
-      const actuals = this.resolveActuals(dto)
+      const actuals = this.resolveActuals(dto, wo.plan_finish)
       await this.prisma.$transaction(async (tx) => {
         await tx.work_order.update({ where: { id }, data: { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName } })
         await tx.work_order_event.create({ data: { work_order_id: id, event_type: 'DONE', notes: dto.notes ?? null, recorded_by: userName } })
@@ -694,7 +694,7 @@ export class WorkOrdersService {
         `Not Started + In Progress + Done exceeds planned qty for mark(s): ${overPlanned.map((m) => m.bom_assembly_id).join(', ')}`,
       )
     }
-    const actuals = this.resolveActuals(dto)
+    const actuals = this.resolveActuals(dto, wo.plan_finish)
 
     await this.prisma.$transaction(async (tx) => {
       for (const m of wo.marks) {
@@ -765,12 +765,16 @@ export class WorkOrdersService {
     if (over.length > 0) {
       throw new BadRequestException(`Values cannot exceed Quantity (${planned}): ${over.map((f) => FIELD_LABEL[f]).join(', ')}`)
     }
-    if (dto.qty_not_started + dto.qty_in_progress + dto.qty_done > planned) {
-      throw new BadRequestException(`Not Started + In Progress + Done exceeds Quantity (${planned})`)
+    // Every piece is in exactly one of the three (user feedback 2026-10-14) —
+    // the UI derives Not Started, so a mismatch means a bad client, not a typo.
+    if (dto.qty_not_started + dto.qty_in_progress + dto.qty_done !== planned) {
+      throw new BadRequestException(`Not Started + In Progress + Done must equal Quantity (${planned})`)
     }
     if (dto.qty_qc_passed + dto.qty_rework + dto.qty_renew > dto.qty_done) {
       throw new BadRequestException('QC Passed + Rework + Renew exceeds Done')
     }
+    // Finish date (2026-10-14): only once every piece passed QC — required then.
+    const finish = dto.qty_qc_passed === planned ? parseMarkFinish(dto.actual_finish) : null
 
     await this.prisma.$transaction(async (tx) => {
       // Read first only to compute the audit diff — the stale check itself is
@@ -778,7 +782,11 @@ export class WorkOrdersService {
       const current = await tx.work_order_mark.findUnique({ where: { id: markId } })
       if (!current) throw new NotFoundException(`Active mark ${markId} not found on WO ${id}`)
       const next = Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, dto[f]])) as Record<EditableProgressField, number>
-      const changes = diffProgress(current, next)
+      const changes: (ProgressChange | FinishChange)[] = diffProgress(current, next)
+      const oldFinish = current.actual_finish?.toISOString() ?? null
+      if (oldFinish !== (finish?.toISOString() ?? null)) {
+        changes.push({ field: 'actual_finish', old: oldFinish, new: finish?.toISOString() ?? null })
+      }
       if (changes.length === 0) return
       // WHERE = every expected value (null → IS NULL): matches no row if anyone
       // saved this mark since the client loaded it, even after our read above.
@@ -789,7 +797,7 @@ export class WorkOrdersService {
           removed_at: null,
           ...Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, dto.expected[f] ?? null])),
         },
-        data: Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, new Prisma.Decimal(next[f])])),
+        data: { ...Object.fromEntries(EDITABLE_PROGRESS_FIELDS.map((f) => [f, new Prisma.Decimal(next[f])])), actual_finish: finish },
       })
       if (count === 0) {
         throw new ConflictException({ message: 'This mark was updated by someone else — latest values reloaded', code: 'STALE_PROGRESS' })
@@ -813,7 +821,7 @@ export class WorkOrdersService {
     if (wo.status !== 'DONE') {
       throw new ConflictException('Actual dates can only be edited after the work order is DONE')
     }
-    const actuals = this.resolveActuals(dto)
+    const actuals = this.resolveActuals(dto, wo.plan_finish)
     const tracking = actualsTracking(wo, actuals)
     if (tracking.length > 0) {
       await this.prisma.work_order.update({ where: { id }, data: { ...actuals, updated_by: userName } })
@@ -835,8 +843,14 @@ export class WorkOrdersService {
 
   /** Actuals are user-typed, never system-stamped (2026-10-01): delay_note is
    *  required (trimmed) when DELAYED and always stored null when ON_PLAN. */
-  private resolveActuals(dto: WoActualsDto) {
+  private resolveActuals(dto: WoActualsDto, planFinish: Date | null) {
     const dates = parseActualDates(dto.actual_start, dto.actual_finish)
+    // Result must agree with the dates (user 2026-10-14) — Actual vs Plan Finish.
+    if (planFinish) {
+      const late = dates.actual_finish.getTime() > planFinish.getTime()
+      if (dto.timeliness === 'ON_PLAN' && late) throw new BadRequestException('Finished after the plan — choose Delayed')
+      if (dto.timeliness === 'DELAYED' && !late) throw new BadRequestException('Finished within the plan — choose On Plan')
+    }
     let delay_note: string | null = null
     if (dto.timeliness === 'DELAYED') {
       delay_note = dto.delay_note?.trim() || null

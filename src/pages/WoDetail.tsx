@@ -14,7 +14,7 @@ import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdo
 import { WoVisualTab } from '../components/wo/WoVisualTab'
 import type {
   WoAction, WoStatus, WoDetail as WoDetailT, WoMark, WoEvent, SourceRoutingOp,
-  MarkDispositionInput, MarkProgressValues, MarkProgressExpected,
+  MarkDispositionInput, MarkProgressBody,
 } from '../api/wo'
 import { siblingQtyDone } from '../api/wo'
 import { usePermission } from '../hooks/usePermission'
@@ -607,7 +607,7 @@ function OverviewTab({
 }: {
   wo: WoDetailT
   bomList: import('../api/wo').BomVersionStatus[]
-  onSaveProgress: (markId: number, body: MarkProgressValues & { expected: MarkProgressExpected }) => Promise<unknown>
+  onSaveProgress: (markId: number, body: MarkProgressBody) => Promise<unknown>
   onReloadMarks: () => Promise<WoMark[] | undefined>
   events: WoEvent[]
   eventsLoading: boolean

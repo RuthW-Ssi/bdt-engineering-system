@@ -1,3 +1,4 @@
+import type { WoStatus } from './wo'
 import { isAxiosError } from 'axios'
 import { apiClient } from './client'
 
@@ -150,6 +151,8 @@ export interface MoAssemblyRow {
   // of the same operation. Distinct from `remaining` above (cross-MO).
   wo_remaining: number | null
   allocation_breakdown: { mo_code: string; qty: number }[]
+  // Per operation in routing order: this mark in each live WO (2026-10-14)
+  progress: MarkOpProgress[]
   preshop: boolean // from a pre-shop upload — parts editable on the MO
   source_label: string // 'Pre-shop' | 'BOM rev N' (2026-10-09)
   parts: { part_mark: string; profile: string | null; grade: string | null; length_mm: number | null; qty_per_set: number; weight_kg: number | null }[]
@@ -362,7 +365,7 @@ export interface MoPartRow {
   total_qty: number
   total_weight_kg: number | null
   assembly_marks: string[]
-  mo_breakdown: { mo_code: string; qty: number }[]
+  wo_breakdown: { wo_id: number; wo_code: string; qty: number }[] // this MO's WOs (2026-10-14)
 }
 
 // Multi-mark redesign (2026-09-17): the ONLY way a WO gets created now —
@@ -706,4 +709,26 @@ export async function linkBom(id: number, body: {
   add?: { bom_assembly_id: number; qty: number }[]
 }): Promise<BomCompare> {
   return (await apiClient.post(`/mo/${id}/bom-link`, body)).data
+}
+
+// One operation of a mark's production progress (MO Assemblies tab, 2026-10-14).
+export interface MarkOpProgress {
+  sequence: number
+  op_code: string
+  name: string
+  need: number
+  qc_passed: number
+  wos: {
+    wo_id: number
+    wo_code: string
+    status: WoStatus
+    qty_planned: number
+    qty_not_started: number | null
+    qty_in_progress: number | null
+    qty_done: number | null
+    qty_qc_passed: number | null
+    qty_rework: number | null
+    qty_renew: number | null
+    actual_finish: string | null
+  }[]
 }

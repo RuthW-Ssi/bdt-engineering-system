@@ -9,6 +9,10 @@ describe('formatProgressChanges', () => {
     expect(formatProgressChanges(null)).toBe('')
     expect(formatProgressChanges([])).toBe('')
   })
+  it('shows the mark finish date as a date, not a number (2026-10-14)', () => {
+    const out = formatProgressChanges([{ field: 'actual_finish', old: null, new: '2026-10-14T12:00:00.000Z' }])
+    expect(out).toMatch(/^Finish Date — → 14\/10\/2026 \d\d:\d\d$/)
+  })
   it('drops blank → 0 noise on the six progress fields (logged before the backend stopped recording it)', () => {
     expect(formatProgressChanges([
       { field: 'qty_in_progress', old: null, new: 1 },

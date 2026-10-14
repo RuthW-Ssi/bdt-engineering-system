@@ -1,3 +1,4 @@
+import { toDatetimeLocal } from '../lib/datetimeLocal'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { ActualDatesModal, validateActualDatesForm } from './ActualDatesModal'
 
@@ -36,6 +37,20 @@ describe('validateActualDatesForm', () => {
     expect(validateActualDatesForm({ ...DATES, timeliness: 'DELAYED', delayNote: 'crane down' }, opts)).toEqual([])
   })
 
+  // User 2026-10-14: the result must agree with Actual Finish vs Plan Finish.
+  it('withTimeliness + planFinish: On Plan must finish by the plan, Delayed after it', () => {
+    const planFinish = new Date(2026, 9, 1, 10, 0).toISOString() // = DATES.finish
+    const opts = { ...PLAIN, withTimeliness: true, planFinish }
+    expect(validateActualDatesForm({ ...DATES, timeliness: 'ON_PLAN' }, opts)).toEqual([])
+    expect(validateActualDatesForm({ ...DATES, finish: '2026-10-01T10:01', timeliness: 'ON_PLAN' }, opts))
+      .toEqual(['Finished after the plan — choose Delayed'])
+    expect(validateActualDatesForm({ ...DATES, timeliness: 'DELAYED', delayNote: 'x' }, opts))
+      .toEqual(['Finished within the plan — choose On Plan'])
+    expect(validateActualDatesForm({ ...DATES, finish: '2026-10-01T10:01', timeliness: 'DELAYED', delayNote: 'x' }, opts)).toEqual([])
+    // No plan finish → nothing to compare.
+    expect(validateActualDatesForm({ ...DATES, timeliness: 'DELAYED', delayNote: 'x' }, { ...opts, planFinish: null })).toEqual([])
+  })
+
   it('ignores timeliness when withTimeliness is off', () => {
     expect(validateActualDatesForm({ ...DATES, timeliness: 'DELAYED' }, PLAIN)).toEqual([])
   })
@@ -72,6 +87,20 @@ describe('ActualDatesModal', () => {
 
     fireEvent.click(screen.getByLabelText('On Plan'))
     expect(confirm).toBeEnabled()
+  })
+
+  // User 2026-10-14: "ถ้ากด on plan ให้ดึงวันที่ จาก plan มาใส่ auto เลย".
+  it('choosing On Plan fills both dates from the plan; Delayed leaves them alone', () => {
+    const plan = { start: '2025-01-05T01:00:00.000Z', finish: '2025-01-06T10:30:00.000Z' }
+    render(<ActualDatesModal title="t" plan={plan} withTimeliness onConfirm={vi.fn()} onClose={vi.fn()} />)
+
+    fireEvent.click(screen.getByLabelText('Delayed'))
+    expect(screen.getByLabelText(/Actual Start/)).toHaveValue('')
+
+    fireEvent.click(screen.getByLabelText('On Plan'))
+    expect(screen.getByLabelText(/Actual Start/)).toHaveValue(toDatetimeLocal(plan.start))
+    expect(screen.getByLabelText(/Actual Finish/)).toHaveValue(toDatetimeLocal(plan.finish))
+    expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled()
   })
 
   it('shows Delay Reason only after choosing Delayed, and requires it', () => {
