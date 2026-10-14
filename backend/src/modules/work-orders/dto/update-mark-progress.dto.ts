@@ -1,4 +1,4 @@
-import { IsDefined, IsNumber, IsObject, IsOptional, Min, ValidateNested } from 'class-validator'
+import { IsDefined, IsISO8601, IsNumber, IsObject, IsOptional, Min, ValidateNested } from 'class-validator'
 import { Type } from 'class-transformer'
 
 /** The six values as the client loaded them — optimistic concurrency check
@@ -21,6 +21,10 @@ export class UpdateMarkProgressDto {
   @IsNumber() @Min(0) qty_qc_passed: number
   @IsNumber() @Min(0) qty_rework: number
   @IsNumber() @Min(0) qty_renew: number
+
+  // Required (by the service) once qty_qc_passed = Quantity; ignored below that.
+  // strict: no calendar roll-over (2026-02-30 → 400), security review L2 2026-10-14
+  @IsOptional() @IsISO8601({ strict: true }) actual_finish?: string | null
 
   // Required (fix wave 2026-10-05): a missing `expected` is a 400, not a
   // misleading 409 STALE_PROGRESS from the service's conditional update.

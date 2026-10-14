@@ -30,6 +30,7 @@ function mark(overrides: {
   qty_rework?: number | string | null
   qty_renew?: number | string | null
   assembly_mark?: string
+  actual_finish?: string | null
 } = {}) {
   return {
     bom_assembly_id: overrides.bom_assembly_id ?? 1,
@@ -43,6 +44,8 @@ function mark(overrides: {
     qty_qc_passed: overrides.qty_qc_passed ?? null,
     qty_rework: overrides.qty_rework ?? null,
     qty_renew: overrides.qty_renew ?? null,
+    // a finish date by default so the QC tests below test QC only (2026-10-14)
+    actual_finish: overrides.actual_finish === undefined ? '2026-10-01T00:00:00Z' : overrides.actual_finish,
     bom_assembly: bomAssembly(overrides.assembly_mark ?? 'A1'),
   }
 }
@@ -145,6 +148,11 @@ describe('allMarksQcPassed', () => {
   it('compares numerically, so Decimal strings from the server match (2026-10-05: no draft layer)', () => {
     expect(allMarksQcPassed([mark({ qty_planned: '5', qty_qc_passed: '5.000' })])).toBe(true)
     expect(allMarksQcPassed([mark({ qty_planned: '5', qty_qc_passed: '4' })])).toBe(false)
+  })
+
+  // QA F-2 (2026-10-14): the server also requires each mark's finish date.
+  it('is false while a fully QC-passed mark has no finish date', () => {
+    expect(allMarksQcPassed([mark({ qty_planned: 5, qty_qc_passed: 5, actual_finish: null })])).toBe(false)
   })
 
   it('ignores removed marks entirely', () => {

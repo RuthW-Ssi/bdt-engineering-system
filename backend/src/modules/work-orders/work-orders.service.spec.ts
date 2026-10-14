@@ -424,6 +424,25 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     expect(result).toEqual({ id: 1 })
   })
 
+  // QA F-2 (2026-10-14): a new Quantity that QC Passed no longer equals clears the mark's finish date.
+  it('clears actual_finish (audited) when the new Quantity no longer equals QC Passed; keeps it when it still does', async () => {
+    const FIN = new Date('2026-10-10T03:00:00.000Z')
+    const raised = makeMark({ qty_done: 5, qty_qc_passed: 5, actual_finish: FIN } as any)
+    const prisma = makePrisma(raised, { ...raised.bom_assembly, id: 200, dispatch_id: 20, qty: 8 })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
+    expect(prisma.work_order_mark.update.mock.calls[0][0].data.actual_finish).toBeNull()
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toContainEqual({ field: 'actual_finish', old: FIN.toISOString(), new: null })
+
+    const same = makeMark({ qty_done: 5, qty_qc_passed: 5, actual_finish: FIN } as any)
+    const prisma2 = makePrisma(same, { ...same.bom_assembly, id: 200, dispatch_id: 20, qty: 5 })
+    const svc2 = new WorkOrdersService(prisma2, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc2, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc2.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
+    expect(prisma2.work_order_mark.update.mock.calls[0][0].data).not.toHaveProperty('actual_finish')
+  })
+
   it('requires a QC breakdown when qty_done already exceeds the newly-adopted qty', async () => {
     const mark = makeMark({ qty_done: 5 })
     const latestAsm = { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 3 }
@@ -796,6 +815,23 @@ describe('WorkOrdersService.done (per-mark array)', () => {
     expect(prisma.work_order.update.mock.calls[0][0].data).toMatchObject({ timeliness: 'DELAYED', delay_note: 'machine down' })
   })
 
+  // Result must agree with the dates (user 2026-10-14): Actual Finish vs Plan Finish.
+  it('400s when On Plan finishes after the plan, or Delayed finishes within it', async () => {
+    const wo = { ...makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }]), plan_finish: new Date('2026-09-30T08:00:00.000Z') }
+    const svc = new WorkOrdersService(makePrisma(wo as any), makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    const marks = [{ bom_assembly_id: 100, qty_done: 5 }]
+
+    // ACTUALS finishes 10:00, two hours after the plan.
+    await expect(svc.done(1, { marks, ...ACTUALS } as any, 'tester')).rejects.toThrow(
+      new BadRequestException('Finished after the plan — choose Delayed'),
+    )
+    await expect(svc.done(1, { marks, ...ACTUALS, actual_finish: '2026-09-30T08:00:00.000Z', timeliness: 'DELAYED', delay_note: 'x' } as any, 'tester')).rejects.toThrow(
+      new BadRequestException('Finished within the plan — choose On Plan'),
+    )
+    await expect(svc.done(1, { marks, ...ACTUALS, timeliness: 'DELAYED', delay_note: 'late steel' } as any, 'tester')).resolves.toEqual({ id: 1 })
+  })
+
   it('ON_PLAN stores delay_note as null even when one is sent', async () => {
     const prisma = makePrisma(makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100 }]))
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
@@ -813,13 +849,22 @@ describe('WorkOrdersService.done (per-mark array)', () => {
   })
 
   it('without marks: validates the SAVED values and completes without touching marks', async () => {
-    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0 } as any])
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0, actual_finish: new Date('2026-09-30T09:00:00.000Z') } as any])
     const prisma = makePrisma(wo)
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
     await svc.done(1, { ...ACTUALS } as any, 'tester')
     expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
     expect(prisma.work_order.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: 'DONE' }) }))
+  })
+
+  // QA F-2 (2026-10-14): every mark needs its finish date before the WO completes.
+  it('without marks: 400s when a fully QC-passed mark has no Finish Date', async () => {
+    const wo = makeWoWithMarks('IN_PROGRESS', [{ id: 1, bom_assembly_id: 100, qty_planned: 5, qty_not_started: 0, qty_in_progress: 0, qty_done: 5, qty_qc_passed: 5, qty_rework: 0, qty_renew: 0, actual_finish: null } as any])
+    const svc = new WorkOrdersService(makePrisma(wo), makeAutoCreate() as any, {} as any)
+    await expect(svc.done(1, { ...ACTUALS } as any, 'tester')).rejects.toThrow(
+      new BadRequestException('Every mark needs a Finish Date before completing: 100'),
+    )
   })
 
   it('without marks: 400s when a saved mark is not fully QC-passed', async () => {
@@ -1895,12 +1940,56 @@ describe('WorkOrdersService.updateMarkProgress (2026-10-05)', () => {
     await expect(svcFor(makePrisma('IN_PROGRESS', { ...stored, removed_at: new Date() })).updateMarkProgress(1, 7, BODY as any, 'tao')).rejects.toThrow(NotFoundException)
   })
 
+  // Per-mark finish date (user feedback 2026-10-14): typed once QC Passed =
+  // Quantity, required then, never in the future, cleared when QC drops back.
+  describe('actual_finish', () => {
+    const FULL = { qty_not_started: 0, qty_in_progress: 0, qty_done: 10, qty_qc_passed: 10, qty_rework: 0, qty_renew: 0, expected: EXPECTED }
+    const FINISH = '2026-10-14T03:30:00.000Z'
+
+    it('400s when QC Passed = Quantity but no finish date is given', async () => {
+      await expect(svcFor(makePrisma()).updateMarkProgress(1, 7, FULL as any, 'tao')).rejects.toThrow(
+        new BadRequestException('Finish Date is required when QC Passed equals Quantity'),
+      )
+    })
+
+    it('400s on a finish date in the future', async () => {
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString()
+      await expect(svcFor(makePrisma()).updateMarkProgress(1, 7, { ...FULL, actual_finish: future } as any, 'tao')).rejects.toThrow(
+        new BadRequestException('Finish Date must not be in the future'),
+      )
+    })
+
+    it('saves the finish date and logs it as a change', async () => {
+      const prisma = makePrisma()
+      await svcFor(prisma).updateMarkProgress(1, 7, { ...FULL, actual_finish: FINISH } as any, 'tao')
+      const { data } = prisma.work_order_mark.updateMany.mock.calls[0][0]
+      expect(data.actual_finish).toEqual(new Date(FINISH))
+      const ev = prisma.work_order_event.create.mock.calls[0][0].data
+      expect(ev.changes).toContainEqual({ field: 'actual_finish', old: null, new: FINISH })
+    })
+
+    it('clears the finish date when QC Passed drops below Quantity', async () => {
+      const prisma = makePrisma('IN_PROGRESS', { ...stored, actual_finish: new Date(FINISH) })
+      await svcFor(prisma).updateMarkProgress(1, 7, { ...BODY, actual_finish: FINISH } as any, 'tao')
+      const { data } = prisma.work_order_mark.updateMany.mock.calls[0][0]
+      expect(data.actual_finish).toBeNull()
+      const ev = prisma.work_order_event.create.mock.calls[0][0].data
+      expect(ev.changes).toContainEqual({ field: 'actual_finish', old: FINISH, new: null })
+    })
+  })
+
   it('400s on a field above qty_planned (named by its UI label) or broken sum rules', async () => {
     const svc = svcFor(makePrisma())
     await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_done: 11, qty_qc_passed: 11 } as any, 'tao')).rejects.toThrow(
       new BadRequestException('Values cannot exceed Quantity (10): Done, QC Passed'),
     )
-    await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_not_started: 5 } as any, 'tao')).rejects.toThrow(/Not Started \+ In Progress \+ Done/)
+    await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_not_started: 5 } as any, 'tao')).rejects.toThrow(
+      new BadRequestException('Not Started + In Progress + Done must equal Quantity (10)'),
+    )
+    // Pieces can't vanish either (user feedback 2026-10-14): 1 + 0 + 8 = 9 ≠ 10.
+    await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_not_started: 1 } as any, 'tao')).rejects.toThrow(
+      new BadRequestException('Not Started + In Progress + Done must equal Quantity (10)'),
+    )
     await expect(svc.updateMarkProgress(1, 7, { ...BODY, qty_qc_passed: 8, qty_rework: 1 } as any, 'tao')).rejects.toThrow(/QC Passed \+ Rework \+ Renew/)
   })
 })

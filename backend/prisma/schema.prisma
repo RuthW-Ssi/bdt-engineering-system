@@ -1789,6 +1789,9 @@ model work_order_mark {
   qty_qc_passed            Decimal?     @db.Decimal(12, 3) // passed QC outright, no further work needed
   qty_rework               Decimal?     @db.Decimal(12, 3) // fixable — needs rework before it's acceptable
   qty_renew                Decimal?     @db.Decimal(12, 3) // unusable as-is — must be completely remade
+  // When this mark finished (2026-10-14, user: "แต่ละ mark จบงาน … วันที่เท่าไหร่").
+  // User-typed, never stamped; required once qty_qc_passed = qty_planned, cleared below that.
+  actual_finish            DateTime?    @db.Timestamptz
   removed_at               DateTime?    @db.Timestamptz // soft-remove: mark taken out of this WO (BOM-removed or manual)
   removed_by               String?      @db.VarChar(120)
   removed_reason           String?      @db.Text
