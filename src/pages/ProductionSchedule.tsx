@@ -146,7 +146,7 @@ export function ProductionSchedule() {
           </span>
         )}
         <div style={{ flex: 1 }} />
-        {canUpdate && <RunSchedulePanel onRan={onRan} />}
+        {canUpdate && <RunSchedulePanel onRan={onRan} mos={board?.mos ?? []} workOrders={board?.work_orders ?? []} />}
       </div>
 
       <div className="flex-1 overflow-auto bg-[#eef1f5] p-4">

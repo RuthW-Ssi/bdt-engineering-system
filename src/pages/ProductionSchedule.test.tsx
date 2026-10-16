@@ -262,6 +262,32 @@ describe('ProductionSchedule', () => {
     expect(runMutate).toHaveBeenCalledWith({ direction: 'backward', dispatch_rule: 'CR', activate: true }, expect.any(Object))
   })
 
+  it('runs only the picked WOs and warns when an earlier operation is left out', () => {
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
+    const form = screen.getByRole('form', { name: 'Run scheduler' })
+
+    fireEvent.click(within(form).getByLabelText('เลือกเอง'))
+    expect(within(form).getByRole('button', { name: 'Run' })).toBeDisabled() // nothing picked yet
+
+    fireEvent.click(within(form).getByRole('button', { name: 'ดู WO ของ MO-100' }))
+    fireEvent.click(within(form).getByRole('checkbox', { name: /WO-1002/ })) // Weld only, Cut left out
+    expect(within(form).getByText('ต้องรอ WO-1001')).toBeInTheDocument()
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Run' }))
+    expect(runMutate).toHaveBeenCalledWith(
+      { direction: 'event', dispatch_rule: 'EDD', activate: false, work_order_ids: [1002] },
+      expect.any(Object),
+    )
+  })
+
+  it('"ทุกงานที่จัดได้" (default) sends no work_order_ids', () => {
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
+    fireEvent.click(within(screen.getByRole('form', { name: 'Run scheduler' })).getByRole('button', { name: 'Run' }))
+    expect(runMutate.mock.calls.at(-1)?.[0]).not.toHaveProperty('work_order_ids')
+  })
+
   it('cannot close the run form while a run is in flight', () => {
     const { rerender } = render(<ProductionSchedule />)
     fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))

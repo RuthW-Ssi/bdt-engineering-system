@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Loader2, Play } from 'lucide-react'
 import { toast } from 'sonner'
-import { DISPATCH_RULES, type DispatchRule, type ScheduleRunResult } from '../../api/schedule'
+import { DISPATCH_RULES, type BoardMo, type BoardWorkOrder, type DispatchRule, type ScheduleRunResult } from '../../api/schedule'
 import { useRunSchedule } from '../../hooks/useSchedule'
 import { describeScheduleError } from '../../lib/schedule'
+import { runCandidates } from '../../lib/schedule/runScope'
+import { RunScopePicker } from './RunScopePicker'
 import { BTN, BTN_ACCENT, ERROR_BOX } from './styles'
 
 // The page offers the two scheduler modes the plant uses; the API also takes
@@ -15,16 +17,24 @@ const DIRECTIONS = [
 type FormDirection = (typeof DIRECTIONS)[number]['value']
 
 /**
- * ▶ Run scheduler — small drop-down form (direction · dispatch rule · activate)
- * → POST /schedule/runs. 409 / 422 (+ reasons) / other errors render inside
+ * ▶ Run scheduler — small drop-down form (direction · dispatch rule · activate ·
+ * งานที่จะจัด: every schedulable WO, or a picked set) → POST /schedule/runs. 409 / 422 (+ reasons) / other errors render inside
  * the form. Render only for users with orders:update.
  */
-export function RunSchedulePanel({ onRan }: { onRan: (result: ScheduleRunResult) => void }) {
+export function RunSchedulePanel({ onRan, mos, workOrders }: {
+  onRan: (result: ScheduleRunResult) => void
+  /** board.mos / board.work_orders — the WOs the planner can pick from. */
+  mos: BoardMo[]
+  workOrders: BoardWorkOrder[]
+}) {
   const run = useRunSchedule()
   const [open, setOpen] = useState(false)
   const [direction, setDirection] = useState<FormDirection>('event')
   const [rule, setRule] = useState<DispatchRule>('EDD')
   const [activate, setActivate] = useState(false)
+  const [scope, setScope] = useState<'all' | 'pick'>('all')
+  const [picked, setPicked] = useState<Set<number>>(() => new Set())
+  const candidates = useMemo(() => runCandidates(mos, workOrders), [mos, workOrders])
   const toggleRef = useRef<HTMLButtonElement>(null)
   const refocus = useRef(false)
 
@@ -51,7 +61,7 @@ export function RunSchedulePanel({ onRan }: { onRan: (result: ScheduleRunResult)
   const submit = (e: FormEvent) => {
     e.preventDefault()
     run.mutate(
-      { direction, dispatch_rule: rule, activate },
+      { direction, dispatch_rule: rule, activate, ...(scope === 'pick' ? { work_order_ids: [...picked] } : {}) },
       {
         onSuccess: (res) => {
           toast.success(`คำนวณเสร็จ · ${res.version_code ?? 'ไม่มี version'}${res.is_active ? ' (active)' : ''}`)
@@ -73,7 +83,7 @@ export function RunSchedulePanel({ onRan }: { onRan: (result: ScheduleRunResult)
         <form
           aria-label="Run scheduler"
           onSubmit={submit}
-          className="absolute right-0 top-full mt-2 z-30 w-[300px] bg-white border border-[#d8dde3] rounded-[10px] p-3 text-xs text-[#1f2733] shadow-[0_8px_24px_rgba(20,26,33,.22)] flex flex-col gap-2.5"
+          className={`absolute right-0 top-full mt-2 z-30 ${scope === 'pick' ? 'w-[400px]' : 'w-[300px]'} bg-white border border-[#d8dde3] rounded-[10px] p-3 text-xs text-[#1f2733] shadow-[0_8px_24px_rgba(20,26,33,.22)] flex flex-col gap-2.5`}
         >
           <label className="flex items-center gap-2">
             <span className="w-16 text-[#6b7682]">Direction</span>
@@ -100,6 +110,21 @@ export function RunSchedulePanel({ onRan }: { onRan: (result: ScheduleRunResult)
             <span>activate — ตั้งเป็น version ที่ใช้งานทันที</span>
           </label>
 
+          <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
+            <legend className="text-[#6b7682] mb-1">งานที่จะจัด</legend>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="radio" name="run-scope" checked={scope === 'all'} onChange={() => setScope('all')} />
+              <span>ทุกงานที่จัดได้</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="radio" name="run-scope" checked={scope === 'pick'} onChange={() => setScope('pick')} />
+              <span>เลือกเอง</span>
+            </label>
+            {scope === 'pick' && (
+              <RunScopePicker candidates={candidates} workOrders={workOrders} picked={picked} onChange={setPicked} />
+            )}
+          </fieldset>
+
           {err && (
             <div role="alert" className={ERROR_BOX}>
               <div className="font-semibold">{err.message}</div>
@@ -113,7 +138,7 @@ export function RunSchedulePanel({ onRan }: { onRan: (result: ScheduleRunResult)
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={toggle} disabled={run.isPending} className={BTN}>ยกเลิก</button>
-            <button type="submit" disabled={run.isPending} className={BTN_ACCENT}>
+            <button type="submit" disabled={run.isPending || (scope === 'pick' && picked.size === 0)} className={BTN_ACCENT}>
               {run.isPending ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
               {run.isPending ? 'กำลังคำนวณ…' : 'Run'}
             </button>

@@ -175,6 +175,8 @@ export interface RunScheduleInput {
   direction: ScheduleDirection
   dispatch_rule?: DispatchRule
   activate?: boolean
+  /** Limit the run to these WOs (▶ Run · เลือกเอง); omitted = every schedulable WO. */
+  work_order_ids?: number[]
 }
 
 export interface ScheduleRunKpi {
