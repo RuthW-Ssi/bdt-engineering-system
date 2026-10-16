@@ -76,6 +76,7 @@ export class ScheduleService {
       persist: true,
       now: bangkokNowIso(),
       requested_by: user.login,
+      ...(dto.work_order_ids ? { work_order_ids: dto.work_order_ids } : {}),
     })
     await this.mail.log({
       model: 'prod_schedule_version',
@@ -85,7 +86,8 @@ export class ScheduleService {
       subject: 'Scheduler run',
       body:
         `direction=${dto.direction} rule=${dispatch_rule} activate=${activate} ` +
-        `work_orders=${result.kpi?.work_orders} late_vs_due=${result.kpi?.late_vs_due}`,
+        `work_orders=${result.kpi?.work_orders} late_vs_due=${result.kpi?.late_vs_due}` +
+        (dto.work_order_ids ? ` picked=${dto.work_order_ids.length}` : ''),
       author_id: user.sub,
     })
     return result

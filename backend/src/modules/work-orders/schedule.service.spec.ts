@@ -51,6 +51,20 @@ describe('bangkokNowIso', () => {
 })
 
 describe('ScheduleService.run', () => {
+  it('forwards the picked work_order_ids and notes the pick in the audit', async () => {
+    const { svc, scheduler, mail } = makeDeps()
+    await svc.run({ direction: 'event', work_order_ids: [5, 7] }, USER)
+    expect(scheduler.run.mock.calls[0][0].work_order_ids).toEqual([5, 7])
+    expect(mail.log.mock.calls[0][0].body).toContain('picked=2')
+  })
+
+  it('omits work_order_ids when none were picked (run every schedulable WO)', async () => {
+    const { svc, scheduler } = makeDeps()
+    await svc.run({ direction: 'event' }, USER)
+    expect('work_order_ids' in scheduler.run.mock.calls[0][0]).toBe(false)
+  })
+
+
   it('calls the scheduler with persist=true, a +07:00 now, requested_by = JWT login, and defaults', async () => {
     const { svc, scheduler } = makeDeps()
 

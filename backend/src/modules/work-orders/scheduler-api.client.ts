@@ -24,6 +24,8 @@ export interface ScheduleRunRequest {
   now: string
   /** JWT login; stored in prod_schedule_version.created_by (max 120 chars). */
   requested_by: string
+  /** Limit the run to these WOs; omitted = every schedulable WO. */
+  work_order_ids?: number[]
 }
 
 /** backend-schedule/app/solver/kpi.py compute(). */
