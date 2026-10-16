@@ -572,10 +572,6 @@ model drawing {
   uploaded_by    res_users    @relation(fields: [uploaded_by_id], references: [id])
   create_date    DateTime     @default(now()) @db.Timestamptz
 
-  // APS (Autodesk Platform Services) 2D preview — populated asynchronously
-  // after the primary GCS upload completes (fire-and-forget push, see
-  // DrawingApsService). GCS stays the canonical store; APS is a derived
-  // artifact that only exists to power the in-browser DWG preview.
 }
 
 // Document Center (2026-10-05, wiki features/document-center.md): admin-managed
@@ -877,7 +873,6 @@ model bom_dispatch {
   // Aggregate counts — cached after processing
   assembly_total Int?
   part_total     Int?
-  // mBOM coverage — saved after welding compute()
   // Audit
   create_uid     Int
   create_user    res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
