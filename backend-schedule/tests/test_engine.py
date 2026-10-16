@@ -122,3 +122,22 @@ def test_aware_now_is_converted_to_bangkok_local(setup):
     setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")])
     out = engine.run("event", now=datetime(2026, 10, 3, 1, 30, tzinfo=timezone.utc), persist=False)
     assert out["kpi"]["span_start"] == "2026-10-03T08:30:00"
+
+
+def test_picked_work_orders_reach_the_loader_and_the_version_description(setup, monkeypatch):
+    conn = setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")],
+                 [("pg_try_advisory_xact_lock", [(True,)]), ("for update", [(77, False)])])
+    seen = {}
+    monkeypatch.setattr(loader, "load_work_orders", lambda c, ids=None: seen.update(ids=ids) or [_wo(1, 1)])
+    engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=True, work_order_ids=[1])
+    assert seen["ids"] == [1]
+    desc = next(p for s, p in conn.log if s.startswith("update prod_schedule_version set description"))[0]
+    assert desc == "event EDD · 1 WO selected"
+
+
+def test_without_picked_work_orders_the_loader_is_called_as_before(setup, monkeypatch):
+    setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
+    calls = []
+    monkeypatch.setattr(loader, "load_work_orders", lambda *a: calls.append(a) or [_wo(1, 1)])
+    engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+    assert len(calls[0]) == 1   # (conn,) only

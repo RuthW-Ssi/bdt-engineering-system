@@ -10,22 +10,41 @@ from .models import WorkOrder, Line, SchedulerConfig
 WO_STATUSES_SCHEDULABLE = ("NOT_STARTED", "RELEASED")
 
 
-def load_work_orders(conn) -> list[WorkOrder]:
+def load_work_orders(conn, work_order_ids: list[int] | None = None) -> list[WorkOrder]:
+    """Schedulable WOs. `work_order_ids` limits the run to the WOs the planner picked
+    (Production Schedule ▶ Run · เลือกเอง); None keeps the original all-WO query."""
+    picked = work_order_ids is not None
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         # plan_start / plan_finish = the WO's release / due (renamed from earliest_start_at /
         # target_end_at on main, 2026-09-22). ON_HOLD / PAUSED WOs are not schedulable.
-        cur.execute("""
+        cur.execute(f"""
             select w.id wo_id, w.mo_id, w.sequence, w.work_center_id wc_id,
                    w.expected_duration_min dur, w.plan_finish, w.plan_start
             from work_order w
             join mrp_workcenter mw on mw.id = w.work_center_id and mw.active
             where w.status::text = any(%s) and w.expected_duration_min > 0
               and w.plan_finish is not null and w.plan_start is not null
+              {"and w.id = any(%s)" if picked else ""}
             order by w.mo_id, w.sequence
-        """, (list(WO_STATUSES_SCHEDULABLE),))
-        return [WorkOrder(r["wo_id"], r["mo_id"], r["sequence"], r["wc_id"],
-                          float(r["dur"]), to_local(r["plan_finish"]),
-                          to_local(r["plan_start"])) for r in cur.fetchall()]
+        """, (list(WO_STATUSES_SCHEDULABLE),) + ((list(work_order_ids),) if picked else ()))
+        wos = [WorkOrder(r["wo_id"], r["mo_id"], r["sequence"], r["wc_id"],
+                         float(r["dur"]), to_local(r["plan_finish"]),
+                         to_local(r["plan_start"])) for r in cur.fetchall()]
+        if not picked or not wos:
+            return wos
+        # An earlier operation of the same MO left out of the run (and not finished) still
+        # has to happen first: its successor may start only after that op's plan_finish.
+        cur.execute("""
+            select w.mo_id, w.sequence, w.plan_finish
+            from work_order w
+            where w.mo_id = any(%s) and not (w.id = any(%s))
+              and w.status::text not in ('DONE', 'CANCELLED') and w.plan_finish is not null
+        """, (sorted({w.mo_id for w in wos}), list(work_order_ids)))
+        held = cur.fetchall()
+    for w in wos:
+        waits = [to_local(h["plan_finish"]) for h in held if h["mo_id"] == w.mo_id and h["sequence"] < w.sequence]
+        w.earliest_start = max([w.earliest_start] + waits)
+    return wos
 
 
 def load_lines(conn) -> list[Line]:

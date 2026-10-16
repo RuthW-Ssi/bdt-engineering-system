@@ -11,7 +11,7 @@ This service is the production *scheduler*; NestJS ScheduleService reads what it
 """
 from __future__ import annotations
 import logging
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -36,6 +36,8 @@ class ScheduleRequest(CompareRequest):
     direction: Literal["event", "backward", "forward", "alap"] = "backward"
     activate: bool = False
     persist: bool = True   # activate only takes effect when persist is true
+    # limit the run to these WOs (Production Schedule ▶ Run · เลือกเอง); omitted = all schedulable WOs
+    work_order_ids: Optional[list[Annotated[int, Field(ge=1)]]] = Field(None, min_length=1, max_length=5000)
 
 
 @app.exception_handler(RunInProgress)
@@ -72,7 +74,8 @@ def schedule(req: ScheduleRequest):
     """
     return engine.run(direction=req.direction, dispatch_rule=req.dispatch_rule,
                       now=to_local(req.now) if req.now else None, persist=req.persist,
-                      activate=req.activate and req.persist, requested_by=req.requested_by)
+                      activate=req.activate and req.persist, requested_by=req.requested_by,
+                      work_order_ids=req.work_order_ids)
 
 
 @app.post("/schedule/compare")

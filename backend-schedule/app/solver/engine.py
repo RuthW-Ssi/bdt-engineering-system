@@ -42,7 +42,8 @@ def _check_ready(conn, wos, lines) -> None:
 
 def run(direction: str | None = None, dispatch_rule: str | None = None,
         now: datetime | None = None, persist: bool = True, dsn: str | None = None,
-        activate: bool = False, requested_by: str = "prod-scheduler") -> dict:
+        activate: bool = False, requested_by: str = "prod-scheduler",
+        work_order_ids: list[int] | None = None) -> dict:
     """One run = one transaction. `now` may be aware or naive Asia/Bangkok local."""
     now = to_local(now) if now else default_now()
     conn = get_conn(dsn)
@@ -58,7 +59,9 @@ def run(direction: str | None = None, dispatch_rule: str | None = None,
         if dispatch_rule:
             cfg.dispatch_rule = dispatch_rule
         cal = loader.load_calendar(conn, cfg.allow_ot)
-        wos = loader.load_work_orders(conn)
+        # work_order_ids = the planner's pick (▶ Run · เลือกเอง); None = every schedulable WO
+        wos = (loader.load_work_orders(conn) if work_order_ids is None
+               else loader.load_work_orders(conn, work_order_ids))
         lines = loader.load_lines(conn)
         _check_ready(conn, wos, lines)
         sched = Scheduler(wos, lines, cal, cfg, now).run()
@@ -69,7 +72,10 @@ def run(direction: str | None = None, dispatch_rule: str | None = None,
                   "requested_by": requested_by}
         if persist:
             vc = VERSION_CODE.get(cfg.direction, "SCHED-V1")
-            vid, is_active = write_schedule(conn, vc, f"{cfg.direction} {cfg.dispatch_rule}",
+            desc = f"{cfg.direction} {cfg.dispatch_rule}"
+            if work_order_ids is not None:
+                desc += f" · {len(wos)} WO selected"
+            vid, is_active = write_schedule(conn, vc, desc,
                                             SOURCE.get(cfg.direction, "heuristic"), sched,
                                             created_by=requested_by, activate=activate)
             result.update(version_id=vid, version_code=vc, is_active=is_active)
