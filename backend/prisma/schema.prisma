@@ -116,8 +116,6 @@ model user_module_permission {
 model uom_uom {
   id          Int     @id @default(autoincrement())
   name        String  @db.VarChar(40)
-  factor      Decimal @default(1) @db.Decimal(12, 6)
-  uom_type    String  @default("reference") @db.VarChar(10)
   rounding    Decimal @default(0.01) @db.Decimal(12, 6)
   active      Boolean @default(true)
   odoo_ref_id String? @db.VarChar(40)
@@ -281,24 +279,21 @@ model mail_message {
 // ═══════════════════════════════════════════════════════════════
 
 model res_partner {
-  id            Int      @id @default(autoincrement())
-  ref           String?  @unique @db.VarChar(20)
-  name          String   @db.VarChar(200)
-  short_name    String?  @db.VarChar(50)
-  tax_id        String?  @db.VarChar(13)
-  email         String?  @db.VarChar(120)
-  phone         String?  @db.VarChar(40)
-  street        String?  @db.VarChar(200)
-  city          String?  @db.VarChar(80)
-  country_id    Int?
-  is_company    Boolean  @default(true)
-  parent_id     Int?
-  customer_rank Int      @default(1)
-  active        Boolean  @default(true)
-  create_uid    Int?
-  write_uid     Int?
-  create_date   DateTime @default(now()) @db.Timestamptz
-  write_date    DateTime @updatedAt @db.Timestamptz
+  id          Int      @id @default(autoincrement())
+  ref         String?  @unique @db.VarChar(20)
+  name        String   @db.VarChar(200)
+  short_name  String?  @db.VarChar(50)
+  tax_id      String?  @db.VarChar(13)
+  email       String?  @db.VarChar(120)
+  phone       String?  @db.VarChar(40)
+  street      String?  @db.VarChar(200)
+  city        String?  @db.VarChar(80)
+  parent_id   Int?
+  active      Boolean  @default(true)
+  create_uid  Int?
+  write_uid   Int?
+  create_date DateTime @default(now()) @db.Timestamptz
+  write_date  DateTime @updatedAt @db.Timestamptz
 
   projects      project[]
   mail_messages mail_message[] @relation("PartnerMessages")
@@ -415,7 +410,6 @@ model products {
   category               product_category @relation(fields: [categ_id], references: [id])
   product_type           String           @db.VarChar(20)
   odoo_type              String           @default("product") @db.VarChar(10)
-  procure_method         String           @default("make_to_order") @db.VarChar(20)
   state                  String           @default("draft") @db.VarChar(20)
   active                 Boolean          @default(true)
   sale_ok                Boolean          @default(false)
@@ -447,13 +441,6 @@ model products {
   mark_number        String?             @db.VarChar(20)
   revision           String?             @db.VarChar(10)
   engineer_hours_est Decimal?            @db.Decimal(8, 2)
-  engineer_hours_act Decimal?            @db.Decimal(8, 2)
-
-  // Promotion lineage
-  promoted_from_id     Int?
-  promoted_from        products?  @relation("Promotion", fields: [promoted_from_id], references: [id])
-  promoted_descendants products[] @relation("Promotion")
-  promoted_date        DateTime?  @db.Timestamptz
 
   // Engineering attributes
   attributes Json @default("{}")
@@ -589,9 +576,6 @@ model drawing {
   // after the primary GCS upload completes (fire-and-forget push, see
   // DrawingApsService). GCS stays the canonical store; APS is a derived
   // artifact that only exists to power the in-browser DWG preview.
-  aps_urn                String? @db.VarChar(200)
-  aps_translation_status String? @db.VarChar(20) // null | processing | complete | failed
-  aps_translation_error  String?
 }
 
 // Document Center (2026-10-05, wiki features/document-center.md): admin-managed
@@ -710,7 +694,6 @@ model mrp_routing_workcenter {
   time_cycle_manual     Decimal?            @db.Decimal(10, 4)
   time_mode             String              @default("formula") @db.VarChar(10)
   // BDT-custom
-  routing_view          String              @default("eRoute") @db.VarChar(10)
   method                String?             @db.VarChar(20)
   formula_expr          String?             @db.VarChar(400)
   op_type_id            Int?
@@ -749,10 +732,12 @@ model routing_formula_param {
   formula_expression String   @db.VarChar(400)
   inputs_required    String[]
   return_unit        String   @db.VarChar(20)
-  applies_to_groups  String[]
-  active             Boolean  @default(true)
   create_date        DateTime @default(now()) @db.Timestamptz
   write_date         DateTime @default(now()) @db.Timestamptz
+  // existed on Supabase only (outside migrations); brought into Prisma 2026-10-16
+  name               String?  @db.VarChar
+  process_category   String?  @db.VarChar
+  tags               String[] @default([])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -858,11 +843,9 @@ model routing_template_history {
   changed_by_uid Int
   changed_by     res_users        @relation("rth_user", fields: [changed_by_uid], references: [id])
   changed_at     DateTime         @default(now()) @db.Timestamptz
-  eco_id         Int? // ⏳ Sprint 5 mrp_eco FK
   reason         String?          @db.Text
 
   @@index([template_id, changed_at])
-  @@index([eco_id])
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -871,15 +854,15 @@ model routing_template_history {
 
 // ── 🟥 BOM Dispatch (one upload session = one dispatch) ──────────
 model bom_dispatch {
-  id                    Int          @id @default(autoincrement())
-  project_id            Int
-  project               project      @relation("ProjectDispatches", fields: [project_id], references: [id])
-  zone_id               Int
-  zone                  project_zone @relation("ZoneDispatches", fields: [zone_id], references: [id])
-  sub_zone_id           Int?
-  sub_zone              sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
-  status                String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
-  upload_mode           String       @default("combined") @db.VarChar(20) // combined | separate
+  id             Int          @id @default(autoincrement())
+  project_id     Int
+  project        project      @relation("ProjectDispatches", fields: [project_id], references: [id])
+  zone_id        Int
+  zone           project_zone @relation("ZoneDispatches", fields: [zone_id], references: [id])
+  sub_zone_id    Int?
+  sub_zone       sub_zone?    @relation("SubZoneDispatches", fields: [sub_zone_id], references: [id])
+  status         String       @default("draft") @db.VarChar(20) // draft | processing | ready | error
+  upload_mode    String       @default("combined") @db.VarChar(20) // combined | separate
   // BIM-first progress entry (2026-09) — 'BOM_UPLOAD' (default, every real
   // upload) | 'BIM_PLACEHOLDER' (the one stable per-project dispatch that
   // holds BIM-sourced assemblies before real BOM exists — see
@@ -888,21 +871,20 @@ model bom_dispatch {
   // DB-enforced singularity per project via a hand-written partial unique
   // index (migration add_bim_placeholder_dispatch_unique_index) — not
   // expressible declaratively in Prisma schema syntax for PostgreSQL.
-  source                String       @default("BOM_UPLOAD") @db.VarChar(20)
-  revision              Int          @default(1) // explicit revision number — user-controlled at upload time (see BomUploadService.upload)
-  uploaded_at           DateTime     @default(now()) @db.Timestamptz
+  source         String       @default("BOM_UPLOAD") @db.VarChar(20)
+  revision       Int          @default(1) // explicit revision number — user-controlled at upload time (see BomUploadService.upload)
+  uploaded_at    DateTime     @default(now()) @db.Timestamptz
   // Aggregate counts — cached after processing
-  assembly_total        Int?
-  part_total            Int?
+  assembly_total Int?
+  part_total     Int?
   // mBOM coverage — saved after welding compute()
-  welding_coverage_json Json?
   // Audit
-  create_uid            Int
-  create_user           res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
-  create_date           DateTime     @default(now()) @db.Timestamptz
-  write_uid             Int
-  write_user            res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
-  write_date            DateTime     @default(now()) @db.Timestamptz
+  create_uid     Int
+  create_user    res_users    @relation("dispatch_create", fields: [create_uid], references: [id])
+  create_date    DateTime     @default(now()) @db.Timestamptz
+  write_uid      Int
+  write_user     res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
+  write_date     DateTime     @default(now()) @db.Timestamptz
 
   doc_revisions bom_doc_revision[]
   assemblies    bom_assembly[]
@@ -1522,8 +1504,8 @@ enum MoStatus {
 }
 
 model manufacturing_order {
-  id                       Int                @id @default(autoincrement())
-  mo_code                  String             @unique @db.VarChar(20) // MO-26000001 · race-safe via mo_code_seq (P5)
+  id                       Int                 @id @default(autoincrement())
+  mo_code                  String              @unique @db.VarChar(20) // MO-26000001 · race-safe via mo_code_seq (P5)
   // P12: exactly 1 mark prefix per MO. FK by code (mark_prefix_master PK = code).
   // Optional since the MO-type change (2026-10-07): MOs are no longer created
   // per mark prefix; older MOs keep theirs.
@@ -1542,38 +1524,38 @@ model manufacturing_order {
   // Required for ASSEMBLY MOs (enforced in CreateMoDto). PART MOs may have
   // none: they get the `PART` template automatically when it exists.
   routing_template_id      Int?
-  routing_template         routing_template?  @relation(fields: [routing_template_id], references: [id], onDelete: Restrict)
-  status                   MoStatus           @default(DRAFT)
-  kind                     MoKind             @default(ASSEMBLY)
+  routing_template         routing_template?   @relation(fields: [routing_template_id], references: [id], onDelete: Restrict)
+  status                   MoStatus            @default(DRAFT)
+  kind                     MoKind              @default(ASSEMBLY)
   // PART only (null on ASSEMBLY — those derive projects from their lines).
   project_id               Int?
-  project                  project?           @relation("ProjectPartMos", fields: [project_id], references: [id])
+  project                  project?            @relation("ProjectPartMos", fields: [project_id], references: [id])
   // PART only: one MO Part = one zone (sub-zone optional); fixed after create.
   zone_id                  Int?
-  zone                     project_zone?      @relation("ZonePartMos", fields: [zone_id], references: [id])
+  zone                     project_zone?       @relation("ZonePartMos", fields: [zone_id], references: [id])
   sub_zone_id              Int?
-  sub_zone                 sub_zone?          @relation("SubZonePartMos", fields: [sub_zone_id], references: [id])
+  sub_zone                 sub_zone?           @relation("SubZonePartMos", fields: [sub_zone_id], references: [id])
   // PART only: every source that contributed — MATERIAL_LIST | DISPATCH_NOTE |
   // BOM_PART_LIST | MANUAL | NC (round 3 R1). source_files: [{ kind, filename, at }].
-  part_sources             String[]           @default([])
-  source_files             Json               @default("[]")
+  part_sources             String[]            @default([])
+  source_files             Json                @default("[]")
   // Planned production window, set at create time — replaces the old single
   // due_date (P21) with a start/finish pair. Date+time, matching
   // work_order's own plan_start/plan_finish (2026-09-22).
-  plan_start               DateTime?          @db.Timestamptz
-  plan_finish              DateTime?          @db.Timestamptz
+  plan_start               DateTime?           @db.Timestamptz
+  plan_finish              DateTime?           @db.Timestamptz
   // Actual production window — user-typed at Complete (DONE) and editable
   // only once DONE; never system-stamped on Start/Complete (2026-10-01). Not
   // derived from work_order schedules. Date+time, logged to the minute.
-  actual_start             DateTime?          @db.Timestamptz
-  actual_finish            DateTime?          @db.Timestamptz
+  actual_start             DateTime?           @db.Timestamptz
+  actual_finish            DateTime?           @db.Timestamptz
   // Audit (parent only; children inherit lifecycle via cascade)
   create_uid               Int
-  create_user              res_users          @relation("mo_create", fields: [create_uid], references: [id])
-  create_date              DateTime           @default(now()) @db.Timestamptz
+  create_user              res_users           @relation("mo_create", fields: [create_uid], references: [id])
+  create_date              DateTime            @default(now()) @db.Timestamptz
   write_uid                Int
-  write_user               res_users          @relation("mo_write", fields: [write_uid], references: [id])
-  write_date               DateTime           @updatedAt @db.Timestamptz
+  write_user               res_users           @relation("mo_write", fields: [write_uid], references: [id])
+  write_date               DateTime            @updatedAt @db.Timestamptz
 
   assembly_lines mo_assembly_line[]
   part_lines     mo_part_line[]
@@ -2096,11 +2078,6 @@ model team {
   work_orders       work_order[]
   operators         operator[]
   workcenter_lines  mrp_workcenter_line[]
-}
-
-model formula_code_seq {
-  id       Int @id
-  next_val Int @default(100)
 }
 
 model activity_required_consumable {
