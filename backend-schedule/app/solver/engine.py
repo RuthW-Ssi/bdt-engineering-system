@@ -41,20 +41,26 @@ def _check_ready(conn, wos, lines, skipped=()) -> None:
                             for wc, n in sorted(missing.items())])
 
 
-def _reserve_lines(started, lines, now):
-    """Put each started WO on the line of its work center that frees up first, busy until its
-    plan_finish (ones already past it don't block). -> ({line_id: until}, report rows)."""
+def _reserve_lines(started, lines, now, cal):
+    """Put each IN_PROGRESS WO on the line of its work center that frees up first, busy for
+    the work still left on it (counted on the factory calendar from now) — or until its
+    plan_finish if that is later. A WO with nothing left frees its line.
+    -> ({line_id: until}, report rows)."""
     by_wc = collections.defaultdict(list)
     for ln in lines:
         by_wc[ln.wc_id].append(ln.line_id)
     busy: dict[int, datetime] = {}
     reserved = []
-    for wc_id, wo_code, until in started:
-        if until <= now or not by_wc[wc_id]:
+    for r in started:
+        if r["remaining_min"] <= 0 or not by_wc[r["wc_id"]]:
             continue
-        line_id = min(by_wc[wc_id], key=lambda lid: busy.get(lid, now))
-        busy[line_id] = max(busy.get(line_id, now), until)
-        reserved.append({"wo_code": wo_code, "line_id": line_id, "until": until.isoformat()})
+        line_id = min(by_wc[r["wc_id"]], key=lambda lid: busy.get(lid, now))
+        start = cal.next_work(busy.get(line_id, now))
+        until = cal.advance(start, r["remaining_min"])
+        if r["plan_finish"] and r["plan_finish"] > until:
+            until = r["plan_finish"]
+        busy[line_id] = until
+        reserved.append({"wo_code": r["wo_code"], "line_id": line_id, "until": until.isoformat()})
     return busy, reserved
 
 
@@ -83,7 +89,7 @@ def run(direction: str | None = None, dispatch_rule: str | None = None,
         lines = loader.load_lines(conn)
         skipped = loader.load_skipped(conn) if work_order_ids is None else loader.load_skipped(conn, work_order_ids)
         _check_ready(conn, wos, lines, skipped)
-        busy, reserved = _reserve_lines(loader.load_reservations(conn), lines, now)
+        busy, reserved = _reserve_lines(loader.load_reservations(conn), lines, now, cal)
         sched = Scheduler(wos, lines, cal, cfg, now, busy_until=busy).run()
         by_id = {w.wo_id: w for w in wos}
         result = {"direction": cfg.direction, "dispatch_rule": cfg.dispatch_rule,

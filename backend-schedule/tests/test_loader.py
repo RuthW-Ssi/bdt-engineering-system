@@ -81,7 +81,17 @@ def test_load_skipped_with_a_pick_also_checks_picked_wos_in_other_statuses(fake_
     assert conn.log[0][1][-1] == [3]
 
 
-def test_load_reservations_maps_started_wos(fake_conn):
+def test_load_reservations_lists_in_progress_wos_with_their_progress(fake_conn):
     until = datetime(2026, 10, 21, 12, tzinfo=TZ7)
-    conn = fake_conn([("w.status::text in ('IN_PROGRESS', 'PAUSED')", [{"wc_id": 18, "wo_code": "WO-9", "plan_finish": until}])])
-    assert loader.load_reservations(conn) == [(18, "WO-9", datetime(2026, 10, 21, 12))]
+    row = {"wc_id": 18, "wo_code": "WO-9", "plan_finish": until, "dur": 120, "qty_done": 1, "qty_planned": 4}
+    conn = fake_conn([("w.status::text = 'IN_PROGRESS'", [row])])
+    assert loader.load_reservations(conn) == [
+        {"wc_id": 18, "wo_code": "WO-9", "plan_finish": datetime(2026, 10, 21, 12), "remaining_min": 90.0}]
+    assert "PAUSED" not in conn.log[0][0]   # paused WOs don't hold a line
+
+
+def test_remaining_minutes_of_a_started_wo():
+    assert loader.remaining_minutes(120, 1, 4) == 90.0
+    assert loader.remaining_minutes(120, 4, 4) == 0.0
+    assert loader.remaining_minutes(120, 0, 0) == 120.0   # no marks → full duration
+    assert loader.remaining_minutes(None, 0, 2) == 0.0

@@ -156,18 +156,29 @@ def test_skipped_wos_come_back_with_the_result_and_explain_an_empty_run(setup, m
     assert e.value.reasons[1:] == ["WO-5 — ไม่มีวันเริ่ม/วันเสร็จตามแผน"]
 
 
-def test_a_started_wo_keeps_its_line_busy_until_its_plan_finish(setup, monkeypatch):
+def _res(remaining, plan_finish, code="WO-RUN", wc=1):
+    return {"wc_id": wc, "wo_code": code, "plan_finish": plan_finish, "remaining_min": remaining}
+
+
+def _run_with(setup, monkeypatch, reservations):
     monkeypatch.setattr(loader, "load_skipped", lambda c, ids=None: [])
-    monkeypatch.setattr(loader, "load_reservations", lambda c: [(1, "WO-RUN", datetime(2026, 10, 19, 14, 0))])
+    monkeypatch.setattr(loader, "load_reservations", lambda c: reservations)
     setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
-    out = engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+    return engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+
+
+def test_a_started_wo_holds_its_line_for_the_work_still_left(setup, monkeypatch):
+    # overdue (plan_finish 15 Oct) but 120 min of marks still open → busy 08:30–10:30 today
+    out = _run_with(setup, monkeypatch, [_res(120, datetime(2026, 10, 15, 17))])
+    assert out["kpi"]["span_start"] == "2026-10-19T10:30:00"
+    assert out["reserved"] == [{"wo_code": "WO-RUN", "line_id": 11, "until": "2026-10-19T10:30:00"}]
+
+
+def test_not_yet_due_started_wo_holds_its_line_until_plan_finish_if_that_is_later(setup, monkeypatch):
+    out = _run_with(setup, monkeypatch, [_res(30, datetime(2026, 10, 19, 14, 0))])
     assert out["kpi"]["span_start"] == "2026-10-19T14:00:00"
-    assert out["reserved"] == [{"wo_code": "WO-RUN", "line_id": 11, "until": "2026-10-19T14:00:00"}]
 
 
-def test_a_started_wo_already_past_its_plan_finish_does_not_block(setup, monkeypatch):
-    monkeypatch.setattr(loader, "load_skipped", lambda c, ids=None: [])
-    monkeypatch.setattr(loader, "load_reservations", lambda c: [(1, "WO-OLD", datetime(2026, 10, 1, 17, 0))])
-    setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
-    out = engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
-    assert out["kpi"]["span_start"] == "2026-10-19T08:30:00"
+def test_a_started_wo_with_every_mark_done_frees_its_line(setup, monkeypatch):
+    out = _run_with(setup, monkeypatch, [_res(0, datetime(2026, 10, 15, 17))])
+    assert out["kpi"]["span_start"] == "2026-10-19T08:30:00" and out["reserved"] == []

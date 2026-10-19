@@ -80,18 +80,35 @@ def load_skipped(conn, work_order_ids: list[int] | None = None) -> list[dict]:
             for r in rows if (why := skip_reason(r))]
 
 
-def load_reservations(conn) -> list[tuple[int, str, "datetime"]]:
-    """Started WOs (IN_PROGRESS / PAUSED) still occupy a line of their work center until
-    their plan_finish: (wc_id, wo_code, plan_finish local)."""
+def remaining_minutes(duration_min, qty_done, qty_planned) -> float:
+    """Work still left on a started WO: duration × share of mark qty not done yet
+    (no marks → full duration)."""
+    dur = float(duration_min or 0)
+    if not qty_planned:
+        return dur
+    left = 1 - min(float(qty_done or 0), float(qty_planned)) / float(qty_planned)
+    return dur * left
+
+
+def load_reservations(conn) -> list[dict]:
+    """IN_PROGRESS WOs still occupy a line of their work center for the work left on them
+    (PAUSED ones don't — the page warns about them instead).
+    -> [{wc_id, wo_code, plan_finish (local or None), remaining_min}]"""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""
-            select w.work_center_id wc_id, w.wo_code, w.plan_finish
+            select w.work_center_id wc_id, w.wo_code, w.plan_finish, w.expected_duration_min dur,
+                   coalesce(sum(m.qty_done), 0) qty_done, coalesce(sum(m.qty_planned), 0) qty_planned
             from work_order w
             join mrp_workcenter mw on mw.id = w.work_center_id and mw.active
-            where w.status::text in ('IN_PROGRESS', 'PAUSED') and w.plan_finish is not null
-            order by w.plan_finish, w.id
+            left join work_order_mark m on m.work_order_id = w.id and m.removed_at is null
+            where w.status::text = 'IN_PROGRESS'
+            group by w.id
+            order by w.plan_finish nulls last, w.id
         """)
-        return [(r["wc_id"], r["wo_code"], to_local(r["plan_finish"])) for r in cur.fetchall()]
+        return [{"wc_id": r["wc_id"], "wo_code": r["wo_code"],
+                 "plan_finish": to_local(r["plan_finish"]) if r["plan_finish"] else None,
+                 "remaining_min": remaining_minutes(r["dur"], r["qty_done"], r["qty_planned"])}
+                for r in cur.fetchall()]
 
 
 def load_lines(conn) -> list[Line]:
