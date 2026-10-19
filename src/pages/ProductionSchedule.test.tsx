@@ -140,6 +140,15 @@ describe('ProductionSchedule', () => {
     expect(within(gantt).getAllByText('L1')).toHaveLength(3)
   })
 
+  it('"แสดงเฉพาะ work center / line ที่มีงาน" hides rows without ops', () => {
+    render(<ProductionSchedule />)
+    const gantt = screen.getByRole('region', { name: 'Resource Gantt' })
+    expect(within(gantt).getByText('PAINT')).toBeInTheDocument() // idle WC is listed (collapsed)
+    fireEvent.click(within(gantt).getByLabelText('แสดงเฉพาะ work center / line ที่มีงาน'))
+    expect(within(gantt).queryByText('PAINT')).not.toBeInTheDocument()
+    expect(within(gantt).getAllByRole('button', { name: /·/ }).length).toBeGreaterThan(0) // bars still drawn
+  })
+
   it('keeps the other bars mounted when a WC is collapsed (stable keys)', () => {
     render(<ProductionSchedule />)
     const gantt = screen.getByRole('region', { name: 'Resource Gantt' })

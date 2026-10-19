@@ -10,6 +10,7 @@ import {
   backlog,
   barViews,
   bottleneck,
+  busyGroups,
   buildAxis,
   buildOps,
   dueMarkers,
@@ -102,7 +103,10 @@ export function ProductionSchedule() {
   const autoCollapsed = useMemo(() => idleWcIds(groups, ops), [groups, ops])
   const collapsed = collapseState?.key === seedKey ? collapseState.set : autoCollapsed
 
-  const layout = useMemo(() => layoutRows(groups, collapsed), [groups, collapsed])
+  // "แสดงเฉพาะที่มีงาน" hides WCs / lines with no op in the shown version
+  const [busyOnly, setBusyOnly] = useState(false)
+  const shownGroups = useMemo(() => (busyOnly ? busyGroups(groups, ops) : groups), [busyOnly, groups, ops])
+  const layout = useMemo(() => layoutRows(shownGroups, collapsed), [shownGroups, collapsed])
   const bars = useMemo(() => barViews(ops, axis, layout.rowY, { lateOnly, selUid }), [ops, axis, layout, lateOnly, selUid])
   const dues = useMemo(() => dueMarkers(ops, axis), [ops, axis])
   const heat = useMemo(() => (ix ? heatGrid(ix, ops, axis) : null), [ix, ops, axis])
@@ -258,7 +262,19 @@ export function ProductionSchedule() {
 
             {tab === 'gantt' && (
               <div role="tabpanel" aria-label="ตาราง Gantt" className={`grid gap-3 items-start grid-cols-1 ${selected ? '@min-[1040px]:grid-cols-[minmax(0,1fr)_300px]' : ''}`}>
-                <SchedCard icon="🏭" title="Resource Gantt" tag="rows = line · bars = scheduled op">
+                <SchedCard
+                  icon="🏭"
+                  title="Resource Gantt"
+                  tag={
+                    <span className="inline-flex items-center gap-3">
+                      <label className="inline-flex items-center gap-1.5 font-sans text-[12px] text-[#1f2733] cursor-pointer select-none">
+                        <input type="checkbox" checked={busyOnly} onChange={(e) => setBusyOnly(e.target.checked)} />
+                        แสดงเฉพาะ work center / line ที่มีงาน
+                      </label>
+                      <span>rows = line · bars = scheduled op</span>
+                    </span>
+                  }
+                >
                   <ResourceGantt
                     axis={axis}
                     layout={layout}
