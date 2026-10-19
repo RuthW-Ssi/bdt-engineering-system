@@ -83,12 +83,17 @@ export class SchedulerApiClient {
       throw new InternalServerErrorException('Scheduler service is not configured')
     }
     let headers: Headers
-    try {
-      const client = await this.getClient(this.baseUrl)
-      headers = await client.getRequestHeaders()
-    } catch (err) {
-      this.logger.error(`Scheduler ID token failed: ${err instanceof Error ? err.message : String(err)}`)
-      throw new InternalServerErrorException('Scheduler failed')
+    if (isLocalSchedulerUrl(this.baseUrl)) {
+      // Local dev: backend-schedule/scripts/dev.sh on http://localhost:8100 has no Cloud Run IAM.
+      headers = new Headers()
+    } else {
+      try {
+        const client = await this.getClient(this.baseUrl)
+        headers = await client.getRequestHeaders()
+      } catch (err) {
+        this.logger.error(`Scheduler ID token failed: ${err instanceof Error ? err.message : String(err)}`)
+        throw new InternalServerErrorException('Scheduler failed')
+      }
     }
     headers.set('Content-Type', 'application/json')
 
@@ -123,6 +128,16 @@ export class SchedulerApiClient {
       throw new BadRequestException('Scheduler rejected the request')
     }
     throw new InternalServerErrorException('Scheduler failed')
+  }
+}
+
+/** Exactly http://localhost or http://127.0.0.1 (any port) — never a look-alike host or https. */
+function isLocalSchedulerUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')
+  } catch {
+    return false
   }
 }
 
