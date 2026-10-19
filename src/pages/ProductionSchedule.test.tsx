@@ -91,6 +91,7 @@ const runMutate = vi.fn()
 const activateMutate = vi.fn()
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '/') // the selected tab lives in ?tab=
   vi.clearAllMocks()
   boardCalls.length = 0
   fourmCalls.length = 0
@@ -100,6 +101,8 @@ beforeEach(() => {
   runResult = { mutate: runMutate, isPending: false, error: null, reset: vi.fn() }
   activateResult = { mutate: activateMutate, isPending: false, error: null, reset: vi.fn() }
 })
+
+const openTab = (name: string) => fireEvent.click(screen.getByRole('tab', { name }))
 
 describe('ProductionSchedule', () => {
   it('renders the KPI tiles per MO from the board', () => {
@@ -147,26 +150,49 @@ describe('ProductionSchedule', () => {
     expect(within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })).toBe(weld)
   })
 
-  it('shows the backlog card and the WO detail of a clicked bar', () => {
+  it('opens the WO detail beside the Gantt for a clicked bar, and closes it', () => {
     render(<ProductionSchedule />)
 
-    const card = screen.getByTestId('backlog-card')
-    expect(card).toHaveTextContent('MO-300')
-    expect(card).toHaveTextContent('CO · 1 ops')
-    expect(card).toHaveTextContent('Σ 1.5h')
-
-    expect(screen.getByText(SCHEDULE_TEXT.detailEmpty)).toBeInTheDocument()
+    expect(screen.queryByTestId('op-detail')).not.toBeInTheDocument() // Gantt uses the full width
     fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · สาย' }))
     const detail = screen.getByTestId('op-detail')
     expect(detail).toHaveTextContent('สาย (LATE)')
     expect(detail).toHaveTextContent('Weld team A · internal · 3 คน')
     expect(detail).toHaveTextContent('1,234 kg')
     expect(detail).toHaveTextContent('WO-1002 · MO-100')
+
+    fireEvent.click(screen.getByRole('button', { name: 'ปิดรายละเอียด' }))
+    expect(screen.queryByTestId('op-detail')).not.toBeInTheDocument()
   })
 
-  it('order list click selects the MO\'s first op', () => {
+  it('shows the backlog on the คำสั่งผลิต tab', () => {
     render(<ProductionSchedule />)
-    const panel = screen.getByRole('region', { name: 'รายละเอียด' })
+    openTab('คำสั่งผลิต')
+    const card = screen.getByTestId('backlog-card')
+    expect(card).toHaveTextContent('MO-300')
+    expect(card).toHaveTextContent('CO · 1 ops')
+    expect(card).toHaveTextContent('Σ 1.5h')
+  })
+
+  it('keeps the chosen tab in the URL and opens ?tab= directly', () => {
+    const { unmount } = render(<ProductionSchedule />)
+    expect(screen.getByRole('tab', { name: 'ตาราง Gantt' })).toHaveAttribute('aria-selected', 'true')
+    openTab('ภาระงาน')
+    expect(window.location.search).toBe('?tab=load')
+    expect(screen.getByRole('region', { name: 'Utilization Heatmap' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Resource Gantt' })).not.toBeInTheDocument()
+    unmount()
+
+    render(<ProductionSchedule />)
+    expect(screen.getByRole('tab', { name: 'ภาระงาน' })).toHaveAttribute('aria-selected', 'true')
+    openTab('ตาราง Gantt')
+    expect(window.location.search).toBe('')
+  })
+
+  it('order list click selects the MO\'s first op and jumps to the Gantt', () => {
+    render(<ProductionSchedule />)
+    openTab('คำสั่งผลิต')
+    const panel = screen.getByRole('region', { name: 'คำสั่งผลิต' })
 
     fireEvent.click(within(panel).getByRole('button', { name: /MO-200/ }))
     expect(screen.getByRole('button', { name: 'B1 +1 · Cut' })).toHaveAttribute('aria-pressed', 'true')
@@ -337,6 +363,8 @@ describe('ProductionSchedule', () => {
       wo(4001, 100, { status: 'PAUSED', wo_code: 'WO-IN-4001', work_center_id: base.work_centers[0].id,
         pause: { reason: 'รอ shop drawing', by: 'admin', at: '2026-10-01T03:20:56.000Z' } })] } }
     render(<ProductionSchedule />)
+    expect(screen.queryByText('⏸ หยุดชั่วคราว 1 WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '⏸ หยุดชั่วคราว 1 WO' }))
     expect(screen.getByText('⏸ หยุดชั่วคราว 1 WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง')).toBeInTheDocument()
     expect(screen.getByText(/WO-IN-4001 · .* — รอ shop drawing \(admin · 1\/10\/2026\)/)).toBeInTheDocument()
   })
@@ -377,6 +405,7 @@ describe('ProductionSchedule', () => {
 
     expect(screen.getByRole('button', { name: SCHEDULE_TEXT.noVersion })).toBeDisabled()
     expect(screen.getByText(SCHEDULE_TEXT.ganttEmpty)).toBeInTheDocument()
+    openTab('ภาระงาน')
     expect(screen.getByText(SCHEDULE_TEXT.heatEmpty)).toBeInTheDocument()
     expect(screen.getByTestId('kpi-onTime')).toHaveTextContent('—')
   })
@@ -406,7 +435,11 @@ describe('ProductionSchedule', () => {
 
   describe('4M + WIP analysis', () => {
     // named without its 📊, like the SchedCard sections
-    const fourmSection = () => screen.getByRole('region', { name: '4M + WIP analysis' })
+    const fourmSection = () => {
+      const tab = screen.queryByRole('tab', { name: '4M + WIP', selected: false })
+      if (tab) fireEvent.click(tab)
+      return screen.getByRole('region', { name: '4M + WIP analysis' })
+    }
 
     it('renders the five cards from the board + 4M data, below the grid', () => {
       render(<ProductionSchedule />)

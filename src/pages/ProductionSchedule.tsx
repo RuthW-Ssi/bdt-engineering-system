@@ -52,12 +52,35 @@ const NO_HOLIDAYS: ReadonlySet<string> = new Set()
  * the retired HTML cockpit (git history: backend-schedule/cockpit/prod-scheduler.html); all logic in lib/schedule.
  * Users with orders:update can also run the scheduler and activate a version.
  */
+type ScheduleTab = 'gantt' | 'load' | 'orders' | 'fourm'
+const TABS: { key: ScheduleTab; label: string }[] = [
+  { key: 'gantt', label: 'ตาราง Gantt' },
+  { key: 'load', label: 'ภาระงาน' },
+  { key: 'orders', label: 'คำสั่งผลิต' },
+  { key: 'fourm', label: '4M + WIP' },
+]
+
+// ?tab=load opens a tab directly; kept in the URL (replaceState) so a refresh stays on it.
+function tabFromUrl(): ScheduleTab {
+  const t = new URLSearchParams(window.location.search).get('tab')
+  return TABS.some((x) => x.key === t) ? (t as ScheduleTab) : 'gantt'
+}
+
 export function ProductionSchedule() {
   const [versionId, setVersionId] = useState<number | null>(null)
   const [lateOnly, setLateOnly] = useState(false)
   const [pxh, setPxh] = useState<number>(ZOOM.initial)
   const [selUid, setSelUid] = useState<number | null>(null)
   const [reloadN, setReloadN] = useState(0)
+  const [tab, setTabState] = useState<ScheduleTab>(tabFromUrl)
+  const [showPaused, setShowPaused] = useState(false)
+  const setTab = (t: ScheduleTab) => {
+    setTabState(t)
+    const url = new URL(window.location.href)
+    if (t === 'gantt') url.searchParams.delete('tab')
+    else url.searchParams.set('tab', t)
+    window.history.replaceState(window.history.state, '', url)
+  }
   // User toggles of the WC tree, valid for one seed (version + reload) only.
   const [collapseState, setCollapseState] = useState<{ key: string; set: Set<number> } | null>(null)
   const [scrollTarget, setScrollTarget] = useState<{ uid: number; n: number } | null>(null)
@@ -119,6 +142,7 @@ export function ProductionSchedule() {
   const pickOrder = (row: OrderRow) => {
     const o = row.firstOp
     if (!o) return
+    setTab('gantt')
     setSelUid(o.uid)
     if (o.line && collapsed.has(o.line.workcenter_id)) {
       const next = new Set(collapsed)
@@ -176,7 +200,20 @@ export function ProductionSchedule() {
                 Reload ไม่สำเร็จ — แสดงข้อมูลเดิม: {getErrorMessage(error, 'Failed to load the schedule board.')}
               </div>
             )}
-            {paused.length > 0 && (
+            <div className="bg-white border border-[#d8dde3] rounded-[10px] px-3.5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <KpiTiles tiles={tiles} />
+              {paused.length > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={showPaused}
+                  onClick={() => setShowPaused((v) => !v)}
+                  className="ml-auto rounded-full border border-[#fcd9a8] bg-[#fff7ed] text-[#9a3412] text-xs font-semibold px-3 py-1 cursor-pointer"
+                >
+                  ⏸ หยุดชั่วคราว {paused.length} WO
+                </button>
+              )}
+            </div>
+            {showPaused && paused.length > 0 && (
               <div role="status" className="rounded-lg border border-[#fcd9a8] bg-[#fff7ed] text-[#9a3412] text-xs px-3 py-2">
                 <div className="font-semibold">⏸ หยุดชั่วคราว {paused.length} WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง</div>
                 <ul className="mt-1 mb-0 pl-4 list-disc">
@@ -184,7 +221,6 @@ export function ProductionSchedule() {
                 </ul>
               </div>
             )}
-            <KpiTiles tiles={tiles} />
             <ScheduleToolbar
               versions={versions}
               currentId={shownVersionId}
@@ -203,14 +239,25 @@ export function ProductionSchedule() {
               }
             />
 
-            {/* 3 columns from the content width (container query), not the window: the app sidebar eats 60–240 px.
-                1040 keeps 3 columns on a 1440 px laptop with the sidebar open (gantt ≈ 640 px, it scrolls inside). */}
-            <div className="grid gap-3 items-start grid-cols-1 @min-[1040px]:grid-cols-[206px_minmax(0,1fr)_280px]">
-              <SchedCard icon="📥" title="Backlog" tag={bl.countLabel}>
-                <BacklogPanel view={bl} />
-              </SchedCard>
+            <div role="tablist" aria-label="มุมมอง" className="flex gap-1 border-b border-[#d8dde3]">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`px-3.5 py-2 text-[13px] border-0 border-b-2 -mb-px bg-transparent cursor-pointer ${
+                    tab === t.key ? 'border-[#e8590c] text-[#e8590c] font-semibold' : 'border-transparent text-[#6b7682] hover:text-[#1f2733]'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
 
-              <div className="flex flex-col gap-3 min-w-0">
+            {tab === 'gantt' && (
+              <div role="tabpanel" aria-label="ตาราง Gantt" className={`grid gap-3 items-start grid-cols-1 ${selected ? '@min-[1040px]:grid-cols-[minmax(0,1fr)_300px]' : ''}`}>
                 <SchedCard icon="🏭" title="Resource Gantt" tag="rows = line · bars = scheduled op">
                   <ResourceGantt
                     axis={axis}
@@ -224,6 +271,21 @@ export function ProductionSchedule() {
                     scrollTarget={scrollTarget}
                   />
                 </SchedCard>
+                {selected && (
+                  <SchedCard
+                    icon="📋"
+                    title="รายละเอียด"
+                    className="self-start"
+                    tag={<button type="button" aria-label="ปิดรายละเอียด" onClick={() => setSelUid(null)} className="border-0 bg-transparent cursor-pointer text-[13px] text-[#6b7682]">✕</button>}
+                  >
+                    <DetailPanel op={selected} orders={orders} onPickOrder={pickOrder} show="detail" />
+                  </SchedCard>
+                )}
+              </div>
+            )}
+
+            {tab === 'load' && (
+              <div role="tabpanel" aria-label="ภาระงาน" className="grid gap-3 items-start grid-cols-1 @min-[1040px]:grid-cols-2">
                 <SchedCard icon="🔥" title="Utilization Heatmap" tag="load ÷ (available × OEE)">
                   <UtilizationHeatmap grid={heat} />
                 </SchedCard>
@@ -231,20 +293,31 @@ export function ProductionSchedule() {
                   <BottleneckLoad data={bn} />
                 </SchedCard>
               </div>
+            )}
 
-              <SchedCard icon="📋" title="รายละเอียด" className="self-start">
-                <DetailPanel op={selected} orders={orders} onPickOrder={pickOrder} />
-              </SchedCard>
-            </div>
+            {tab === 'orders' && (
+              <div role="tabpanel" aria-label="คำสั่งผลิต" className="grid gap-3 items-start grid-cols-1 @min-[1040px]:grid-cols-[minmax(0,1fr)_320px]">
+                <SchedCard icon="📋" title="คำสั่งผลิต" tag={`${orders.length} MO · กดเพื่อดูใน Gantt`}>
+                  <DetailPanel op={null} orders={orders} onPickOrder={pickOrder} show="orders" />
+                </SchedCard>
+                <SchedCard icon="📥" title="Backlog" tag={bl.countLabel}>
+                  <BacklogPanel view={bl} />
+                </SchedCard>
+              </div>
+            )}
 
-            <FourMSection
-              ix={ix}
-              ops={ops}
-              data={fourm.data}
-              isError={fourm.isError}
-              error={fourm.error}
-              onRetry={() => void fourm.refetch()}
-            />
+            {tab === 'fourm' && (
+              <div role="tabpanel" aria-label="4M + WIP">
+                <FourMSection
+                  ix={ix}
+                  ops={ops}
+                  data={fourm.data}
+                  isError={fourm.isError}
+                  error={fourm.error}
+                  onRetry={() => void fourm.refetch()}
+                />
+              </div>
+            )}
 
             <div className="text-[11px] text-[#6b7682] leading-relaxed">
               {foot.map((l) => <div key={l}>{l}</div>)}

@@ -1,12 +1,20 @@
 import { Fragment } from 'react'
 import { LATE_COLOR, SCHEDULE_TEXT, UI_COLOR, opDetail, type OrderRow, type SchedOp } from '../../lib/schedule'
 
-/** 📋 WO detail of the selected bar + the order list (MOs in this version or still open). */
-export function DetailPanel({ op, orders, onPickOrder }: { op: SchedOp | null; orders: OrderRow[]; onPickOrder: (row: OrderRow) => void }) {
+/**
+ * 📋 WO detail of the selected bar + the order list (MOs in this version or still open).
+ * `show` picks one part (the page puts them on different tabs); default both.
+ */
+export function DetailPanel({ op, orders, onPickOrder, show = 'both' }: {
+  op: SchedOp | null
+  orders: OrderRow[]
+  onPickOrder: (row: OrderRow) => void
+  show?: 'detail' | 'orders' | 'both'
+}) {
   const d = op ? opDetail(op) : null
   return (
     <div className="p-3.5">
-      {d ? (
+      {show === 'orders' ? null : d ? (
         <div data-testid="op-detail">
           <div className="text-base font-semibold text-[#1f2733]">
             {d.title} <span className="text-[#6b7682] font-normal">{d.subtitle}</span>
@@ -30,7 +38,8 @@ export function DetailPanel({ op, orders, onPickOrder }: { op: SchedOp | null; o
         <div className="text-[#6b7682] text-center px-2 py-5 text-xs leading-normal">{SCHEDULE_TEXT.detailEmpty}</div>
       )}
 
-      <h4 className="mt-3.5 mb-1 text-xs text-[#6b7682] uppercase font-semibold">คำสั่งผลิต ({orders.length})</h4>
+      {show !== 'detail' && (<>
+      {show === 'both' && <h4 className="mt-3.5 mb-1 text-xs text-[#6b7682] uppercase font-semibold">คำสั่งผลิต ({orders.length})</h4>}
       <div className="max-h-80 overflow-y-auto">
         {orders.map((o) => (
           <button
@@ -45,6 +54,7 @@ export function DetailPanel({ op, orders, onPickOrder }: { op: SchedOp | null; o
           </button>
         ))}
       </div>
+      </>)}
     </div>
   )
 }

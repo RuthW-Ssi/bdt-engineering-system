@@ -7,14 +7,14 @@ const TONE_COLOR: Record<KpiTone, string> = {
   '': UI_COLOR.ink,
 }
 
-/** The four KPI tiles (on-time % per MO · late MOs · backlog MOs · finish time). */
+/** The four KPIs (on-time % per MO · late MOs · backlog MOs · finish time) as one compact strip. */
 export function KpiTiles({ tiles }: { tiles: KpiTile[] }) {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
       {tiles.map((t) => (
-        <div key={t.key} data-testid={`kpi-${t.key}`} className="bg-white border border-[#d8dde3] rounded-[10px] px-3.5 py-3">
-          <div className="text-[22px] font-bold leading-none" style={{ color: TONE_COLOR[t.tone] }}>{t.value}</div>
-          <div className="text-[11px] text-[#6b7682] mt-1.5">{t.label}</div>
+        <div key={t.key} data-testid={`kpi-${t.key}`} className="flex items-baseline gap-1.5">
+          <span className="text-[17px] font-bold leading-none" style={{ color: TONE_COLOR[t.tone] }}>{t.value}</span>
+          <span className="text-[11px] text-[#6b7682]">{t.label}</span>
         </div>
       ))}
     </div>
