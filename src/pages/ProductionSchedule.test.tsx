@@ -316,6 +316,21 @@ describe('ProductionSchedule', () => {
     expect(boardCalls.at(-1)).toBe(1) // switched to the new version
   })
 
+  it('after a run, keeps the form open and lists WOs left out with their reasons', () => {
+    runMutate.mockImplementationOnce((_body, opts: { onSuccess: (r: unknown) => void }) =>
+      opts.onSuccess({ version_id: 1, version_code: 'V1', is_active: false,
+        skipped: [{ wo_id: 9, wo_code: 'WO-IN-9', reason: 'ไม่มีวันเริ่ม/วันเสร็จตามแผน' }] }),
+    )
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
+    fireEvent.click(within(screen.getByRole('form', { name: 'Run scheduler' })).getByRole('button', { name: 'Run' }))
+
+    const form = screen.getByRole('form', { name: 'Run scheduler' })
+    expect(within(form).getByText('ไม่ถูกนำมาจัด 1 WO')).toBeInTheDocument()
+    expect(within(form).getByText('WO-IN-9 — ไม่มีวันเริ่ม/วันเสร็จตามแผน')).toBeInTheDocument()
+    expect(boardCalls.at(-1)).toBe(1) // still switched to the new version
+  })
+
   it('shows a 504 with the "may still finish" hint', () => {
     runResult = { ...runResult, error: axiosError(504, { message: 'Scheduler timed out' }) }
     render(<ProductionSchedule />)

@@ -51,7 +51,14 @@ export interface ScheduleRunResult {
   version_code: string | null
   is_active: boolean
   requested_by: string
+  /** WOs left out of the run and why (Thai). */
+  skipped?: ScheduleSkippedWo[]
+  /** Started WOs that kept a line busy until their plan_finish. */
+  reserved?: ScheduleReservedLine[]
 }
+
+export interface ScheduleSkippedWo { wo_id: number; wo_code: string; reason: string }
+export interface ScheduleReservedLine { wo_code: string; line_id: number; until: string }
 
 const TIMEOUT_MS = 60_000
 

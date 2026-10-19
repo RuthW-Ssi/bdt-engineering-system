@@ -58,6 +58,13 @@ describe('ScheduleService.run', () => {
     expect(mail.log.mock.calls[0][0].body).toContain('picked=2')
   })
 
+  it('notes skipped WOs in the audit', async () => {
+    const { svc, scheduler, mail } = makeDeps()
+    scheduler.run.mockResolvedValueOnce({ ...RESULT, skipped: [{ wo_id: 1, wo_code: 'WO-1', reason: 'x' }] })
+    await svc.run({ direction: 'event' }, USER)
+    expect(mail.log.mock.calls[0][0].body).toContain('skipped=1')
+  })
+
   it('omits work_order_ids when none were picked (run every schedulable WO)', async () => {
     const { svc, scheduler } = makeDeps()
     await svc.run({ direction: 'event' }, USER)

@@ -87,7 +87,8 @@ export class ScheduleService {
       body:
         `direction=${dto.direction} rule=${dispatch_rule} activate=${activate} ` +
         `work_orders=${result.kpi?.work_orders} late_vs_due=${result.kpi?.late_vs_due}` +
-        (dto.work_order_ids ? ` picked=${dto.work_order_ids.length}` : ''),
+        (dto.work_order_ids ? ` picked=${dto.work_order_ids.length}` : '') +
+        (result.skipped?.length ? ` skipped=${result.skipped.length}` : ''),
       author_id: user.sub,
     })
     return result

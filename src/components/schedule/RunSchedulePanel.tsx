@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Loader2, Play } from 'lucide-react'
 import { toast } from 'sonner'
-import { DISPATCH_RULES, type BoardMo, type BoardWorkOrder, type DispatchRule, type ScheduleRunResult } from '../../api/schedule'
+import { DISPATCH_RULES, type BoardMo, type BoardWorkOrder, type DispatchRule, type ScheduleRunResult, type ScheduleSkippedWo } from '../../api/schedule'
 import { useRunSchedule } from '../../hooks/useSchedule'
 import { describeScheduleError } from '../../lib/schedule'
 import { runCandidates } from '../../lib/schedule/runScope'
@@ -34,6 +34,8 @@ export function RunSchedulePanel({ onRan, mos, workOrders }: {
   const [activate, setActivate] = useState(false)
   const [scope, setScope] = useState<'all' | 'pick'>('all')
   const [picked, setPicked] = useState<Set<number>>(() => new Set())
+  // WOs the last run left out (with the reason) — shown in the form instead of closing it
+  const [skipped, setSkipped] = useState<ScheduleSkippedWo[]>([])
   const candidates = useMemo(() => runCandidates(mos, workOrders), [mos, workOrders])
   const toggleRef = useRef<HTMLButtonElement>(null)
   const refocus = useRef(false)
@@ -55,19 +57,25 @@ export function RunSchedulePanel({ onRan, mos, workOrders }: {
       run.reset()
       refocus.current = true
     }
+    setSkipped([])
     setOpen(!open)
   }
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
+    setSkipped([])
     run.mutate(
       { direction, dispatch_rule: rule, activate, ...(scope === 'pick' ? { work_order_ids: [...picked] } : {}) },
       {
         onSuccess: (res) => {
           toast.success(`คำนวณเสร็จ · ${res.version_code ?? 'ไม่มี version'}${res.is_active ? ' (active)' : ''}`)
-          refocus.current = true
-          setOpen(false)
           onRan(res)
+          if (res.skipped?.length) {
+            setSkipped(res.skipped) // keep the form open so the planner sees what was left out
+          } else {
+            refocus.current = true
+            setOpen(false)
+          }
         },
       },
     )
@@ -124,6 +132,15 @@ export function RunSchedulePanel({ onRan, mos, workOrders }: {
               <RunScopePicker candidates={candidates} workOrders={workOrders} picked={picked} onChange={setPicked} />
             )}
           </fieldset>
+
+          {skipped.length > 0 && (
+            <div role="status" className="rounded-lg border border-[#fcd9a8] bg-[#fff7ed] text-[#9a3412] px-3 py-2">
+              <div className="font-semibold">ไม่ถูกนำมาจัด {skipped.length} WO</div>
+              <ul className={`mt-1 mb-0 pl-4 list-disc ${skipped.length > 6 ? 'max-h-[150px] overflow-y-auto' : ''}`}>
+                {skipped.map((s) => <li key={s.wo_id}>{`${s.wo_code} — ${s.reason}`}</li>)}
+              </ul>
+            </div>
+          )}
 
           {err && (
             <div role="alert" className={ERROR_BOX}>
