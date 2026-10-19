@@ -46,6 +46,9 @@ export interface BoardWorkOrder {
   marks: string[]
   /** Σ work_order_part.weight_kg; null when the WO has no parts. */
   weight_kg: number | null
+  work_center_id: number
+  /** PAUSED only: latest Pause reason, who, when; null otherwise. */
+  pause: { reason: string | null; by: string; at: string } | null
 }
 
 export interface BoardMo {

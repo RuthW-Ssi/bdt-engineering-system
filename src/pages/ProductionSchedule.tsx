@@ -22,6 +22,7 @@ import {
   kpis,
   layoutRows,
   orderList,
+  pausedWarnings,
   usableVersions,
   wcGroups,
   zoomIn,
@@ -87,6 +88,7 @@ export function ProductionSchedule() {
   const tiles = useMemo(() => (ix ? kpis(ix, ops) : []), [ix, ops])
   const orders = useMemo(() => (ix ? orderList(ix, ops) : []), [ix, ops])
   const versions = useMemo(() => (board ? usableVersions(board) : []), [board])
+  const paused = useMemo(() => (board ? pausedWarnings(board) : []), [board])
 
   const selected = ops.find((o) => o.uid === selUid) ?? null
   const version = ix?.version ?? null
@@ -172,6 +174,14 @@ export function ProductionSchedule() {
             {isError && (
               <div role="alert" className={ERROR_BOX}>
                 Reload ไม่สำเร็จ — แสดงข้อมูลเดิม: {getErrorMessage(error, 'Failed to load the schedule board.')}
+              </div>
+            )}
+            {paused.length > 0 && (
+              <div role="status" className="rounded-lg border border-[#fcd9a8] bg-[#fff7ed] text-[#9a3412] text-xs px-3 py-2">
+                <div className="font-semibold">⏸ หยุดชั่วคราว {paused.length} WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง</div>
+                <ul className="mt-1 mb-0 pl-4 list-disc">
+                  {paused.map((p) => <li key={p}>{p}</li>)}
+                </ul>
               </div>
             )}
             <KpiTiles tiles={tiles} />

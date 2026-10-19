@@ -216,6 +216,14 @@ export class ScheduleService {
         source_routing_op_id: true,
         subcontractor_id: true,
         team_headcount: true,
+        work_center_id: true,
+        // latest Pause (its reason is required at Pause) — the page warns about paused WOs
+        events: {
+          where: { event_type: 'PAUSE' },
+          orderBy: { recorded_at: 'desc' },
+          take: 1,
+          select: { notes: true, recorded_by: true, recorded_at: true },
+        },
         // Removing a mark is a soft delete that leaves its work_order_part rows behind,
         // so parts are kept only when their assembly is still a live mark of the WO.
         marks: { where: { removed_at: null }, select: { bom_assembly_id: true } },
@@ -268,6 +276,11 @@ export class ScheduleService {
         weight_kg: parts.length
           ? parts.reduce((sum, p) => sum.plus(p.weight_kg), new Prisma.Decimal(0)).toNumber()
           : null,
+        work_center_id: w.work_center_id,
+        pause:
+          w.status === 'PAUSED' && w.events[0]
+            ? { reason: w.events[0].notes, by: w.events[0].recorded_by, at: w.events[0].recorded_at.toISOString() }
+            : null,
       }
     })
 

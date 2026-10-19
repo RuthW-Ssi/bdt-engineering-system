@@ -5,7 +5,7 @@ import { moPickState, runCandidates, toggleMoPick, toggleWoPick, waitsFor } from
 const mo = (id: number, code: string): BoardMo => ({ id, mo_code: code, primary_mark_prefix_code: null, plan_start: null, plan_finish: null })
 const wo = (id: number, moId: number, seq: number, status = 'NOT_STARTED'): BoardWorkOrder => ({
   id, wo_code: `WO-${id}`, mo_id: moId, sequence: seq, status, expected_duration_min: 60, setup_time_min: 0,
-  plan_start: null, plan_finish: null, op_label: `op${seq}`, team_id: null, team_headcount: null, marks: [], weight_kg: null,
+  plan_start: null, plan_finish: null, op_label: `op${seq}`, team_id: null, team_headcount: null, marks: [], weight_kg: null, work_center_id: 1, pause: null,
 })
 
 const MOS = [mo(2, 'MO-B'), mo(1, 'MO-A'), mo(3, 'MO-C')]

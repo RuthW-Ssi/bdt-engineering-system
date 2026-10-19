@@ -331,6 +331,16 @@ describe('ProductionSchedule', () => {
     expect(boardCalls.at(-1)).toBe(1) // still switched to the new version
   })
 
+  it('warns about paused WOs with the reason typed at Pause', () => {
+    const base = fixtureBoard()
+    boardResult = { ...boardResult, data: { ...base, work_orders: [...base.work_orders,
+      wo(4001, 100, { status: 'PAUSED', wo_code: 'WO-IN-4001', work_center_id: base.work_centers[0].id,
+        pause: { reason: 'รอ shop drawing', by: 'admin', at: '2026-10-01T03:20:56.000Z' } })] } }
+    render(<ProductionSchedule />)
+    expect(screen.getByText('⏸ หยุดชั่วคราว 1 WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง')).toBeInTheDocument()
+    expect(screen.getByText(/WO-IN-4001 · .* — รอ shop drawing \(admin · 1\/10\/2026\)/)).toBeInTheDocument()
+  })
+
   it('shows a 504 with the "may still finish" hint', () => {
     runResult = { ...runResult, error: axiosError(504, { message: 'Scheduler timed out' }) }
     render(<ProductionSchedule />)
