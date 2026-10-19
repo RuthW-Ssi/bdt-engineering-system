@@ -47,6 +47,53 @@ def load_work_orders(conn, work_order_ids: list[int] | None = None) -> list[Work
     return wos
 
 
+def skip_reason(r) -> str | None:
+    """Why a WO cannot be scheduled (Thai, joined with ' · '); None when it can."""
+    if r["status"] not in WO_STATUSES_SCHEDULABLE:
+        return f"สถานะ {r['status']} — จัดได้เฉพาะ ยังไม่เริ่ม / ปล่อยงานแล้ว"
+    why = []
+    if not r["wc_active"]:
+        why.append("work center ปิดใช้")
+    if not r["dur"] or r["dur"] <= 0:
+        why.append("ไม่มีเวลาทำงาน")
+    if r["plan_start"] is None or r["plan_finish"] is None:
+        why.append("ไม่มีวันเริ่ม/วันเสร็จตามแผน")
+    return " · ".join(why) or None
+
+
+def load_skipped(conn, work_order_ids: list[int] | None = None) -> list[dict]:
+    """WOs left out of the run, with the reason — so a run never drops work silently.
+    Without a pick: NOT_STARTED / RELEASED WOs that fail load_work_orders' filter.
+    With a pick: every picked WO that fails it (any status)."""
+    picked = work_order_ids is not None
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(f"""
+            select w.id wo_id, w.wo_code, w.status::text status, w.expected_duration_min dur,
+                   w.plan_start, w.plan_finish, coalesce(mw.active, false) wc_active
+            from work_order w
+            left join mrp_workcenter mw on mw.id = w.work_center_id
+            where {"w.id = any(%s)" if picked else "w.status::text = any(%s)"}
+            order by w.mo_id, w.sequence, w.id
+        """, (list(work_order_ids) if picked else list(WO_STATUSES_SCHEDULABLE),))
+        rows = cur.fetchall()
+    return [{"wo_id": r["wo_id"], "wo_code": r["wo_code"], "reason": why}
+            for r in rows if (why := skip_reason(r))]
+
+
+def load_reservations(conn) -> list[tuple[int, str, "datetime"]]:
+    """Started WOs (IN_PROGRESS / PAUSED) still occupy a line of their work center until
+    their plan_finish: (wc_id, wo_code, plan_finish local)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("""
+            select w.work_center_id wc_id, w.wo_code, w.plan_finish
+            from work_order w
+            join mrp_workcenter mw on mw.id = w.work_center_id and mw.active
+            where w.status::text in ('IN_PROGRESS', 'PAUSED') and w.plan_finish is not null
+            order by w.plan_finish, w.id
+        """)
+        return [(r["wc_id"], r["wo_code"], to_local(r["plan_finish"])) for r in cur.fetchall()]
+
+
 def load_lines(conn) -> list[Line]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("""

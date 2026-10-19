@@ -27,17 +27,35 @@ SOURCE = {"event": "heuristic-eventbased", "forward": "heuristic-eventbased",
           "backward": "heuristic-backward", "alap": "heuristic-backward"}
 
 
-def _check_ready(conn, wos, lines) -> None:
+def _check_ready(conn, wos, lines, skipped=()) -> None:
     """Raise DataNotReady (before anything is solved or written) if the inputs can't be scheduled."""
     if not wos:
-        raise DataNotReady(["no schedulable work orders (status NOT_STARTED/RELEASED, "
-                            "expected_duration_min > 0, plan_start and plan_finish set, active work center)"])
+        raise DataNotReady(["ไม่มีงานที่จัดได้ — ต้องเป็น WO ที่ยังไม่เริ่ม / ปล่อยงานแล้ว มีเวลาทำงาน "
+                            "มีวันเริ่ม-เสร็จตามแผน และ work center เปิดใช้"]
+                           + [f"{s['wo_code']} — {s['reason']}" for s in skipped])
     covered = {ln.wc_id for ln in lines}
     missing = collections.Counter(w.wc_id for w in wos if w.wc_id not in covered)
     if missing:
         codes = loader.load_workcenter_codes(conn, missing)
-        raise DataNotReady([f"work center {codes.get(wc, wc)} has no active line ({n} work orders)"
+        raise DataNotReady([f"{codes.get(wc, wc)} ไม่มีไลน์ผลิต ({n} WO) — แจ้งแอดมินเพิ่มไลน์ หรือเอา WO ออกจากการจัด"
                             for wc, n in sorted(missing.items())])
+
+
+def _reserve_lines(started, lines, now):
+    """Put each started WO on the line of its work center that frees up first, busy until its
+    plan_finish (ones already past it don't block). -> ({line_id: until}, report rows)."""
+    by_wc = collections.defaultdict(list)
+    for ln in lines:
+        by_wc[ln.wc_id].append(ln.line_id)
+    busy: dict[int, datetime] = {}
+    reserved = []
+    for wc_id, wo_code, until in started:
+        if until <= now or not by_wc[wc_id]:
+            continue
+        line_id = min(by_wc[wc_id], key=lambda lid: busy.get(lid, now))
+        busy[line_id] = max(busy.get(line_id, now), until)
+        reserved.append({"wo_code": wo_code, "line_id": line_id, "until": until.isoformat()})
+    return busy, reserved
 
 
 def run(direction: str | None = None, dispatch_rule: str | None = None,
@@ -63,13 +81,15 @@ def run(direction: str | None = None, dispatch_rule: str | None = None,
         wos = (loader.load_work_orders(conn) if work_order_ids is None
                else loader.load_work_orders(conn, work_order_ids))
         lines = loader.load_lines(conn)
-        _check_ready(conn, wos, lines)
-        sched = Scheduler(wos, lines, cal, cfg, now).run()
+        skipped = loader.load_skipped(conn) if work_order_ids is None else loader.load_skipped(conn, work_order_ids)
+        _check_ready(conn, wos, lines, skipped)
+        busy, reserved = _reserve_lines(loader.load_reservations(conn), lines, now)
+        sched = Scheduler(wos, lines, cal, cfg, now, busy_until=busy).run()
         by_id = {w.wo_id: w for w in wos}
         result = {"direction": cfg.direction, "dispatch_rule": cfg.dispatch_rule,
                   "kpi": kpi.compute(sched, by_id, now), "line_load_min": kpi.line_load(sched, by_id),
                   "version_id": None, "version_code": None, "is_active": False,
-                  "requested_by": requested_by}
+                  "requested_by": requested_by, "skipped": skipped, "reserved": reserved}
         if persist:
             vc = VERSION_CODE.get(cfg.direction, "SCHED-V1")
             desc = f"{cfg.direction} {cfg.dispatch_rule}"

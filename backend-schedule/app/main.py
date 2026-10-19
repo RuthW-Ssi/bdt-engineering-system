@@ -49,7 +49,7 @@ def _run_in_progress(_request, _exc):
 @app.exception_handler(DataNotReady)
 def _data_not_ready(_request, exc: DataNotReady):
     return JSONResponse(status_code=422, content={
-        "code": "data_not_ready", "message": "scheduler input data is not ready; nothing was written",
+        "code": "data_not_ready", "message": "ข้อมูลยังไม่พร้อมจัดตาราง — ยังไม่ได้บันทึกอะไร",
         "reasons": exc.reasons})
 
 

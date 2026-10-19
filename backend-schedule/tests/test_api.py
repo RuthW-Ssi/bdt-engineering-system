@@ -112,7 +112,8 @@ def test_data_not_ready_is_422_with_reasons(client, monkeypatch):
     r = client.post("/schedule", json={})
     assert r.status_code == 422
     body = r.json()
-    assert body["code"] == "data_not_ready" and body["message"] and body["reasons"] == reasons
+    assert body["code"] == "data_not_ready" and body["message"] == "ข้อมูลยังไม่พร้อมจัดตาราง — ยังไม่ได้บันทึกอะไร"
+    assert body["reasons"] == reasons
 
 
 def test_unexpected_error_is_generic_500_and_logged(client, monkeypatch, caplog):
@@ -155,6 +156,8 @@ def test_compare_end_to_end_never_writes(client, monkeypatch, fake_conn):
     monkeypatch.setattr(loader, "load_work_orders", lambda c: [
         WorkOrder(1, 1, 10, 1, 120.0, datetime(2026, 10, 20, 17), datetime(2026, 10, 1, 8))])
     monkeypatch.setattr(loader, "load_lines", lambda c: [Line(11, 1, 1, 2, "internal")])
+    monkeypatch.setattr(loader, "load_skipped", lambda c, ids=None: [])
+    monkeypatch.setattr(loader, "load_reservations", lambda c: [])
     r = client.post("/schedule/compare", json={})
     assert r.status_code == 200
     for side in ("backward", "event_based"):
