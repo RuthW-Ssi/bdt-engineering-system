@@ -285,12 +285,12 @@ export function ProductionSchedule() {
             )}
 
             {tab === 'load' && (
-              <div role="tabpanel" aria-label="ภาระงาน" className="grid gap-3 items-start grid-cols-1 @min-[1040px]:grid-cols-2">
-                <SchedCard icon="🔥" title="Utilization Heatmap" tag="load ÷ (available × OEE)">
-                  <UtilizationHeatmap grid={heat} />
-                </SchedCard>
+              <div role="tabpanel" aria-label="ภาระงาน" className="flex flex-col gap-3">
                 <SchedCard icon="⚡" title="Bottleneck Load" tag={bn?.tag}>
                   <BottleneckLoad data={bn} />
+                </SchedCard>
+                <SchedCard icon="🔥" title="Utilization Heatmap" tag="load ÷ (available × OEE)">
+                  <UtilizationHeatmap grid={heat} />
                 </SchedCard>
               </div>
             )}
