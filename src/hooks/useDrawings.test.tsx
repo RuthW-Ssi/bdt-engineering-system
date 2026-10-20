@@ -3,8 +3,20 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import * as drawingsApi from '../api/drawings'
-import { drawingKey } from '../api/drawings'
+import { drawingKey, type Drawing } from '../api/drawings'
 import { useUploadDrawings, useDrawingPdfUrl, useDrawingBomMarks, type StagedDrawing } from './useDrawings'
+
+// uploadDrawing resolves with the created row — these tests only assert on
+// what gets sent (the request), not on the response shape, so a single
+// minimal-but-real Drawing fixture stands in for every resolved call.
+function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
+  return {
+    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, mark: 'B1', rev: 1,
+    file_key: 'drawings/P1/Z1/B1/rev1/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf',
+    uploaded_by_id: 1, create_date: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
 
 // Partial mock: `drawingKey` is a pure function whose own shape is verified
 // directly below (real implementation), everything else that touches the
@@ -68,7 +80,7 @@ describe('drawingKey', () => {
 
 describe('useUploadDrawings', () => {
   it('uploads each staged item with its own mark + rev, no latest-version lookup', async () => {
-    mocked.uploadDrawing.mockResolvedValue({} as any)
+    mocked.uploadDrawing.mockResolvedValue(makeDrawing())
     const file = new File(['x'], '2BUH1A-1 - BEAM - Rev 2.pdf')
     const items: StagedDrawing[] = [{ file, fileName: '2BUH1A-1 - BEAM - Rev 2.pdf', mark: '2BUH1A-1', rev: 2 }]
 
@@ -90,7 +102,7 @@ describe('useUploadDrawings', () => {
   })
 
   it('dedupes identical file names only within the same (mark, rev) pair', async () => {
-    mocked.uploadDrawing.mockResolvedValue({} as any)
+    mocked.uploadDrawing.mockResolvedValue(makeDrawing())
     const fileA = new File(['a'], 'plan.pdf')
     const fileB = new File(['b'], 'plan.pdf')
     const fileC = new File(['c'], 'plan.pdf')
@@ -112,7 +124,7 @@ describe('useUploadDrawings', () => {
 
   it('uploads independently (allSettled) and reports the failed count without aborting the rest', async () => {
     mocked.uploadDrawing
-      .mockResolvedValueOnce({} as any)
+      .mockResolvedValueOnce(makeDrawing())
       .mockRejectedValueOnce(new Error('nope'))
     const items: StagedDrawing[] = [
       { file: new File(['a'], 'a.pdf'), fileName: 'a.pdf', mark: 'B1', rev: 1 },

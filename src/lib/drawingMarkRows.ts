@@ -61,7 +61,10 @@ export function buildMarkRows(drawings: Drawing[]): MarkRow[] {
   const byMark = new Map<string, Drawing[]>() // key: mark.toLowerCase()
   const unmarked: Drawing[] = []
   for (const d of drawings) {
-    if (d.mark === null) { unmarked.push(d); continue }
+    // `== null`, not `=== null`: a row can come straight from an old backend
+    // response that omits the mark column entirely (undefined, not null) —
+    // phase-1 compatibility, see wiki/features/drawing-revision-plan.md.
+    if (d.mark == null) { unmarked.push(d); continue }
     const key = d.mark.toLowerCase()
     const list = byMark.get(key)
     if (list) list.push(d)

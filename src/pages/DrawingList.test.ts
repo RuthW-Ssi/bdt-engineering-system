@@ -1,5 +1,5 @@
 import type { Drawing } from '../api/drawings'
-import { filterDrawingsByType } from './DrawingList'
+import { filterDrawingsByType, formatUploadedAt } from './DrawingList'
 
 function makeDrawing(overrides: Partial<Drawing>): Drawing {
   return {
@@ -24,5 +24,23 @@ describe('filterDrawingsByType', () => {
   it('matches case-insensitively', () => {
     const drawings = [makeDrawing({ id: 1, file_name: 'A.PDF' })]
     expect(filterDrawingsByType(drawings, 'pdf').map(d => d.id)).toEqual([1])
+  })
+})
+
+// Per spec: "upload date/time … plus who uploaded them".
+describe('formatUploadedAt', () => {
+  const iso = '2026-01-02T03:04:00.000Z'
+  const dateTime = new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  it('shows just the date/time when no uploader name is given', () => {
+    expect(formatUploadedAt(iso)).toBe(dateTime)
+  })
+
+  it('appends the uploader name after the date/time when given', () => {
+    expect(formatUploadedAt(iso, 'Tao')).toBe(`${dateTime} · Tao`)
+  })
+
+  it('omits the name when it is null (e.g. uploader account was removed)', () => {
+    expect(formatUploadedAt(iso, null)).toBe(dateTime)
   })
 })

@@ -39,8 +39,11 @@ const markKey = (mark: string | null) => (mark ?? '').toLowerCase()
 
 // Same format MoDetail.tsx / WoDetail.tsx / MoHistoryTimeline.tsx already use
 // for a timestamp that needs to show both date and time, not just one.
-function formatUploadedAt(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+// Per spec: "upload date/time … plus who uploaded them" — the name (when
+// present) is appended after the date/time, not shown on its own.
+export function formatUploadedAt(iso: string, uploadedByName?: string | null): string {
+  const dateTime = new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return uploadedByName ? `${dateTime} · ${uploadedByName}` : dateTime
 }
 
 // The rev actually shown for a row: the user's pick if it still exists on
@@ -313,7 +316,7 @@ export function DrawingList() {
                               <span style={{ fontSize: 12, color: '#8E8E8E' }}>Rev {rev}</span>
                             )}
                           </div>
-                          {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatUploadedAt(revGroup.uploadedAt)}</div>}
+                          {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatUploadedAt(revGroup.uploadedAt, revGroup.files[0]?.uploaded_by?.name)}</div>}
                         </div>
                         {isSingleFile && (
                           <>

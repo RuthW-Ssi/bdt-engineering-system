@@ -55,7 +55,30 @@ describe('classifyUpload', () => {
     expect(classifyUpload({ mark: 'A', rev: 0, fileName: 'A - BEAM - Rev .pdf' }, existing)).toEqual({ status: 'lower-rev', currentRev: 1 })
   })
 
+  // Same-name re-upload at an already-recorded lower rev must be classified
+  // 'replace' even though that rev is below current — the lower-rev check
+  // must run only after the same-rev/same-name check, not before it.
+  it('mark A rev 0, same file name as an existing rev-0 row → replace, not lower-rev', () => {
+    const existingWithRev0 = [...existing, drawing({ id: 3, rev: 0, file_name: 'A - BEAM - Rev .pdf', file_key: 'drawings/P1/Z1/A/rev0/A - BEAM - Rev .pdf' })]
+    expect(classifyUpload({ mark: 'A', rev: 0, fileName: 'A - BEAM - Rev .pdf' }, existingWithRev0)).toEqual({ status: 'replace', currentRev: 1 })
+  })
+
+  // A different (new) file name at that same lower rev is a genuinely new
+  // sheet at an old rev, not a replace — stays lower-rev.
+  it('mark A rev 0, a NEW file name not seen at rev 0 → stays lower-rev', () => {
+    const existingWithRev0 = [...existing, drawing({ id: 3, rev: 0, file_name: 'A - BEAM - Rev .pdf', file_key: 'drawings/P1/Z1/A/rev0/A - BEAM - Rev .pdf' })]
+    expect(classifyUpload({ mark: 'A', rev: 0, fileName: 'A - NEWSHEET - Rev .pdf' }, existingWithRev0)).toEqual({ status: 'lower-rev', currentRev: 1 })
+  })
+
   it('mark matching is case-insensitive', () => {
     expect(classifyUpload({ mark: 'a', rev: 2, fileName: 'a - BEAM - Rev 2.pdf' }, existing)).toEqual({ status: 'new-rev', currentRev: 1 })
+  })
+
+  // Phase-1 compatibility: `existing` can come straight from an old backend
+  // response that omits the mark/rev columns entirely (undefined, not null)
+  // — must not crash computing markRows.
+  it('does not crash when an existing row has mark: undefined (old backend response)', () => {
+    const existingWithUndefinedMark = [...existing, { ...drawing({ id: 9 }), mark: undefined } as unknown as Drawing]
+    expect(() => classifyUpload({ mark: 'A', rev: 2, fileName: 'A - BEAM - Rev 2.pdf' }, existingWithUndefinedMark)).not.toThrow()
   })
 })

@@ -37,9 +37,16 @@ function parseMarkInput(value: string): string | null {
   return trimmed === '' ? null : trimmed
 }
 
+// 9999 matches the input's own max — a value past it is treated as missing,
+// not silently clamped, so the user is prompted to fix it rather than having
+// a rev they never typed get used.
+const MAX_REV = 9999
+
 function parseRevInput(value: string): number | null {
   const trimmed = value.trim()
-  return /^\d+$/.test(trimmed) ? Number(trimmed) : null
+  if (!/^\d+$/.test(trimmed)) return null
+  const n = Number(trimmed)
+  return n > MAX_REV ? null : n
 }
 
 // Thai result copy for the review table's ผล column (design: review table
@@ -166,6 +173,7 @@ export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading
                             value={row.mark}
                             onChange={e => patchRow(i, { mark: e.target.value })}
                             disabled={isUploading}
+                            maxLength={100}
                             style={inputStyle}
                           />
                           {d.mark !== null && !d.inBom && (
@@ -182,6 +190,7 @@ export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading
                         <input
                           type="number"
                           min={0}
+                          max={MAX_REV}
                           step={1}
                           value={row.rev}
                           onChange={e => patchRow(i, { rev: e.target.value })}

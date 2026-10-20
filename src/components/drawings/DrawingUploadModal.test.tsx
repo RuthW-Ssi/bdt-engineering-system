@@ -130,6 +130,38 @@ describe('DrawingUploadModal', () => {
     expect(screen.getByText(/ต่ำกว่า rev ปัจจุบัน/)).toBeInTheDocument()
   })
 
+  it('mark input caps length at 100 characters, matching the backend DTO', () => {
+    renderModal()
+    const pdfFile = new File(['x'], 'B - BEAM - Rev 1.pdf')
+    fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
+
+    const markInput = screen.getByDisplayValue('B') as HTMLInputElement
+    expect(markInput.maxLength).toBe(100)
+  })
+
+  it('rev input rejects values over 9999, treating it as missing (needs-input)', () => {
+    renderModal()
+    const pdfFile = new File(['x'], 'B - BEAM.pdf')
+    fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
+
+    const revInput = screen.getByRole('spinbutton') as HTMLInputElement
+    fireEvent.change(revInput, { target: { value: '10000' } })
+
+    expect(uploadButton()).toBeDisabled()
+    expect(screen.getByText(/กรอก mark \/ rev/)).toBeInTheDocument()
+  })
+
+  it('rev input still accepts exactly 9999', () => {
+    renderModal()
+    const pdfFile = new File(['x'], 'B - BEAM.pdf')
+    fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
+
+    const revInput = screen.getByRole('spinbutton') as HTMLInputElement
+    fireEvent.change(revInput, { target: { value: '9999' } })
+
+    expect(uploadButton()).not.toBeDisabled()
+  })
+
   it('removing a row drops it from the review table', () => {
     renderModal()
     const pdfFile = new File(['x'], 'B - BEAM - Rev 1.pdf')

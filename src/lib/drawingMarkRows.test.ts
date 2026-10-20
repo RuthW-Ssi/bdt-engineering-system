@@ -69,6 +69,19 @@ describe('buildMarkRows', () => {
     expect(buildMarkRows([])).toEqual([])
   })
 
+  // Phase-1 compatibility: a row can come straight from an old backend
+  // response that omits the mark column entirely (undefined, not null) —
+  // must fold into the unmarked row rather than crash on .toLowerCase().
+  it('does not crash on a row with mark: undefined (old backend response), folding it into the unmarked row', () => {
+    const drawings = [
+      makeDrawing({ id: 1, mark: 'CTR1', file_name: 'CTR1 - BEAM - Rev 1.pdf' }),
+      { ...makeDrawing({ id: 2, file_name: 'unparsed.pdf' }), mark: undefined } as unknown as Drawing,
+    ]
+    expect(() => buildMarkRows(drawings)).not.toThrow()
+    const rows = buildMarkRows(drawings)
+    expect(rows.map(r => r.mark)).toEqual(['CTR1', null])
+  })
+
   it('groups marks case-insensitively, like current-rev.spec.ts does for the top rev', () => {
     const drawings = [
       makeDrawing({ id: 1, mark: 'a', rev: 0, file_name: 'a - BEAM - Rev .pdf', create_date: '2026-01-01T00:00:00.000Z' }),

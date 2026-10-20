@@ -17,6 +17,10 @@ export interface Drawing {
   file_name: string
   mime_type: string | null
   uploaded_by_id: number
+  // Who uploaded this file (per spec: "upload date/time … plus who uploaded
+  // them") — joined in by the backend's findByZone, optional/nullable the
+  // same way uploaded_by_id's own user could in principle be missing.
+  uploaded_by?: { name: string } | null
   create_date: string
 }
 

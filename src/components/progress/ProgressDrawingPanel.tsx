@@ -2,14 +2,15 @@ import { useState } from 'react'
 import { FileText, Loader2 } from 'lucide-react'
 import { useZoneDrawings } from '../../hooks/useDrawings'
 import { DrawingPreviewPanel } from '../drawings/DrawingPreviewPanel'
+import type { Drawing } from '../../api/drawings'
 
 interface Props {
   zoneId: number
   // Currently-selected assembly's mark (from the same selection state 3D
-  // isolate-by-row already uses) — null when no row is selected. Drawing
-  // files are named "<mark> - <suffix> - Rev N.dwg", so this is a prefix
-  // match, not an id/relation (Drawing itself is zone-scoped, not per-mark,
-  // per its DB schema — the mark association only exists in the filename).
+  // isolate-by-row already uses) — null when no row is selected. Matched
+  // against each drawing's own `mark` column (falling back to the filename
+  // only for legacy rows that predate the mark/rev backfill — see
+  // matchesMark below), not an id/relation.
   mark: string | null
 }
 
@@ -19,10 +20,21 @@ const EMPTY_STATE_STYLE = {
   color: '#ABABAB', fontSize: 13, textAlign: 'center' as const, padding: 16,
 }
 
-// Prefix match with a boundary check — plain startsWith would let mark
-// "DBN-B1-CTR1" wrongly match a file named "DBN-B1-CTR10 - ...".
-function fileMatchesMark(fileName: string, mark: string): boolean {
-  return fileName.startsWith(mark) && (fileName.length === mark.length || !/[A-Za-z0-9]/.test(fileName[mark.length]))
+// A drawing's filename leads with its mark, e.g. "DBN-B1-CTR10 - - Rev 1.pdf"
+// — used only as a fallback for the handful of legacy rows that predate the
+// mark/rev backfill (d.mark == null), same rule as lib/markDrawingRevs.ts:
+// every row since then carries a real `mark` column, matched directly
+// instead. Split on " - " (the CAD export tool's own field separator)
+// rather than a prefix/substring check, so "CTR1" never matches a file
+// actually named "CTR10 - ...".
+function extractMarkFromFilename(fileName: string): string {
+  const withoutExt = fileName.replace(/\.[^.]+$/, '')
+  return withoutExt.split(' - ')[0].trim()
+}
+
+function matchesMark(d: Drawing, mark: string): boolean {
+  const drawingMark = d.mark ?? extractMarkFromFilename(d.file_name)
+  return drawingMark.toLowerCase() === mark.toLowerCase()
 }
 
 // Drawing's toggle sibling to the 3D viewport in ProjectProgress — zone-level
@@ -45,7 +57,7 @@ export function ProgressDrawingPanel({ zoneId, mark }: Props) {
   // sequences per zone (see wiki/features/drawing.md), so picking "latest
   // version across both" could pick a higher-numbered .dwg over a real,
   // viewable lower-numbered .pdf — filtering to .pdf first avoids that.
-  const markMatches = mark == null ? [] : list.filter(d => d.file_name.toLowerCase().endsWith('.pdf') && fileMatchesMark(d.file_name, mark))
+  const markMatches = mark == null ? [] : list.filter(d => d.file_name.toLowerCase().endsWith('.pdf') && matchesMark(d, mark))
   // A legacy row with rev === null (no "Rev" token at all) folds into rev 0
   // — same "first issue" convention markDrawingRevs.ts/drawingMarkRows.ts
   // already use — so it still shows up instead of silently disappearing.
