@@ -81,7 +81,7 @@ const inputStyle: CSSProperties = { width: '100%', fontSize: 13, padding: '4px 6
 // a sheet, or land below the current rev) before confirming. Upload stays
 // disabled while any row's mark or rev is still missing.
 const BOM_TIP_TITLE = 'mark นี้ยังไม่มีใน BOM'
-const BOM_TIP_BODY = 'อัปโหลดแบบนี้ได้ตามปกติ ถ้าไม่อยากเห็นเครื่องหมายนี้ ให้อัปโหลด BOM ของโซนนี้ก่อน'
+const BOM_TIP_BODY = 'อัปโหลด Drawing นี้ได้ตามปกติ ถ้าไม่อยากเห็นเครื่องหมายนี้ ให้อัปโหลด BOM ของโซนนี้ก่อน'
 
 export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading, onConfirm, onClose }: Props) {
   const [rows, setRows] = useState<ReviewRow[]>([])

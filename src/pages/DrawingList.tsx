@@ -68,7 +68,7 @@ function resolveRev(row: MarkRow, pickedRev: Record<string, number>): number {
 // one file left in it, or there's no older rev to fall back to).
 function revFallbackNote(row: MarkRow, rev: number, revGroup: MarkRevGroup): string | null {
   if (row.revs[0].rev !== rev || revGroup.files.length !== 1 || row.revs.length < 2) return null
-  return `ถ้าลบไฟล์นี้ Rev ${row.revs[1].rev} จะกลายเป็นแบบปัจจุบัน`
+  return `ถ้าลบไฟล์นี้ Rev ${row.revs[1].rev} จะกลายเป็น Drawing ปัจจุบัน`
 }
 
 export function DrawingList() {
