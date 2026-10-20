@@ -99,44 +99,45 @@ describe('DrawingsService', () => {
   })
 
   describe('create', () => {
+    const UPLOAD_KEY = 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/x.pdf'
+    const UPLOAD_KEY_SZ = 'drawings/_incoming/0X220/22222222-2222-2222-2222-222222222222/x.pdf'
+
     beforeEach(() => {
       mockToA3Landscape.mockReset().mockResolvedValue(Buffer.from('a3-normalised-bytes'))
     })
 
-    // Security review, 2026-10-20: create() reads/overwrites/deletes the
-    // object at a CLIENT-supplied dto.file_key — the DTO regex only checks
-    // its shape, not that it actually belongs to this project/zone/mark/rev,
-    // so an authenticated user could otherwise point it at another project's
-    // drawing. The expected key is rebuilt server-side from validated
-    // project/zone/sub-zone ownership and compared BEFORE any storage call.
-    describe('file_key binding (security)', () => {
+    // Fix round 1, finding 1 (2026-10-20): the client no longer supplies the
+    // final storage key — it stages the upload at drawings/_incoming/
+    // <project_code>/<uuid>/<file_name> (src/api/drawings.ts's uploadDrawing)
+    // and the server builds the real key itself once the upload is proven
+    // valid. What's left to check up front is the id cross-checks (zone
+    // belongs to the claimed project, sub-zone belongs to the claimed zone)
+    // plus the upload_key's project-code prefix — never a full-key exact
+    // match, since there's no client-supplied final key to compare any more.
+    describe('upload_key ownership + prefix (security)', () => {
       const dto = {
         project_id: 42,
         zone_id: 7,
         mark: 'B1',
         rev: 1,
         version: 1,
-        file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+        upload_key: UPLOAD_KEY,
         file_name: 'x.pdf',
       }
 
-      it('a file_key that does not match the rebuilt project/zone/mark/rev key → 400, no storage call', async () => {
-        const prisma = makePrisma({ same: [] }) // default zone 7∈project 42, code Z1 — matches everything except file_key below
+      it('an upload_key under another project\'s prefix → 400, no storage call', async () => {
+        const prisma = makePrisma({ same: [] }) // default zone 7∈project 42, code Z1, projectCode 0X220
         const fileStorage = makeFileStorage()
         const svc = new DrawingsService(prisma as any, fileStorage as any)
 
-        await expect(
-          svc.create({ ...dto, file_key: 'drawings/0X220/Z1/SOMEONE-ELSES-MARK/rev1/x.pdf' } as any, 9),
-        ).rejects.toThrow(BadRequestException)
-        await expect(
-          svc.create({ ...dto, file_key: 'drawings/0X220/Z1/SOMEONE-ELSES-MARK/rev1/x.pdf' } as any, 9),
-        ).rejects.toThrow('file_key ไม่ตรงกับ project/zone/mark/rev')
+        const err = await svc.create({ ...dto, upload_key: 'drawings/_incoming/OTHER-PROJECT/11111111-1111-1111-1111-111111111111/x.pdf' } as any, 9).catch(e => e)
 
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(err.message).toBe('file_key ไม่ตรงกับ project/zone/mark/rev')
         expect(fileStorage.getObject).not.toHaveBeenCalled()
         expect(fileStorage.putObject).not.toHaveBeenCalled()
         expect(fileStorage.delete).not.toHaveBeenCalled()
         expect(prisma.drawing.findMany).not.toHaveBeenCalled()
-        expect(prisma.drawing.create).not.toHaveBeenCalled()
       })
 
       it('a zone that does not belong to dto.project_id → 400, no storage call', async () => {
@@ -145,9 +146,10 @@ describe('DrawingsService', () => {
         const fileStorage = makeFileStorage()
         const svc = new DrawingsService(prisma as any, fileStorage as any)
 
-        await expect(svc.create({ ...dto, project_id: 99 } as any, 9)).rejects.toThrow(BadRequestException)
-        await expect(svc.create({ ...dto, project_id: 99 } as any, 9)).rejects.toThrow('file_key ไม่ตรงกับ project/zone/mark/rev')
+        const err = await svc.create({ ...dto, project_id: 99 } as any, 9).catch(e => e)
 
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(err.message).toBe('file_key ไม่ตรงกับ project/zone/mark/rev')
         expect(fileStorage.getObject).not.toHaveBeenCalled()
         expect(prisma.drawing.findMany).not.toHaveBeenCalled()
       })
@@ -158,40 +160,92 @@ describe('DrawingsService', () => {
         const fileStorage = makeFileStorage()
         const svc = new DrawingsService(prisma as any, fileStorage as any)
 
-        await expect(
-          svc.create({ ...dto, zone_id: 7, sub_zone_id: 3, file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf' } as any, 9),
-        ).rejects.toThrow(BadRequestException)
+        const err = await svc.create({ ...dto, zone_id: 7, sub_zone_id: 3, upload_key: UPLOAD_KEY_SZ } as any, 9).catch(e => e)
+
+        expect(err).toBeInstanceOf(BadRequestException)
         expect(fileStorage.getObject).not.toHaveBeenCalled()
       })
 
-      it('a correctly-bound file_key proceeds: getObject IS called and the row is created', async () => {
+      it('a correctly-bound upload_key proceeds: writes the final key and deletes the upload_key', async () => {
         const prisma = makePrisma({ same: [] })
         const fileStorage = makeFileStorage()
         const svc = new DrawingsService(prisma as any, fileStorage as any)
 
         const result = await svc.create(dto as any, 9)
 
-        expect(fileStorage.getObject).toHaveBeenCalledWith(dto.file_key)
-        expect(prisma.drawing.create).toHaveBeenCalled()
+        expect(fileStorage.getObject).toHaveBeenCalledWith(UPLOAD_KEY)
+        expect(fileStorage.putObject).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf', expect.any(Buffer), 'application/pdf')
+        expect(fileStorage.delete).toHaveBeenCalledWith(UPLOAD_KEY)
+        expect(prisma.drawing.create).toHaveBeenCalledWith(expect.objectContaining({
+          data: expect.objectContaining({ file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf' }),
+        }))
         expect(result).toBeDefined()
       })
 
-      it('the same check applies with a sub-zone in play: a correctly-bound sub-zone key proceeds', async () => {
+      it('the same check applies with a sub-zone in play: a correctly-bound sub-zone upload_key proceeds', async () => {
         const prisma = makePrisma({ same: [] })
         const fileStorage = makeFileStorage()
         const svc = new DrawingsService(prisma as any, fileStorage as any)
 
-        await expect(
-          svc.create({ ...dto, sub_zone_id: 3, file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf' } as any, 9),
-        ).resolves.toBeDefined()
+        await svc.create({ ...dto, sub_zone_id: 3, upload_key: UPLOAD_KEY_SZ } as any, 9)
+
+        expect(fileStorage.putObject).toHaveBeenCalledWith('drawings/0X220/Z1/SZ1/B1/rev1/x.pdf', expect.any(Buffer), 'application/pdf')
+      })
+
+      // Fix round 1, extra item: defense-in-depth — the DTO's own @Matches
+      // guards (create-drawing.dto.ts) already reject these at the HTTP
+      // boundary; these tests call the service directly (bypassing the DTO
+      // pipeline with `as any`, as a future non-HTTP caller might) to prove
+      // the service itself refuses to build/use a traversal key too.
+      it('mark ".." (bypassing DTO validation) → 400 before any storage write, even though upload_key/zone/project are otherwise valid', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        const err = await svc.create({ ...dto, mark: '..' } as any, 9).catch(e => e)
+
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+        expect(fileStorage.putObject).not.toHaveBeenCalled()
+        expect(prisma.drawing.findMany).not.toHaveBeenCalled()
+      })
+
+      // Note: the service-level guard (assertSafeFinalKey) checks for an
+      // EXACT '.'/'..' path segment, same as the ruling's own snippet — a
+      // "..pdf"-shaped name (not an exact ".." segment) is only rejected by
+      // the DTO's own stricter "no leading dot" rule, covered above in
+      // 'CreateDrawingDto validation (mark/file_name traversal guard)'; here
+      // at the service layer a literal ".." file_name is the true bypass case.
+      it('file_name ".." (bypassing DTO validation) → 400 before any storage write', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        const err = await svc.create({ ...dto, file_name: '..' } as any, 9).catch(e => e)
+
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+        expect(fileStorage.putObject).not.toHaveBeenCalled()
+      })
+
+      it('an upload_key containing a ".." path segment (bypassing DTO validation) → 400, no storage call', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        const err = await svc.create({ ...dto, upload_key: 'drawings/_incoming/0X220/../11111111-1111-1111-1111-111111111111/x.pdf' } as any, 9).catch(e => e)
+
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
       })
     })
 
     // Task 11: every upload is normalised to A3 landscape BEFORE the
     // same-sheet replace logic runs, so a bad PDF never deletes an existing
-    // row. getObject → toA3Landscape → putObject (same key) must all happen
-    // before drawing.create, and before the same-sheet findMany lookup.
-    it('normalises the uploaded PDF to A3 before the same-sheet lookup and the DB write: getObject → toA3Landscape → putObject (same key) → create', async () => {
+    // row. getObject(upload_key) → toA3Landscape → putObject(finalKey) →
+    // delete(upload_key) must all happen before the same-sheet findMany
+    // lookup / drawing.create.
+    it('normalises the uploaded PDF to A3 before the same-sheet lookup and the DB write: getObject(upload_key) → toA3Landscape → putObject(finalKey) → delete(upload_key) → findMany → create', async () => {
       const same: any[] = []
       const prisma = makePrisma({ same })
       const fileStorage = makeFileStorage()
@@ -200,6 +254,7 @@ describe('DrawingsService', () => {
       fileStorage.getObject.mockImplementation(() => { order.push('getObject'); return Promise.resolve(Buffer.from('orig')) })
       mockToA3Landscape.mockImplementation(() => { order.push('toA3Landscape'); return Promise.resolve(Buffer.from('a3')) })
       fileStorage.putObject.mockImplementation(() => { order.push('putObject'); return Promise.resolve(undefined) })
+      fileStorage.delete.mockImplementation(() => { order.push('delete(upload_key)'); return Promise.resolve(undefined) })
       prisma.drawing.findMany.mockImplementation(() => { order.push('findMany'); return Promise.resolve(same) })
       prisma.drawing.create.mockImplementation((args: any) => { order.push('create'); return Promise.resolve({ id: 999, ...args.data }) })
 
@@ -210,57 +265,80 @@ describe('DrawingsService', () => {
           mark: 'B1',
           rev: 1,
           version: 1,
-          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          upload_key: UPLOAD_KEY,
           file_name: 'x.pdf',
         } as any,
         9,
       )
 
-      expect(fileStorage.getObject).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf')
+      expect(fileStorage.getObject).toHaveBeenCalledWith(UPLOAD_KEY)
       expect(mockToA3Landscape).toHaveBeenCalledWith(Buffer.from('orig'))
       expect(fileStorage.putObject).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf', Buffer.from('a3'), 'application/pdf')
-      expect(order).toEqual(['getObject', 'toA3Landscape', 'putObject', 'findMany', 'create'])
+      expect(fileStorage.delete).toHaveBeenCalledWith(UPLOAD_KEY)
+      expect(order).toEqual(['getObject', 'toA3Landscape', 'putObject', 'delete(upload_key)', 'findMany', 'create'])
     })
 
-    it('on a bad/corrupt PDF: deletes the uploaded object, writes no row, and throws BadRequestException("ไฟล์ PDF เสียหรือเปิดไม่ได้")', async () => {
+    it('getObject(upload_key) missing (e.g. already consumed, or never uploaded) → 400 "ไม่พบไฟล์ที่อัปโหลด", no row written', async () => {
       const prisma = makePrisma({ same: [] })
+      const fileStorage = makeFileStorage()
+      fileStorage.getObject.mockRejectedValue(new Error('ENOENT'))
+      const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+      const err = await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          mark: 'B1',
+          rev: 1,
+          version: 1,
+          upload_key: UPLOAD_KEY,
+          file_name: 'x.pdf',
+        } as any,
+        9,
+      ).catch(e => e)
+
+      expect(err).toBeInstanceOf(BadRequestException)
+      expect(err.message).toBe('ไม่พบไฟล์ที่อัปโหลด')
+      expect(mockToA3Landscape).not.toHaveBeenCalled()
+      expect(fileStorage.putObject).not.toHaveBeenCalled()
+      expect(prisma.drawing.findMany).not.toHaveBeenCalled()
+      expect(prisma.drawing.create).not.toHaveBeenCalled()
+    })
+
+    // THE motivating bug fix for finding 1: a bad PDF re-upload must not
+    // touch an EXISTING same-name sheet's row or object — only the disposable
+    // staging object is deleted.
+    it('a bad/corrupt PDF, with an existing same-name sheet already on file: the existing row and object are untouched, only the upload_key is deleted, 400', async () => {
+      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf' }] // the EXISTING sheet, same final key the new upload would get
+      const prisma = makePrisma({ same })
       const fileStorage = makeFileStorage()
       const svc = new DrawingsService(prisma as any, fileStorage as any)
       mockToA3Landscape.mockRejectedValue(new Error('invalid pdf'))
 
-      await expect(
-        svc.create(
-          {
-            project_id: 42,
-            zone_id: 7,
-            mark: 'B1',
-            rev: 1,
-            version: 1,
-            file_key: 'drawings/0X220/Z1/B1/rev1/bad.pdf',
-            file_name: 'bad.pdf',
-          } as any,
-          9,
-        ),
-      ).rejects.toThrow(BadRequestException)
+      const err = await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          mark: 'B1',
+          rev: 1,
+          version: 1,
+          upload_key: UPLOAD_KEY,
+          file_name: 'x.pdf',
+        } as any,
+        9,
+      ).catch(e => e)
 
-      await expect(
-        svc.create(
-          {
-            project_id: 42,
-            zone_id: 7,
-            mark: 'B1',
-            rev: 1,
-            version: 1,
-            file_key: 'drawings/0X220/Z1/B1/rev1/bad.pdf',
-            file_name: 'bad.pdf',
-          } as any,
-          9,
-        ),
-      ).rejects.toThrow('ไฟล์ PDF เสียหรือเปิดไม่ได้')
+      expect(err).toBeInstanceOf(BadRequestException)
+      expect(err.message).toBe('ไฟล์ PDF เสียหรือเปิดไม่ได้')
 
-      expect(fileStorage.delete).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/bad.pdf')
+      // Only the staging object was ever touched.
+      expect(fileStorage.delete).toHaveBeenCalledTimes(1)
+      expect(fileStorage.delete).toHaveBeenCalledWith(UPLOAD_KEY)
+      expect(fileStorage.delete).not.toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf')
       expect(fileStorage.putObject).not.toHaveBeenCalled()
+      // The existing row was never looked up, let alone deleted or replaced.
       expect(prisma.drawing.findMany).not.toHaveBeenCalled()
+      expect(prisma.drawing.delete).not.toHaveBeenCalled()
       expect(prisma.drawing.create).not.toHaveBeenCalled()
     })
 
@@ -275,7 +353,7 @@ describe('DrawingsService', () => {
           mark: 'B1',
           rev: 1,
           version: 3,
-          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          upload_key: UPLOAD_KEY,
           file_name: 'x.pdf',
           mime_type: 'application/pdf',
         } as any,
@@ -309,7 +387,7 @@ describe('DrawingsService', () => {
           sub_zone_id: 3,
           mark: 'B1',
           rev: 1,
-          file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf',
+          upload_key: UPLOAD_KEY_SZ,
           file_name: 'x.pdf',
           mime_type: 'application/pdf',
         } as any,
@@ -332,7 +410,7 @@ describe('DrawingsService', () => {
           sub_zone_id: 3,
           mark: 'B1',
           rev: 1,
-          file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf',
+          upload_key: UPLOAD_KEY_SZ,
           file_name: 'x.pdf',
         } as any,
         9,
@@ -344,7 +422,7 @@ describe('DrawingsService', () => {
     })
 
     it('replaces an existing same-sheet row: deletes the old DB row and calls fileStorage.delete when the key changed', async () => {
-      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/v1/x.pdf' }]
+      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/v1/x.pdf' }] // legacy key shape, differs from the new finalKey
       const prisma = makePrisma({ same })
       const fileStorage = makeFileStorage()
       const svc = new DrawingsService(prisma as any, fileStorage as any)
@@ -355,7 +433,7 @@ describe('DrawingsService', () => {
           zone_id: 7,
           mark: 'B1',
           rev: 1,
-          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          upload_key: UPLOAD_KEY,
           file_name: 'x.pdf',
         } as any,
         9,
@@ -365,8 +443,8 @@ describe('DrawingsService', () => {
       expect(prisma.drawing.delete).toHaveBeenCalledWith({ where: { id: 11 } })
     })
 
-    it('does NOT call fileStorage.delete when the old row already has the same file_key (upload already overwrote the object)', async () => {
-      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf' }]
+    it('does NOT call fileStorage.delete on the final key when the old row already has that same file_key (the server just wrote it)', async () => {
+      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf' }] // same as the new finalKey
       const prisma = makePrisma({ same })
       const fileStorage = makeFileStorage()
       const svc = new DrawingsService(prisma as any, fileStorage as any)
@@ -377,13 +455,13 @@ describe('DrawingsService', () => {
           zone_id: 7,
           mark: 'B1',
           rev: 1,
-          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          upload_key: UPLOAD_KEY,
           file_name: 'x.pdf',
         } as any,
         9,
       )
 
-      expect(fileStorage.delete).not.toHaveBeenCalled()
+      expect(fileStorage.delete).not.toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf')
       expect(prisma.drawing.delete).toHaveBeenCalledWith({ where: { id: 11 } })
     })
   })
@@ -567,7 +645,7 @@ describe('DrawingsService', () => {
 })
 
 describe('CreateDrawingDto validation (version — upload batch number)', () => {
-  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, file_name: 'x.pdf', file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf', mime_type: 'application/pdf' }
+  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, file_name: 'x.pdf', upload_key: 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/x.pdf', mime_type: 'application/pdf' }
 
   it('accepts a positive integer version', async () => {
     const dto = plainToInstance(CreateDrawingDto, { ...base, version: 1 })
@@ -594,31 +672,34 @@ describe('CreateDrawingDto validation (version — upload batch number)', () => 
   })
 })
 
-describe('CreateDrawingDto validation (file_key shape guard)', () => {
+// Fix round 1, finding 1: the DTO field is now upload_key (a disposable
+// staging key), not the final per-mark/rev storage key — see
+// drawings.service.ts's create() comment.
+describe('CreateDrawingDto validation (upload_key shape guard)', () => {
   const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, version: 1, file_name: 'x.pdf', mime_type: 'application/pdf' }
 
-  it('rejects a file_key that escapes the drawings/ prefix via traversal', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: '../../../etc/passwd' })
+  it('rejects an upload_key that escapes the drawings/_incoming/ prefix via traversal', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, upload_key: '../../../etc/passwd' })
     const errors = await validate(dto)
-    expect(errors.some(e => e.property === 'file_key')).toBe(true)
+    expect(errors.some(e => e.property === 'upload_key')).toBe(true)
   })
 
-  it('rejects the old drawings/<project_code>/<zone_code>/v<n>/<filename> shape — rev<n> after a mark segment is now required, not v<n>', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/v1/plan-A.pdf' })
+  it('rejects the old final-key shape (drawings/<project_code>/<zone_code>/.../rev<n>/<name>) — upload_key must be a staging key, not the final one', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, upload_key: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
     const errors = await validate(dto)
-    expect(errors.some(e => e.property === 'file_key')).toBe(true)
+    expect(errors.some(e => e.property === 'upload_key')).toBe(true)
   })
 
-  it('accepts drawings/<project_code>/<zone_code>/<mark>/rev<n>/<name> (no sub-zone)', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
+  it('rejects a malformed (non-UUID-shaped) staging id', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, upload_key: 'drawings/_incoming/0X220/not-a-uuid/plan-A.pdf' })
     const errors = await validate(dto)
-    expect(errors.some(e => e.property === 'file_key')).toBe(false)
+    expect(errors.some(e => e.property === 'upload_key')).toBe(true)
   })
 
-  it('accepts drawings/<project_code>/<zone_code>/<subzone_code>/<mark>/rev<n>/<name>', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/plan-A.pdf' })
+  it('accepts drawings/_incoming/<project_code>/<uuid>/<name>', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, upload_key: 'drawings/_incoming/0X220/550e8400-e29b-41d4-a716-446655440000/plan-A.pdf' })
     const errors = await validate(dto)
-    expect(errors.some(e => e.property === 'file_key')).toBe(false)
+    expect(errors.some(e => e.property === 'upload_key')).toBe(false)
   })
 })
 
@@ -629,26 +710,67 @@ describe('CreateDrawingDto validation (.pdf-only)', () => {
   const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, mime_type: 'application/pdf' }
 
   it('accepts a .pdf file_name', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.pdf', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.pdf', upload_key: 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/plan-A.pdf' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(false)
   })
 
   it('is case-insensitive (.PDF also accepted)', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.PDF', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.PDF' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.PDF', upload_key: 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/plan-A.PDF' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(false)
   })
 
   it('rejects a .dwg file_name', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.dwg', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.dwg' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.dwg', upload_key: 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/plan-A.dwg' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(true)
   })
 
   it('rejects a file_name with no extension at all', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A', upload_key: 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/plan-A' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(true)
+  })
+})
+
+// Fix round 1, extra item (security review, controller ruling): sanitising
+// only '/' and '\' in mark/file_name (buildExpectedFileKey, file-key.ts)
+// doesn't stop a literal '.' or '..' PATH SEGMENT — those contain neither
+// character, so they survive sanitisation unchanged and the resulting key
+// (e.g. mark='..' with no sub-zone → drawings/<project>/<zone>/../rev1/<file>)
+// path-resolves up a directory on any consumer that normalises paths (the
+// local file-storage driver's path.join does exactly this).
+describe('CreateDrawingDto validation (mark/file_name traversal guard)', () => {
+  const base = { project_id: 42, zone_id: 7, rev: 1, version: 1, mime_type: 'application/pdf', upload_key: 'drawings/_incoming/0X220/11111111-1111-1111-1111-111111111111/x.pdf' }
+
+  it('rejects mark "."', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, mark: '.', file_name: 'x.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'mark')).toBe(true)
+  })
+
+  it('rejects mark ".."', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, mark: '..', file_name: 'x.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'mark')).toBe(true)
+  })
+
+  it('still accepts an ordinary mark', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, mark: '2BUH1A-1', file_name: 'x.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'mark')).toBe(false)
+  })
+
+  it('rejects a "..pdf"-style file_name (starts with a dot)', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, mark: 'B1', file_name: '..pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_name')).toBe(true)
+  })
+
+  it('still accepts an ordinary file_name', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, mark: 'B1', file_name: 'plan-A.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_name')).toBe(false)
   })
 })

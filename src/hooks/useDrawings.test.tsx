@@ -3,7 +3,7 @@ import { renderHook, act, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import * as drawingsApi from '../api/drawings'
-import { drawingKey, type Drawing } from '../api/drawings'
+import { stagingUploadKey, type Drawing } from '../api/drawings'
 import { useUploadDrawings, useDrawingPdfUrl, useDrawingBomMarks, type StagedDrawing } from './useDrawings'
 
 // uploadDrawing resolves with the created row — these tests only assert on
@@ -18,11 +18,11 @@ function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
   }
 }
 
-// Partial mock: `drawingKey` is a pure function whose own shape is verified
-// directly below (real implementation), everything else that touches the
-// network is replaced with a spy. `getLatestDrawingVersion` is back — Tao
-// reversed the "drop version" decision (Task 3/4) the same day it shipped:
-// `version` is the upload BATCH number, orthogonal to mark/rev.
+// Partial mock: `stagingUploadKey` is a pure function whose own shape is
+// verified directly below (real implementation), everything else that
+// touches the network is replaced with a spy. `getLatestDrawingVersion` is
+// back — Tao reversed the "drop version" decision (Task 3/4) the same day it
+// shipped: `version` is the upload BATCH number, orthogonal to mark/rev.
 vi.mock('../api/drawings', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/drawings')>()
   return {
@@ -56,29 +56,27 @@ beforeEach(() => {
   mocked.getLatestDrawingVersion.mockResolvedValue({ version: null })
 })
 
-describe('drawingKey', () => {
-  it('builds drawings/<project>/<zone>/<mark>/rev<n>/<file> with no sub-zone', () => {
-    expect(
-      drawingKey({ projectCode: 'P1', zoneCode: 'Z1', subZoneCode: null }, '2BUH1A-1', 2, '2BUH1A-1 - BEAM - Rev 2.pdf'),
-    ).toBe('drawings/P1/Z1/2BUH1A-1/rev2/2BUH1A-1 - BEAM - Rev 2.pdf')
-  })
-
-  it('inserts the sub-zone code segment when present', () => {
-    expect(
-      drawingKey({ projectCode: 'P1', zoneCode: 'Z1', subZoneCode: 'S1' }, 'B1', 0, 'plan-A.pdf'),
-    ).toBe('drawings/P1/Z1/S1/B1/rev0/plan-A.pdf')
-  })
-
-  it('sanitizes / and \\ in the mark so it cannot add extra path segments', () => {
-    expect(
-      drawingKey({ projectCode: 'P1', zoneCode: 'Z1', subZoneCode: null }, 'A/B\\C', 1, 'plan.pdf'),
-    ).toBe('drawings/P1/Z1/A_B_C/rev1/plan.pdf')
+// Task 11 fix round 1, finding 1 (2026-10-20): the upload target is now a
+// disposable STAGING key, not the final per-mark/rev key — the server builds
+// that itself (backend file-key.ts) only once the upload is proven valid.
+describe('stagingUploadKey', () => {
+  it('builds drawings/_incoming/<projectCode>/<uuid>/<fileName>', () => {
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-1111-1111-111111111111')
+    expect(stagingUploadKey('P1', 'plan-A.pdf')).toBe('drawings/_incoming/P1/11111111-1111-1111-1111-111111111111/plan-A.pdf')
+    uuidSpy.mockRestore()
   })
 
   it('sanitizes / and \\ in the file name so it cannot add extra path segments', () => {
-    expect(
-      drawingKey({ projectCode: 'P1', zoneCode: 'Z1', subZoneCode: null }, 'B1', 1, 'a/b\\c.pdf'),
-    ).toBe('drawings/P1/Z1/B1/rev1/a_b_c.pdf')
+    const uuidSpy = vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-1111-1111-111111111111')
+    expect(stagingUploadKey('P1', 'a/b\\c.pdf')).toBe('drawings/_incoming/P1/11111111-1111-1111-1111-111111111111/a_b_c.pdf')
+    uuidSpy.mockRestore()
+  })
+
+  it('uses a real, distinct UUID per call (no mock)', () => {
+    const a = stagingUploadKey('P1', 'x.pdf')
+    const b = stagingUploadKey('P1', 'x.pdf')
+    expect(a).not.toBe(b)
+    expect(a).toMatch(/^drawings\/_incoming\/P1\/[0-9a-f-]{36}\/x\.pdf$/)
   })
 })
 
@@ -102,10 +100,9 @@ describe('useUploadDrawings', () => {
         mark: '2BUH1A-1', rev: 2, version: 5, fileName: '2BUH1A-1 - BEAM - Rev 2.pdf', file,
       }),
     )
-    // The expected key for this exact input is pinned by the `drawingKey`
-    // suite above — this test only needs to prove the hook plumbs mark/rev
-    // through untouched; `uploadDrawing` (mocked here) owns turning them
-    // into that key.
+    // This test only needs to prove the hook plumbs mark/rev through
+    // untouched; `uploadDrawing` (mocked here) owns staging the upload and
+    // sending it to the server.
   })
 
   it('fetches the latest version once per batch and sends the same version on every file, even across different marks/revs', async () => {

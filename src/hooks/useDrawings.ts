@@ -30,8 +30,10 @@ export interface StagedDrawing {
 }
 
 // Two staged items sharing the same (mark, rev, fileName) would otherwise
-// collide on the same GCS key (drawingKey is pure over those three inputs)
-// and silently overwrite one another within this single upload action —
+// collide on the same final GCS key (the server builds it deterministically
+// from exactly those three inputs plus zone/project — see backend
+// file-key.ts's buildExpectedFileKey, Task 11 fix round 1) and silently
+// overwrite one another within this single upload action —
 // append a "-2", "-3"... suffix before the extension for repeats of that
 // exact combination. A different mark or rev is a different folder, so it
 // never needs a suffix even when the file name repeats.

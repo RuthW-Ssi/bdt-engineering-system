@@ -6,6 +6,17 @@ import { currentRevRows, isPdf } from './current-rev'
 import { toA3Landscape } from './a3-normalize'
 import { buildExpectedFileKey } from './file-key'
 
+// Fix round 1, extra item (security review, 2026-10-20): a literal '.' or
+// '..' PATH SEGMENT survives buildExpectedFileKey's sanitisation (which only
+// replaces '/' and '\') and the upload_key's own prefix check (a plain
+// substring check, blind to path semantics) — this is the second, structural
+// layer of defense against it, independent of the DTO's own @Matches guards
+// on mark/file_name (create-drawing.dto.ts), for any caller that reaches
+// DrawingsService.create() without going through that DTO pipeline.
+function hasTraversalSegment(key: string): boolean {
+  return key.split('/').some(seg => seg === '.' || seg === '..')
+}
+
 @Injectable()
 export class DrawingsService {
   constructor(
@@ -24,54 +35,72 @@ export class DrawingsService {
   // replace. Same key ⇒ the upload already overwrote the object, so only
   // delete the old object when its key differs (legacy v<n>/ keys).
   //
-  // Task 11 (2026-10-20): every upload is normalised to one A3-landscape PDF
-  // FIRST, before any of the same-sheet replace logic below runs — so a
-  // corrupt/encrypted PDF throws and deletes the just-uploaded object without
-  // ever touching an existing row.
-  //
-  // Security review (2026-10-20): dto.file_key is CLIENT-supplied (it names
-  // the object the browser already wrote via a presigned URL) and the DTO's
-  // regex only checks its shape — without this check any authenticated user
-  // could point create() at an arbitrary existing object (another project's
-  // drawing) by file_key alone. The expected key is rebuilt from validated
-  // project/zone/sub-zone ownership and must match exactly, before ANY
-  // storage call.
+  // Task 11 fix round 1, finding 1 (2026-10-20): dto.upload_key is a
+  // disposable STAGING key (drawings/_incoming/<project_code>/<uuid>/<file>,
+  // written by src/api/drawings.ts's uploadDrawing) — never the real storage
+  // key any more. The old design had the client upload straight to the FINAL
+  // per-mark/rev key; a bad PDF re-uploaded under the SAME key as an existing
+  // sheet destroyed that sheet, because the presigned PUT had already
+  // overwritten the object before this method's own validation ran. Now:
+  // validate ownership + the upload_key's project prefix, pull the staged
+  // bytes, normalise them, build the REAL key server-side only once that all
+  // succeeds, and write the final object — an existing drawing's object is
+  // never touched until the new bytes are proven valid.
   async create(dto: CreateDrawingDto, uploadedById: number) {
-    await this.assertFileKeyMatches(dto)
+    const { projectCode, zoneCode, subZoneCode } = await this.assertUploadKeyOwnership(dto)
 
-    const original = await this.fileStorage.getObject(dto.file_key)
+    // Built and checked BEFORE touching storage at all (fail fast on a bad
+    // mark/file_name) — see assertSafeFinalKey below.
+    const finalKey = buildExpectedFileKey({ projectCode, zoneCode, subZoneCode }, dto.mark, dto.rev, dto.file_name)
+    this.assertSafeFinalKey(finalKey, { projectCode, zoneCode, subZoneCode })
+
+    let original: Buffer
+    try {
+      original = await this.fileStorage.getObject(dto.upload_key)
+    } catch {
+      throw new BadRequestException('ไม่พบไฟล์ที่อัปโหลด')
+    }
+
     let a3: Buffer
     try {
       a3 = await toA3Landscape(original)
     } catch {
-      await this.fileStorage.delete(dto.file_key)
+      await this.fileStorage.delete(dto.upload_key)
       throw new BadRequestException('ไฟล์ PDF เสียหรือเปิดไม่ได้')
     }
-    await this.fileStorage.putObject(dto.file_key, a3, 'application/pdf')
+
+    await this.fileStorage.putObject(finalKey, a3, 'application/pdf')
+    await this.fileStorage.delete(dto.upload_key)
 
     const subZoneId = dto.sub_zone_id ?? null
     const same = await this.prisma.drawing.findMany({
       where: { zone_id: dto.zone_id, sub_zone_id: subZoneId, mark: dto.mark, rev: dto.rev, file_name: dto.file_name },
     })
     for (const old of same) {
-      if (old.file_key !== dto.file_key) await this.fileStorage.delete(old.file_key)
+      if (old.file_key !== finalKey) await this.fileStorage.delete(old.file_key)
       await this.prisma.drawing.delete({ where: { id: old.id } })
     }
     return this.prisma.drawing.create({
       data: {
         project_id: dto.project_id, zone_id: dto.zone_id, sub_zone_id: subZoneId,
         mark: dto.mark, rev: dto.rev, version: dto.version,
-        file_key: dto.file_key, file_name: dto.file_name, mime_type: dto.mime_type,
+        file_key: finalKey, file_name: dto.file_name, mime_type: dto.mime_type,
         uploaded_by_id: uploadedById,
       },
     })
   }
 
-  // See the security-review comment on create() above. Rebuilds the key the
-  // upload flow's own drawingKey() (src/api/drawings.ts) would have produced
-  // from validated project/zone/sub-zone ownership, and requires an exact
-  // match — never trusts dto.file_key's shape alone.
-  private async assertFileKeyMatches(dto: CreateDrawingDto): Promise<void> {
+  // Security review (2026-10-20), redesigned per fix round 1 finding 1: the
+  // id cross-checks are unchanged (zone must belong to the claimed project,
+  // sub-zone must belong to the claimed zone) — what's gone is the old exact
+  // full-key match, since the client no longer supplies the final key at
+  // all. What's left to check against the client-supplied upload_key is just
+  // that its project-code prefix matches the claimed project (drawings/
+  // _incoming/<project_code>/...), so one tenant can't stage-upload into
+  // another's prefix and then claim a mismatched project/zone for it. The
+  // real zone/sub-zone codes are returned for create() to build the final
+  // key itself.
+  private async assertUploadKeyOwnership(dto: CreateDrawingDto): Promise<{ projectCode: string; zoneCode: string; subZoneCode: string | null }> {
     const mismatch = () => new BadRequestException('file_key ไม่ตรงกับ project/zone/mark/rev')
 
     const zone = await this.prisma.project_zone.findFirst({
@@ -90,11 +119,26 @@ export class DrawingsService {
       subZoneCode = subZone.code
     }
 
-    const expected = buildExpectedFileKey(
-      { projectCode: zone.project.project_code, zoneCode: zone.code, subZoneCode },
-      dto.mark, dto.rev, dto.file_name,
-    )
-    if (dto.file_key !== expected) throw mismatch()
+    const projectCode = zone.project.project_code
+    if (!dto.upload_key.startsWith(`drawings/_incoming/${projectCode}/`)) throw mismatch()
+    if (hasTraversalSegment(dto.upload_key)) throw mismatch()
+
+    return { projectCode, zoneCode: zone.code, subZoneCode }
+  }
+
+  // Fix round 1, extra item: the server-built finalKey is deterministic from
+  // trusted (DB-sourced) projectCode/zoneCode/subZoneCode plus dto.mark/rev/
+  // file_name — the only way it could ever contain a '.'/'..' segment or
+  // escape the expected project/zone(+sub-zone) prefix is a bad mark or
+  // file_name slipping through (e.g. a caller that bypasses the DTO's own
+  // @Matches guards). Checked before any storage call.
+  private assertSafeFinalKey(finalKey: string, scope: { projectCode: string; zoneCode: string; subZoneCode: string | null }): void {
+    const expectedPrefix = scope.subZoneCode
+      ? `drawings/${scope.projectCode}/${scope.zoneCode}/${scope.subZoneCode}/`
+      : `drawings/${scope.projectCode}/${scope.zoneCode}/`
+    if (!finalKey.startsWith(expectedPrefix) || hasTraversalSegment(finalKey)) {
+      throw new BadRequestException('file_key ไม่ตรงกับ project/zone/mark/rev')
+    }
   }
 
   async findByZone(zoneId: number, subZoneId: number | null, opts: { currentOnly?: boolean } = {}) {

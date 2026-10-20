@@ -49,22 +49,20 @@ export async function getDrawingBomMarks(zoneId: number, subZoneId: number | nul
   return (await apiClient.get('/drawings/bom-marks', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
-// New GCS key shape (per-mark revision, replacing the old flat version
-// folder): drawings/<project_code>/<zone_code>/[<subzone_code>/]<mark>/rev<n>/<file_name>.
-// Mirrors the backend CreateDrawingDto's file_key regex
-// (/^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?[^/\\]+\/rev\d+\/[^/\\]+$/) —
-// '/' and '\' in the mark and file name must not survive into the key, since
-// either would otherwise smuggle in extra path segments.
-export function drawingKey(
-  scope: { projectCode: string; zoneCode: string; subZoneCode: string | null },
-  mark: string,
-  rev: number,
-  fileName: string,
-): string {
-  const safeMark = mark.replace(/[/\\]/g, '_')
+// Task 11 fix round 1, finding 1 (2026-10-20): the client no longer uploads
+// straight to the final per-mark/rev key — it stages the file at a
+// disposable key under drawings/_incoming/, and the SERVER builds the real
+// drawings/<project_code>/<zone_code>/[<subzone_code>/]<mark>/rev<n>/
+// <file_name> key itself (backend file-key.ts's buildExpectedFileKey) only
+// once the upload is proven valid (A3-normalised OK, ownership checked).
+// This closes the old bug where a bad PDF re-uploaded under the SAME final
+// key as an existing sheet destroyed that sheet — the presigned PUT had
+// already overwritten the object before the server's own validation ran.
+// Mirrors the backend CreateDrawingDto's upload_key regex
+// (/^drawings\/_incoming\/[^/\\]+\/[0-9a-f-]{36}\/[^/\\]+$/).
+export function stagingUploadKey(projectCode: string, fileName: string): string {
   const safeName = fileName.replace(/[/\\]/g, '_')
-  const subZoneSegment = scope.subZoneCode ? `${scope.subZoneCode}/` : ''
-  return `drawings/${scope.projectCode}/${scope.zoneCode}/${subZoneSegment}${safeMark}/rev${rev}/${safeName}`
+  return `drawings/_incoming/${projectCode}/${crypto.randomUUID()}/${safeName}`
 }
 
 export interface UploadDrawingInput {
@@ -85,10 +83,15 @@ export interface UploadDrawingInput {
   fileName: string
 }
 
-export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode, mark, rev, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
-  const key = drawingKey({ projectCode, zoneCode, subZoneCode }, mark, rev, fileName)
-  const presigned = await getPresignedUpload(key, file.type || 'application/octet-stream')
-  await uploadViaPresignedUrl(presigned, key, file)
+// zoneCode/subZoneCode (UploadDrawingInput) are NOT needed here any more —
+// the staging key only needs the project code; the server derives
+// zone/sub-zone from zone_id/sub_zone_id itself when it builds the final
+// key. Left on the input type since useUploadDrawings' scope already carries
+// them and other callers may still want them for display.
+export async function uploadDrawing({ projectId, projectCode, zoneId, subZoneId, mark, rev, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
+  const uploadKey = stagingUploadKey(projectCode, fileName)
+  const presigned = await getPresignedUpload(uploadKey, file.type || 'application/octet-stream')
+  await uploadViaPresignedUrl(presigned, uploadKey, file)
   return (
     await apiClient.post('/drawings', {
       project_id: projectId,
@@ -97,7 +100,7 @@ export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, 
       mark,
       rev,
       version,
-      file_key: key,
+      upload_key: uploadKey,
       file_name: fileName,
       mime_type: file.type || undefined,
     })
