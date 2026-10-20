@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 import { currentRevRows, isPdf } from './current-rev'
-import { toA3Landscape } from './a3-normalize'
+import { toA3Landscape, MAX_DRAWING_BYTES, MAX_DRAWING_PAGES, TooManyPagesError } from './a3-normalize'
 import { buildExpectedFileKey } from './file-key'
 
 // Fix round 1, extra item (security review, 2026-10-20): a literal '.' or
@@ -54,6 +54,16 @@ export class DrawingsService {
     const finalKey = buildExpectedFileKey({ projectCode, zoneCode, subZoneCode }, dto.mark, dto.rev, dto.file_name)
     this.assertSafeFinalKey(finalKey, { projectCode, zoneCode, subZoneCode })
 
+    // Size is checked from metadata BEFORE the bytes are read into memory —
+    // the client-side 50 MB limit is not a server guarantee (signed PUT has no
+    // content-length-range).
+    const meta = await this.fileStorage.getMetadata(dto.upload_key)
+    if (!meta) throw new BadRequestException('ไม่พบไฟล์ที่อัปโหลด')
+    if (meta.size > MAX_DRAWING_BYTES) {
+      await this.fileStorage.delete(dto.upload_key)
+      throw new BadRequestException('ไฟล์ใหญ่เกิน 50 MB')
+    }
+
     let original: Buffer
     try {
       original = await this.fileStorage.getObject(dto.upload_key)
@@ -64,8 +74,9 @@ export class DrawingsService {
     let a3: Buffer
     try {
       a3 = await toA3Landscape(original)
-    } catch {
+    } catch (e) {
       await this.fileStorage.delete(dto.upload_key)
+      if (e instanceof TooManyPagesError) throw new BadRequestException(`ไฟล์มี ${e.pages} หน้า เกิน ${MAX_DRAWING_PAGES} หน้า`)
       throw new BadRequestException('ไฟล์ PDF เสียหรือเปิดไม่ได้')
     }
 

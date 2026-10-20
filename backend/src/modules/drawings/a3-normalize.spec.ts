@@ -1,5 +1,5 @@
 import { PDFArray, PDFDocument, PDFDict, PDFName, PageSizes, degrees } from 'pdf-lib'
-import { A3_LANDSCAPE_HEIGHT, A3_LANDSCAPE_WIDTH, fitToA3Landscape, toA3Landscape } from './a3-normalize'
+import { A3_LANDSCAPE_HEIGHT, A3_LANDSCAPE_WIDTH, fitToA3Landscape, toA3Landscape, MAX_DRAWING_PAGES, TooManyPagesError } from './a3-normalize'
 
 // Reproduces pdf-lib's own composition order for PDFPage.drawPage — the
 // content stream emits translate, then rotate, then scale as SEPARATE `cm`
@@ -205,6 +205,13 @@ describe('toA3Landscape (pdf-lib integration)', () => {
     expect(outPage.getWidth()).toBeCloseTo(A3_LANDSCAPE_WIDTH, 2)
     expect(outPage.getHeight()).toBeCloseTo(A3_LANDSCAPE_HEIGHT, 2)
     expect(outPage.getRotation().angle).toBe(0)
+  })
+
+  it('more than MAX_DRAWING_PAGES pages → TooManyPagesError', async () => {
+    const doc = await PDFDocument.create()
+    for (let i = 0; i < MAX_DRAWING_PAGES + 1; i++) doc.addPage([595, 842])
+    const buf = Buffer.from(await doc.save())
+    await expect(toA3Landscape(buf)).rejects.toBeInstanceOf(TooManyPagesError)
   })
 
   it('garbage bytes → throws', async () => {

@@ -69,6 +69,7 @@ function makeFileStorage() {
   return {
     delete: jest.fn().mockResolvedValue(undefined),
     getObject: jest.fn().mockResolvedValue(Buffer.from('original-bytes')),
+    getMetadata: jest.fn().mockResolvedValue({ size: 1234, contentType: 'application/pdf' }),
     putObject: jest.fn().mockResolvedValue(undefined),
   }
 }
@@ -163,6 +164,34 @@ describe('DrawingsService', () => {
         const err = await svc.create({ ...dto, zone_id: 7, sub_zone_id: 3, upload_key: UPLOAD_KEY_SZ } as any, 9).catch(e => e)
 
         expect(err).toBeInstanceOf(BadRequestException)
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+      })
+
+      it('an upload over 50 MB (server-side metadata) → 400, staging object deleted, bytes never read', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        fileStorage.getMetadata.mockResolvedValue({ size: 50_000_001, contentType: 'application/pdf' })
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        const err = await svc.create(dto as any, 9).catch(e => e)
+
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(err.message).toBe('ไฟล์ใหญ่เกิน 50 MB')
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+        expect(fileStorage.delete).toHaveBeenCalledWith(UPLOAD_KEY)
+        expect(prisma.drawing.create).not.toHaveBeenCalled()
+      })
+
+      it('a missing staged object (no metadata) → 400 ไม่พบไฟล์ที่อัปโหลด', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        fileStorage.getMetadata.mockResolvedValue(null)
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        const err = await svc.create(dto as any, 9).catch(e => e)
+
+        expect(err).toBeInstanceOf(BadRequestException)
+        expect(err.message).toBe('ไม่พบไฟล์ที่อัปโหลด')
         expect(fileStorage.getObject).not.toHaveBeenCalled()
       })
 

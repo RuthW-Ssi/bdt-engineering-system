@@ -107,8 +107,20 @@ function hasContents(page: PDFPage): boolean {
 // or an encrypted PDF (load() throws EncryptedPDFError unless told to ignore
 // encryption, which this never does) — the caller (DrawingsService.create)
 // turns that into a 400 with the Thai "ไฟล์ PDF เสียหรือเปิดไม่ได้" message.
+// Server-side caps (security review F-1, 2026-10-20): the 50 MB limit used to
+// live only in the upload modal, and pdf-lib has no page limit of its own.
+export const MAX_DRAWING_BYTES = 50_000_000
+export const MAX_DRAWING_PAGES = 50
+
+export class TooManyPagesError extends Error {
+  constructor(readonly pages: number) {
+    super(`PDF has ${pages} pages (max ${MAX_DRAWING_PAGES})`)
+  }
+}
+
 export async function toA3Landscape(buf: Buffer): Promise<Buffer> {
   const src = await PDFDocument.load(buf)
+  if (src.getPageCount() > MAX_DRAWING_PAGES) throw new TooManyPagesError(src.getPageCount())
   const out = await PDFDocument.create()
 
   for (const srcPage of src.getPages()) {
