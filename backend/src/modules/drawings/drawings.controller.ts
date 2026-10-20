@@ -23,15 +23,15 @@ export class DrawingsController {
 
   @Get()
   @CustomerAccessible()
-  @ApiOperation({ summary: 'List drawings for a zone (or sub-zone)' })
-  findByZone(@Query() query: QueryDrawingDto) {
-    return this.svc.findByZone(query.zone_id, query.sub_zone_id ?? null)
+  @ApiOperation({ summary: 'List drawings for a zone (or sub-zone) — customers see only the current rev' })
+  findByZone(@Query() query: QueryDrawingDto, @CurrentUser() user: JwtPayload) {
+    return this.svc.findByZone(query.zone_id, query.sub_zone_id ?? null, { currentOnly: user.role === 'customer' })
   }
 
-  @Get('latest-version')
-  @ApiOperation({ summary: 'Highest .pdf version already used for a zone (or sub-zone) — null if none yet' })
-  getLatestVersion(@Query() query: QueryDrawingDto) {
-    return this.svc.getLatestVersion(query.zone_id, query.sub_zone_id ?? null)
+  @Get('bom-marks')
+  @ApiOperation({ summary: 'Distinct assembly marks from the ACTIVE BOM for a zone (or sub-zone)' })
+  bomMarks(@Query() query: QueryDrawingDto) {
+    return this.svc.bomMarks(query.zone_id, query.sub_zone_id ?? null)
   }
 
   @Delete(':id')

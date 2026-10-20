@@ -1,4 +1,4 @@
-import { IsInt, IsString, IsOptional, Matches } from 'class-validator'
+import { IsInt, IsString, IsOptional, Length, Min, Matches } from 'class-validator'
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 export class CreateDrawingDto {
@@ -15,14 +15,25 @@ export class CreateDrawingDto {
   @IsInt()
   sub_zone_id?: number
 
+  // Per-mark revision (wiki: features/drawing-revision-plan.md). Parsed from
+  // the Tekla filename (text before the first " - ") or typed by the user
+  // when parsing fails.
+  @ApiProperty({ example: 'B1' })
+  @IsString()
+  @Length(1, 100)
+  mark: string
+
+  // Parsed from the filename's trailing "Rev n" token, or typed by the user.
+  // "Current" is computed (highest rev per zone/sub-zone/mark), never stored.
   @ApiProperty({ example: 1 })
   @IsInt()
-  version: number
+  @Min(0)
+  rev: number
 
-  @ApiProperty({ example: 'drawings/0X220/Z1/v1/plan-A.pdf' })
+  @ApiProperty({ example: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
   @IsString()
-  @Matches(/^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?v\d+\/[^/\\]+$/, {
-    message: 'file_key must be drawings/<project_code>/<zone_code>/[<subzone_code>/]v<version>/<filename>, no other path segments',
+  @Matches(/^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?[^/\\]+\/rev\d+\/[^/\\]+$/, {
+    message: 'file_key must be drawings/<project_code>/<zone_code>/[<subzone_code>/]<mark>/rev<n>/<filename>, no other path segments',
   })
   file_key: string
 

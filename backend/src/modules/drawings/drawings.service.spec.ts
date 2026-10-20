@@ -4,17 +4,21 @@ import { validate } from 'class-validator'
 import { DrawingsService } from './drawings.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 
-function makePrisma(drawings: { id: number; file_key: string }[]) {
+function makePrisma(opts: { drawings?: { id: number; file_key: string }[]; same?: any[] } = {}) {
+  const drawings = opts.drawings ?? []
+  const same = opts.same ?? []
   return {
     drawing: {
       create: jest.fn((args: any) => Promise.resolve({ id: 999, ...args.data })),
-      findMany: jest.fn(() => Promise.resolve(drawings)),
+      findMany: jest.fn(() => Promise.resolve(same)),
       findFirst: jest.fn(),
       findUnique: jest.fn(({ where }: any) =>
         Promise.resolve(drawings.find(d => d.id === where.id) ?? null),
       ),
       delete: jest.fn(({ where }: any) =>
-        Promise.resolve(drawings.find(d => d.id === where.id)),
+        Promise.resolve(
+          drawings.find(d => d.id === where.id) ?? same.find((d: any) => d.id === where.id),
+        ),
       ),
     },
   }
@@ -24,23 +28,22 @@ function makeFileStorage() {
   return { delete: jest.fn().mockResolvedValue(undefined) }
 }
 
-
 describe('DrawingsService', () => {
   describe('remove', () => {
     it('deletes the underlying file before deleting the DB row', async () => {
-      const drawings = [{ id: 1, file_key: 'drawings/0X220/Z1/v1/plan-A.pdf' }]
-      const prisma = makePrisma(drawings)
+      const drawings = [{ id: 1, file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' }]
+      const prisma = makePrisma({ drawings })
       const fileStorage = makeFileStorage()
       const svc = new DrawingsService(prisma as any, fileStorage as any)
 
       await svc.remove(1)
 
-      expect(fileStorage.delete).toHaveBeenCalledWith('drawings/0X220/Z1/v1/plan-A.pdf')
+      expect(fileStorage.delete).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/plan-A.pdf')
       expect(prisma.drawing.delete).toHaveBeenCalledWith({ where: { id: 1 } })
     })
 
     it('throws NotFoundException for a non-existent id and never touches the file or row', async () => {
-      const prisma = makePrisma([])
+      const prisma = makePrisma({ drawings: [] })
       const fileStorage = makeFileStorage()
       const svc = new DrawingsService(prisma as any, fileStorage as any)
 
@@ -51,19 +54,31 @@ describe('DrawingsService', () => {
   })
 
   describe('create', () => {
-    it('stamps uploaded_by_id from the passed-in user id and defaults sub_zone_id to null when omitted', async () => {
-      const prisma = makePrisma([])
+    it('stores mark/rev (no version) and stamps uploaded_by_id, defaulting sub_zone_id to null when omitted', async () => {
+      const prisma = makePrisma({ same: [] })
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
-      await svc.create({ project_id: 42, zone_id: 7, version: 1, file_key: 'drawings/0X220/Z1/v1/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf' } as any, 9)
+      await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          mark: 'B1',
+          rev: 1,
+          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          file_name: 'x.pdf',
+          mime_type: 'application/pdf',
+        } as any,
+        9,
+      )
 
       expect(prisma.drawing.create).toHaveBeenCalledWith({
         data: {
           project_id: 42,
           zone_id: 7,
           sub_zone_id: null,
-          version: 1,
-          file_key: 'drawings/0X220/Z1/v1/x.pdf',
+          mark: 'B1',
+          rev: 1,
+          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
           file_name: 'x.pdf',
           mime_type: 'application/pdf',
           uploaded_by_id: 9,
@@ -72,90 +87,172 @@ describe('DrawingsService', () => {
     })
 
     it('persists sub_zone_id when provided', async () => {
-      const prisma = makePrisma([])
+      const prisma = makePrisma({ same: [] })
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
-      await svc.create({ project_id: 42, zone_id: 7, sub_zone_id: 3, version: 1, file_key: 'drawings/0X220/Z1/SZ1/v1/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf' }, 9)
+      await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          sub_zone_id: 3,
+          mark: 'B1',
+          rev: 1,
+          file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf',
+          file_name: 'x.pdf',
+          mime_type: 'application/pdf',
+        } as any,
+        9,
+      )
 
       expect(prisma.drawing.create).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ zone_id: 7, sub_zone_id: 3 }),
       }))
     })
+
+    it('looks up existing rows by zone/sub/mark/rev/file_name (same-sheet re-upload)', async () => {
+      const prisma = makePrisma({ same: [] })
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          sub_zone_id: 3,
+          mark: 'B1',
+          rev: 1,
+          file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf',
+          file_name: 'x.pdf',
+        } as any,
+        9,
+      )
+
+      expect(prisma.drawing.findMany).toHaveBeenCalledWith({
+        where: { zone_id: 7, sub_zone_id: 3, mark: 'B1', rev: 1, file_name: 'x.pdf' },
+      })
+    })
+
+    it('replaces an existing same-sheet row: deletes the old DB row and calls fileStorage.delete when the key changed', async () => {
+      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/v1/x.pdf' }]
+      const prisma = makePrisma({ same })
+      const fileStorage = makeFileStorage()
+      const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+      await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          mark: 'B1',
+          rev: 1,
+          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          file_name: 'x.pdf',
+        } as any,
+        9,
+      )
+
+      expect(fileStorage.delete).toHaveBeenCalledWith('drawings/0X220/Z1/B1/v1/x.pdf')
+      expect(prisma.drawing.delete).toHaveBeenCalledWith({ where: { id: 11 } })
+    })
+
+    it('does NOT call fileStorage.delete when the old row already has the same file_key (upload already overwrote the object)', async () => {
+      const same = [{ id: 11, file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf' }]
+      const prisma = makePrisma({ same })
+      const fileStorage = makeFileStorage()
+      const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+      await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          mark: 'B1',
+          rev: 1,
+          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          file_name: 'x.pdf',
+        } as any,
+        9,
+      )
+
+      expect(fileStorage.delete).not.toHaveBeenCalled()
+      expect(prisma.drawing.delete).toHaveBeenCalledWith({ where: { id: 11 } })
+    })
   })
 
   describe('findByZone', () => {
-    it('scopes strictly to zone_id + sub_zone_id (null sub_zone_id is its own bucket, not "any sub-zone")', async () => {
-      const prisma = makePrisma([])
+    it('scopes strictly to zone_id + sub_zone_id (null sub_zone_id is its own bucket) ordered mark asc, rev desc, create_date desc', async () => {
+      const prisma = makePrisma()
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
       await svc.findByZone(7, null)
 
-      expect(prisma.drawing.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      expect(prisma.drawing.findMany).toHaveBeenCalledWith({
         where: { zone_id: 7, sub_zone_id: null },
-      }))
+        orderBy: [{ mark: 'asc' }, { rev: 'desc' }, { create_date: 'desc' }],
+      })
+    })
+
+    it('returns every row unfiltered when currentOnly is omitted/false', async () => {
+      const rows = [
+        { id: 1, mark: 'A', rev: 0 },
+        { id: 2, mark: 'A', rev: 1 },
+      ]
+      const prisma = { drawing: { findMany: jest.fn().mockResolvedValue(rows) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.findByZone(7, null)
+
+      expect(result).toEqual(rows)
+    })
+
+    it('returns only current-rev rows when currentOnly is true', async () => {
+      const rows = [
+        { id: 1, mark: 'A', rev: 0 },
+        { id: 2, mark: 'A', rev: 1 },
+        { id: 3, mark: 'B', rev: 2 },
+      ]
+      const prisma = { drawing: { findMany: jest.fn().mockResolvedValue(rows) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.findByZone(7, null, { currentOnly: true })
+
+      expect(result).toEqual([rows[1], rows[2]])
     })
   })
 
-  describe('getLatestVersion', () => {
-    it('returns null when the zone has no drawings yet', async () => {
-      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue(null) } }
+  describe('bomMarks', () => {
+    it('queries ACTIVE bom_assembly rows filtered to the dispatch zone and returns the distinct marks', async () => {
+      const prisma = {
+        bom_assembly: {
+          findMany: jest.fn().mockResolvedValue([{ assembly_mark: 'A' }, { assembly_mark: 'B' }]),
+        },
+      }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
-      const result = await svc.getLatestVersion(7, null)
+      const result = await svc.bomMarks(7, null)
 
-      expect(result).toEqual({ version: null })
-      expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-        where: { zone_id: 7, sub_zone_id: null, file_name: { endsWith: '.pdf', mode: 'insensitive' } },
-        orderBy: { version: 'desc' },
-      }))
+      expect(prisma.bom_assembly.findMany).toHaveBeenCalledWith({
+        where: { status: 'ACTIVE', dispatch: { zone_id: 7 } },
+        select: { assembly_mark: true },
+        distinct: ['assembly_mark'],
+      })
+      expect(result).toEqual(['A', 'B'])
     })
 
-    it('returns the highest version already used for that zone', async () => {
-      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 3 }) } }
+    it('adds sub_zone_id to the dispatch filter when a sub-zone is given', async () => {
+      const prisma = { bom_assembly: { findMany: jest.fn().mockResolvedValue([]) } }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
-      const result = await svc.getLatestVersion(7, null)
+      await svc.bomMarks(7, 3)
 
-      expect(result).toEqual({ version: 3 })
-    })
-
-    it('treats a sub-zone as a distinct version bucket from its parent zone', async () => {
-      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 1 }) } }
-      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
-
-      await svc.getLatestVersion(7, 3)
-
-      expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-        where: { zone_id: 7, sub_zone_id: 3, file_name: { endsWith: '.pdf', mode: 'insensitive' } },
-      }))
-    })
-
-    // Regression: upload is .pdf-only since 2026-09-15, but legacy .dwg rows
-    // from before that removal still exist with their own version numbers —
-    // this must always filter to .pdf so a legacy .dwg's version can never
-    // leak into (or collide with) a new .pdf upload's version counter.
-    it('always scopes to .pdf, ignoring any legacy .dwg rows in the same zone', async () => {
-      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 2 }) } }
-      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
-
-      const result = await svc.getLatestVersion(7, null)
-
-      expect(result).toEqual({ version: 2 })
-      expect(prisma.drawing.findFirst).toHaveBeenCalledWith(expect.objectContaining({
-        where: { zone_id: 7, sub_zone_id: null, file_name: { endsWith: '.pdf', mode: 'insensitive' } },
-      }))
+      expect(prisma.bom_assembly.findMany).toHaveBeenCalledWith({
+        where: { status: 'ACTIVE', dispatch: { zone_id: 7, sub_zone_id: 3 } },
+        select: { assembly_mark: true },
+        distinct: ['assembly_mark'],
+      })
     })
   })
 })
 
 describe('CreateDrawingDto validation (file_key shape guard)', () => {
-  const base = { project_id: 42, zone_id: 7, version: 1, file_name: 'x.pdf', mime_type: 'application/pdf' }
-
-  it('rejects the old drawings/<project_code>/v<version>/<filename> shape — zone segment is now required', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/v1/plan-A.pdf' })
-    const errors = await validate(dto)
-    expect(errors.some(e => e.property === 'file_key')).toBe(true)
-  })
+  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, file_name: 'x.pdf', mime_type: 'application/pdf' }
 
   it('rejects a file_key that escapes the drawings/ prefix via traversal', async () => {
     const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: '../../../etc/passwd' })
@@ -163,14 +260,20 @@ describe('CreateDrawingDto validation (file_key shape guard)', () => {
     expect(errors.some(e => e.property === 'file_key')).toBe(true)
   })
 
-  it('accepts drawings/<project_code>/<zone_code>/v<n>/<name> (no sub-zone)', async () => {
+  it('rejects the old drawings/<project_code>/<zone_code>/v<n>/<filename> shape — rev<n> after a mark segment is now required, not v<n>', async () => {
     const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/v1/plan-A.pdf' })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'file_key')).toBe(true)
+  })
+
+  it('accepts drawings/<project_code>/<zone_code>/<mark>/rev<n>/<name> (no sub-zone)', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_key')).toBe(false)
   })
 
-  it('accepts drawings/<project_code>/<zone_code>/<subzone_code>/v<n>/<name>', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/SZ1/v1/plan-A.pdf' })
+  it('accepts drawings/<project_code>/<zone_code>/<subzone_code>/<mark>/rev<n>/<name>', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/plan-A.pdf' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_key')).toBe(false)
   })
@@ -180,28 +283,28 @@ describe('CreateDrawingDto validation (file_key shape guard)', () => {
 // server-side enforcement, not just the upload modal's dropzone restriction,
 // so a direct API call can't slip a .dwg (or anything else) past the UI.
 describe('CreateDrawingDto validation (.pdf-only)', () => {
-  const base = { project_id: 42, zone_id: 7, version: 1, mime_type: 'application/pdf' }
+  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, mime_type: 'application/pdf' }
 
   it('accepts a .pdf file_name', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.pdf', file_key: 'drawings/0X220/Z1/v1/plan-A.pdf' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.pdf', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(false)
   })
 
   it('is case-insensitive (.PDF also accepted)', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.PDF', file_key: 'drawings/0X220/Z1/v1/plan-A.PDF' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.PDF', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.PDF' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(false)
   })
 
   it('rejects a .dwg file_name', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.dwg', file_key: 'drawings/0X220/Z1/v1/plan-A.dwg' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A.dwg', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.dwg' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(true)
   })
 
   it('rejects a file_name with no extension at all', async () => {
-    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A', file_key: 'drawings/0X220/Z1/v1/plan-A' })
+    const dto = plainToInstance(CreateDrawingDto, { ...base, file_name: 'plan-A', file_key: 'drawings/0X220/Z1/B1/rev1/plan-A' })
     const errors = await validate(dto)
     expect(errors.some(e => e.property === 'file_name')).toBe(true)
   })
