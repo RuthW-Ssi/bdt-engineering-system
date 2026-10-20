@@ -1,4 +1,4 @@
-import { PDFDocument, PageSizes, degrees } from 'pdf-lib'
+import { PDFArray, PDFDocument, PDFDict, PDFName, PageSizes, degrees } from 'pdf-lib'
 import { A3_LANDSCAPE_HEIGHT, A3_LANDSCAPE_WIDTH, fitToA3Landscape, toA3Landscape } from './a3-normalize'
 
 // Reproduces pdf-lib's own composition order for PDFPage.drawPage — the
@@ -85,6 +85,37 @@ describe('fitToA3Landscape (pure geometry)', () => {
     expect(minY).toBeCloseTo((A3_LANDSCAPE_HEIGHT - visualH * fit.scale) / 2, 4)
   })
 
+  // Fix round 1, finding 3: the bounding-box checks above are direction-blind
+  // — a wrong-signed (CCW instead of CW) rotation would produce the IDENTICAL
+  // bounding box, just with content mirrored/transposed. Pin the direction by
+  // tracking a NAMED corner: the PDF spec's /Rotate is degrees to rotate the
+  // raw content CLOCKWISE when displaying it. Physically spinning a sheet of
+  // paper clockwise by 90°/180°/270° sends its raw top-left corner to the
+  // visual top-right / bottom-right / bottom-left respectively (90° CW: the
+  // edge that was on the LEFT swings to the TOP, so the TOP-LEFT corner —
+  // top∩left — ends up where top-edge's new home (the RIGHT side) meets the
+  // left-edge's new home (the TOP) = TOP-RIGHT; 180° is the opposite corner;
+  // 270° CW = 90° CCW, landing at BOTTOM-LEFT).
+  it.each([
+    { rotation: 0, expectedCorner: 'TL' as const },
+    { rotation: 90, expectedCorner: 'TR' as const },
+    { rotation: 180, expectedCorner: 'BR' as const },
+    { rotation: 270, expectedCorner: 'BL' as const },
+  ])('rotation $rotation°: the raw top-left corner lands at the visual $expectedCorner (pins CW vs CCW)', ({ rotation, expectedCorner }) => {
+    const rawW = 400
+    const rawH = 700
+    const fit = fitToA3Landscape(rawW, rawH, rotation)
+    const [tlX, tlY] = transformCorner([0, rawH], fit) // raw top-left: local (0, rawH)
+    const { minX, maxX, minY, maxY } = boundingBoxOf(rawW, rawH, rotation)
+
+    const expected = {
+      TL: [minX, maxY], TR: [maxX, maxY], BR: [maxX, minY], BL: [minX, minY],
+    }[expectedCorner]
+
+    expect(tlX).toBeCloseTo(expected[0], 4)
+    expect(tlY).toBeCloseTo(expected[1], 4)
+  })
+
   it('normalises an out-of-range rotation (e.g. 360, -90) the same as its 0-359 equivalent', () => {
     const a = fitToA3Landscape(400, 700, 90)
     const b = fitToA3Landscape(400, 700, 450) // 450 mod 360 = 90
@@ -99,6 +130,23 @@ describe('fitToA3Landscape (pure geometry)', () => {
 // marker rectangle just so embedPages() has something to embed.
 function markPage(page: import('pdf-lib').PDFPage) {
   page.drawRectangle({ x: 0, y: 0, width: 1, height: 1 })
+}
+
+// Fix round 1, finding 2: reads back the ACTUAL /BBox of the output page's
+// embedded Form XObject — the ground truth for what box toA3Landscape used
+// to embed the page, read from the real saved-and-reloaded PDF object graph
+// (not a re-derivation of the implementation's own math) — proving it used
+// the CropBox, not the MediaBox, when they differ.
+async function embeddedXObjectBBox(pdfBytes: Buffer): Promise<number[]> {
+  const doc = await PDFDocument.load(pdfBytes)
+  const page = doc.getPage(0)
+  const resources = page.node.Resources()!
+  const xObjectDict = resources.lookup(PDFName.of('XObject'), PDFDict)
+  const [firstKey] = xObjectDict.keys()
+  const ref = xObjectDict.get(firstKey)!
+  const xObject = doc.context.lookup(ref) as unknown as { dict: PDFDict }
+  const bbox = xObject.dict.lookup(PDFName.of('BBox'), PDFArray)
+  return bbox.asArray().map((n: any) => n.asNumber())
 }
 
 describe('toA3Landscape (pdf-lib integration)', () => {
@@ -161,5 +209,44 @@ describe('toA3Landscape (pdf-lib integration)', () => {
 
   it('garbage bytes → throws', async () => {
     await expect(toA3Landscape(Buffer.from('not a pdf at all'))).rejects.toThrow()
+  })
+
+  // Fix round 1, finding 2.
+  it('a page with a non-zero-origin MediaBox and no explicit CropBox is embedded with the MediaBox itself (CropBox falls back to it)', async () => {
+    const src = await PDFDocument.create()
+    const page = src.addPage([400, 700])
+    page.setMediaBox(100, 100, 400, 700)
+    markPage(page)
+    const out = await toA3Landscape(Buffer.from(await src.save()))
+
+    expect(await embeddedXObjectBBox(out)).toEqual([100, 100, 500, 800])
+  })
+
+  it('a CropBox smaller than the MediaBox is used for the embed (and the fit), not the full MediaBox', async () => {
+    const src = await PDFDocument.create()
+    const page = src.addPage([1000, 1000])
+    page.setMediaBox(0, 0, 1000, 1000)
+    page.setCropBox(100, 100, 400, 700)
+    markPage(page)
+    const out = await toA3Landscape(Buffer.from(await src.save()))
+
+    expect(await embeddedXObjectBBox(out)).toEqual([100, 100, 500, 800])
+  })
+
+  // Fix round 1, finding 4.
+  it('a page with no /Contents at all becomes a blank A3 page instead of failing the whole document', async () => {
+    const src = await PDFDocument.create()
+    markPage(src.addPage([595.28, 841.89])) // page 0: normal content
+    src.addPage([420, 595]) // page 1: nothing drawn on it at all — no /Contents
+
+    const out = await toA3Landscape(Buffer.from(await src.save()))
+
+    const doc = await PDFDocument.load(out)
+    expect(doc.getPageCount()).toBe(2)
+    for (const page of doc.getPages()) {
+      expect(page.getWidth()).toBeCloseTo(A3_LANDSCAPE_WIDTH, 2)
+      expect(page.getHeight()).toBeCloseTo(A3_LANDSCAPE_HEIGHT, 2)
+      expect(page.getRotation().angle).toBe(0)
+    }
   })
 })
