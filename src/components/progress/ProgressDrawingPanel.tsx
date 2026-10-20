@@ -46,9 +46,12 @@ export function ProgressDrawingPanel({ zoneId, mark }: Props) {
   // version across both" could pick a higher-numbered .dwg over a real,
   // viewable lower-numbered .pdf — filtering to .pdf first avoids that.
   const markMatches = mark == null ? [] : list.filter(d => d.file_name.toLowerCase().endsWith('.pdf') && fileMatchesMark(d.file_name, mark))
-  const versions = [...new Set(markMatches.map(d => d.version))].sort((a, b) => b - a)
-  const latestVersion = versions[0] ?? null
-  const visibleDrawings = latestVersion == null ? [] : markMatches.filter(d => d.version === latestVersion)
+  // A legacy row with rev === null (no "Rev" token at all) folds into rev 0
+  // — same "first issue" convention markDrawingRevs.ts/drawingMarkRows.ts
+  // already use — so it still shows up instead of silently disappearing.
+  const revs = [...new Set(markMatches.map(d => d.rev ?? 0))].sort((a, b) => b - a)
+  const latestRev = revs[0] ?? null
+  const visibleDrawings = latestRev == null ? [] : markMatches.filter(d => (d.rev ?? 0) === latestRev)
   const selectedDrawing = visibleDrawings.find(d => d.id === manualDrawingId) ?? visibleDrawings[0] ?? null
 
   if (mark == null) {

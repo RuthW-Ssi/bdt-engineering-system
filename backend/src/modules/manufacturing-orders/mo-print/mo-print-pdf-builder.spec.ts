@@ -151,7 +151,7 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
     operationLabel: 'OP-WELD-SAW — SAW auto weld',
     marks: [{
       assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }],
     assignedTo: null,
     teamHeadcount: 1,
@@ -321,7 +321,7 @@ describe('buildMoPrintPdf', () => {
       makeRow({
         marks: [{
           assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'เสาเหล็ก Column A1', qty: 1, weight_kg: 450,
-          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
         }],
         assignedTo: 'ทีมช่างเชื่อม',
       }),
@@ -660,8 +660,8 @@ describe('buildMoPrintPdf', () => {
     it('embeds one drawing page per mark on a multi-mark WO, not just the primary mark, each fetched and labeled separately', async () => {
       const plan = makePlan([makeRow({
         marks: [
-          { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
-          { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
+          { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
+          { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
         ],
       })])
       const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
@@ -693,7 +693,7 @@ describe('buildMoPrintPdf', () => {
     }))
     const longMarks = Array.from({ length: 30 }, (_, i) => ({
       assemblyMark: `DBN-A1-CTR${i}`, sourceLabel: 'BOM rev 1', renamedFrom: null, name: `Column ${i}`, qty: 1, weight_kg: 450,
-      drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf`, version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf`, rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }))
 
     it('does not throw with a normal activity list (including an unresolved one), a Thai consume list, and a full Production Time', async () => {
@@ -720,7 +720,7 @@ describe('buildMoPrintPdf', () => {
         activities: [], consume: [], assignedTo: null, planStart: null, planEnd: null,
         marks: [{
           assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, qty: null, weight_kg: null,
-          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
         }],
       })])
 
@@ -799,7 +799,7 @@ describe('buildMoPrintPdf', () => {
       return textOriginYs(doc, pageIndex).filter(y => y > height - 40).length
     }
     const updatedRow = () => makeRow({
-      marks: [{ ...makeRow().marks[0], drawing: { ...makeRow().marks[0].drawing!, version: 3, uploaded_at: new Date('2026-10-02T03:00:00Z') } }],
+      marks: [{ ...makeRow().marks[0], drawing: { ...makeRow().marks[0].drawing!, rev: 3, uploaded_at: new Date('2026-10-02T03:00:00Z') } }],
     })
     const traveler = async (row: MoPrintWorkOrderRow) => PDFDocument.load(await buildMoPrintPdf(makePlan([row]), async () => fakePdfBytes(1)))
 

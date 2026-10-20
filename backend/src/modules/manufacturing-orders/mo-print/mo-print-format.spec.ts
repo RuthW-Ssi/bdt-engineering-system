@@ -154,7 +154,7 @@ describe('formatWoCodes', () => {
   })
 })
 
-// 2026-10-05 (print option A): the drawing's version + upload date print on
+// 2026-10-05 (print option A): the drawing's rev + upload date print on
 // the drawing page, and the traveler flags drawings uploaded after the WO.
 describe('formatShortDate', () => {
   it('formats dd/mm/yy in shop-floor time (Asia/Bangkok), not the server\'s UTC', () => {
@@ -164,12 +164,12 @@ describe('formatShortDate', () => {
 })
 
 describe('drawingsUpdatedAfter', () => {
-  const mark = (assemblyMark: string, version: number, uploaded_at: string) =>
-    ({ assemblyMark, drawing: { version, uploaded_at: new Date(uploaded_at) } })
+  const mark = (assemblyMark: string, rev: number, uploaded_at: string) =>
+    ({ assemblyMark, drawing: { rev, uploaded_at: new Date(uploaded_at) } })
 
-  it('lists only marks whose drawing was uploaded after the WO was created, as "MARK v3 (02/10/26)"', () => {
+  it('lists only marks whose drawing was uploaded after the WO was created, as "MARK Rev 3 (02/10/26)"', () => {
     const marks = [mark('CTR1', 1, '2026-09-20T03:00:00Z'), mark('CTR10', 3, '2026-10-02T03:00:00Z')]
-    expect(drawingsUpdatedAfter(new Date('2026-09-25T00:00:00Z'), marks)).toEqual(['CTR10 v3 (02/10/26)'])
+    expect(drawingsUpdatedAfter(new Date('2026-09-25T00:00:00Z'), marks)).toEqual(['CTR10 Rev 3 (02/10/26)'])
   })
 
   it('is empty when every drawing predates the WO', () => {
@@ -181,8 +181,8 @@ describe('drawingsUpdatedAfter — marks without a drawing (2026-10-07)', () => 
   it('skips a mark whose drawing is null', () => {
     expect(drawingsUpdatedAfter('2026-10-01T00:00:00Z', [
       { assemblyMark: 'BUH1-3', drawing: null },
-      { assemblyMark: 'CTR10', drawing: { version: 3, uploaded_at: '2026-10-02T03:00:00Z' } },
-    ])).toEqual(['CTR10 v3 (02/10/26)'])
+      { assemblyMark: 'CTR10', drawing: { rev: 3, uploaded_at: '2026-10-02T03:00:00Z' } },
+    ])).toEqual(['CTR10 Rev 3 (02/10/26)'])
   })
 })
 
