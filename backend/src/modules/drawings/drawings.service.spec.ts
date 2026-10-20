@@ -12,9 +12,24 @@ import { toA3Landscape } from './a3-normalize'
 jest.mock('./a3-normalize')
 const mockToA3Landscape = toA3Landscape as jest.MockedFunction<typeof toA3Landscape>
 
-function makePrisma(opts: { drawings?: { id: number; file_key: string }[]; same?: any[] } = {}) {
+// Defaults line up with every pre-existing create() test's literal file_key
+// ('drawings/0X220/Z1/[SZ1/]<mark>/rev<rev>/<file_name>', project_id 42,
+// zone_id 7, sub_zone_id 3) so the new file_key↔project/zone binding check
+// (security review, 2026-10-20) passes for them without touching their
+// bodies. `zone`/`subZone`/`projectCode` can be overridden per test to
+// exercise the mismatch paths.
+function makePrisma(opts: {
+  drawings?: { id: number; file_key: string }[]
+  same?: any[]
+  zone?: { id: number; project_id: number; code: string } | null
+  subZone?: { id: number; zone_id: number; code: string | null } | null
+  projectCode?: string
+} = {}) {
   const drawings = opts.drawings ?? []
   const same = opts.same ?? []
+  const zone = opts.zone === undefined ? { id: 7, project_id: 42, code: 'Z1' } : opts.zone
+  const subZone = opts.subZone === undefined ? { id: 3, zone_id: 7, code: 'SZ1' } : opts.subZone
+  const projectCode = opts.projectCode ?? '0X220'
   return {
     drawing: {
       create: jest.fn((args: any) => Promise.resolve({ id: 999, ...args.data })),
@@ -26,6 +41,24 @@ function makePrisma(opts: { drawings?: { id: number; file_key: string }[]; same?
       delete: jest.fn(({ where }: any) =>
         Promise.resolve(
           drawings.find(d => d.id === where.id) ?? same.find((d: any) => d.id === where.id),
+        ),
+      ),
+    },
+    project_zone: {
+      findFirst: jest.fn(({ where }: any) =>
+        Promise.resolve(
+          zone && zone.id === where.id && zone.project_id === where.project_id
+            ? { code: zone.code, project: { project_code: projectCode } }
+            : null,
+        ),
+      ),
+    },
+    sub_zone: {
+      findFirst: jest.fn(({ where }: any) =>
+        Promise.resolve(
+          subZone && subZone.id === where.id && subZone.zone_id === where.zone_id
+            ? { code: subZone.code }
+            : null,
         ),
       ),
     },
@@ -68,6 +101,90 @@ describe('DrawingsService', () => {
   describe('create', () => {
     beforeEach(() => {
       mockToA3Landscape.mockReset().mockResolvedValue(Buffer.from('a3-normalised-bytes'))
+    })
+
+    // Security review, 2026-10-20: create() reads/overwrites/deletes the
+    // object at a CLIENT-supplied dto.file_key — the DTO regex only checks
+    // its shape, not that it actually belongs to this project/zone/mark/rev,
+    // so an authenticated user could otherwise point it at another project's
+    // drawing. The expected key is rebuilt server-side from validated
+    // project/zone/sub-zone ownership and compared BEFORE any storage call.
+    describe('file_key binding (security)', () => {
+      const dto = {
+        project_id: 42,
+        zone_id: 7,
+        mark: 'B1',
+        rev: 1,
+        version: 1,
+        file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+        file_name: 'x.pdf',
+      }
+
+      it('a file_key that does not match the rebuilt project/zone/mark/rev key → 400, no storage call', async () => {
+        const prisma = makePrisma({ same: [] }) // default zone 7∈project 42, code Z1 — matches everything except file_key below
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        await expect(
+          svc.create({ ...dto, file_key: 'drawings/0X220/Z1/SOMEONE-ELSES-MARK/rev1/x.pdf' } as any, 9),
+        ).rejects.toThrow(BadRequestException)
+        await expect(
+          svc.create({ ...dto, file_key: 'drawings/0X220/Z1/SOMEONE-ELSES-MARK/rev1/x.pdf' } as any, 9),
+        ).rejects.toThrow('file_key ไม่ตรงกับ project/zone/mark/rev')
+
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+        expect(fileStorage.putObject).not.toHaveBeenCalled()
+        expect(fileStorage.delete).not.toHaveBeenCalled()
+        expect(prisma.drawing.findMany).not.toHaveBeenCalled()
+        expect(prisma.drawing.create).not.toHaveBeenCalled()
+      })
+
+      it('a zone that does not belong to dto.project_id → 400, no storage call', async () => {
+        // The real zone 7 belongs to project 42 — a caller claiming project 99 gets no match.
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        await expect(svc.create({ ...dto, project_id: 99 } as any, 9)).rejects.toThrow(BadRequestException)
+        await expect(svc.create({ ...dto, project_id: 99 } as any, 9)).rejects.toThrow('file_key ไม่ตรงกับ project/zone/mark/rev')
+
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+        expect(prisma.drawing.findMany).not.toHaveBeenCalled()
+      })
+
+      it('a sub_zone_id that does not belong to dto.zone_id → 400, no storage call', async () => {
+        // The real sub_zone 3 belongs to zone 999, not zone 7 — findFirst({ id: 3, zone_id: 7 }) matches nothing.
+        const prisma = makePrisma({ same: [], subZone: { id: 3, zone_id: 999, code: 'SZ1' } })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        await expect(
+          svc.create({ ...dto, zone_id: 7, sub_zone_id: 3, file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf' } as any, 9),
+        ).rejects.toThrow(BadRequestException)
+        expect(fileStorage.getObject).not.toHaveBeenCalled()
+      })
+
+      it('a correctly-bound file_key proceeds: getObject IS called and the row is created', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        const result = await svc.create(dto as any, 9)
+
+        expect(fileStorage.getObject).toHaveBeenCalledWith(dto.file_key)
+        expect(prisma.drawing.create).toHaveBeenCalled()
+        expect(result).toBeDefined()
+      })
+
+      it('the same check applies with a sub-zone in play: a correctly-bound sub-zone key proceeds', async () => {
+        const prisma = makePrisma({ same: [] })
+        const fileStorage = makeFileStorage()
+        const svc = new DrawingsService(prisma as any, fileStorage as any)
+
+        await expect(
+          svc.create({ ...dto, sub_zone_id: 3, file_key: 'drawings/0X220/Z1/SZ1/B1/rev1/x.pdf' } as any, 9),
+        ).resolves.toBeDefined()
+      })
     })
 
     // Task 11: every upload is normalised to A3 landscape BEFORE the

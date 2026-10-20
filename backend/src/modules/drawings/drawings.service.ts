@@ -4,6 +4,7 @@ import { FileStorageService } from '../file-storage/file-storage.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 import { currentRevRows, isPdf } from './current-rev'
 import { toA3Landscape } from './a3-normalize'
+import { buildExpectedFileKey } from './file-key'
 
 @Injectable()
 export class DrawingsService {
@@ -27,7 +28,17 @@ export class DrawingsService {
   // FIRST, before any of the same-sheet replace logic below runs — so a
   // corrupt/encrypted PDF throws and deletes the just-uploaded object without
   // ever touching an existing row.
+  //
+  // Security review (2026-10-20): dto.file_key is CLIENT-supplied (it names
+  // the object the browser already wrote via a presigned URL) and the DTO's
+  // regex only checks its shape — without this check any authenticated user
+  // could point create() at an arbitrary existing object (another project's
+  // drawing) by file_key alone. The expected key is rebuilt from validated
+  // project/zone/sub-zone ownership and must match exactly, before ANY
+  // storage call.
   async create(dto: CreateDrawingDto, uploadedById: number) {
+    await this.assertFileKeyMatches(dto)
+
     const original = await this.fileStorage.getObject(dto.file_key)
     let a3: Buffer
     try {
@@ -54,6 +65,36 @@ export class DrawingsService {
         uploaded_by_id: uploadedById,
       },
     })
+  }
+
+  // See the security-review comment on create() above. Rebuilds the key the
+  // upload flow's own drawingKey() (src/api/drawings.ts) would have produced
+  // from validated project/zone/sub-zone ownership, and requires an exact
+  // match — never trusts dto.file_key's shape alone.
+  private async assertFileKeyMatches(dto: CreateDrawingDto): Promise<void> {
+    const mismatch = () => new BadRequestException('file_key ไม่ตรงกับ project/zone/mark/rev')
+
+    const zone = await this.prisma.project_zone.findFirst({
+      where: { id: dto.zone_id, project_id: dto.project_id },
+      select: { code: true, project: { select: { project_code: true } } },
+    })
+    if (!zone) throw mismatch()
+
+    let subZoneCode: string | null = null
+    if (dto.sub_zone_id != null) {
+      const subZone = await this.prisma.sub_zone.findFirst({
+        where: { id: dto.sub_zone_id, zone_id: dto.zone_id },
+        select: { code: true },
+      })
+      if (!subZone) throw mismatch()
+      subZoneCode = subZone.code
+    }
+
+    const expected = buildExpectedFileKey(
+      { projectCode: zone.project.project_code, zoneCode: zone.code, subZoneCode },
+      dto.mark, dto.rev, dto.file_name,
+    )
+    if (dto.file_key !== expected) throw mismatch()
   }
 
   async findByZone(zoneId: number, subZoneId: number | null, opts: { currentOnly?: boolean } = {}) {
