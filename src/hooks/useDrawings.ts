@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { getDrawingsByZone, getLatestDrawingVersion, uploadDrawing, deleteDrawing, fetchDrawingBlob } from '../api/drawings'
+import { getDrawingsByZone, getDrawingBomMarks, uploadDrawing, deleteDrawing, fetchDrawingBlob } from '../api/drawings'
 
 export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | null) {
   return useQuery({
@@ -10,20 +10,41 @@ export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | 
   })
 }
 
-// Two files with the identical name in one batch would otherwise collide on
-// the same GCS key (drawings/<code>/<zone>/[<subzone>/]v<n>/<name>) and
-// silently overwrite one another — append a "-2", "-3"... suffix before the
-// extension for repeats within THIS batch only (cross-version collisions
-// can't happen, different version folders).
-function dedupeFileNames(files: File[]): string[] {
+// Distinct assembly marks from the ACTIVE BOM for this zone (or sub-zone) —
+// feeds the upload review table's mark pick-list / mismatch warning.
+export function useDrawingBomMarks(zoneId: number | undefined, subZoneId: number | null) {
+  return useQuery({
+    queryKey: ['drawings', 'bom-marks', zoneId, subZoneId],
+    queryFn: () => getDrawingBomMarks(zoneId!, subZoneId),
+    enabled: zoneId != null,
+  })
+}
+
+export interface StagedDrawing {
+  file: File
+  // The logical name this file is recorded under — the upload review table
+  // (Task 6) seeds this from the file's own name and lets the user edit it.
+  fileName: string
+  mark: string
+  rev: number
+}
+
+// Two staged items sharing the same (mark, rev, fileName) would otherwise
+// collide on the same GCS key (drawingKey is pure over those three inputs)
+// and silently overwrite one another within this single upload action —
+// append a "-2", "-3"... suffix before the extension for repeats of that
+// exact combination. A different mark or rev is a different folder, so it
+// never needs a suffix even when the file name repeats.
+function dedupeStagedFileNames(items: StagedDrawing[]): string[] {
   const seen = new Map<string, number>()
-  return files.map(f => {
-    const count = (seen.get(f.name) ?? 0) + 1
-    seen.set(f.name, count)
-    if (count === 1) return f.name
-    const dot = f.name.lastIndexOf('.')
-    const base = dot > 0 ? f.name.slice(0, dot) : f.name
-    const ext = dot > 0 ? f.name.slice(dot) : ''
+  return items.map(item => {
+    const key = `${item.mark}\u0000${item.rev}\u0000${item.fileName}`
+    const count = (seen.get(key) ?? 0) + 1
+    seen.set(key, count)
+    if (count === 1) return item.fileName
+    const dot = item.fileName.lastIndexOf('.')
+    const base = dot > 0 ? item.fileName.slice(0, dot) : item.fileName
+    const ext = dot > 0 ? item.fileName.slice(dot) : ''
     return `${base}-${count}${ext}`
   })
 }
@@ -39,27 +60,26 @@ interface UploadDrawingsScope {
 
 // Uploads every staged file independently (allSettled, not Promise.all) so
 // one bad file (rejected by the backend's traversal/size checks) doesn't
-// abort the others. One upload action = one version of THIS zone(+sub-zone)'s
-// drawing set — the next version is fetched once here, not once per file
-// (mirrors how BIM's upload computes nextMajor/nextMinor once per upload,
-// not per file). Version numbering is scoped per zone(+sub-zone) — uploading
-// to Zone A never bumps Zone B's counter. Upload is .pdf-only since
-// 2026-09-15's DWG removal (see DrawingUploadModal.tsx).
+// abort the others. Each staged item carries its own mark + rev (parsed from
+// its filename, or typed by the user in the review table where parsing
+// failed) — there is no more single batch-wide "next version" to look up
+// first; per-mark revision is per (zone, sub-zone, mark), not per upload
+// action. Upload is .pdf-only since 2026-09-15's DWG removal (see
+// DrawingUploadModal.tsx).
 export function useUploadDrawings(scope: UploadDrawingsScope) {
   const { projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode } = scope
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (files: File[]) => {
-      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId)
-      const nextVersion = (latest ?? 0) + 1
-      const fileNames = dedupeFileNames(files)
+    mutationFn: async (items: StagedDrawing[]) => {
+      const fileNames = dedupeStagedFileNames(items)
       const results = await Promise.allSettled(
-        files.map((file, i) =>
+        items.map((item, i) =>
           uploadDrawing({
             projectId: projectId!, projectCode: projectCode!,
             zoneId: zoneId!, zoneCode: zoneCode!,
             subZoneId, subZoneCode,
-            version: nextVersion, file, fileName: fileNames[i],
+            mark: item.mark, rev: item.rev,
+            file: item.file, fileName: fileNames[i],
           }),
         ),
       )
@@ -89,7 +109,7 @@ export function useDeleteDrawing(zoneId: number | undefined, subZoneId: number |
 // path) — just an authenticated blob turned into an object URL an <iframe>
 // can render directly. staleTime
 // Infinity: a given file_key's bytes never change (a new upload gets a new
-// key under a new version folder), so the cached URL is reused rather than
+// key under a new rev folder), so the cached URL is reused rather than
 // refetched every time this fileKey is selected again (e.g. switching the
 // DWG/PDF browse toggle back and forth). Deliberately does NOT revoke the
 // object URL on unmount/change — a revoke-on-cleanup effect was tried and

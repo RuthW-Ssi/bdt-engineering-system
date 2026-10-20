@@ -6,7 +6,13 @@ export interface Drawing {
   project_id: number
   zone_id: number
   sub_zone_id: number | null
-  version: number
+  // Per-mark revision (wiki: features/drawing-revision-plan.md). Both
+  // nullable: a handful of legacy rows predate the mark/rev backfill and
+  // were left unparsed rather than guessed at — callers must not assume
+  // either is present. "Current" (highest rev per zone/sub-zone/mark) is
+  // derived by the backend, never stored here.
+  mark: string | null
+  rev: number | null
   file_key: string
   file_name: string
   mime_type: string | null
@@ -18,11 +24,29 @@ export async function getDrawingsByZone(zoneId: number, subZoneId: number | null
   return (await apiClient.get('/drawings', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
-// Always .pdf-only (upload was DWG/PDF-dual until 2026-09-15's DWG removal)
-// — the backend still internally scopes this to .pdf so a legacy .dwg row's
-// version number can never leak into a new upload's counter.
-export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null): Promise<{ version: number | null }> {
-  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
+// Distinct assembly marks from the ACTIVE BOM for a zone (or sub-zone) — used
+// by the upload review table to offer a pick-list and flag a parsed mark
+// that doesn't match anything in the BOM.
+export async function getDrawingBomMarks(zoneId: number, subZoneId: number | null): Promise<string[]> {
+  return (await apiClient.get('/drawings/bom-marks', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
+}
+
+// New GCS key shape (per-mark revision, replacing the old flat version
+// folder): drawings/<project_code>/<zone_code>/[<subzone_code>/]<mark>/rev<n>/<file_name>.
+// Mirrors the backend CreateDrawingDto's file_key regex
+// (/^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?[^/\\]+\/rev\d+\/[^/\\]+$/) —
+// '/' and '\' in the mark and file name must not survive into the key, since
+// either would otherwise smuggle in extra path segments.
+export function drawingKey(
+  scope: { projectCode: string; zoneCode: string; subZoneCode: string | null },
+  mark: string,
+  rev: number,
+  fileName: string,
+): string {
+  const safeMark = mark.replace(/[/\\]/g, '_')
+  const safeName = fileName.replace(/[/\\]/g, '_')
+  const subZoneSegment = scope.subZoneCode ? `${scope.subZoneCode}/` : ''
+  return `drawings/${scope.projectCode}/${scope.zoneCode}/${subZoneSegment}${safeMark}/rev${rev}/${safeName}`
 }
 
 export interface UploadDrawingInput {
@@ -32,22 +56,16 @@ export interface UploadDrawingInput {
   zoneCode: string
   subZoneId: number | null
   subZoneCode: string | null
-  version: number
+  mark: string
+  rev: number
   file: File
   // May differ from file.name — the caller dedupes identically-named files
-  // within one batch before calling this (see useUploadDrawings).
+  // within one (mark, rev) pair before calling this (see useUploadDrawings).
   fileName: string
 }
 
-export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
-  // Sanitize the filename portion — the backend's CreateDrawingDto validates
-  // file_key against /^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?v\d+\/[^/\\]+$/
-  // (project code + zone code + optional sub-zone code + version folder +
-  // bare filename), so any '/' or '\' in the original filename must not
-  // survive into the key.
-  const safeName = fileName.replace(/[/\\]/g, '_')
-  const subZoneSegment = subZoneCode ? `${subZoneCode}/` : ''
-  const key = `drawings/${projectCode}/${zoneCode}/${subZoneSegment}v${version}/${safeName}`
+export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode, mark, rev, file, fileName }: UploadDrawingInput): Promise<Drawing> {
+  const key = drawingKey({ projectCode, zoneCode, subZoneCode }, mark, rev, fileName)
   const presigned = await getPresignedUpload(key, file.type || 'application/octet-stream')
   await uploadViaPresignedUrl(presigned, key, file)
   return (
@@ -55,7 +73,8 @@ export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, 
       project_id: projectId,
       zone_id: zoneId,
       sub_zone_id: subZoneId ?? undefined,
-      version,
+      mark,
+      rev,
       file_key: key,
       file_name: fileName,
       mime_type: file.type || undefined,

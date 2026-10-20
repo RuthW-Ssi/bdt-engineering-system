@@ -12,8 +12,8 @@ const mockedPdfUrl = vi.mocked(useDrawingPdfUrl)
 
 function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
   return {
-    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, version: 1,
-    file_key: 'drawings/0X220/Z1/v1/plan-A.dwg', file_name: 'plan-A.dwg',
+    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, mark: 'B1', rev: 1,
+    file_key: 'drawings/0X220/Z1/B1/rev1/plan-A.dwg', file_name: 'plan-A.dwg',
     mime_type: null, uploaded_by_id: 1, create_date: '2026-01-01T00:00:00Z',
     ...overrides,
   }
