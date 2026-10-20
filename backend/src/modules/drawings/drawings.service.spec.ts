@@ -179,7 +179,7 @@ describe('DrawingsService', () => {
   })
 
   describe('findByZone', () => {
-    it('scopes strictly to zone_id + sub_zone_id (null sub_zone_id is its own bucket) ordered mark asc, rev desc, create_date desc, including the uploader name', async () => {
+    it('scopes strictly to zone_id + sub_zone_id (null sub_zone_id is its own bucket) ordered mark asc, rev desc, create_date desc, including the uploader name for a staff caller', async () => {
       const prisma = makePrisma()
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
@@ -190,6 +190,24 @@ describe('DrawingsService', () => {
         orderBy: [{ mark: 'asc' }, { rev: 'desc' }, { create_date: 'desc' }],
         include: { uploaded_by: { select: { name: true } } },
       })
+    })
+
+    // Security review: staff names are internal — a customer caller
+    // (currentOnly: true, the exact signal the controller derives from
+    // isCustomerUser) must never receive the uploaded_by join at all, not
+    // just have it stripped client-side. Mirrors documents.service.ts's
+    // CUSTOMER_SELECT.
+    it('omits the uploaded_by join entirely for a customer caller (currentOnly: true)', async () => {
+      const prisma = { drawing: { findMany: jest.fn().mockResolvedValue([]) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      await svc.findByZone(7, null, { currentOnly: true })
+
+      expect(prisma.drawing.findMany).toHaveBeenCalledWith({
+        where: { zone_id: 7, sub_zone_id: null },
+        orderBy: [{ mark: 'asc' }, { rev: 'desc' }, { create_date: 'desc' }],
+      })
+      expect(prisma.drawing.findMany.mock.calls[0][0].include).toBeUndefined()
     })
 
     it('returns every row unfiltered when currentOnly is omitted/false', async () => {

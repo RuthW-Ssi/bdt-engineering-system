@@ -41,10 +41,14 @@ export class DrawingsService {
   }
 
   async findByZone(zoneId: number, subZoneId: number | null, opts: { currentOnly?: boolean } = {}) {
+    // Staff names are internal — `currentOnly` is the controller's own
+    // isCustomerUser signal, so a customer caller never gets the uploaded_by
+    // join at all (not just a field the frontend happens to hide). Mirrors
+    // documents.service.ts's CUSTOMER_SELECT (security review, 2026-10-20).
     const rows = await this.prisma.drawing.findMany({
       where: { zone_id: zoneId, sub_zone_id: subZoneId },
       orderBy: [{ mark: 'asc' }, { rev: 'desc' }, { create_date: 'desc' }],
-      include: { uploaded_by: { select: { name: true } } },
+      ...(opts.currentOnly ? {} : { include: { uploaded_by: { select: { name: true } } } }),
     })
     // Current must be computed among .pdf rows only — a legacy .dwg row at a
     // higher rev (pre 2026-09-15 .pdf-only restriction) must not hide the
