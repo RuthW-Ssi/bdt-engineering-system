@@ -58,7 +58,7 @@ export function formatPlanDateTime(d: Date | null): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`
 }
 
-// Drawing version stamp + the traveler's "updated after this WO" note
+// Drawing rev stamp + the traveler's "updated after this WO" note
 // (2026-10-05, print option A) — dd/mm/yy in shop-floor time, same reason
 // as formatPlanDateTime above.
 export function formatShortDate(d: Date | string): string {
@@ -70,17 +70,18 @@ export function formatShortDate(d: Date | string): string {
 }
 
 /** Marks whose printed drawing was uploaded after the WO was created —
- *  "CTR10 v3 (02/10/26)" each — so the floor knows the sheet changed since
- *  the job was issued. Upload date vs WO creation, no stored WO↔drawing link. */
+ *  "CTR10 Rev 3 (02/10/26)" each — so the floor knows the sheet changed
+ *  since the job was issued. Upload date vs WO creation, no stored
+ *  WO↔drawing link. */
 export function drawingsUpdatedAfter(
   woCreatedAt: Date | string,
-  marks: { assemblyMark: string; drawing: { version: number; uploaded_at: Date | string } | null }[],
+  marks: { assemblyMark: string; drawing: { rev: number; uploaded_at: Date | string } | null }[],
 ): string[] {
   const created = new Date(woCreatedAt).getTime()
   // A mark with no drawing yet (pre-shop, 2026-10-07) has nothing to flag.
   return marks
     .flatMap(m => (m.drawing && new Date(m.drawing.uploaded_at).getTime() > created ? [{ mark: m.assemblyMark, d: m.drawing }] : []))
-    .map(({ mark, d }) => `${mark} v${d.version} (${formatShortDate(d.uploaded_at)})`)
+    .map(({ mark, d }) => `${mark} Rev ${d.rev} (${formatShortDate(d.uploaded_at)})`)
 }
 
 // MO page Routing checklist: one row per routing operation (by sequence),

@@ -985,7 +985,7 @@ async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels, 
   // Which revision this sheet is (2026-10-05, print option A) rides at the
   // end of the corner label and as the watermark's third line ("เอามาอยู่
   // ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย").
-  const stamp = L.drawingStamp(`v${mark.drawing!.version} · ${formatShortDate(mark.drawing!.uploaded_at)}`)
+  const stamp = L.drawingStamp(`Rev ${mark.drawing!.rev} · ${formatShortDate(mark.drawing!.uploaded_at)}`)
   const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
   const labelSize = 12
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
