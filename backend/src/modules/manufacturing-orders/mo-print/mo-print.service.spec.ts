@@ -86,7 +86,7 @@ function makePdfDrawing(overrides: Record<string, any> = {}) {
     id: 1,
     file_key: 'drawings/dbn-a1-ctr1-rev1.pdf',
     file_name: 'DBN-A1-CTR1 - - Rev 1.pdf',
-    version: 1,
+    rev: 1,
     create_date: '2026-09-14T00:00:00Z',
     ...overrides,
   }
@@ -161,9 +161,9 @@ describe('MoPrintService.buildPlan', () => {
     expect(plan.rows[0]).toMatchObject({ workCenterName: 'Cutting' })
     expect(plan.rows[0].marks).toEqual([{
       assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
-      // version + upload date (2026-10-05, print option A) — stamped on the
+      // rev + upload date (2026-10-05, print option A) — stamped on the
       // drawing page and compared against the WO's own create_date.
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', version: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
     }])
     expect(plan.rows[0].wo).toMatchObject({ expected_duration_min: 45, setup_time_min: 10, created_at: new Date('2026-09-20T00:00:00Z') })
   })
@@ -654,15 +654,15 @@ describe('MoPrintService.buildPlan', () => {
     const prisma = makePrisma()
     const drawings = makeDrawings({
       findByZone: jest.fn().mockResolvedValue([
-        makePdfDrawing({ id: 1, version: 1 }),
-        makePdfDrawing({ id: 2, version: 2, file_key: 'drawings/dbn-a1-str1.pdf', file_name: 'DBN-A1-STR1 - - Rev 1.pdf', create_date: '2026-10-02T00:00:00Z' }),
+        makePdfDrawing({ id: 1, rev: 1 }),
+        makePdfDrawing({ id: 2, rev: 2, file_key: 'drawings/dbn-a1-str1.pdf', file_name: 'DBN-A1-STR1 - - Rev 1.pdf', create_date: '2026-10-02T00:00:00Z' }),
       ]),
     })
     const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
 
     const plan = await svc.buildPlan(85)
 
-    expect(plan.rows[0].marks[0].drawing).toMatchObject({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', version: 1 })
+    expect(plan.rows[0].marks[0].drawing).toMatchObject({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', rev: 1 })
   })
 
   it('fetches a zone\'s drawings only once even when multiple WOs share the same zone', async () => {

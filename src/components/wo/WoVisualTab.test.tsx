@@ -39,8 +39,8 @@ const mockedMatch = vi.mocked(useWoBimMatch)
 const mockedToken = vi.mocked(useBimViewerToken)
 const mockedDrawings = vi.mocked(useZoneDrawings)
 
-function pdf(id: number, version: number, file_name: string, create_date = '2026-09-01T12:00:00Z'): Drawing {
-  return { id, project_id: 1, zone_id: 7, sub_zone_id: null, version, file_key: `k${id}`, file_name, mime_type: null, uploaded_by_id: 1, create_date }
+function pdf(id: number, rev: number, file_name: string, create_date = '2026-09-01T12:00:00Z'): Drawing {
+  return { id, project_id: 1, zone_id: 7, sub_zone_id: null, mark: null, rev, version: 1, file_key: `k${id}`, file_name, mime_type: null, uploaded_by_id: 1, create_date }
 }
 
 function match(overrides: Partial<WoBimMatch> = {}): WoBimMatch {
@@ -85,7 +85,7 @@ describe('WoVisualTab drawing version picker', () => {
     expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - - Rev 2.pdf')
     const picker = screen.getByLabelText('Drawing version') as HTMLSelectElement
     expect(picker.value).toBe('3')
-    expect([...picker.options].map(o => o.text)).toEqual(['v3 · 20 Sept 26 (latest)', 'v1 · 01 Aug 26'])
+    expect([...picker.options].map(o => o.text)).toEqual(['Rev 3 · 20 Sept 26 (latest)', 'Rev 1 · 01 Aug 26'])
   })
 
   it('switches the preview to the picked older version', () => {
@@ -107,7 +107,7 @@ describe('WoVisualTab drawing version picker', () => {
     // always discoverable.
     const picker = screen.getByLabelText('Drawing version') as HTMLSelectElement
     expect(picker.value).toBe('2')
-    expect([...picker.options].map(o => o.text)).toEqual(['v2 · 15 Aug 26 (latest)'])
+    expect([...picker.options].map(o => o.text)).toEqual(['Rev 2 · 15 Aug 26 (latest)'])
   })
 
   it('shows no picker when the mark has no drawing at all', () => {
