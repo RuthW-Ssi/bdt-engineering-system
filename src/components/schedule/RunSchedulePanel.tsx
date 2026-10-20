@@ -91,24 +91,24 @@ export function RunSchedulePanel({ onRan, mos, workOrders }: {
         <form
           aria-label="Run scheduler"
           onSubmit={submit}
-          className={`absolute right-0 top-full mt-2 z-30 ${scope === 'pick' ? 'w-[400px]' : 'w-[300px]'} bg-white border border-[#d8dde3] rounded-[10px] p-3 text-xs text-[#1f2733] shadow-[0_8px_24px_rgba(20,26,33,.22)] flex flex-col gap-2.5`}
+          className={`absolute right-0 top-full mt-2 z-30 ${scope === 'pick' ? 'w-[400px]' : 'w-[300px]'} bg-white border border-[#E0E0E0] rounded-lg p-3 text-xs text-[#1F1F1F] shadow-[0_8px_24px_rgba(20,26,33,.22)] flex flex-col gap-2.5`}
         >
           <label className="flex items-center gap-2">
-            <span className="w-16 text-[#6b7682]">Direction</span>
+            <span className="w-16 text-[#555555]">Direction</span>
             <select
               value={direction}
               onChange={(e) => setDirection(e.target.value as FormDirection)}
-              className="flex-1 min-w-0 border border-[#d8dde3] rounded-md px-2 py-1 bg-white"
+              className="flex-1 min-w-0 border border-[#E0E0E0] rounded-md px-2 py-1 bg-white"
             >
               {DIRECTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </select>
           </label>
           <label className="flex items-center gap-2">
-            <span className="w-16 text-[#6b7682]">Rule</span>
+            <span className="w-16 text-[#555555]">Rule</span>
             <select
               value={rule}
               onChange={(e) => setRule(e.target.value as DispatchRule)}
-              className="flex-1 min-w-0 border border-[#d8dde3] rounded-md px-2 py-1 bg-white"
+              className="flex-1 min-w-0 border border-[#E0E0E0] rounded-md px-2 py-1 bg-white"
             >
               {DISPATCH_RULES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
@@ -119,7 +119,7 @@ export function RunSchedulePanel({ onRan, mos, workOrders }: {
           </label>
 
           <fieldset className="flex flex-col gap-1.5 border-0 p-0 m-0">
-            <legend className="text-[#6b7682] mb-1">งานที่จะจัด</legend>
+            <legend className="text-[#555555] mb-1">งานที่จะจัด</legend>
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input type="radio" name="run-scope" checked={scope === 'all'} onChange={() => setScope('all')} />
               <span>ทุกงานที่จัดได้</span>
@@ -134,7 +134,7 @@ export function RunSchedulePanel({ onRan, mos, workOrders }: {
           </fieldset>
 
           {skipped.length > 0 && (
-            <div role="status" className="rounded-lg border border-[#fcd9a8] bg-[#fff7ed] text-[#9a3412] px-3 py-2">
+            <div role="status" className="rounded-lg border border-[#FAC775] bg-[#FAEEDA] text-[#854F0B] px-3 py-2">
               <div className="font-semibold">ไม่ถูกนำมาจัด {skipped.length} WO</div>
               <ul className={`mt-1 mb-0 pl-4 list-disc ${skipped.length > 6 ? 'max-h-[150px] overflow-y-auto' : ''}`}>
                 {skipped.map((s) => <li key={s.wo_id}>{`${s.wo_code} — ${s.reason}`}</li>)}

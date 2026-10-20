@@ -110,7 +110,7 @@ describe('ProductionSchedule', () => {
 
     expect(screen.getByTestId('kpi-onTime')).toHaveTextContent('50%')
     expect(screen.getByTestId('kpi-onTime')).toHaveTextContent('ส่งทันกำหนด')
-    expect(screen.getByTestId('kpi-late')).toHaveTextContent('1งานสาย')
+    expect(screen.getByTestId('kpi-late')).toHaveTextContent('1งานล่าช้า')
     expect(screen.getByTestId('kpi-backlog')).toHaveTextContent('1Backlog (รอจัด)')
     expect(screen.getByTestId('kpi-finish')).toHaveTextContent('18:30')
   })
@@ -126,12 +126,12 @@ describe('ProductionSchedule', () => {
     expect(within(gantt).getByText('L2')).toBeInTheDocument()
 
     // MO-100 is late → every open op of it is flagged, not just the one that ends after the due
-    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })).toHaveAttribute('data-late', 'true')
-    expect(within(gantt).getByRole('button', { name: 'A1 · Cut · สาย' })).toHaveAttribute('data-late', 'true')
+    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })).toHaveAttribute('data-late', 'true')
+    expect(within(gantt).getByRole('button', { name: 'A1 · Cut · ล่าช้า' })).toHaveAttribute('data-late', 'true')
     expect(within(gantt).getByRole('button', { name: 'B1 +1 · Cut' })).not.toHaveAttribute('data-late')
 
     // late = inset ring (box-shadow), so the outline stays free for the focus ring
-    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })
+    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })
     expect(weld.style.boxShadow).toContain('inset')
     expect(weld.style.outline).toBe('')
 
@@ -152,20 +152,20 @@ describe('ProductionSchedule', () => {
   it('keeps the other bars mounted when a WC is collapsed (stable keys)', () => {
     render(<ProductionSchedule />)
     const gantt = screen.getByRole('region', { name: 'Resource Gantt' })
-    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })
+    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })
 
     fireEvent.click(within(gantt).getByRole('button', { name: /^▾CUT/ }))
-    expect(within(gantt).queryByRole('button', { name: 'A1 · Cut · สาย' })).not.toBeInTheDocument()
-    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })).toBe(weld)
+    expect(within(gantt).queryByRole('button', { name: 'A1 · Cut · ล่าช้า' })).not.toBeInTheDocument()
+    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })).toBe(weld)
   })
 
   it('opens the WO detail beside the Gantt for a clicked bar, and closes it', () => {
     render(<ProductionSchedule />)
 
     expect(screen.queryByTestId('op-detail')).not.toBeInTheDocument() // Gantt uses the full width
-    fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · สาย' }))
+    fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · ล่าช้า' }))
     const detail = screen.getByTestId('op-detail')
-    expect(detail).toHaveTextContent('สาย (LATE)')
+    expect(detail).toHaveTextContent('ล่าช้า (LATE)')
     expect(detail).toHaveTextContent('Weld team A · internal · 3 คน')
     expect(detail).toHaveTextContent('1,234 kg')
     expect(detail).toHaveTextContent('WO-1002 · MO-100')
@@ -174,9 +174,10 @@ describe('ProductionSchedule', () => {
     expect(screen.queryByTestId('op-detail')).not.toBeInTheDocument()
   })
 
-  it('shows the backlog on the คำสั่งผลิต tab', () => {
+  it('shows the order list and the backlog beside the Gantt, no separate tab', () => {
     render(<ProductionSchedule />)
-    openTab('คำสั่งผลิต')
+    expect(screen.queryByRole('tab', { name: 'คำสั่งผลิต' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'คำสั่งผลิต' })).toBeInTheDocument()
     const card = screen.getByTestId('backlog-card')
     expect(card).toHaveTextContent('MO-300')
     expect(card).toHaveTextContent('CO · 1 ops')
@@ -200,12 +201,29 @@ describe('ProductionSchedule', () => {
 
   it('order list click selects the MO\'s first op and jumps to the Gantt', () => {
     render(<ProductionSchedule />)
-    openTab('คำสั่งผลิต')
     const panel = screen.getByRole('region', { name: 'คำสั่งผลิต' })
 
     fireEvent.click(within(panel).getByRole('button', { name: /MO-200/ }))
     expect(screen.getByRole('button', { name: 'B1 +1 · Cut' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('op-detail')).toHaveTextContent('WO-2001 · MO-200')
+  })
+
+  it('hides the side panel for a full-width Gantt; picking a bar opens it again', () => {
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: 'ซ่อน ▸' }))
+    expect(screen.queryByRole('region', { name: 'คำสั่งผลิต' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Backlog' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · ล่าช้า' }))
+    expect(screen.getByTestId('op-detail')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Backlog' })).toBeInTheDocument()
+  })
+
+  it('collapses the backlog list', () => {
+    render(<ProductionSchedule />)
+    const backlog = screen.getByRole('region', { name: 'Backlog' })
+    fireEvent.click(within(backlog).getByRole('button', { expanded: true }))
+    expect(screen.queryByTestId('backlog-card')).not.toBeInTheDocument()
   })
 
   it('switches version through the board hook', () => {

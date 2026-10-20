@@ -29,9 +29,9 @@ export function ScheduleToolbar({
   actions?: ReactNode
 }) {
   return (
-    <div className="flex items-center gap-2.5 flex-wrap bg-white border border-[#d8dde3] rounded-[10px] px-3 py-2.5">
+    <div className="flex items-center gap-2.5 flex-wrap bg-white border border-[#E0E0E0] rounded-lg px-3 py-2.5">
       <span className={CTL_LABEL}>Version</span>
-      <div role="group" aria-label="Version" className="inline-flex flex-wrap border border-[#d8dde3] rounded-lg overflow-hidden">
+      <div role="group" aria-label="Version" className="inline-flex flex-wrap border border-[#E0E0E0] rounded-lg overflow-hidden">
         {versions.length ? (
           versions.map((v) => {
             const on = v.id === currentId
@@ -42,7 +42,7 @@ export function ScheduleToolbar({
                 aria-pressed={on}
                 title={v.description ?? ''}
                 onClick={() => onSelectVersion(v.id)}
-                className={`border-0 px-3 py-[7px] text-xs cursor-pointer ${on ? 'bg-[#e8590c] text-white' : 'bg-white text-[#1f2733] hover:bg-[#f8fafc]'}`}
+                className={`border-0 px-3 py-[7px] text-xs cursor-pointer ${on ? 'bg-[#C8202A] text-white' : 'bg-white text-[#1F1F1F] hover:bg-[#FAFAFA]'}`}
               >
                 {versionLabel(v)}
               </button>
@@ -58,7 +58,7 @@ export function ScheduleToolbar({
 
       <label className="inline-flex items-center gap-1.5 cursor-pointer select-none text-[13px]">
         <input type="checkbox" checked={lateOnly} onChange={(e) => onLateOnly(e.target.checked)} />
-        <span>เน้นงานสาย</span>
+        <span>เน้นงานล่าช้า</span>
       </label>
 
       <span className={`${CTL_LABEL} ml-1.5`}>Zoom</span>
@@ -70,7 +70,7 @@ export function ScheduleToolbar({
             aria-label={dir === 'in' ? 'Zoom in' : 'Zoom out'}
             disabled={dir === 'in' ? pxh >= ZOOM.max : pxh <= ZOOM.min}
             onClick={() => onZoom(dir)}
-            className="w-7 h-7 border border-[#d8dde3] bg-white rounded-[7px] cursor-pointer font-bold text-[#1f2733] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-7 h-7 border border-[#E0E0E0] bg-white rounded-[7px] cursor-pointer font-bold text-[#1F1F1F] disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {dir === 'in' ? '+' : '−'}
           </button>
@@ -84,12 +84,12 @@ export function ScheduleToolbar({
 
       <div className="flex gap-3 flex-wrap ml-auto" aria-label="Legend">
         {LEGEND.map((l) => (
-          <span key={l.family} className="inline-flex items-center gap-[5px] text-[11px] text-[#6b7682]">
+          <span key={l.family} className="inline-flex items-center gap-[5px] text-[11px] text-[#555555]">
             <span className="w-[13px] h-[13px] rounded-[3px] inline-block" style={{ background: FAMILY_COLOR[l.family] }} />
             {l.label}
           </span>
         ))}
-        <span className="inline-flex items-center gap-[5px] text-[11px] text-[#6b7682]">
+        <span className="inline-flex items-center gap-[5px] text-[11px] text-[#555555]">
           <span
             className="w-[13px] h-[13px] rounded-[3px] inline-block"
             style={{ background: LATE_COLOR.fill, outline: `2px solid ${LATE_COLOR.border}`, outlineOffset: -2 }}

@@ -53,7 +53,7 @@ export function ActivateVersionControl({ version }: { version: BoardVersion }) {
   }
 
   return (
-    <div role="group" aria-label="Confirm activate" className="inline-flex items-center gap-2 flex-wrap rounded-lg border border-[#f4c9ad] bg-[#fff3ec] px-2.5 py-1.5 text-xs">
+    <div role="group" aria-label="Confirm activate" className="inline-flex items-center gap-2 flex-wrap rounded-lg border border-[#F5C4C4] bg-[#FCEBEB] px-2.5 py-1.5 text-xs">
       <span>
         ตั้ง <b>{versionLabel(version)}</b> เป็น version ที่ใช้งาน?
       </span>
