@@ -1,8 +1,16 @@
-import { NotFoundException } from '@nestjs/common'
+import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import { DrawingsService } from './drawings.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
+import { toA3Landscape } from './a3-normalize'
+
+// The helper's actual PDF transform (scale/centre/rotate) is exercised with
+// real pdf-lib in a3-normalize.spec.ts — here only the service's ORCHESTRATION
+// around it is under test (call order, error → delete + 400), so the helper
+// itself is mocked.
+jest.mock('./a3-normalize')
+const mockToA3Landscape = toA3Landscape as jest.MockedFunction<typeof toA3Landscape>
 
 function makePrisma(opts: { drawings?: { id: number; file_key: string }[]; same?: any[] } = {}) {
   const drawings = opts.drawings ?? []
@@ -25,7 +33,11 @@ function makePrisma(opts: { drawings?: { id: number; file_key: string }[]; same?
 }
 
 function makeFileStorage() {
-  return { delete: jest.fn().mockResolvedValue(undefined) }
+  return {
+    delete: jest.fn().mockResolvedValue(undefined),
+    getObject: jest.fn().mockResolvedValue(Buffer.from('original-bytes')),
+    putObject: jest.fn().mockResolvedValue(undefined),
+  }
 }
 
 describe('DrawingsService', () => {
@@ -54,6 +66,87 @@ describe('DrawingsService', () => {
   })
 
   describe('create', () => {
+    beforeEach(() => {
+      mockToA3Landscape.mockReset().mockResolvedValue(Buffer.from('a3-normalised-bytes'))
+    })
+
+    // Task 11: every upload is normalised to A3 landscape BEFORE the
+    // same-sheet replace logic runs, so a bad PDF never deletes an existing
+    // row. getObject → toA3Landscape → putObject (same key) must all happen
+    // before drawing.create, and before the same-sheet findMany lookup.
+    it('normalises the uploaded PDF to A3 before the same-sheet lookup and the DB write: getObject → toA3Landscape → putObject (same key) → create', async () => {
+      const same: any[] = []
+      const prisma = makePrisma({ same })
+      const fileStorage = makeFileStorage()
+      const svc = new DrawingsService(prisma as any, fileStorage as any)
+      const order: string[] = []
+      fileStorage.getObject.mockImplementation(() => { order.push('getObject'); return Promise.resolve(Buffer.from('orig')) })
+      mockToA3Landscape.mockImplementation(() => { order.push('toA3Landscape'); return Promise.resolve(Buffer.from('a3')) })
+      fileStorage.putObject.mockImplementation(() => { order.push('putObject'); return Promise.resolve(undefined) })
+      prisma.drawing.findMany.mockImplementation(() => { order.push('findMany'); return Promise.resolve(same) })
+      prisma.drawing.create.mockImplementation((args: any) => { order.push('create'); return Promise.resolve({ id: 999, ...args.data }) })
+
+      await svc.create(
+        {
+          project_id: 42,
+          zone_id: 7,
+          mark: 'B1',
+          rev: 1,
+          version: 1,
+          file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
+          file_name: 'x.pdf',
+        } as any,
+        9,
+      )
+
+      expect(fileStorage.getObject).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf')
+      expect(mockToA3Landscape).toHaveBeenCalledWith(Buffer.from('orig'))
+      expect(fileStorage.putObject).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/x.pdf', Buffer.from('a3'), 'application/pdf')
+      expect(order).toEqual(['getObject', 'toA3Landscape', 'putObject', 'findMany', 'create'])
+    })
+
+    it('on a bad/corrupt PDF: deletes the uploaded object, writes no row, and throws BadRequestException("ไฟล์ PDF เสียหรือเปิดไม่ได้")', async () => {
+      const prisma = makePrisma({ same: [] })
+      const fileStorage = makeFileStorage()
+      const svc = new DrawingsService(prisma as any, fileStorage as any)
+      mockToA3Landscape.mockRejectedValue(new Error('invalid pdf'))
+
+      await expect(
+        svc.create(
+          {
+            project_id: 42,
+            zone_id: 7,
+            mark: 'B1',
+            rev: 1,
+            version: 1,
+            file_key: 'drawings/0X220/Z1/B1/rev1/bad.pdf',
+            file_name: 'bad.pdf',
+          } as any,
+          9,
+        ),
+      ).rejects.toThrow(BadRequestException)
+
+      await expect(
+        svc.create(
+          {
+            project_id: 42,
+            zone_id: 7,
+            mark: 'B1',
+            rev: 1,
+            version: 1,
+            file_key: 'drawings/0X220/Z1/B1/rev1/bad.pdf',
+            file_name: 'bad.pdf',
+          } as any,
+          9,
+        ),
+      ).rejects.toThrow('ไฟล์ PDF เสียหรือเปิดไม่ได้')
+
+      expect(fileStorage.delete).toHaveBeenCalledWith('drawings/0X220/Z1/B1/rev1/bad.pdf')
+      expect(fileStorage.putObject).not.toHaveBeenCalled()
+      expect(prisma.drawing.findMany).not.toHaveBeenCalled()
+      expect(prisma.drawing.create).not.toHaveBeenCalled()
+    })
+
     it('stores mark/rev/version and stamps uploaded_by_id, defaulting sub_zone_id to null when omitted', async () => {
       const prisma = makePrisma({ same: [] })
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)

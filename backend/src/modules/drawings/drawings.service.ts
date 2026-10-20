@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
 import { currentRevRows, isPdf } from './current-rev'
+import { toA3Landscape } from './a3-normalize'
 
 @Injectable()
 export class DrawingsService {
@@ -21,7 +22,22 @@ export class DrawingsService {
   // create(): same zone/sub/mark/rev/file_name = re-upload of that sheet →
   // replace. Same key ⇒ the upload already overwrote the object, so only
   // delete the old object when its key differs (legacy v<n>/ keys).
+  //
+  // Task 11 (2026-10-20): every upload is normalised to one A3-landscape PDF
+  // FIRST, before any of the same-sheet replace logic below runs — so a
+  // corrupt/encrypted PDF throws and deletes the just-uploaded object without
+  // ever touching an existing row.
   async create(dto: CreateDrawingDto, uploadedById: number) {
+    const original = await this.fileStorage.getObject(dto.file_key)
+    let a3: Buffer
+    try {
+      a3 = await toA3Landscape(original)
+    } catch {
+      await this.fileStorage.delete(dto.file_key)
+      throw new BadRequestException('ไฟล์ PDF เสียหรือเปิดไม่ได้')
+    }
+    await this.fileStorage.putObject(dto.file_key, a3, 'application/pdf')
+
     const subZoneId = dto.sub_zone_id ?? null
     const same = await this.prisma.drawing.findMany({
       where: { zone_id: dto.zone_id, sub_zone_id: subZoneId, mark: dto.mark, rev: dto.rev, file_name: dto.file_name },

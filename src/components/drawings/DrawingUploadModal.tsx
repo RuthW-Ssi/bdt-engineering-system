@@ -224,7 +224,7 @@ export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading
             currentCount={rows.length}
             acceptedFormats={['.pdf']}
             maxSizeBytes={MAX_DRAWING_SIZE}
-            hint="PDF · up to 50 MB each"
+            hint="PDF · up to 50 MB each · ระบบจะปรับเป็น A3 แนวนอนให้อัตโนมัติ"
             onFilesAdded={addFiles}
             disabled={isUploading}
           />
