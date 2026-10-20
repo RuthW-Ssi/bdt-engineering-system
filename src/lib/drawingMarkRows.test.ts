@@ -68,4 +68,15 @@ describe('buildMarkRows', () => {
   it('returns an empty array for no drawings', () => {
     expect(buildMarkRows([])).toEqual([])
   })
+
+  it('groups marks case-insensitively, like current-rev.spec.ts does for the top rev', () => {
+    const drawings = [
+      makeDrawing({ id: 1, mark: 'a', rev: 0, file_name: 'a - BEAM - Rev .pdf', create_date: '2026-01-01T00:00:00.000Z' }),
+      makeDrawing({ id: 2, mark: 'A', rev: 1, file_name: 'A - BEAM - Rev 1.pdf', create_date: '2026-01-02T00:00:00.000Z' }),
+    ]
+    const rows = buildMarkRows(drawings)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].mark).toBe('A') // newest file in the highest rev wins the display casing
+    expect(rows[0].revs.map(r => r.rev)).toEqual([1, 0])
+  })
 })

@@ -26,12 +26,16 @@ export function filterDrawingsByType(drawings: Drawing[], fileType: FileType): D
   return drawings.filter(d => d.file_name.toLowerCase().endsWith(suffix))
 }
 
-// A null mark (a handful of legacy rows predate the mark/rev backfill — see
-// api/drawings.ts) has no string to key a Record<mark, rev> entry with;
-// there's at most one such row (buildMarkRows collects every null-mark
-// drawing into one), so an empty-string sentinel is safe — a real mark is
-// never '' (the upload review table treats blank input as unparsed, not "").
-const markKey = (mark: string | null) => mark ?? ''
+// Keyed the same way buildMarkRows groups rows (case-insensitive — marks are
+// persisted verbatim, so "abc"/"ABC" are one row, not two) and lower-cased so
+// the key stays stable even if the row's own *displayed* casing changes
+// between renders (it tracks the newest file in the current rev). A null
+// mark (a handful of legacy rows predate the mark/rev backfill — see
+// api/drawings.ts) has no string to key with; there's at most one such row
+// (buildMarkRows collects every null-mark drawing into one), so an
+// empty-string sentinel is safe — a real mark is never '' (the upload review
+// table treats blank input as unparsed, not "").
+const markKey = (mark: string | null) => (mark ?? '').toLowerCase()
 
 // Same format MoDetail.tsx / WoDetail.tsx / MoHistoryTimeline.tsx already use
 // for a timestamp that needs to show both date and time, not just one.
@@ -55,7 +59,7 @@ function resolveRev(row: MarkRow, pickedRev: Record<string, number>): number {
 // one file left in it, or there's no older rev to fall back to).
 function revFallbackNote(row: MarkRow, rev: number, revGroup: MarkRevGroup): string | null {
   if (row.revs[0].rev !== rev || revGroup.files.length !== 1 || row.revs.length < 2) return null
-  return `Rev ${row.revs[1].rev} will become the current rev.`
+  return `ถ้าลบไฟล์นี้ Rev ${row.revs[1].rev} จะกลายเป็นแบบปัจจุบัน`
 }
 
 export function DrawingList() {

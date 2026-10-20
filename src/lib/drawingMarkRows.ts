@@ -48,21 +48,35 @@ function groupByRev(items: Drawing[]): MarkRevGroup[] {
 // ProjectProgress.tsx already uses for position strings) so "CTR2" sorts
 // before "CTR10" rather than after it. Null marks never participate in that
 // sort — they collect into one row, always last.
+//
+// Grouped case-insensitively — the same "same mark" rule the rest of the
+// branch already uses (backend's current-rev.ts's own top-rev computation,
+// the upload review table's classifyUpload): marks are persisted verbatim,
+// so "abc" and "ABC" are the same physical mark that happened to get typed
+// with different casing on different uploads, not two marks. The row's
+// displayed casing is whichever casing the newest file in the current
+// (highest) rev used — the casing that's actually "in force" right now,
+// not just whichever upload happened to come first.
 export function buildMarkRows(drawings: Drawing[]): MarkRow[] {
-  const byMark = new Map<string | null, Drawing[]>()
+  const byMark = new Map<string, Drawing[]>() // key: mark.toLowerCase()
+  const unmarked: Drawing[] = []
   for (const d of drawings) {
-    const list = byMark.get(d.mark)
+    if (d.mark === null) { unmarked.push(d); continue }
+    const key = d.mark.toLowerCase()
+    const list = byMark.get(key)
     if (list) list.push(d)
-    else byMark.set(d.mark, [d])
+    else byMark.set(key, [d])
   }
 
-  const marked = [...byMark.entries()]
-    .filter(([mark]) => mark !== null)
-    .sort(([a], [b]) => (a as string).localeCompare(b as string, undefined, { numeric: true }))
-    .map(([mark, items]) => ({ mark, revs: groupByRev(items) }))
+  const marked: MarkRow[] = [...byMark.values()]
+    .map(items => {
+      const revs = groupByRev(items)
+      const mark = revs[0].files[0].mark! // highest rev, newest file — its casing wins
+      return { mark, revs }
+    })
+    .sort((a, b) => a.mark!.localeCompare(b.mark!, undefined, { numeric: true }))
 
-  const unmarked = byMark.get(null)
-  if (unmarked) marked.push({ mark: null, revs: groupByRev(unmarked) })
+  if (unmarked.length > 0) marked.push({ mark: null, revs: groupByRev(unmarked) })
 
   return marked
 }
