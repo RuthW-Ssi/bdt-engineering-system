@@ -40,7 +40,7 @@ const mockedToken = vi.mocked(useBimViewerToken)
 const mockedDrawings = vi.mocked(useZoneDrawings)
 
 function pdf(id: number, rev: number, file_name: string, create_date = '2026-09-01T12:00:00Z'): Drawing {
-  return { id, project_id: 1, zone_id: 7, sub_zone_id: null, mark: null, rev, file_key: `k${id}`, file_name, mime_type: null, uploaded_by_id: 1, create_date }
+  return { id, project_id: 1, zone_id: 7, sub_zone_id: null, mark: null, rev, version: 1, file_key: `k${id}`, file_name, mime_type: null, uploaded_by_id: 1, create_date }
 }
 
 function match(overrides: Partial<WoBimMatch> = {}): WoBimMatch {

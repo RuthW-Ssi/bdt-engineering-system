@@ -13,19 +13,33 @@ export interface Drawing {
   // derived by the backend, never stored here.
   mark: string | null
   rev: number | null
+  // Upload BATCH number — NOT the drawing revision (that's `rev`, above).
+  // +1 per upload action, scoped per zone(+sub-zone); every file in one
+  // upload shares the same number (see useUploadDrawings). Nullable: a
+  // handful of legacy/live-check rows predate it.
+  version: number | null
   file_key: string
   file_name: string
   mime_type: string | null
   uploaded_by_id: number
   // Who uploaded this file (per spec: "upload date/time … plus who uploaded
   // them") — joined in by the backend's findByZone, optional/nullable the
-  // same way uploaded_by_id's own user could in principle be missing.
+  // same way uploaded_by_id's own user could in principle be missing. The
+  // backend omits this join entirely (not just the field) for a customer
+  // caller — never relied on here as a privacy boundary, just absent.
   uploaded_by?: { name: string } | null
   create_date: string
 }
 
 export async function getDrawingsByZone(zoneId: number, subZoneId: number | null): Promise<Drawing[]> {
   return (await apiClient.get('/drawings', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
+}
+
+// Highest .pdf upload-batch version already used for a zone (or sub-zone) —
+// null if none yet. Restored alongside `version` itself (reversed "drop
+// version" decision, 2026-10-20) — scoped the same way it was pre-branch.
+export async function getLatestDrawingVersion(zoneId: number, subZoneId: number | null): Promise<{ version: number | null }> {
+  return (await apiClient.get('/drawings/latest-version', { params: { zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })).data
 }
 
 // Distinct assembly marks from the ACTIVE BOM for a zone (or sub-zone) — used
@@ -62,13 +76,16 @@ export interface UploadDrawingInput {
   subZoneCode: string | null
   mark: string
   rev: number
+  // Upload BATCH number — the same number for every file in one upload
+  // action, fetched once per batch by useUploadDrawings (not per file).
+  version: number
   file: File
   // May differ from file.name — the caller dedupes identically-named files
   // within one (mark, rev) pair before calling this (see useUploadDrawings).
   fileName: string
 }
 
-export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode, mark, rev, file, fileName }: UploadDrawingInput): Promise<Drawing> {
+export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode, mark, rev, version, file, fileName }: UploadDrawingInput): Promise<Drawing> {
   const key = drawingKey({ projectCode, zoneCode, subZoneCode }, mark, rev, fileName)
   const presigned = await getPresignedUpload(key, file.type || 'application/octet-stream')
   await uploadViaPresignedUrl(presigned, key, file)
@@ -79,6 +96,7 @@ export async function uploadDrawing({ projectId, projectCode, zoneId, zoneCode, 
       sub_zone_id: subZoneId ?? undefined,
       mark,
       rev,
+      version,
       file_key: key,
       file_name: fileName,
       mime_type: file.type || undefined,

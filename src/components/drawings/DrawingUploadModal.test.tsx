@@ -11,6 +11,7 @@ function drawing(overrides: Partial<Drawing>): Drawing {
     sub_zone_id: null,
     mark: 'A',
     rev: 1,
+    version: 1,
     file_key: 'drawings/P1/Z1/A/rev1/A - BEAM - Rev 1.pdf',
     file_name: 'A - BEAM - Rev 1.pdf',
     mime_type: 'application/pdf',

@@ -11,7 +11,7 @@ import { useUploadDrawings, useDrawingPdfUrl, useDrawingBomMarks, type StagedDra
 // minimal-but-real Drawing fixture stands in for every resolved call.
 function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
   return {
-    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, mark: 'B1', rev: 1,
+    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, mark: 'B1', rev: 1, version: 1,
     file_key: 'drawings/P1/Z1/B1/rev1/x.pdf', file_name: 'x.pdf', mime_type: 'application/pdf',
     uploaded_by_id: 1, create_date: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -20,14 +20,15 @@ function makeDrawing(overrides: Partial<Drawing> = {}): Drawing {
 
 // Partial mock: `drawingKey` is a pure function whose own shape is verified
 // directly below (real implementation), everything else that touches the
-// network is replaced with a spy. `getLatestDrawingVersion` is gone from the
-// real module entirely (Task 3 removed GET /drawings/latest-version) — there
-// is nothing left to mock or call.
+// network is replaced with a spy. `getLatestDrawingVersion` is back — Tao
+// reversed the "drop version" decision (Task 3/4) the same day it shipped:
+// `version` is the upload BATCH number, orthogonal to mark/rev.
 vi.mock('../api/drawings', async importOriginal => {
   const actual = await importOriginal<typeof import('../api/drawings')>()
   return {
     ...actual,
     getDrawingsByZone: vi.fn(),
+    getLatestDrawingVersion: vi.fn(),
     uploadDrawing: vi.fn(),
     getDrawingBomMarks: vi.fn(),
     deleteDrawing: vi.fn(),
@@ -50,6 +51,9 @@ const scope = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // Sane default for every useUploadDrawings test below — individual tests
+  // override it when the specific version number matters.
+  mocked.getLatestDrawingVersion.mockResolvedValue({ version: null })
 })
 
 describe('drawingKey', () => {
@@ -79,7 +83,8 @@ describe('drawingKey', () => {
 })
 
 describe('useUploadDrawings', () => {
-  it('uploads each staged item with its own mark + rev, no latest-version lookup', async () => {
+  it('uploads each staged item with its own mark + rev, tagged with the batch version fetched once', async () => {
+    mocked.getLatestDrawingVersion.mockResolvedValue({ version: 4 })
     mocked.uploadDrawing.mockResolvedValue(makeDrawing())
     const file = new File(['x'], '2BUH1A-1 - BEAM - Rev 2.pdf')
     const items: StagedDrawing[] = [{ file, fileName: '2BUH1A-1 - BEAM - Rev 2.pdf', mark: '2BUH1A-1', rev: 2 }]
@@ -89,16 +94,36 @@ describe('useUploadDrawings', () => {
       await result.current.mutateAsync(items)
     })
 
+    expect(mocked.getLatestDrawingVersion).toHaveBeenCalledTimes(1)
+    expect(mocked.getLatestDrawingVersion).toHaveBeenCalledWith(7, null)
     expect(mocked.uploadDrawing).toHaveBeenCalledWith(
       expect.objectContaining({
         projectId: 1, projectCode: 'P1', zoneId: 7, zoneCode: 'Z1', subZoneId: null, subZoneCode: null,
-        mark: '2BUH1A-1', rev: 2, fileName: '2BUH1A-1 - BEAM - Rev 2.pdf', file,
+        mark: '2BUH1A-1', rev: 2, version: 5, fileName: '2BUH1A-1 - BEAM - Rev 2.pdf', file,
       }),
     )
     // The expected key for this exact input is pinned by the `drawingKey`
     // suite above — this test only needs to prove the hook plumbs mark/rev
     // through untouched; `uploadDrawing` (mocked here) owns turning them
     // into that key.
+  })
+
+  it('fetches the latest version once per batch and sends the same version on every file, even across different marks/revs', async () => {
+    mocked.getLatestDrawingVersion.mockResolvedValue({ version: null }) // no prior .pdf upload for this zone yet
+    mocked.uploadDrawing.mockResolvedValue(makeDrawing())
+    const items: StagedDrawing[] = [
+      { file: new File(['a'], 'a.pdf'), fileName: 'a.pdf', mark: 'B1', rev: 1 },
+      { file: new File(['b'], 'b.pdf'), fileName: 'b.pdf', mark: 'B2', rev: 3 },
+    ]
+
+    const { result } = renderHook(() => useUploadDrawings(scope), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync(items)
+    })
+
+    expect(mocked.getLatestDrawingVersion).toHaveBeenCalledTimes(1)
+    expect(mocked.uploadDrawing).toHaveBeenNthCalledWith(1, expect.objectContaining({ mark: 'B1', rev: 1, version: 1 }))
+    expect(mocked.uploadDrawing).toHaveBeenNthCalledWith(2, expect.objectContaining({ mark: 'B2', rev: 3, version: 1 }))
   })
 
   it('dedupes identical file names only within the same (mark, rev) pair', async () => {

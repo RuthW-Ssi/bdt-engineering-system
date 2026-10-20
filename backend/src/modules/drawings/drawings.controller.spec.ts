@@ -30,3 +30,27 @@ describe('DrawingsController.findByZone', () => {
     expect(svc.findByZone).toHaveBeenCalledWith(7, null, { currentOnly: false })
   })
 })
+
+// Upload BATCH number (CreateDrawingDto.version) — restored GET
+// /drawings/latest-version exactly as it worked pre-branch, just a thin
+// delegate to the service.
+describe('DrawingsController.getLatestVersion', () => {
+  it('delegates to svc.getLatestVersion with zone_id/sub_zone_id, defaulting sub_zone_id to null', async () => {
+    const svc = { getLatestVersion: jest.fn().mockResolvedValue({ version: 3 }) }
+    const ctrl = new DrawingsController(svc as any)
+
+    const result = await ctrl.getLatestVersion({ zone_id: 7, sub_zone_id: undefined } as any)
+
+    expect(svc.getLatestVersion).toHaveBeenCalledWith(7, null)
+    expect(result).toEqual({ version: 3 })
+  })
+
+  it('passes through a given sub_zone_id', async () => {
+    const svc = { getLatestVersion: jest.fn().mockResolvedValue({ version: null }) }
+    const ctrl = new DrawingsController(svc as any)
+
+    await ctrl.getLatestVersion({ zone_id: 7, sub_zone_id: 3 } as any)
+
+    expect(svc.getLatestVersion).toHaveBeenCalledWith(7, 3)
+  })
+})

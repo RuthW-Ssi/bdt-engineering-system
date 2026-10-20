@@ -6,7 +6,7 @@ import { listMarkDrawingRevs } from './markDrawingRevs'
 // Matching via the real d.mark field is pinned separately below.
 function makePdf(overrides: Partial<Drawing>): Drawing {
   return {
-    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, mark: null, rev: 1,
+    id: 1, project_id: 1, zone_id: 7, sub_zone_id: null, mark: null, rev: 1, version: 1,
     file_key: 'k', file_name: 'DBN-B1-CTR10 - - Rev 1.pdf', mime_type: null, uploaded_by_id: 1,
     create_date: '2026-01-01T00:00:00Z',
     ...overrides,

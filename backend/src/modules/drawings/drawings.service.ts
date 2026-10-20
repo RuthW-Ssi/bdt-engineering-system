@@ -33,7 +33,7 @@ export class DrawingsService {
     return this.prisma.drawing.create({
       data: {
         project_id: dto.project_id, zone_id: dto.zone_id, sub_zone_id: subZoneId,
-        mark: dto.mark, rev: dto.rev,
+        mark: dto.mark, rev: dto.rev, version: dto.version,
         file_key: dto.file_key, file_name: dto.file_name, mime_type: dto.mime_type,
         uploaded_by_id: uploadedById,
       },
@@ -58,6 +58,31 @@ export class DrawingsService {
   async isCustomerUser(userId: number): Promise<boolean> {
     const user = await this.prisma.res_users.findUnique({ where: { id: userId }, select: { user_type: true } })
     return user?.user_type === 'customer'
+  }
+
+  // Upload BATCH number (see CreateDrawingDto.version) — "what's the highest
+  // batch number used so far for this zone(+sub-zone)", not a count, and not
+  // the drawing revision (`rev`). Scoped per zone(+sub-zone) since
+  // 2026-08-25's Zone rescope — mirrors bom-upload.service.ts's
+  // getLatestRevision(projectId, zoneId, subZoneId). Always scoped to .pdf
+  // (matched on file_name — there's no stored type column) even though
+  // upload is .pdf-only now — legacy .dwg rows from before the 2026-09-15
+  // removal still exist with their own, separate version numbers, and must
+  // never leak into the counter new .pdf uploads read from. `version: { not:
+  // null }` is required, not cosmetic: Postgres sorts NULLs FIRST in a DESC
+  // order by default, so without this filter a NULL-version row would always
+  // win `orderBy: { version: 'desc' }` over any real number.
+  async getLatestVersion(zoneId: number, subZoneId: number | null) {
+    const latest = await this.prisma.drawing.findFirst({
+      where: {
+        zone_id: zoneId, sub_zone_id: subZoneId,
+        file_name: { endsWith: '.pdf', mode: 'insensitive' },
+        version: { not: null },
+      },
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    })
+    return { version: latest?.version ?? null }
   }
 
   // Marks available to draw against — distinct assembly_mark of the ACTIVE

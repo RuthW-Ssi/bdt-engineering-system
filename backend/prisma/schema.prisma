@@ -558,13 +558,16 @@ model drawing {
   zone           project_zone @relation(fields: [zone_id], references: [id])
   sub_zone_id    Int?
   sub_zone       sub_zone?    @relation(fields: [sub_zone_id], references: [id])
-  // Sparse, one-upload-action-per-version — see wiki:
-  // features/file-storage-gcs-backup-plan.md. NOT a full-snapshot version:
-  // a row keeps whatever version it was created with, forever; there's no
-  // "current version N contains every prior file" guarantee. Scoped per
-  // zone(+sub-zone) since 2026-08-25's Zone rescope — see wiki:
-  // features/drawing-zone-scope-plan.md.
-  // phase 1 of removal — nothing reads it; dropped by *_drawing_drop_version
+  // Upload BATCH number, not the drawing revision — that's `rev`, below,
+  // which decides what's current. Sparse, one-upload-action-per-version —
+  // see wiki: features/file-storage-gcs-backup-plan.md. NOT a full-snapshot
+  // version: a row keeps whatever version it was created with, forever;
+  // there's no "current version N contains every prior file" guarantee.
+  // Scoped per zone(+sub-zone) since 2026-08-25's Zone rescope — see wiki:
+  // features/drawing-zone-scope-plan.md. A 2026-10-20 plan to drop this
+  // column in favor of `rev` alone was reversed the same day — Tao wants
+  // both kept (version = upload batch, rev = drawing revision); nullable
+  // only because a handful of legacy/live-check rows predate it.
   version        Int?
   file_key       String       @db.VarChar(500)
   file_name      String       @db.VarChar(255)

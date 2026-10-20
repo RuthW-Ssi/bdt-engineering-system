@@ -54,7 +54,7 @@ describe('DrawingsService', () => {
   })
 
   describe('create', () => {
-    it('stores mark/rev (no version) and stamps uploaded_by_id, defaulting sub_zone_id to null when omitted', async () => {
+    it('stores mark/rev/version and stamps uploaded_by_id, defaulting sub_zone_id to null when omitted', async () => {
       const prisma = makePrisma({ same: [] })
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
@@ -64,6 +64,7 @@ describe('DrawingsService', () => {
           zone_id: 7,
           mark: 'B1',
           rev: 1,
+          version: 3,
           file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
           file_name: 'x.pdf',
           mime_type: 'application/pdf',
@@ -78,6 +79,7 @@ describe('DrawingsService', () => {
           sub_zone_id: null,
           mark: 'B1',
           rev: 1,
+          version: 3,
           file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf',
           file_name: 'x.pdf',
           mime_type: 'application/pdf',
@@ -290,10 +292,82 @@ describe('DrawingsService', () => {
       })
     })
   })
+
+  // Upload BATCH number (CreateDrawingDto.version) — reversed from the
+  // earlier "drop version" plan; per-mark `rev` is unaffected, this is a
+  // separate, zone(+sub-zone)-scoped counter restored exactly as it worked
+  // pre-branch.
+  describe('getLatestVersion', () => {
+    it('returns the highest version among this zone(+sub-zone)\'s .pdf rows, ignoring NULL versions', async () => {
+      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 5 }) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.getLatestVersion(7, null)
+
+      expect(prisma.drawing.findFirst).toHaveBeenCalledWith({
+        where: {
+          zone_id: 7, sub_zone_id: null,
+          file_name: { endsWith: '.pdf', mode: 'insensitive' },
+          version: { not: null },
+        },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      })
+      expect(result).toEqual({ version: 5 })
+    })
+
+    it('scopes to the given sub-zone', async () => {
+      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue({ version: 2 }) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      await svc.getLatestVersion(7, 3)
+
+      expect(prisma.drawing.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ zone_id: 7, sub_zone_id: 3 }) }),
+      )
+    })
+
+    it('returns null when there is no .pdf row yet for this zone(+sub-zone)', async () => {
+      const prisma = { drawing: { findFirst: jest.fn().mockResolvedValue(null) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.getLatestVersion(7, null)
+
+      expect(result).toEqual({ version: null })
+    })
+  })
+})
+
+describe('CreateDrawingDto validation (version — upload batch number)', () => {
+  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, file_name: 'x.pdf', file_key: 'drawings/0X220/Z1/B1/rev1/x.pdf', mime_type: 'application/pdf' }
+
+  it('accepts a positive integer version', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, version: 1 })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'version')).toBe(false)
+  })
+
+  it('rejects a missing version', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'version')).toBe(true)
+  })
+
+  it('rejects version 0 (must be >= 1)', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, version: 0 })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'version')).toBe(true)
+  })
+
+  it('rejects a non-integer version', async () => {
+    const dto = plainToInstance(CreateDrawingDto, { ...base, version: 1.5 })
+    const errors = await validate(dto)
+    expect(errors.some(e => e.property === 'version')).toBe(true)
+  })
 })
 
 describe('CreateDrawingDto validation (file_key shape guard)', () => {
-  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, file_name: 'x.pdf', mime_type: 'application/pdf' }
+  const base = { project_id: 42, zone_id: 7, mark: 'B1', rev: 1, version: 1, file_name: 'x.pdf', mime_type: 'application/pdf' }
 
   it('rejects a file_key that escapes the drawings/ prefix via traversal', async () => {
     const dto = plainToInstance(CreateDrawingDto, { ...base, file_key: '../../../etc/passwd' })

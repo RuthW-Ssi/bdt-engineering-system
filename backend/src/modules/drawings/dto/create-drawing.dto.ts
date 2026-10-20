@@ -30,6 +30,16 @@ export class CreateDrawingDto {
   @Min(0)
   rev: number
 
+  // Upload BATCH number — not the drawing revision (that's `rev`, above).
+  // +1 per upload action, scoped per zone(+sub-zone); every file in one
+  // upload shares the same number (see useUploadDrawings). Orthogonal to
+  // mark/rev: a single upload batch can touch several marks/revs at once,
+  // and the same mark/rev can get files from different batches over time.
+  @ApiProperty({ example: 1 })
+  @IsInt()
+  @Min(1)
+  version: number
+
   @ApiProperty({ example: 'drawings/0X220/Z1/B1/rev1/plan-A.pdf' })
   @IsString()
   @Matches(/^drawings\/[^/\\]+\/[^/\\]+\/(?:[^/\\]+\/)?[^/\\]+\/rev\d+\/[^/\\]+$/, {

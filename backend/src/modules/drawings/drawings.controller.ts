@@ -38,6 +38,12 @@ export class DrawingsController {
     return this.svc.bomMarks(query.zone_id, query.sub_zone_id ?? null)
   }
 
+  @Get('latest-version')
+  @ApiOperation({ summary: 'Highest .pdf upload-batch version already used for a zone (or sub-zone) — null if none yet' })
+  getLatestVersion(@Query() query: QueryDrawingDto) {
+    return this.svc.getLatestVersion(query.zone_id, query.sub_zone_id ?? null)
+  }
+
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a drawing (removes the DB row and the underlying file)' })
   remove(@Param('id', ParseIntPipe) id: number) {

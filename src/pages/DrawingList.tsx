@@ -40,10 +40,16 @@ const markKey = (mark: string | null) => (mark ?? '').toLowerCase()
 // Same format MoDetail.tsx / WoDetail.tsx / MoHistoryTimeline.tsx already use
 // for a timestamp that needs to show both date and time, not just one.
 // Per spec: "upload date/time … plus who uploaded them" — the name (when
-// present) is appended after the date/time, not shown on its own.
-export function formatUploadedAt(iso: string, uploadedByName?: string | null): string {
+// present) is appended after the date/time, not shown on its own. `version`
+// — the upload BATCH number, not the drawing revision shown elsewhere in the
+// row as "Rev n" — is appended last as "v<n>" when present; null (unparsed
+// legacy/live-check rows) omits it entirely, same as a missing uploader name.
+export function formatUploadedAt(iso: string, uploadedByName?: string | null, version?: number | null): string {
   const dateTime = new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  return uploadedByName ? `${dateTime} · ${uploadedByName}` : dateTime
+  const parts = [dateTime]
+  if (uploadedByName) parts.push(uploadedByName)
+  if (version != null) parts.push(`v${version}`)
+  return parts.join(' · ')
 }
 
 // The rev actually shown for a row: the user's pick if it still exists on
@@ -316,7 +322,7 @@ export function DrawingList() {
                               <span style={{ fontSize: 12, color: '#8E8E8E' }}>Rev {rev}</span>
                             )}
                           </div>
-                          {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatUploadedAt(revGroup.uploadedAt, revGroup.files[0]?.uploaded_by?.name)}</div>}
+                          {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatUploadedAt(revGroup.uploadedAt, revGroup.files[0]?.uploaded_by?.name, revGroup.files[0]?.version)}</div>}
                         </div>
                         {isSingleFile && (
                           <>

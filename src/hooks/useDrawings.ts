@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { getDrawingsByZone, getDrawingBomMarks, uploadDrawing, deleteDrawing, fetchDrawingBlob } from '../api/drawings'
+import { getDrawingsByZone, getLatestDrawingVersion, getDrawingBomMarks, uploadDrawing, deleteDrawing, fetchDrawingBlob } from '../api/drawings'
 
 export function useZoneDrawings(zoneId: number | undefined, subZoneId: number | null) {
   return useQuery({
@@ -62,15 +62,19 @@ interface UploadDrawingsScope {
 // one bad file (rejected by the backend's traversal/size checks) doesn't
 // abort the others. Each staged item carries its own mark + rev (parsed from
 // its filename, or typed by the user in the review table where parsing
-// failed) — there is no more single batch-wide "next version" to look up
-// first; per-mark revision is per (zone, sub-zone, mark), not per upload
-// action. Upload is .pdf-only since 2026-09-15's DWG removal (see
-// DrawingUploadModal.tsx).
+// failed) — per-mark revision is per (zone, sub-zone, mark), not per upload
+// action. `version`, though, IS still per upload action: it's the batch
+// number (not the drawing revision), scoped per zone(+sub-zone), fetched
+// ONCE here and shared by every file in this batch — the earlier "drop
+// version" plan (Task 3/4) was reversed the same day it shipped. Upload is
+// .pdf-only since 2026-09-15's DWG removal (see DrawingUploadModal.tsx).
 export function useUploadDrawings(scope: UploadDrawingsScope) {
   const { projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode } = scope
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (items: StagedDrawing[]) => {
+      const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId)
+      const nextVersion = (latest ?? 0) + 1
       const fileNames = dedupeStagedFileNames(items)
       const results = await Promise.allSettled(
         items.map((item, i) =>
@@ -78,7 +82,7 @@ export function useUploadDrawings(scope: UploadDrawingsScope) {
             projectId: projectId!, projectCode: projectCode!,
             zoneId: zoneId!, zoneCode: zoneCode!,
             subZoneId, subZoneCode,
-            mark: item.mark, rev: item.rev,
+            mark: item.mark, rev: item.rev, version: nextVersion,
             file: item.file, fileName: fileNames[i],
           }),
         ),
