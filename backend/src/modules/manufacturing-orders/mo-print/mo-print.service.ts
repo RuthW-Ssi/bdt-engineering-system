@@ -130,11 +130,11 @@ export interface MoPrintAssemblyMarkRow {
   name: string | null
   qty: number | null
   weight_kg: number | null
-  // version + upload date (2026-10-05, print option A) — stamped on the
+  // rev + upload date (2026-10-05, print option A) — stamped on the
   // drawing page next to the WO · mark label.
   // null = no PDF drawing yet (e.g. a pre-shop MO) — the mark still prints
   // on its traveler, just without a drawing page (2026-10-07).
-  drawing: { file_key: string; file_name: string; version: number; uploaded_at: Date } | null
+  drawing: { file_key: string; file_name: string; rev: number; uploaded_at: Date } | null
 }
 
 // One assembly (mo_assembly_line) and the bom_parts cut for it — printed
@@ -451,7 +451,7 @@ export class MoPrintService {
           name: assembly.name ?? null,
           qty: qtyByAssembly.get(mark.bom_assembly_id) ?? null,
           weight_kg: assembly.weight_kg != null ? Number(assembly.weight_kg) : null,
-          drawing: drawing ? { file_key: drawing.file_key, file_name: drawing.file_name, version: drawing.version, uploaded_at: new Date(drawing.create_date) } : null,
+          drawing: drawing ? { file_key: drawing.file_key, file_name: drawing.file_name, rev: drawing.rev ?? 0, uploaded_at: new Date(drawing.create_date) } : null,
         })
       }
 

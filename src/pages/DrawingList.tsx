@@ -1,17 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Upload, Trash2, Download, FileText, Loader2, RefreshCw } from 'lucide-react'
+import { Upload, Trash2, Download, FileText, Loader2, RefreshCw, Search } from 'lucide-react'
 import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
-import { useZoneDrawings, useUploadDrawings, useDeleteDrawing } from '../hooks/useDrawings'
+import { useZoneDrawings, useUploadDrawings, useDeleteDrawing, useDrawingBomMarks } from '../hooks/useDrawings'
 import { downloadDrawing, type Drawing } from '../api/drawings'
+import { buildMarkRows, type MarkRow, type MarkRevGroup } from '../lib/drawingMarkRows'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { useIsCustomer } from '../hooks/useIsCustomer'
 import { DrawingUploadModal } from '../components/drawings/DrawingUploadModal'
 import { DrawingPreviewPanel } from '../components/drawings/DrawingPreviewPanel'
 
 const filterSelectStyle = { height: 32, padding: '0 8px', fontSize: 13, borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }
+const revSelectStyle = { fontSize: 12, padding: '1px 4px', borderRadius: 4, border: '1px solid #D0D0D0', background: 'white' }
 
 type FileType = 'dwg' | 'pdf'
 
@@ -24,12 +26,58 @@ export function filterDrawingsByType(drawings: Drawing[], fileType: FileType): D
   return drawings.filter(d => d.file_name.toLowerCase().endsWith(suffix))
 }
 
+// Keyed the same way buildMarkRows groups rows (case-insensitive — marks are
+// persisted verbatim, so "abc"/"ABC" are one row, not two) and lower-cased so
+// the key stays stable even if the row's own *displayed* casing changes
+// between renders (it tracks the newest file in the current rev). A null
+// mark (a handful of legacy rows predate the mark/rev backfill — see
+// api/drawings.ts) has no string to key with; there's at most one such row
+// (buildMarkRows collects every null-mark drawing into one), so an
+// empty-string sentinel is safe — a real mark is never '' (the upload review
+// table treats blank input as unparsed, not "").
+const markKey = (mark: string | null) => (mark ?? '').toLowerCase()
+
+// Same format MoDetail.tsx / WoDetail.tsx / MoHistoryTimeline.tsx already use
+// for a timestamp that needs to show both date and time, not just one.
+// Per spec: "upload date/time … plus who uploaded them" — the name (when
+// present) is appended after the date/time, not shown on its own. `version`
+// — the upload BATCH number, not the drawing revision shown elsewhere in the
+// row as "Rev n" — is appended last as "v<n>" when present; null (unparsed
+// legacy/live-check rows) omits it entirely, same as a missing uploader name.
+export function formatUploadedAt(iso: string, uploadedByName?: string | null, version?: number | null): string {
+  const dateTime = new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const parts = [dateTime]
+  if (uploadedByName) parts.push(uploadedByName)
+  if (version != null) parts.push(`v${version}`)
+  return parts.join(' · ')
+}
+
+// The rev actually shown for a row: the user's pick if it still exists on
+// this row, else the highest rev — a pick can stop existing mid-session
+// (e.g. its last file gets deleted while it's the one being viewed), so this
+// is recomputed every render rather than stored and corrected after the fact.
+function resolveRev(row: MarkRow, pickedRev: Record<string, number>): number {
+  const picked = pickedRev[markKey(row.mark)]
+  return picked != null && row.revs.some(r => r.rev === picked) ? picked : row.revs[0].rev
+}
+
+// Deleting the only file of the CURRENT (top) rev makes the previous rev
+// current with no extra write (current-rev.ts mirrors this on the backend) —
+// told to the user before they confirm, not discovered after. Returns null
+// when this delete doesn't change what's current (not the top rev, more than
+// one file left in it, or there's no older rev to fall back to).
+function revFallbackNote(row: MarkRow, rev: number, revGroup: MarkRevGroup): string | null {
+  if (row.revs[0].rev !== rev || revGroup.files.length !== 1 || row.revs.length < 2) return null
+  return `ถ้าลบไฟล์นี้ Rev ${row.revs[1].rev} จะกลายเป็น Drawing ปัจจุบัน`
+}
+
 export function DrawingList() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const confirm = useConfirm()
-  // Customers: view/download only — no upload/delete, no dates (stripped).
+  // Customers: view/download only — no upload/delete, no dates (stripped),
+  // no rev picker (the API already returns only the current rev for them).
   const customer = useIsCustomer()
 
   const projectId = activeProject?.id
@@ -57,6 +105,7 @@ export function DrawingList() {
   const numericSubZoneId = subZoneId ? parseInt(subZoneId) : null
 
   const { data: drawingsListRaw = [], isLoading: drawingsLoading, isError: drawingsError, refetch } = useZoneDrawings(numericZoneId, numericSubZoneId)
+  const { data: bomMarks = [] } = useDrawingBomMarks(numericZoneId, numericSubZoneId)
   const uploadDrawingsMutation = useUploadDrawings({
     projectId, projectCode: activeProject?.project_code,
     zoneId: numericZoneId, zoneCode: selectedZone?.code,
@@ -69,39 +118,39 @@ export function DrawingList() {
   // through this page at all, at the user's explicit request.
   const drawingsList = filterDrawingsByType(drawingsListRaw, 'pdf')
 
-  // Versioning is sparse — each version is "what was added in that upload
-  // action", not a full snapshot (see wiki: features/file-storage-gcs-backup-plan.md).
-  // Scoped per zone(+sub-zone), not per project, since 2026-08-25's Zone
-  // rescope (see wiki: features/drawing-zone-scope-plan.md). So this is a
-  // changelog filter over the already-fetched list, not a separate fetch per
-  // version, and not a BIM-style current-snapshot switcher.
-  //
-  // `selectedVersion` is derived, not stored directly — a manually-picked
-  // version can stop existing mid-session (its last file gets deleted while
-  // it's the one being viewed), and a plain useEffect keyed on `latestVersion`
-  // wouldn't re-fire in that case (latestVersion itself doesn't change), which
-  // left the filter pinned to a now-empty version showing a blank list despite
-  // a nonzero drawing count. Recomputing this way self-corrects every render
-  // instead of needing to catch every case that should invalidate the pick.
-  const versions = [...new Set(drawingsList.map(d => d.version))].sort((a, b) => b - a)
-  const latestVersion = versions[0] ?? null
-  const [manualVersion, setManualVersion] = useState<number | null>(null)
+  // One row per mark, each holding every rev (not just current) so the
+  // per-row rev <select> below can offer them — see lib/drawingMarkRows.ts.
+  const markRows = buildMarkRows(drawingsList)
+
+  const [search, setSearch] = useState('')
+  const [pickedRev, setPickedRev] = useState<Record<string, number>>({})
+  // Zone/sub-zone switched — any search text or manual rev pick was scoped
+  // to the old one.
   useEffect(() => {
-    setManualVersion(null) // zone/sub-zone switched — any manual pick was scoped to the old one
+    setSearch('')
+    setPickedRev({})
   }, [numericZoneId, numericSubZoneId])
-  const selectedVersion = manualVersion != null && versions.includes(manualVersion) ? manualVersion : latestVersion
-  const visibleDrawings = selectedVersion == null ? drawingsList : drawingsList.filter(d => d.version === selectedVersion)
 
-  // Same derived-value approach as `selectedVersion` above, same reason —
-  // a plain effect-set selection can go stale (e.g. the previewed file gets
-  // deleted, or the version filter changes and it's no longer in view)
-  // without a clean single event to reset it on. Falls back to the first
-  // visible row automatically whenever the manual pick isn't valid anymore.
+  const filteredMarkRows = search.trim() === ''
+    ? markRows
+    : markRows.filter(row => row.mark !== null && row.mark.toLowerCase().includes(search.trim().toLowerCase()))
+
+  // Derived, not stored directly — a plain effect-set selection can go stale
+  // (the previewed file gets deleted, or the search/rev pick changes what's
+  // in view) without a clean single event to reset it on. Falls back to the
+  // first visible file automatically whenever the manual pick isn't valid
+  // anymore.
+  const visibleFiles = filteredMarkRows.flatMap(row => {
+    const rev = resolveRev(row, pickedRev)
+    return row.revs.find(r => r.rev === rev)?.files ?? []
+  })
   const [manualDrawingId, setManualDrawingId] = useState<number | null>(null)
-  const selectedDrawing = visibleDrawings.find(d => d.id === manualDrawingId) ?? visibleDrawings[0] ?? null
+  const selectedDrawing = visibleFiles.find(d => d.id === manualDrawingId) ?? visibleFiles[0] ?? null
 
-  const handleDelete = async (dwg: Drawing) => {
-    const ok = await confirm({ title: `Delete "${dwg.file_name}"?`, message: 'This cannot be undone', variant: 'danger', confirmLabel: 'Delete' })
+  const handleDelete = async (dwg: Drawing, row: MarkRow, rev: number, revGroup: MarkRevGroup) => {
+    const fallback = revFallbackNote(row, rev, revGroup)
+    const message = fallback ? `This cannot be undone. ${fallback}` : 'This cannot be undone'
+    const ok = await confirm({ title: `Delete "${dwg.file_name}"?`, message, variant: 'danger', confirmLabel: 'Delete' })
     if (!ok) return
     deleteDrawingMutation.mutate(dwg.id)
   }
@@ -120,7 +169,7 @@ export function DrawingList() {
             <>
               <span style={{ color: '#C2C2C2' }}>·</span>
               <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-                {drawingsList.length} drawing{drawingsList.length === 1 ? '' : 's'}
+                {markRows.length} mark{markRows.length === 1 ? '' : 's'}
               </span>
             </>
           )}
@@ -180,18 +229,17 @@ export function DrawingList() {
           <option value="">{subZones.length === 0 && zoneId ? '(no sub-zones)' : '(No sub-zone)'}</option>
           {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
         </select>
-        {versions.length > 0 && (
-          <select
-            value={selectedVersion ?? ''}
-            onChange={e => setManualVersion(e.target.value ? Number(e.target.value) : null)}
-            style={{ ...filterSelectStyle, minWidth: 160 }}
-          >
-            {versions.map(v => {
-              const count = drawingsList.filter(d => d.version === v).length
-              return <option key={v} value={v}>v{v} ({count} file{count === 1 ? '' : 's'})</option>
-            })}
-          </select>
-        )}
+        {/* Search — same look as the app's other filter-bar searches (MoList "Search MO code...") */}
+        <div className="relative">
+          <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            disabled={!zoneId}
+            placeholder="Search mark..."
+            style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', width: 240, opacity: zoneId ? 1 : 0.5 }}
+          />
+        </div>
       </div>
 
       {/* ── Body ──────────────────────────────────────────────── */}
@@ -229,46 +277,111 @@ export function DrawingList() {
           </div>
         )}
         {zoneId && !drawingsLoading && !drawingsError && drawingsList.length > 0 && (
-          <div className="flex gap-4" style={{ height: '100%', minHeight: 0 }}>
-            <div
-              className="bg-white rounded-lg border border-chrome-100"
-              style={{ width: 380, flexShrink: 0, overflowY: 'auto' }}
-            >
-              {visibleDrawings.map(dwg => (
-                <div
-                  key={dwg.id}
-                  onClick={() => setManualDrawingId(dwg.id)}
-                  className="flex items-center gap-2 border-b border-chrome-100 hover:bg-chrome-50"
-                  style={{
-                    padding: '10px 12px', cursor: 'pointer',
-                    background: selectedDrawing?.id === dwg.id ? '#FCEBEB' : undefined,
-                  }}
-                >
-                  <FileText size={15} style={{ color: '#8E8E8E', flexShrink: 0 }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{dwg.file_name}</div>
-                    {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{new Date(dwg.create_date).toLocaleDateString()}</div>}
-                  </div>
-                  <button
-                    onClick={e => { e.stopPropagation(); downloadDrawing(dwg.file_key, dwg.file_name) }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                  >
-                    <Download size={14} />
-                  </button>
-                  {!customer && (
-                  <button
-                    onClick={e => { e.stopPropagation(); handleDelete(dwg) }}
-                    disabled={deleteDrawingMutation.isPending}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center', flexShrink: 0 }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="bg-white rounded-lg border border-chrome-100" style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-              <DrawingPreviewPanel drawing={selectedDrawing} />
+          <div className="flex flex-col gap-2" style={{ height: '100%', minHeight: 0 }}>
+            <div className="flex gap-4" style={{ flex: 1, minHeight: 0 }}>
+              <div
+                className="bg-white rounded-lg border border-chrome-100"
+                style={{ width: 380, flexShrink: 0, overflowY: 'auto' }}
+              >
+                {filteredMarkRows.length === 0 && (
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: 13, color: '#8E8E8E' }}>ไม่พบ mark ที่ค้นหา</div>
+                )}
+                {filteredMarkRows.map(row => {
+                  const rev = resolveRev(row, pickedRev)
+                  const revGroup = row.revs.find(r => r.rev === rev)!
+                  const files = revGroup.files
+                  const hasMultipleRevs = row.revs.length > 1
+                  const isSingleFile = files.length === 1
+                  const label = row.mark ?? 'ไม่ระบุ mark'
+
+                  return (
+                    <div key={markKey(row.mark)} style={{ borderBottom: '1px solid #ECECEC' }}>
+                      <div
+                        onClick={isSingleFile ? () => setManualDrawingId(files[0].id) : undefined}
+                        className="flex items-center gap-2 hover:bg-chrome-50"
+                        style={{
+                          padding: '10px 12px', cursor: isSingleFile ? 'pointer' : 'default',
+                          background: isSingleFile && selectedDrawing?.id === files[0].id ? '#FCEBEB' : undefined,
+                        }}
+                      >
+                        <FileText size={15} style={{ color: '#8E8E8E', flexShrink: 0 }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="flex items-center gap-1.5">
+                            <span style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+                            {hasMultipleRevs && !customer ? (
+                              <select
+                                value={rev}
+                                onClick={e => e.stopPropagation()}
+                                onChange={e => {
+                                  const newRev = Number(e.target.value)
+                                  setPickedRev(prev => ({ ...prev, [markKey(row.mark)]: newRev }))
+                                }}
+                                style={revSelectStyle}
+                              >
+                                {row.revs.map(r => <option key={r.rev} value={r.rev}>Rev {r.rev}</option>)}
+                              </select>
+                            ) : (
+                              <span style={{ fontSize: 12, color: '#8E8E8E' }}>Rev {rev}</span>
+                            )}
+                          </div>
+                          {!customer && <div style={{ fontSize: 11, color: '#8E8E8E' }}>{formatUploadedAt(revGroup.uploadedAt, revGroup.files[0]?.uploaded_by?.name, revGroup.files[0]?.version)}</div>}
+                        </div>
+                        {isSingleFile && (
+                          <>
+                            <button
+                              onClick={e => { e.stopPropagation(); downloadDrawing(files[0].file_key, files[0].file_name) }}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                            >
+                              <Download size={14} />
+                            </button>
+                            {!customer && (
+                            <button
+                              onClick={e => { e.stopPropagation(); handleDelete(files[0], row, rev, revGroup) }}
+                              disabled={deleteDrawingMutation.isPending}
+                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      {!isSingleFile && files.map(f => (
+                        <div
+                          key={f.id}
+                          onClick={() => setManualDrawingId(f.id)}
+                          className="flex items-center gap-2 hover:bg-chrome-50"
+                          style={{
+                            padding: '8px 12px 8px 32px', cursor: 'pointer',
+                            background: selectedDrawing?.id === f.id ? '#FCEBEB' : undefined,
+                          }}
+                        >
+                          <FileText size={13} style={{ color: '#C2C2C2', flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.file_name}</div>
+                          <button
+                            onClick={e => { e.stopPropagation(); downloadDrawing(f.file_key, f.file_name) }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                          >
+                            <Download size={13} />
+                          </button>
+                          {!customer && (
+                          <button
+                            onClick={e => { e.stopPropagation(); handleDelete(f, row, rev, revGroup) }}
+                            disabled={deleteDrawingMutation.isPending}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C8202A', display: 'flex', alignItems: 'center', flexShrink: 0 }}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="bg-white rounded-lg border border-chrome-100" style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                <DrawingPreviewPanel drawing={selectedDrawing} />
+              </div>
             </div>
           </div>
         )}
@@ -277,8 +390,10 @@ export function DrawingList() {
       {showUploadModal && zoneId && !customer && (
         <DrawingUploadModal
           scopeLabel={scopeLabel}
+          existing={drawingsList}
+          bomMarks={bomMarks}
           isUploading={uploadDrawingsMutation.isPending}
-          onFilesConfirmed={files => uploadDrawingsMutation.mutate(files, { onSuccess: () => setShowUploadModal(false) })}
+          onConfirm={items => uploadDrawingsMutation.mutate(items, { onSuccess: () => setShowUploadModal(false) })}
           onClose={() => setShowUploadModal(false)}
         />
       )}
