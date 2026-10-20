@@ -24,8 +24,12 @@ export class DrawingsController {
   @Get()
   @CustomerAccessible()
   @ApiOperation({ summary: 'List drawings for a zone (or sub-zone) — customers see only the current rev' })
-  findByZone(@Query() query: QueryDrawingDto, @CurrentUser() user: JwtPayload) {
-    return this.svc.findByZone(query.zone_id, query.sub_zone_id ?? null, { currentOnly: user.role === 'customer' })
+  async findByZone(@Query() query: QueryDrawingDto, @CurrentUser() user: JwtPayload) {
+    // `role` on the JWT is a free-text department/"admin" string, never
+    // "customer" — the real signal is the DB's res_users.user_type, same as
+    // CustomerScopeInterceptor.
+    const currentOnly = await this.svc.isCustomerUser(user.sub)
+    return this.svc.findByZone(query.zone_id, query.sub_zone_id ?? null, { currentOnly })
   }
 
   @Get('bom-marks')

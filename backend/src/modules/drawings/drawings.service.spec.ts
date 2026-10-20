@@ -177,7 +177,7 @@ describe('DrawingsService', () => {
   })
 
   describe('findByZone', () => {
-    it('scopes strictly to zone_id + sub_zone_id (null sub_zone_id is its own bucket) ordered mark asc, rev desc, create_date desc', async () => {
+    it('scopes strictly to zone_id + sub_zone_id (null sub_zone_id is its own bucket) ordered mark asc, rev desc, create_date desc, including the uploader name', async () => {
       const prisma = makePrisma()
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
 
@@ -186,13 +186,14 @@ describe('DrawingsService', () => {
       expect(prisma.drawing.findMany).toHaveBeenCalledWith({
         where: { zone_id: 7, sub_zone_id: null },
         orderBy: [{ mark: 'asc' }, { rev: 'desc' }, { create_date: 'desc' }],
+        include: { uploaded_by: { select: { name: true } } },
       })
     })
 
     it('returns every row unfiltered when currentOnly is omitted/false', async () => {
       const rows = [
-        { id: 1, mark: 'A', rev: 0 },
-        { id: 2, mark: 'A', rev: 1 },
+        { id: 1, mark: 'A', rev: 0, file_name: 'a.pdf' },
+        { id: 2, mark: 'A', rev: 1, file_name: 'a.pdf' },
       ]
       const prisma = { drawing: { findMany: jest.fn().mockResolvedValue(rows) } }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
@@ -204,9 +205,9 @@ describe('DrawingsService', () => {
 
     it('returns only current-rev rows when currentOnly is true', async () => {
       const rows = [
-        { id: 1, mark: 'A', rev: 0 },
-        { id: 2, mark: 'A', rev: 1 },
-        { id: 3, mark: 'B', rev: 2 },
+        { id: 1, mark: 'A', rev: 0, file_name: 'a.pdf' },
+        { id: 2, mark: 'A', rev: 1, file_name: 'a.pdf' },
+        { id: 3, mark: 'B', rev: 2, file_name: 'b.pdf' },
       ]
       const prisma = { drawing: { findMany: jest.fn().mockResolvedValue(rows) } }
       const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
@@ -214,6 +215,46 @@ describe('DrawingsService', () => {
       const result = await svc.findByZone(7, null, { currentOnly: true })
 
       expect(result).toEqual([rows[1], rows[2]])
+    })
+
+    // Review focus #2/#5 (global-constraints.md): a legacy .dwg row at a
+    // higher rev must not hide the still-current .pdf — current must be
+    // computed among .pdf rows only.
+    it('computes the current rev among .pdf rows only — a legacy .dwg at a higher rev must not hide the PDF', async () => {
+      const rows = [
+        { id: 1, mark: 'A', rev: 2, file_name: 'A - BEAM - Rev 2.dwg' },
+        { id: 2, mark: 'A', rev: 1, file_name: 'A - BEAM - Rev 1.pdf' },
+      ]
+      const prisma = { drawing: { findMany: jest.fn().mockResolvedValue(rows) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      const result = await svc.findByZone(7, null, { currentOnly: true })
+
+      expect(result).toEqual([rows[1]])
+    })
+  })
+
+  describe('isCustomerUser', () => {
+    it('returns true when the DB user_type is customer', async () => {
+      const prisma = { res_users: { findUnique: jest.fn().mockResolvedValue({ user_type: 'customer' }) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      await expect(svc.isCustomerUser(9)).resolves.toBe(true)
+      expect(prisma.res_users.findUnique).toHaveBeenCalledWith({ where: { id: 9 }, select: { user_type: true } })
+    })
+
+    it('returns false for an employee user_type', async () => {
+      const prisma = { res_users: { findUnique: jest.fn().mockResolvedValue({ user_type: 'employee' }) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      await expect(svc.isCustomerUser(9)).resolves.toBe(false)
+    })
+
+    it('returns false when the user is not found', async () => {
+      const prisma = { res_users: { findUnique: jest.fn().mockResolvedValue(null) } }
+      const svc = new DrawingsService(prisma as any, makeFileStorage() as any)
+
+      await expect(svc.isCustomerUser(9)).resolves.toBe(false)
     })
   })
 

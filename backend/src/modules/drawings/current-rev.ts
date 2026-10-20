@@ -9,3 +9,11 @@ export function currentRevRows<T extends { mark: string | null; rev: number | nu
   }
   return rows.filter(r => r.mark == null || r.rev == null || r.rev === top.get(r.mark.toLowerCase()))
 }
+
+// Assembly drawings only; some zones still carry legacy .dwg rows (pre
+// 2026-09-15 .pdf-only restriction) at a higher rev than their current .pdf —
+// currentRevRows must compute "top rev" among .pdf rows only, or a legacy
+// .dwg re-upload at rev N+1 would hide the still-current .pdf at rev N.
+export function isPdf<T extends { file_name: string }>(row: T): boolean {
+  return row.file_name.toLowerCase().endsWith('.pdf')
+}

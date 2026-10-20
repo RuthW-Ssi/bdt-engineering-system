@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
 import { FileStorageService } from '../file-storage/file-storage.service'
 import { CreateDrawingDto } from './dto/create-drawing.dto'
-import { currentRevRows } from './current-rev'
+import { currentRevRows, isPdf } from './current-rev'
 
 @Injectable()
 export class DrawingsService {
@@ -44,8 +44,20 @@ export class DrawingsService {
     const rows = await this.prisma.drawing.findMany({
       where: { zone_id: zoneId, sub_zone_id: subZoneId },
       orderBy: [{ mark: 'asc' }, { rev: 'desc' }, { create_date: 'desc' }],
+      include: { uploaded_by: { select: { name: true } } },
     })
-    return opts.currentOnly ? currentRevRows(rows) : rows
+    // Current must be computed among .pdf rows only — a legacy .dwg row at a
+    // higher rev (pre 2026-09-15 .pdf-only restriction) must not hide the
+    // mark's still-current .pdf.
+    return opts.currentOnly ? currentRevRows(rows.filter(isPdf)) : rows
+  }
+
+  // Customer gate must use the same signal as CustomerScopeInterceptor (DB
+  // res_users.user_type), not the JWT's `role` claim — `role` is a free-text
+  // department/"admin" string, never "customer".
+  async isCustomerUser(userId: number): Promise<boolean> {
+    const user = await this.prisma.res_users.findUnique({ where: { id: userId }, select: { user_type: true } })
+    return user?.user_type === 'customer'
   }
 
   // Marks available to draw against — distinct assembly_mark of the ACTIVE

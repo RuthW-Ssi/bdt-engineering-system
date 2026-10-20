@@ -1,4 +1,4 @@
-import { currentRevRows } from './current-rev'
+import { currentRevRows, isPdf } from './current-rev'
 
 describe('currentRevRows', () => {
   it('keeps every row at each mark\'s highest rev; null-mark rows pass through as-is', () => {
@@ -37,5 +37,16 @@ describe('currentRevRows', () => {
     const result = currentRevRows(rows)
 
     expect(result).toEqual([rows[1]])
+  })
+})
+
+describe('isPdf', () => {
+  it('matches a .pdf file name case-insensitively', () => {
+    expect(isPdf({ file_name: 'plan-A.pdf' })).toBe(true)
+    expect(isPdf({ file_name: 'plan-A.PDF' })).toBe(true)
+  })
+
+  it('rejects a legacy .dwg file name', () => {
+    expect(isPdf({ file_name: 'plan-A.dwg' })).toBe(false)
   })
 })
