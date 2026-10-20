@@ -80,8 +80,18 @@ const inputStyle: CSSProperties = { width: '100%', fontSize: 13, padding: '4px 6
 // user sees what an upload will do (new mark, new rev, replace a sheet, add
 // a sheet, or land below the current rev) before confirming. Upload stays
 // disabled while any row's mark or rev is still missing.
+const BOM_TIP_TITLE = 'ไม่พบ mark นี้ใน BOM ของ zone นี้'
+const BOM_TIP_BODY = 'ตรวจว่าชื่อ mark ตรงกับใน BOM หรืออัปโหลด BOM ของ zone นี้ก่อน — กดอัปโหลดแบบต่อได้ ไม่บังคับ'
+
 export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading, onConfirm, onClose }: Props) {
   const [rows, setRows] = useState<ReviewRow[]>([])
+  // Hover/focus tooltip of the not-in-BOM ⚠ icon. Fixed-positioned so the
+  // table's scroll box can't clip it.
+  const [bomTip, setBomTip] = useState<{ x: number; y: number } | null>(null)
+  const showBomTip = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect()
+    setBomTip({ x: r.left + r.width / 2, y: r.bottom + 6 })
+  }
 
   const addFiles = (files: File[]) => {
     const staged = files.map(file => {
@@ -177,10 +187,16 @@ export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading
                             style={inputStyle}
                           />
                           {d.mark !== null && !d.inBom && (
-                            // Lucide's LucideProps doesn't type `title` (SVG
-                            // attrs omit it) — the span carries the tooltip
-                            // instead, still hung off the icon, not the label.
-                            <span title="ไม่พบ mark นี้ใน BOM ของ zone นี้" style={{ display: 'inline-flex', flexShrink: 0, cursor: 'help' }}>
+                            <span
+                              tabIndex={0}
+                              aria-label={BOM_TIP_TITLE}
+                              aria-describedby={bomTip ? 'bom-tip' : undefined}
+                              onMouseEnter={e => showBomTip(e.currentTarget)}
+                              onMouseLeave={() => setBomTip(null)}
+                              onFocus={e => showBomTip(e.currentTarget)}
+                              onBlur={() => setBomTip(null)}
+                              style={{ display: 'inline-flex', flexShrink: 0, cursor: 'help', outline: 'none' }}
+                            >
                               <AlertTriangle size={14} style={{ color: '#B45309' }} />
                             </span>
                           )}
@@ -251,6 +267,20 @@ export function DrawingUploadModal({ scopeLabel, existing, bomMarks, isUploading
           </button>
         </div>
       </div>
+      {bomTip && (
+        <div
+          id="bom-tip"
+          role="tooltip"
+          style={{
+            position: 'fixed', left: bomTip.x, top: bomTip.y, transform: 'translateX(-50%)', zIndex: 60,
+            maxWidth: 280, background: '#1F1F1F', color: 'white', fontSize: 12, lineHeight: 1.5,
+            borderRadius: 6, padding: '8px 10px', boxShadow: '0 4px 8px rgba(0,0,0,0.18)', pointerEvents: 'none',
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 2 }}>{BOM_TIP_TITLE}</div>
+          <div>{BOM_TIP_BODY}</div>
+        </div>
+      )}
     </div>
   )
 }

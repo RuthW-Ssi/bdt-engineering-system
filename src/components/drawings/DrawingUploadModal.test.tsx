@@ -106,7 +106,13 @@ describe('DrawingUploadModal', () => {
     const pdfFile = new File(['x'], 'Z - BEAM - Rev 1.pdf')
     fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
 
-    expect(screen.getByTitle('ไม่พบ mark นี้ใน BOM ของ zone นี้')).toBeInTheDocument()
+    const icon = screen.getByLabelText('ไม่พบ mark นี้ใน BOM ของ zone นี้')
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    fireEvent.mouseEnter(icon)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('ไม่พบ mark นี้ใน BOM ของ zone นี้')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('อัปโหลด BOM ของ zone นี้ก่อน')
+    fireEvent.mouseLeave(icon)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 
   it('a mark that IS in bomMarks shows no warning tooltip', () => {
@@ -114,7 +120,7 @@ describe('DrawingUploadModal', () => {
     const pdfFile = new File(['x'], 'A - BEAM - Rev 2.pdf')
     fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
 
-    expect(screen.queryByTitle('ไม่พบ mark นี้ใน BOM ของ zone นี้')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('ไม่พบ mark นี้ใน BOM ของ zone นี้')).not.toBeInTheDocument()
   })
 
   it('replace vs add-sheet vs lower-rev vs new-rev are classified against existing', () => {
