@@ -106,11 +106,11 @@ describe('DrawingUploadModal', () => {
     const pdfFile = new File(['x'], 'Z - BEAM - Rev 1.pdf')
     fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
 
-    const icon = screen.getByLabelText('ไม่พบ mark นี้ใน BOM ของ zone นี้')
+    const icon = screen.getByLabelText('mark นี้ยังไม่มีใน BOM')
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
     fireEvent.mouseEnter(icon)
-    expect(screen.getByRole('tooltip')).toHaveTextContent('ไม่พบ mark นี้ใน BOM ของ zone นี้')
-    expect(screen.getByRole('tooltip')).toHaveTextContent('อัปโหลด BOM ของ zone นี้ก่อน')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('mark นี้ยังไม่มีใน BOM')
+    expect(screen.getByRole('tooltip')).toHaveTextContent('อัปโหลด BOM ของโซนนี้ก่อน')
     fireEvent.mouseLeave(icon)
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
@@ -120,7 +120,7 @@ describe('DrawingUploadModal', () => {
     const pdfFile = new File(['x'], 'A - BEAM - Rev 2.pdf')
     fireEvent.change(fileInput(), { target: { files: [pdfFile] } })
 
-    expect(screen.queryByLabelText('ไม่พบ mark นี้ใน BOM ของ zone นี้')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('mark นี้ยังไม่มีใน BOM')).not.toBeInTheDocument()
   })
 
   it('replace vs add-sheet vs lower-rev vs new-rev are classified against existing', () => {
