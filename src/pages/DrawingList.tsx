@@ -229,6 +229,17 @@ export function DrawingList() {
           <option value="">{subZones.length === 0 && zoneId ? '(no sub-zones)' : '(No sub-zone)'}</option>
           {subZones.map(sz => <option key={sz.id} value={sz.id}>{sz.code ? `${sz.code} — ` : ''}{sz.name}</option>)}
         </select>
+        {/* Search — same look as the app's other filter-bar searches (MoList "Search MO code...") */}
+        <div className="relative">
+          <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            disabled={!zoneId}
+            placeholder="Search mark..."
+            style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', width: 240, opacity: zoneId ? 1 : 0.5 }}
+          />
+        </div>
       </div>
 
       {/* ── Body ──────────────────────────────────────────────── */}
@@ -267,15 +278,6 @@ export function DrawingList() {
         )}
         {zoneId && !drawingsLoading && !drawingsError && drawingsList.length > 0 && (
           <div className="flex flex-col gap-2" style={{ height: '100%', minHeight: 0 }}>
-            <div style={{ position: 'relative', width: 380 }}>
-              <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: '#8E8E8E', pointerEvents: 'none' }} />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="ค้นหา mark…"
-                style={{ width: '100%', height: 32, padding: '0 8px 0 28px', fontSize: 13, borderRadius: 6, border: '1px solid #E0E0E0' }}
-              />
-            </div>
             <div className="flex gap-4" style={{ flex: 1, minHeight: 0 }}>
               <div
                 className="bg-white rounded-lg border border-chrome-100"
