@@ -162,8 +162,8 @@ describe('MoPrintService.buildPlan', () => {
     expect(plan.rows[0].marks).toEqual([{
       assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
       // rev + upload date (2026-10-05, print option A) — stamped on the
-      // drawing page and compared against the WO's own create_date.
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      // drawing page. Every sheet of the mark's current rev (2026-10-21).
+      drawings: [{ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }],
     }])
     expect(plan.rows[0].wo).toMatchObject({ expected_duration_min: 45, setup_time_min: 10, created_at: new Date('2026-09-20T00:00:00Z') })
   })
@@ -636,7 +636,7 @@ describe('MoPrintService.buildPlan', () => {
   // 2026-10-07 (user: "ในกรณีที่ไม่มี drawing ก็ print ได้"): used to block the
   // whole packet — a pre-shop MO has no shop drawing yet. A mark with no PDF
   // drawing still lists on its traveler; it just gets no drawing page.
-  it('still prints when a mark has no PDF drawing — the mark keeps its row, drawing is null', async () => {
+  it('still prints when a mark has no PDF drawing — the mark keeps its row, drawings is empty', async () => {
     const prisma = makePrisma({
       work_order: { findMany: jest.fn().mockResolvedValue([makeWo(), makeWo({ id: 1399, wo_code: 'WO-00000740', sequence: 20 })]) },
     })
@@ -645,7 +645,7 @@ describe('MoPrintService.buildPlan', () => {
 
     const plan = await svc.buildPlan(85)
     expect(plan.rows.map(r => r.wo.wo_code)).toEqual(['WO-00000739', 'WO-00000740'])
-    expect(plan.rows[0].marks).toEqual([expect.objectContaining({ assemblyMark: 'DBN-A1-CTR1', drawing: null })])
+    expect(plan.rows[0].marks).toEqual([expect.objectContaining({ assemblyMark: 'DBN-A1-CTR1', drawings: [] })])
   })
 
   // 2026-10-05 (print option A): used to 409 — the zone's newest batch held
@@ -662,7 +662,28 @@ describe('MoPrintService.buildPlan', () => {
 
     const plan = await svc.buildPlan(85)
 
-    expect(plan.rows[0].marks[0].drawing).toMatchObject({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', rev: 1 })
+    expect(plan.rows[0].marks[0].drawings).toEqual([expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', rev: 1 })])
+  })
+
+  // 2026-10-21 (print every sheet of the current rev): a batch upload can
+  // hold several sheets of one mark at the same rev — every one prints.
+  it("includes every sheet of the mark's current rev, natural-sorted by file_name, excluding older revs", async () => {
+    const prisma = makePrisma()
+    const drawings = makeDrawings({
+      findByZone: jest.fn().mockResolvedValue([
+        makePdfDrawing({ id: 1, rev: 1, file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }),
+        makePdfDrawing({ id: 2, rev: 2, file_key: 'drawings/dbn-a1-ctr1-rev2-sheet1.pdf', file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf' }),
+        makePdfDrawing({ id: 3, rev: 2, file_key: 'drawings/dbn-a1-ctr1-rev2-sheet2.pdf', file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.pdf' }),
+      ]),
+    })
+    const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows[0].marks[0].drawings).toEqual([
+      expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev2-sheet1.pdf', rev: 2 }),
+      expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev2-sheet2.pdf', rev: 2 }),
+    ])
   })
 
   it('fetches a zone\'s drawings only once even when multiple WOs share the same zone', async () => {
@@ -718,8 +739,8 @@ describe('MoPrintService.buildPlan', () => {
 
     expect(plan.rows).toHaveLength(1)
     expect(plan.rows[0].marks).toEqual([
-      { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }) },
-      { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 3, weight_kg: 220, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' }) },
+      { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' })] },
+      { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 3, weight_kg: 220, drawings: [expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' })] },
     ])
   })
 

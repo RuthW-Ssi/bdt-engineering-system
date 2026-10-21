@@ -9,7 +9,7 @@ describe('PRINT_LABELS', () => {
   it('has no blank label in any language', () => {
     for (const lang of PRINT_LANGS) {
       for (const [key, value] of Object.entries(PRINT_LABELS[lang])) {
-        const text = typeof value === 'function' ? value('1' as never) : value
+        const text = typeof value === 'function' ? value('1' as never, '3' as never) : value
         expect({ lang, key, blank: text.trim() === '' }).toEqual({ lang, key, blank: false })
       }
     }
@@ -22,8 +22,22 @@ describe('PRINT_LABELS', () => {
       expect(L.minutes('75')).toContain('75')
       expect(L.moreSeeQr(12)).toContain('12')
       expect(L.drawingStamp('Rev 3 · 02/10/26')).toContain('Rev 3 · 02/10/26')
-      expect(L.drawingUpdatedAfterWo('CTR10 Rev 3 (02/10/26)')).toContain('CTR10 Rev 3 (02/10/26)')
+      expect(L.sheet(2, 3)).toContain('2/3')
     }
+  })
+
+  // 2026-10-21: Thai print copy says "Drawing", never "แบบ".
+  it('says "Drawing" in both languages, never the Thai "แบบ"', () => {
+    for (const lang of PRINT_LANGS) {
+      expect(PRINT_LABELS[lang].drawingStamp('Rev 3')).toContain('Drawing')
+    }
+  })
+
+  // Sheet suffix (2026-10-21) — plain fragment appended inside an existing
+  // label/watermark line, not a standalone element.
+  it('gives the sheet suffix as a leading " · " fragment, per language', () => {
+    expect(PRINT_LABELS.en.sheet(1, 3)).toBe(' · sheet 1/3')
+    expect(PRINT_LABELS.th.sheet(1, 3)).toBe(' · แผ่น 1/3')
   })
 })
 

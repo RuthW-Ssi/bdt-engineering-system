@@ -6,7 +6,7 @@ import { ManufacturingOrderService } from '../manufacturing-orders.service'
 import { computeActivityDuration, type ActivityDurationBreakdownItem } from '../../work-orders/activity-duration.util'
 import { buildMoPrintPdf } from './mo-print-pdf-builder'
 import type { PrintLang } from './mo-print-labels'
-import { findLatestPdfForMark } from './mark-drawing-match'
+import { currentRevSheetsForMark } from './mark-drawing-match'
 import { summarizeOperations, type OperationSummary, printedDrawingRevs, renamesForRev, sourceLabelOf } from './mo-print-format'
 
 export interface MoPrintWorkOrderRow {
@@ -17,8 +17,6 @@ export interface MoPrintWorkOrderRow {
     status: string
     expected_duration_min: number
     setup_time_min: number
-    // Compared against each mark's drawing upload date — the traveler flags
-    // drawings uploaded after the WO was issued (2026-10-05, print option A).
     created_at: Date
   }
   workCenterName: string
@@ -30,7 +28,7 @@ export interface MoPrintWorkOrderRow {
   // those really were shown again on Assembly List & QC, unlike Project/
   // Zone which isn't shown anywhere else on the traveler). A multi-mark
   // WO's marks could in principle span different projects/zones — unlike
-  // `drawing` below (moved onto MoPrintAssemblyMarkRow on 2026-09-22 so
+  // `drawings` below (moved onto MoPrintAssemblyMarkRow on 2026-09-22 so
   // every mark's own drawing prints), Project/Zone stays this WO-level
   // single-value stopgap since nothing has asked to split it out yet.
   projectName: string
@@ -121,8 +119,10 @@ export interface MoPrintConsumeItem {
 // One mark on the traveler's Assembly List & QC table (2026-09-21) — a WO
 // can span several marks (multi-mark redesign), each gets its own row. Same
 // field names as MoPrintMarkItem (the manifest's own per-mark shape).
-// `drawing` (2026-09-22) is this mark's own matched shop drawing — a WO
-// prints one drawing page per mark, not one per WO (see buildMoPrintPdf).
+// `drawings` (2026-09-22, became an array 2026-10-21) are this mark's own
+// matched shop drawing sheets — a WO prints one drawing page per PAGE of
+// every sheet of the mark's current rev, not one per WO (see
+// buildMoPrintPdf) — see mark-drawing-match.ts's currentRevSheetsForMark.
 export interface MoPrintAssemblyMarkRow {
   assemblyMark: string
   sourceLabel: string // 'Pre-shop' | 'BOM rev N' — printed in the Mark cell (2026-10-09)
@@ -130,11 +130,12 @@ export interface MoPrintAssemblyMarkRow {
   name: string | null
   qty: number | null
   weight_kg: number | null
-  // rev + upload date (2026-10-05, print option A) — stamped on the
+  // Every sheet of the mark's current rev (2026-10-05 rev/date fields,
+  // 2026-10-21 made an array) — all sheets share one rev, stamped on each
   // drawing page next to the WO · mark label.
-  // null = no PDF drawing yet (e.g. a pre-shop MO) — the mark still prints
-  // on its traveler, just without a drawing page (2026-10-07).
-  drawing: { file_key: string; file_name: string; rev: number; uploaded_at: Date } | null
+  // [] = no PDF drawing yet (e.g. a pre-shop MO) — the mark still prints on
+  // its traveler, just without a drawing page (2026-10-07).
+  drawings: { file_key: string; file_name: string; rev: number; uploaded_at: Date }[]
 }
 
 // One assembly (mo_assembly_line) and the bom_parts cut for it — printed
@@ -221,12 +222,14 @@ export interface MoPrintPacketPlan {
 const zoneKey = (zoneId: number, subZoneId: number | null) => `${zoneId}:${subZoneId ?? ''}`
 
 // Orchestrates the data behind a printable MO/WO packet: pulls every
-// non-cancelled WO on the MO, resolves every one of its marks' latest PDF
-// drawings (findLatestPdfForMark — the mark's own newest PDF, same rule as the WO
-// Visual Tab uses, ported server-side). A mark with no PDF drawing still
-// prints on its traveler, just without a drawing page (2026-10-07, user:
-// "ในกรณีที่ไม่มี drawing ก็ print ได้" — pre-shop MOs have no shop drawing
-// yet); this used to block the whole packet (P0 decision 2026-09-15).
+// non-cancelled WO on the MO, resolves every one of its marks' current-rev
+// PDF drawing sheets (currentRevSheetsForMark — every sheet of the mark's
+// own newest rev, same rule as the WO Visual Tab's single-pick uses for
+// "current", ported server-side and extended to every sheet of that rev).
+// A mark with no PDF drawing still prints on its traveler, just without a
+// drawing page (2026-10-07, user: "ในกรณีที่ไม่มี drawing ก็ print ได้" —
+// pre-shop MOs have no shop drawing yet); this used to block the whole
+// packet (P0 decision 2026-09-15).
 @Injectable()
 export class MoPrintService {
   constructor(
@@ -254,12 +257,12 @@ export class MoPrintService {
     const plan = await this.buildPlan(moId, workOrderIds, includeManifest)
     const bytes = await buildMoPrintPdf(
       plan,
-      async (row, mark) => {
+      async (row, mark, sheet) => {
         try {
-          return await this.fileStorage.getObject(mark.drawing!.file_key)
+          return await this.fileStorage.getObject(sheet.file_key)
         } catch (err) {
           throw new Error(
-            `Failed to read drawing "${mark.drawing!.file_name}" for ${row.wo.wo_code} (mark ${mark.assemblyMark}): ${err instanceof Error ? err.message : err}`,
+            `Failed to read drawing "${sheet.file_name}" for ${row.wo.wo_code} (mark ${mark.assemblyMark}): ${err instanceof Error ? err.message : err}`,
           )
         }
       },
@@ -445,15 +448,17 @@ export class MoPrintService {
       // One traveler page per WO, not per mark (2026-09-21: "ทุก assembly
       // ต้องรวมอยู่ใน wo เดียวกัน") — every non-removed mark on this WO
       // becomes one row of its Assembly List & QC table. But one drawing
-      // page PER MARK, not per WO (2026-09-22: "wo มีหลายมาก mark ทำไมถึง
-      // แสดงแค่ print แค่ 1 drawing ต้อง print ทุก drawing ที่มี mark") — a
-      // mark without one keeps drawing: null (no drawing page, 2026-10-07).
+      // page per PAGE of every sheet of the mark's current rev (2026-09-22:
+      // "wo มีหลายมาก mark ทำไมถึงแสดงแค่ print แค่ 1 drawing ต้อง print ทุก
+      // drawing ที่มี mark"; extended 2026-10-21 to every sheet, not just the
+      // single newest one) — a mark with none keeps drawings: [] (no
+      // drawing page, 2026-10-07).
       const marks: MoPrintAssemblyMarkRow[] = []
       for (const mark of wo.marks) {
         const assembly = mark.bom_assembly
         const dispatch = assembly.dispatch
         const zoneDrawings = drawingsByZone.get(zoneKey(dispatch.zone_id, dispatch.sub_zone_id)) ?? []
-        const drawing = findLatestPdfForMark(zoneDrawings, assembly.assembly_mark)
+        const sheets = currentRevSheetsForMark(zoneDrawings, assembly.assembly_mark)
         marks.push({
           assemblyMark: assembly.assembly_mark,
           sourceLabel: sourceLabelOf(dispatch),
@@ -461,7 +466,7 @@ export class MoPrintService {
           name: assembly.name ?? null,
           qty: qtyByAssembly.get(mark.bom_assembly_id) ?? null,
           weight_kg: assembly.weight_kg != null ? Number(assembly.weight_kg) : null,
-          drawing: drawing ? { file_key: drawing.file_key, file_name: drawing.file_name, rev: drawing.rev ?? 0, uploaded_at: new Date(drawing.create_date) } : null,
+          drawings: sheets.map(s => ({ file_key: s.file_key, file_name: s.file_name, rev: s.rev ?? 0, uploaded_at: new Date(s.create_date) })),
         })
       }
 

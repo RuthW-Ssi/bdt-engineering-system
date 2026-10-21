@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
 
 describe('fmt2', () => {
   it('pads a whole number to 2 decimal places', () => {
@@ -155,34 +155,11 @@ describe('formatWoCodes', () => {
 })
 
 // 2026-10-05 (print option A): the drawing's rev + upload date print on
-// the drawing page, and the traveler flags drawings uploaded after the WO.
+// the drawing page.
 describe('formatShortDate', () => {
   it('formats dd/mm/yy in shop-floor time (Asia/Bangkok), not the server\'s UTC', () => {
     expect(formatShortDate(new Date('2026-10-01T18:30:00Z'))).toBe('02/10/26')
     expect(formatShortDate('2026-09-16T01:30:00Z')).toBe('16/09/26')
-  })
-})
-
-describe('drawingsUpdatedAfter', () => {
-  const mark = (assemblyMark: string, rev: number, uploaded_at: string) =>
-    ({ assemblyMark, drawing: { rev, uploaded_at: new Date(uploaded_at) } })
-
-  it('lists only marks whose drawing was uploaded after the WO was created, as "MARK Rev 3 (02/10/26)"', () => {
-    const marks = [mark('CTR1', 1, '2026-09-20T03:00:00Z'), mark('CTR10', 3, '2026-10-02T03:00:00Z')]
-    expect(drawingsUpdatedAfter(new Date('2026-09-25T00:00:00Z'), marks)).toEqual(['CTR10 Rev 3 (02/10/26)'])
-  })
-
-  it('is empty when every drawing predates the WO', () => {
-    expect(drawingsUpdatedAfter(new Date('2026-10-05T00:00:00Z'), [mark('CTR1', 2, '2026-10-01T00:00:00Z')])).toEqual([])
-  })
-})
-
-describe('drawingsUpdatedAfter — marks without a drawing (2026-10-07)', () => {
-  it('skips a mark whose drawing is null', () => {
-    expect(drawingsUpdatedAfter('2026-10-01T00:00:00Z', [
-      { assemblyMark: 'BUH1-3', drawing: null },
-      { assemblyMark: 'CTR10', drawing: { rev: 3, uploaded_at: '2026-10-02T03:00:00Z' } },
-    ])).toEqual(['CTR10 Rev 3 (02/10/26)'])
   })
 })
 
@@ -213,20 +190,20 @@ describe('print cells for MO type / Rev / mark source', () => {
 // pair's drawing rev was at print time, so a later-uploaded rev can be
 // compared against it (warn-only notice, never a block).
 describe('printedDrawingRevs', () => {
-  it('maps woId (as a string key) → { assemblyMark → drawing.rev }, skipping marks with no drawing', () => {
+  it('maps woId (as a string key) → { assemblyMark → rev }, skipping marks with no drawing', () => {
     const plan = {
       rows: [
         {
           wo: { id: 1398 },
           marks: [
-            { assemblyMark: 'DBN-A1-CTR1', drawing: { rev: 2 } },
-            { assemblyMark: 'DBN-A1-CTR2', drawing: null },
+            { assemblyMark: 'DBN-A1-CTR1', drawings: [{ rev: 2 }] },
+            { assemblyMark: 'DBN-A1-CTR2', drawings: [] },
           ],
         },
         {
           wo: { id: 1399 },
           marks: [
-            { assemblyMark: 'DBN-A1-STR1', drawing: { rev: 1 } },
+            { assemblyMark: 'DBN-A1-STR1', drawings: [{ rev: 1 }] },
           ],
         },
       ],
@@ -238,10 +215,25 @@ describe('printedDrawingRevs', () => {
     })
   })
 
+  // Every sheet of a mark shares its current rev (2026-10-21) — the first
+  // one read is representative of them all.
+  it('reads the rev from the first of several sheets on one mark', () => {
+    const plan = {
+      rows: [
+        {
+          wo: { id: 1398 },
+          marks: [{ assemblyMark: 'DBN-A1-CTR1', drawings: [{ rev: 2 }, { rev: 2 }] }],
+        },
+      ],
+    }
+
+    expect(printedDrawingRevs(plan)).toEqual({ '1398': { 'DBN-A1-CTR1': 2 } })
+  })
+
   it('omits a WO entirely when none of its marks has a drawing', () => {
     const plan = {
       rows: [
-        { wo: { id: 1398 }, marks: [{ assemblyMark: 'DBN-A1-CTR1', drawing: null }] },
+        { wo: { id: 1398 }, marks: [{ assemblyMark: 'DBN-A1-CTR1', drawings: [] }] },
       ],
     }
 
