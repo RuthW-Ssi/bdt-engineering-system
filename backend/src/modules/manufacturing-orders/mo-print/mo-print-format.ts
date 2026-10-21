@@ -1,4 +1,5 @@
 import type { PDFFont } from 'pdf-lib'
+import type { PrintLabels } from './mo-print-labels'
 
 // Every quantity/time value on the print packet displays to a fixed 2
 // decimal places — mixing whole numbers and varying-precision decimals in
@@ -66,6 +67,31 @@ export function formatShortDate(d: Date | string): string {
       .formatToParts(new Date(d)).map(p => [p.type, p.value]),
   )
   return `${parts.day}/${parts.month}/${parts.year}`
+}
+
+/** Per-page drawing-page stamp text (2026-10-21 fix round 1) — one entry per
+ *  physical page, in print order, across EVERY sheet of one mark's current
+ *  rev. `rev` is the already-formatted "Rev N · dd/mm/yy" fragment (shared by
+ *  every sheet, since they're all the mark's current rev); `pageCounts` is
+ *  that mark's sheets' page counts, in sheet order (a 0 is a sheet that
+ *  turned out to have no pages — contributes nothing, not a crash).
+ *  n = the TOTAL page count across every sheet (not the sheet count) — a
+ *  2-sheet mark where one sheet is a 2-page PDF ([2, 1]) numbers its 3
+ *  printed pages 1/3, 2/3, 3/3, continuing the count across the sheet
+ *  boundary rather than resetting per sheet. No suffix at all when n <= 1
+ *  (nothing to disambiguate). The suffix rides inside this one returned
+ *  string — never a separate draw call — so it fits the "no new band/box"
+ *  printed-paper rule. */
+export function drawingPageStamps(rev: string, pageCounts: number[], L: PrintLabels): string[] {
+  const base = L.drawingStamp(rev)
+  const totalPages = pageCounts.reduce((sum, n) => sum + n, 0)
+  let i = 0
+  return pageCounts.flatMap(count =>
+    Array.from({ length: count }, () => {
+      i += 1
+      return totalPages > 1 ? base + L.sheet(i, totalPages) : base
+    }),
+  )
 }
 
 /** mo_print_log.drawing_revs (2026-10-21) — what each printed (WO, mark)

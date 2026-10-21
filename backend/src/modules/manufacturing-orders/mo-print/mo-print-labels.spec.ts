@@ -9,7 +9,7 @@ describe('PRINT_LABELS', () => {
   it('has no blank label in any language', () => {
     for (const lang of PRINT_LANGS) {
       for (const [key, value] of Object.entries(PRINT_LABELS[lang])) {
-        const text = typeof value === 'function' ? value('1' as never, '3' as never) : value
+        const text = typeof value === 'function' ? value(1 as never, 3 as never) : value
         expect({ lang, key, blank: text.trim() === '' }).toEqual({ lang, key, blank: false })
       }
     }

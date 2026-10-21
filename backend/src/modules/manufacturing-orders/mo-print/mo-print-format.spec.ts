@@ -1,5 +1,6 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, drawingPageStamps, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { PRINT_LABELS } from './mo-print-labels'
 
 describe('fmt2', () => {
   it('pads a whole number to 2 decimal places', () => {
@@ -183,6 +184,65 @@ describe('print cells for MO type / Rev / mark source', () => {
     ]
     expect(renamesForRev(reasons, 3)).toEqual(new Map([['C1-BUH1-3', 'BUH1-3']]))
     expect(renamesForRev(reasons, 4)).toEqual(new Map())
+  })
+})
+
+// Per-page drawing stamp text (2026-10-21 fix round 1) — the brief's own
+// worked example: a mark with 2 sheets, one a 2-page PDF ([2, 1]) → 3
+// printed pages stamped แผ่น 1/3, 2/3, 3/3 (n = total pages, never the
+// sheet count; i keeps counting across the sheet boundary, never resets).
+describe('drawingPageStamps', () => {
+  it('numbers every page across every sheet 1..n (n = total pages, not sheet count), continuing i across sheets', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.th)
+
+    expect(stamps).toHaveLength(3)
+    for (const s of stamps) expect(s.startsWith('Drawing Rev 2 · 02/10/26')).toBe(true)
+    expect(stamps[0].endsWith(' · แผ่น 1/3')).toBe(true)
+    expect(stamps[1].endsWith(' · แผ่น 2/3')).toBe(true)
+    expect(stamps[2].endsWith(' · แผ่น 3/3')).toBe(true)
+  })
+
+  // A wrong implementation that sets n to the sheet count (2, not 3) would
+  // print ".../2" on 3 pages — this pins the real total.
+  it('would fail if n were the sheet count instead of the total page count', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.th)
+    expect(stamps.some(s => s.endsWith('/2'))).toBe(false)
+  })
+
+  // A wrong implementation that resets i per sheet would repeat "1/3" at
+  // the start of the second sheet instead of continuing to "3/3".
+  it('would fail if the page index reset per sheet', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.th)
+    expect(stamps[2].endsWith(' · แผ่น 1/3')).toBe(false)
+  })
+
+  it('drops the suffix entirely for a single sheet with a single page (nothing to disambiguate)', () => {
+    const stamps = drawingPageStamps('Rev 1 · 14/09/26', [1], PRINT_LABELS.th)
+    expect(stamps).toEqual(['Drawing Rev 1 · 14/09/26'])
+  })
+
+  it('gives the same stamps in English, with the English sheet word', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.en)
+    expect(stamps).toEqual([
+      'Drawing Rev 2 · 02/10/26 · sheet 1/3',
+      'Drawing Rev 2 · 02/10/26 · sheet 2/3',
+      'Drawing Rev 2 · 02/10/26 · sheet 3/3',
+    ])
+  })
+
+  // A 0-page sheet (2026-10-21 fix round 1, point 3) contributes no stamps
+  // and must not crash or skew the numbering of the other sheets' pages.
+  it('skips a 0-page sheet without crashing, and does not count it toward n', () => {
+    const stamps = drawingPageStamps('Rev 1 · 14/09/26', [0, 2], PRINT_LABELS.th)
+    expect(stamps).toEqual([
+      'Drawing Rev 1 · 14/09/26 · แผ่น 1/2',
+      'Drawing Rev 1 · 14/09/26 · แผ่น 2/2',
+    ])
+  })
+
+  it('returns [] for an all-zero pageCounts (no drawing pages at all)', () => {
+    expect(drawingPageStamps('Rev 1 · 14/09/26', [0], PRINT_LABELS.th)).toEqual([])
+    expect(drawingPageStamps('Rev 1 · 14/09/26', [], PRINT_LABELS.th)).toEqual([])
   })
 })
 

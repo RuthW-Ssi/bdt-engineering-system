@@ -137,6 +137,28 @@ async function fakePdfBytes(pageCount: number, size: [number, number] = [200, 20
   return doc.save()
 }
 
+// A genuinely 0-page PDF (2026-10-21 fix round 1, point 3) — simulates a
+// bad/empty fetched sheet. NOT pdf-lib's own PDFDocument.create()+save(),
+// which always auto-inserts a blank page on save when a document has none
+// (confirmed: reloading that gives getPageCount() === 1, not 0); this is a
+// hand-written minimal PDF with an empty /Pages tree, which pdf-lib's
+// loader (unlike its saver) reports faithfully as 0 pages.
+function zeroPagePdfBytes(): Buffer {
+  const pdf = [
+    '%PDF-1.4',
+    '1 0 obj',
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    'endobj',
+    '2 0 obj',
+    '<< /Type /Pages /Kids [] /Count 0 >>',
+    'endobj',
+    'trailer',
+    '<< /Size 3 /Root 1 0 R >>',
+    '%%EOF',
+  ].join('\n')
+  return Buffer.from(pdf, 'latin1')
+}
+
 function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrderRow {
   return {
     wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') },
@@ -211,6 +233,32 @@ describe('buildMoPrintPdf', () => {
     // manifest(0) + traveler(1) + 3 drawing pages (2-page sheet + 1-page sheet).
     expect(merged.getPageCount()).toBe(1 + 1 + 3)
     expect(fetchDrawingBytes).toHaveBeenCalledTimes(2)
+  })
+
+  // 2026-10-21 fix round 1, point 3: a fetched sheet can come back with 0
+  // pages (a bad/empty source PDF) — must not crash, and contributes no
+  // page of its own; its mark's other sheets still print in full.
+  it('does not crash when one sheet comes back with 0 pages — its other sheets still print in full', async () => {
+    const emptySheet = { file_key: 'empty.pdf', file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+    const realSheet = { file_key: 'd2.pdf', file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+    const plan = makePlan([makeRow({
+      marks: [{ assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [emptySheet, realSheet] }],
+    })])
+    const fetchDrawingBytes = jest.fn(async (_row, _mark, sheet) => (sheet.file_key === 'empty.pdf' ? zeroPagePdfBytes() : fakePdfBytes(2)))
+
+    const bytes = await buildMoPrintPdf(plan, fetchDrawingBytes)
+    const merged = await PDFDocument.load(bytes)
+
+    // manifest(0) + traveler(1) + 2 drawing pages from the real sheet only.
+    expect(merged.getPageCount()).toBe(1 + 1 + 2)
+  })
+
+  it('skips a mark entirely (no drawing page, no crash) when every one of its sheets comes back with 0 pages', async () => {
+    const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => zeroPagePdfBytes())
+    const merged = await PDFDocument.load(bytes)
+
+    // manifest(0) + traveler(1), no drawing page at all.
+    expect(merged.getPageCount()).toBe(1 + 1)
   })
 
   it('2026-10-07: a mark with no drawing keeps its traveler page but gets no drawing page (nothing fetched)', async () => {

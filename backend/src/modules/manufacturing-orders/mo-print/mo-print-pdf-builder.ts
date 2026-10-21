@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
+import { capList, drawingPageStamps, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
 import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
@@ -962,25 +962,20 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, L: PrintLabels, cols: Tabl
 // same day, on the user's direct instruction, to sit clear of the drawing's
 // own content up top.
 //
-// `sheetNum`/`totalSheets` (2026-10-21) are the 1-based page index / total
-// page count across EVERY sheet of this mark's current rev (not just this
-// one source PDF) — when there's more than one printed page, " · sheet i/n"
-// rides inside the existing corner label and watermark stamp, no new
-// element added to the printed paper.
+// `stamp` (2026-10-21, computed by mo-print-format.ts's drawingPageStamps —
+// see the fix-round-1 note there) is this exact page's full "Drawing Rev N ·
+// date[ · sheet i/n]" text, already resolved by the caller — rides as-is at
+// the end of the corner label and as the watermark's third line ("เอามาอยู่
+// ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย"). No new element is drawn
+// for the sheet suffix — it's just part of this one string.
 async function buildDrawingPage(
-  doc: PDFDocument, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow,
-  sheet: MoPrintAssemblyMarkRow['drawings'][number], sourcePage: PDFPage, sheetNum: number, totalSheets: number,
+  doc: PDFDocument, fonts: Fonts, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow,
+  stamp: string, sourcePage: PDFPage,
 ): Promise<void> {
   const embeddedDrawing = await doc.embedPage(sourcePage)
   const page = doc.addPage([embeddedDrawing.width, embeddedDrawing.height])
   page.drawPage(embeddedDrawing, { x: 0, y: 0, width: embeddedDrawing.width, height: embeddedDrawing.height })
 
-  // Which revision this sheet is (2026-10-05, print option A) rides at the
-  // end of the corner label and as the watermark's third line ("เอามาอยู่
-  // ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย"); the sheet suffix (when
-  // there's more than one printed page) tags along on the same stamp.
-  const sheetSuffix = totalSheets > 1 ? L.sheet(sheetNum, totalSheets) : ''
-  const stamp = L.drawingStamp(`Rev ${sheet.rev} · ${formatShortDate(sheet.uploaded_at)}`) + sheetSuffix
   const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
   const labelSize = 12
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
@@ -1162,13 +1157,25 @@ export async function buildMoPrintPdf(
         const drawingBytes = await fetchDrawingBytes(row, mark, sheet)
         sheetDocs.push(await PDFDocument.load(drawingBytes))
       }
-      const totalPages = sheetDocs.reduce((sum, d) => sum + d.getPageCount(), 0)
+      const pageCounts = sheetDocs.map(d => d.getPageCount())
+      // A fetched sheet can come back with 0 pages (a bad/empty source PDF,
+      // 2026-10-21 fix round 1) — if every sheet of this mark has 0 pages,
+      // there's nothing at all to print for it; skip the mark entirely
+      // (same as a mark with no `drawings`) rather than silently falling
+      // through the page loops with nothing drawn. A partial case (one
+      // sheet of several empty) still prints every page of the others.
+      if (pageCounts.every(n => n === 0)) continue
+      // Every sheet shares the mark's current rev (currentRevSheetsForMark's
+      // guarantee), so the first sheet's rev/date is representative of all
+      // of them — drawingPageStamps turns that into one stamp string per
+      // physical page, numbered 1..n across every sheet (never per-sheet).
+      const revLabel = `Rev ${mark.drawings[0].rev} · ${formatShortDate(mark.drawings[0].uploaded_at)}`
+      const stamps = drawingPageStamps(revLabel, pageCounts, L)
       let printedPage = 0
-      for (let s = 0; s < mark.drawings.length; s++) {
-        const sheetDoc = sheetDocs[s]
+      for (const sheetDoc of sheetDocs) {
         for (let p = 0; p < sheetDoc.getPageCount(); p++) {
+          await buildDrawingPage(doc, fonts, row, mark, stamps[printedPage], sheetDoc.getPage(p))
           printedPage++
-          await buildDrawingPage(doc, fonts, L, row, mark, mark.drawings[s], sheetDoc.getPage(p), printedPage, totalPages)
         }
       }
     }

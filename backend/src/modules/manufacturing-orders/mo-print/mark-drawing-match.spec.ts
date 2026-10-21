@@ -88,7 +88,7 @@ describe('currentRevSheetsForMark', () => {
 
   it('is case-insensitive across every sheet of the current rev, not just the first match', () => {
     const a = drawing({ file_name: 'dbn-a1-ctr1 - sheet 1 - rev 2.pdf', rev: 2 })
-    const b = drawing({ file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.PDF'.toLowerCase(), rev: 2 })
+    const b = drawing({ file_name: 'DBN-A1-CTR1 - Sheet 2 - Rev 2.PDF', rev: 2 })
     expect(currentRevSheetsForMark([a, b], 'DBN-A1-CTR1')).toEqual([a, b])
   })
 })
