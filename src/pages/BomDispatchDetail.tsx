@@ -30,6 +30,8 @@ export function BomDispatchDetail() {
   const { data: renameList } = useDispatchRenames(dispatchId)
   const undo = useUndoRename(dispatchId ?? 0)
   const canPair = usePermission('boms', 'create') && !!candidates?.latest
+  // only rows the backend offers as disappeared get a pair button
+  const pairable = { ASSEMBLY: new Set((candidates?.assemblies ?? []).map(a => a.mark)), PART: new Set((candidates?.parts ?? []).map(p => p.mark)) }
   const [pairing, setPairing] = useState<{ kind: RenameKind; mark: string } | null>(null)
   const onUndo = async (r: RenamePairDto) => {
     if (!window.confirm(`ยกเลิกการจับคู่ ${r.from_mark} → ${r.to_mark} ?\nข้อมูลที่ย้ายไปตอนจับคู่จะถูกคืน`)) return
@@ -106,6 +108,7 @@ export function BomDispatchDetail() {
           renames={renameList?.pairs}
           history={renameList?.history ?? []}
           canPair={canPair}
+          pairable={pairable}
           onPair={(kind, mark) => setPairing({ kind, mark })}
           onUndo={onUndo}
         />
@@ -120,7 +123,7 @@ export function BomDispatchDetail() {
 
 function CompareContent({
   isDiffLoading, isDiffError, diff, dispatchId, projectId, selectedMark, onSelectMark,
-  renames, history, canPair, onPair, onUndo,
+  renames, history, canPair, pairable, onPair, onUndo,
 }: {
   isDiffLoading: boolean
   isDiffError: boolean
@@ -132,6 +135,7 @@ function CompareContent({
   renames: RenamePairDto[] | undefined
   history: RenameEventDto[]
   canPair: boolean
+  pairable: Record<RenameKind, ReadonlySet<string>>
   onPair: (kind: RenameKind, mark: string) => void
   onUndo: (r: RenamePairDto) => void
 }) {
@@ -182,6 +186,7 @@ function CompareContent({
             onSelectRow={onSelectMark}
             renames={renames}
             canPair={canPair}
+            pairable={pairable}
             onPair={onPair}
             onUndo={onUndo}
           />

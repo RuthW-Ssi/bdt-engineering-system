@@ -84,6 +84,12 @@ function useRenameInvalidate(id: number) {
     for (const k of ['rename-candidates', 'dispatch-renames', 'dispatch-diff', 'dispatch']) {
       qc.invalidateQueries({ queryKey: [k, id] })
     }
+    // a pair / undo also changes what other pages show (final review): MO BOM
+    // compare + drawing notice ('mo'), WO version status / Visual ('wo'),
+    // carried paint ('paint-config', 'mbom') and progress ('project-progress')
+    for (const k of ['mo', 'wo', 'paint-config', 'mbom', 'project-progress']) {
+      qc.invalidateQueries({ queryKey: [k] })
+    }
   }
 }
 

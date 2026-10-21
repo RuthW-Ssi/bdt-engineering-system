@@ -145,4 +145,9 @@ describe('listMarkDrawingRevsWithAliases', () => {
     expect(listMarkDrawingRevsWithAliases([...drawings, makePdf({ id: 3, file_name: 'C - - Rev 1.pdf', rev: 1 })], 'C', ['A'])).toMatchObject({ fromMark: null, revs: [{ rev: 1 }] })
     expect(listMarkDrawingRevsWithAliases(drawings, 'C')).toEqual({ revs: [], fromMark: null })
   })
+  it('skips a former name that is an ACTIVE mark in the scope now (another piece reusing it)', () => {
+    const drawings = [makePdf({ id: 1, file_name: 'B - - Rev 1.pdf', rev: 1 }), makePdf({ id: 2, file_name: 'A - - Rev 3.pdf', rev: 3 })]
+    expect(listMarkDrawingRevsWithAliases(drawings, 'C', ['B', 'A'], new Set(['a']))).toMatchObject({ fromMark: 'B', revs: [{ rev: 1 }] })
+    expect(listMarkDrawingRevsWithAliases(drawings, 'C', ['A'], new Set(['A']))).toEqual({ revs: [], fromMark: null })
+  })
 })

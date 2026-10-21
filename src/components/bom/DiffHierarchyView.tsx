@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { ChevronRight, ChevronDown, Search, X, Layers, Box, Info } from 'lucide-react'
+import { ChevronRight, ChevronDown, Search, X, Layers, Box } from 'lucide-react'
 import type { DiffRowDto, DiffStatus, AssemblyDiffItemDto, PartDiffItemDto, JunctionDiffItem, RenameKind, RenamePairDto } from '../../api/dispatches'
 import { DIFF_STATUS_META as STATUS_BADGE } from './diffStatusMeta'
+import { InfoTip } from './InfoTip'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,9 @@ interface Props {
   // mark/part renames (2026-10-21) — BomDispatchDetail only; optional elsewhere
   renames?: RenamePairDto[]
   canPair?: boolean
+  // names the backend offers as disappeared (rename candidates) — a removed
+  // row outside these (e.g. MAIN rows on an ACC-only re-upload) can't be paired
+  pairable?: Record<RenameKind, ReadonlySet<string>>
   onPair?: (kind: RenameKind, mark: string) => void
   onUndo?: (r: RenamePairDto) => void
 }
@@ -87,36 +91,8 @@ function RenameChip({ from, to, rename, onUndo }: { from: string; to: string; re
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: '#0C447C', background: '#E6F1FB', borderRadius: 10, padding: '1px 8px', flexShrink: 0 }}>
       {`เปลี่ยนชื่อ ${from} → ${to}`}
       {rename && onUndo && (rename.undo_blocked
-        ? <UndoBlockedInfo reason={rename.undo_blocked} />
+        ? <InfoTip label="ทำไมยกเลิกคู่ไม่ได้" text={rename.undo_blocked} />
         : <button onClick={e => { e.stopPropagation(); onUndo(rename) }} style={{ fontSize: 11, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>ยกเลิกคู่</button>)}
-    </span>
-  )
-}
-
-// Why undo is blocked, on an ⓘ icon — the app's existing custom
-// hover-tooltip pattern (aria-label + onMouseEnter/Leave + role="tooltip",
-// see DrawingUploadModal's BOM-mark warning), never the native `title`
-// attribute.
-function UndoBlockedInfo({ reason }: { reason: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <span style={{ position: 'relative', display: 'inline-flex' }}>
-      <span
-        tabIndex={0}
-        aria-label="ทำไมยกเลิกคู่ไม่ได้"
-        onMouseEnter={() => setOpen(true)}
-        onMouseLeave={() => setOpen(false)}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        style={{ display: 'inline-flex', cursor: 'help', color: '#8E8E8E', outline: 'none' }}
-      >
-        <Info size={12} />
-      </span>
-      {open && (
-        <div role="tooltip" style={{ position: 'absolute', left: 0, top: '100%', marginTop: 4, zIndex: 20, maxWidth: 240, whiteSpace: 'normal', background: '#1F1F1F', color: 'white', fontSize: 11, lineHeight: 1.4, borderRadius: 6, padding: '6px 8px', boxShadow: '0 4px 8px rgba(0,0,0,0.18)' }}>
-          {reason}
-        </div>
-      )}
     </span>
   )
 }
@@ -289,7 +265,8 @@ function PartRowContent({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, selectedMark, onSelectRow, renames, canPair, onPair, onUndo }: Props) {
+export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, selectedMark, onSelectRow, renames, canPair, pairable, onPair, onUndo }: Props) {
+  const showPair = (kind: RenameKind, mark: string) => !!canPair && !!onPair && !!pairable?.[kind].has(mark)
   const [showUnchanged, setShowUnchanged] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
@@ -519,7 +496,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
               <AsmIcon />
               <Badge status={node.assemblyRow.status} />
               {node.assemblyRow.renamed_from && <RenameChip from={node.assemblyRow.renamed_from} to={node.mark} rename={renameById.get(node.assemblyRow.rename_id!)} onUndo={onUndo} />}
-              {canPair && onPair && node.assemblyRow.status === 'removed' && <PairButton label="จับคู่กับ mark ใหม่" onClick={() => onPair('ASSEMBLY', node.mark)} />}
+              {node.assemblyRow.status === 'removed' && showPair('ASSEMBLY', node.mark) && <PairButton label="จับคู่กับ mark ใหม่" onClick={() => onPair!('ASSEMBLY', node.mark)} />}
               {(node.assemblyRow.status === 'unchanged' || node.assemblyRow.status === 'changed') && (
                 <PartChangeSummaryChip parts={node.parts} />
               )}
@@ -548,7 +525,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
                 <PartIcon />
                 <Badge status={entry.effectiveStatus} />
                 {entry.partRow?.renamed_from && <RenameChip from={entry.partRow.renamed_from} to={pm} rename={renameById.get(entry.partRow.rename_id!)} onUndo={onUndo} />}
-                {canPair && onPair && entry.partRow?.status === 'removed' && <PairButton label="จับคู่กับ part ใหม่" onClick={() => onPair('PART', pm)} />}
+                {entry.partRow?.status === 'removed' && showPair('PART', pm) && <PairButton label="จับคู่กับ part ใหม่" onClick={() => onPair!('PART', pm)} />}
                 <PartRowContent junctionRow={entry.junctionRow} partRow={entry.partRow} />
               </div>
               )
@@ -584,7 +561,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
               <PartIcon />
               <Badge status={row.status} />
               {row.renamed_from && <RenameChip from={row.renamed_from} to={oMark} rename={renameById.get(row.rename_id!)} onUndo={onUndo} />}
-              {canPair && onPair && row.status === 'removed' && <PairButton label="จับคู่กับ part ใหม่" onClick={() => onPair('PART', oMark)} />}
+              {row.status === 'removed' && showPair('PART', oMark) && <PairButton label="จับคู่กับ part ใหม่" onClick={() => onPair!('PART', oMark)} />}
               <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#374151', flexShrink: 0 }}>
                 {(row.curr ?? row.prev)?.part_mark}
               </span>

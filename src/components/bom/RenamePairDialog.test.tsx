@@ -79,4 +79,22 @@ describe('RenamePairDialog', () => {
     expect(screen.queryByLabelText('ชื่อใหม่ของ BUH1B-18')).not.toBeInTheDocument()
     expect(screen.getByLabelText('ชื่อใหม่ของ C-x')).toBeInTheDocument()
   })
+
+  // final review: the ⓘ uses the app's custom hover tooltip, never native `title`
+  it('ⓘ explains pairing on hover with the custom tooltip (no native title)', () => {
+    render(<RenamePairDialog dispatchId={9} onClose={vi.fn()} />)
+    const icon = screen.getByLabelText('อธิบายการจับคู่')
+    expect(icon).not.toHaveAttribute('title')
+    expect(screen.queryByRole('tooltip')).toBeNull()
+    fireEvent.mouseEnter(icon)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('ถ้าไม่จับคู่ ระบบจะถือว่าเป็นชิ้นใหม่')
+    fireEvent.mouseLeave(icon)
+    expect(screen.queryByRole('tooltip')).toBeNull()
+  })
+
+  it('skip / close is disabled while saving', () => {
+    vi.mocked(useSaveRenames).mockReturnValue({ mutateAsync, isPending: true } as any)
+    render(<RenamePairDialog dispatchId={9} onClose={vi.fn()} />)
+    expect(screen.getByRole('button', { name: 'ข้ามทั้งหมด' })).toBeDisabled()
+  })
 })

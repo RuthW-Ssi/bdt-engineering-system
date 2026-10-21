@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { Info, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useRenameCandidates, useSaveRenames } from '../../hooks/useBomDispatches'
 import type { DisappearedMarkDto, RenameCandidatesDto, RenameKind } from '../../api/dispatches'
 import { buildRenamePayload, dataSetChips, keyOf, needsKeep, optionsFor, takenBy, type Choice, type Selections } from '../../lib/bom/renamePairing'
 import { getErrorMessage } from '../../lib/getErrorMessage'
+import { InfoTip } from './InfoTip'
 
 // One dialog for "a name disappeared in the new BOM" (2026-10-21, decision 8):
 // used right after upload and from the BOM version page (`only` = one row).
@@ -46,7 +47,7 @@ export function RenamePairDialog({ dispatchId, only, onClose }: { dispatchId: nu
   return shell(<>
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15, fontWeight: 600 }}>
       ชื่อที่หายไปใน BOM ใหม่
-      <span title="จับคู่แล้ว งานที่กรอกไว้ (Project Progress, สี, MO, WO, Drawing) จะตามไปที่ชื่อใหม่ ถ้าไม่จับคู่ ระบบจะถือว่าเป็นชิ้นใหม่" aria-label="อธิบายการจับคู่" style={{ display: 'inline-flex', color: '#0C447C', cursor: 'help' }}><Info size={14} /></span>
+      <InfoTip label="อธิบายการจับคู่" text="จับคู่แล้ว งานที่กรอกไว้ (Project Progress, สี, MO, WO, Drawing) จะตามไปที่ชื่อใหม่ ถ้าไม่จับคู่ ระบบจะถือว่าเป็นชิ้นใหม่" size={14} color="#0C447C" />
     </div>
     <div style={{ fontSize: 13, color: '#555' }}>BOM ใหม่ไม่มีชื่อเหล่านี้แล้ว ถ้าเป็นชิ้นเดิมที่แค่เปลี่ยนชื่อ ให้เลือกชื่อใหม่ ถ้าไม่ใช่ ให้เลือก &quot;ไม่ใช่ชิ้นเดิม&quot;</div>
     {sections.map(s => (
@@ -57,7 +58,7 @@ export function RenamePairDialog({ dispatchId, only, onClose }: { dispatchId: nu
     ))}
     {missingKeep.length > 0 && <div style={{ fontSize: 12.5, color: '#854F0B' }}>เลือกว่าจะใช้ข้อมูลชุดไหนของ {missingKeep.join(', ')} ก่อน</div>}
     <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
-      <button onClick={onClose} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>{only ? 'ปิด' : 'ข้ามทั้งหมด'}</button>
+      <button onClick={onClose} disabled={save.isPending} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: save.isPending ? 'default' : 'pointer', opacity: save.isPending ? 0.4 : 1 }}>{only ? 'ปิด' : 'ข้ามทั้งหมด'}</button>
       <button onClick={submit} disabled={!renames.length || missingKeep.length > 0 || save.isPending}
         style={{ height: 36, padding: '0 18px', fontSize: 13, fontWeight: 600, color: 'white', background: '#C8202A', borderRadius: 6, opacity: !renames.length || missingKeep.length ? 0.4 : 1 }}>
         {`บันทึกการจับคู่ (${renames.length} คู่)`}

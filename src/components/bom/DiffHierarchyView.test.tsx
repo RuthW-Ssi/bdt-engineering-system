@@ -5,17 +5,27 @@ import type { RenamePairDto } from '../../api/dispatches'
 
 const asm = (m: string) => ({ assembly_mark: m, name: 'H', qty: 2, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: null, height_mm: null })
 const part = (m: string) => ({ part_mark: m, description: null, profile: 'PL', grade: 'SM', qty: 1, length_mm: 1, weight_kg: 1 })
+const pairable = (a: string[] = [], p: string[] = []) => ({ ASSEMBLY: new Set(a), PART: new Set(p) })
 const pair = (over: Partial<RenamePairDto> = {}): RenamePairDto => ({ id: 1, kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', keep: 'old', confirmed_by: 'tao', confirmed_at: '2026-10-21T03:00:00Z', used_at: null, undo_blocked: null, ...over })
 
 describe('DiffHierarchyView — renames (2026-10-21)', () => {
   it('a removed mark offers "จับคู่กับ mark ใหม่" only when pairing is allowed', () => {
     const onPair = vi.fn()
     const props = { assembly_diff: [{ status: 'removed' as const, prev: asm('BUH1B-18'), curr: null }], part_diff: [], junction_diff: [] }
-    const { rerender } = render(<DiffHierarchyView {...props} canPair onPair={onPair} />)
+    const { rerender } = render(<DiffHierarchyView {...props} canPair pairable={pairable(['BUH1B-18'])} onPair={onPair} />)
     fireEvent.click(screen.getByRole('button', { name: 'จับคู่กับ mark ใหม่' }))
     expect(onPair).toHaveBeenCalledWith('ASSEMBLY', 'BUH1B-18')
-    rerender(<DiffHierarchyView {...props} canPair={false} onPair={onPair} />)
+    rerender(<DiffHierarchyView {...props} canPair={false} pairable={pairable(['BUH1B-18'])} onPair={onPair} />)
     expect(screen.queryByRole('button', { name: 'จับคู่กับ mark ใหม่' })).not.toBeInTheDocument()
+  })
+
+  // final review: a removed row the backend doesn't offer as disappeared
+  // (e.g. MAIN rows on an ACC-only re-upload) gets no pair button
+  it('no pair button for a removed row missing from the rename candidates', () => {
+    const props = { assembly_diff: [{ status: 'removed' as const, prev: asm('BUH1B-18'), curr: null }], part_diff: [{ status: 'removed' as const, prev: part('C-x'), curr: null }], junction_diff: [] }
+    render(<DiffHierarchyView {...props} canPair pairable={pairable([], [])} onPair={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'จับคู่กับ mark ใหม่' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'จับคู่กับ part ใหม่' })).not.toBeInTheDocument()
   })
 
   it('a renamed row shows "เปลี่ยนชื่อ X → Y" even when nothing else changed, with "ยกเลิกคู่"', () => {
@@ -49,7 +59,7 @@ describe('DiffHierarchyView — renames (2026-10-21)', () => {
     const onPair = vi.fn()
     render(<DiffHierarchyView assembly_diff={[{ status: 'unchanged', prev: asm('K'), curr: asm('K') }]}
       part_diff={[{ status: 'removed', prev: part('C-x'), curr: null }]}
-      junction_diff={[{ status: 'removed', prev: { assembly_mark: 'K', part_mark: 'C-x', qty: 1 }, curr: null }]} canPair onPair={onPair} />)
+      junction_diff={[{ status: 'removed', prev: { assembly_mark: 'K', part_mark: 'C-x', qty: 1 }, curr: null }]} canPair pairable={pairable([], ['C-x'])} onPair={onPair} />)
     fireEvent.click(screen.getAllByRole('button', { name: 'จับคู่กับ part ใหม่' })[0])
     expect(onPair).toHaveBeenCalledWith('PART', 'C-x')
   })
