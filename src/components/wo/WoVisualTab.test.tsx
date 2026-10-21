@@ -135,6 +135,7 @@ describe('WoVisualTab sheet picker', () => {
     pdf(1, 1, 'CTR10 - - Rev 1.pdf', '2026-08-01T12:00:00Z'),
     pdf(2, 2, 'CTR10 - Sheet A - Rev 2.pdf', '2026-09-20T12:00:00Z'),
     pdf(3, 2, 'CTR10 - Sheet B - Rev 2.pdf', '2026-09-20T12:00:01Z'),
+    pdf(4, 1, 'CTR11 - - Rev 1.pdf', '2026-08-10T12:00:00Z'),
   ]
 
   it('shows no sheet buttons for a rev with a single file', () => {
@@ -173,6 +174,30 @@ describe('WoVisualTab sheet picker', () => {
     fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '2' } })
 
     expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+  })
+
+  // sheetKey is tagged with the mark's bomAssemblyId (see WoVisualTab.tsx),
+  // so a round trip back to the same mark+rev must still reset to sheet 1 —
+  // not silently restore the sheet 2 pick left over from before the switch.
+  it('resets the sheet picker to sheet 1 when switching mark and back', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+
+    // CTR10 (default mark) defaults to rev 2, which has 2 sheets; pick sheet 2.
+    fireEvent.click(screen.getByText('แผ่น 2'))
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet B - Rev 2.pdf')
+
+    // Switch to CTR11 — a single-file rev, so no sheet buttons at all.
+    fireEvent.change(screen.getByLabelText('Drawing mark'), { target: { value: '2' } })
+    expect(screen.queryByText('แผ่น 1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR11 - - Rev 1.pdf')
+
+    // Switch back to CTR10 — same rev as before, but must show sheet 1
+    // (files[0]), not the sheet 2 pick left over from the first visit.
+    fireEvent.change(screen.getByLabelText('Drawing mark'), { target: { value: '1' } })
+
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+    expect([...screen.getAllByText(/แผ่น/)].map(b => b.textContent)).toEqual(['แผ่น 1', 'แผ่น 2'])
   })
 })
 

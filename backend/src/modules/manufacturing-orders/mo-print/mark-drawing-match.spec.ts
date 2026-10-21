@@ -91,4 +91,14 @@ describe('currentRevSheetsForMark', () => {
     const b = drawing({ file_name: 'DBN-A1-CTR1 - Sheet 2 - Rev 2.PDF', rev: 2 })
     expect(currentRevSheetsForMark([a, b], 'DBN-A1-CTR1')).toEqual([a, b])
   })
+
+  // Two file names that differ ONLY by case tie under the { sensitivity:
+  // 'base' } compare — the trailing plain-string tie-break must still give
+  // a deterministic order, and the same one the frontend twin picks (see
+  // markDrawingRevs.test.ts's matching test).
+  it('breaks a case-only-different file_name tie deterministically', () => {
+    const lower = drawing({ file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf', rev: 2 })
+    const upper = drawing({ file_name: 'DBN-A1-CTR1 - SHEET 1 - REV 2.PDF', rev: 2 })
+    expect(currentRevSheetsForMark([lower, upper], 'DBN-A1-CTR1')).toEqual([upper, lower])
+  })
 })

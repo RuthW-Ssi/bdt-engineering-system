@@ -91,6 +91,19 @@ describe('listMarkDrawingRevs', () => {
     expect(entry.files.map(f => f.id)).toEqual([2, 1])
   })
 
+  // Two file names that differ ONLY by case tie under the { sensitivity:
+  // 'base' } compare — the trailing plain-string tie-break must still give
+  // a deterministic order, and the same one the backend twin picks (see
+  // mark-drawing-match.spec.ts's matching test).
+  it('breaks a case-only-different file_name tie deterministically', () => {
+    const drawings = [
+      makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - sheet 1 - Rev 2.pdf', rev: 2 }),
+      makePdf({ id: 2, file_name: 'DBN-B1-CTR10 - SHEET 1 - REV 2.PDF', rev: 2 }),
+    ]
+    const [entry] = listMarkDrawingRevs(drawings, 'DBN-B1-CTR10')
+    expect(entry.files.map(f => f.id)).toEqual([2, 1])
+  })
+
   it('returns a single-element files array (= [drawing]) when a rev has only one file', () => {
     const drawings = [makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - - Rev 1.pdf' })]
     const [entry] = listMarkDrawingRevs(drawings, 'DBN-B1-CTR10')
