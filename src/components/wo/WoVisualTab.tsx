@@ -84,6 +84,27 @@ function Picker({ label, options, value, onPick }: {
   )
 }
 
+// Sheet toggle (แผ่น 1, แผ่น 2…) next to the Rev picker — only rendered when
+// the picked rev has more than one file. Same red/white toggle convention as
+// WoMarksTable.tsx's IconButton (active = filled with the app's brand red),
+// sized/fonted like Picker so the pane header row stays visually consistent.
+function SheetButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        fontFamily: MONO, fontSize: 11, fontWeight: 600, borderRadius: 6, padding: '2px 8px',
+        border: `1px solid ${active ? HIGHLIGHT_COLOR : '#E0E0E0'}`,
+        background: active ? HIGHLIGHT_COLOR : '#fff',
+        color: active ? '#fff' : '#1A1A1A',
+        cursor: 'pointer', flexShrink: 0,
+      }}
+    >
+      {label}
+    </button>
+  )
+}
+
 // Pane caption + its pickers (mark, then version). One row that never wraps
 // — the pickers shrink (truncating their shown label) instead, so the 3D and
 // Drawing panes below always start at the same height side by side.
@@ -173,6 +194,23 @@ export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark
     value: v.rev,
     label: `Rev ${v.rev} · ${formatDate(v.drawing.create_date)}${i === 0 ? ' (latest)' : ''}`,
   }))
+  // Sheet picker (แผ่น 1, แผ่น 2…) — resets to sheet 1 whenever the shown
+  // mark+rev changes, even back to one seen earlier in this session (a
+  // drawingPick-style tag that only compares to the CURRENT mark/rev would
+  // miss that round-trip: switch away and back to the same rev would then
+  // silently restore the old sheet pick instead of resetting it). Adjusted
+  // during render against the previous render's key — React's documented
+  // "reset state when a prop changes" pattern, same technique as the
+  // orientation/rotation reset below — rather than an effect, which would
+  // paint one stale frame with the old sheet still showing first.
+  const sheetKey = active ? `${active.bomAssemblyId}:${selectedDrawing?.rev ?? ''}` : ''
+  const [sheetIndex, setSheetIndex] = useState(0)
+  const [prevSheetKey, setPrevSheetKey] = useState(sheetKey)
+  if (sheetKey !== prevSheetKey) {
+    setPrevSheetKey(sheetKey)
+    setSheetIndex(0)
+  }
+  const sheetFile = selectedDrawing?.files[sheetIndex] ?? selectedDrawing?.drawing ?? null
   const mark = active?.mark ?? ''
   const markOptions: PickerOption[] = marks.map(m => ({ value: m.bomAssemblyId, label: m.mark }))
   // 'default' = whatever fitToView already framed (no orientation button
@@ -390,14 +428,26 @@ export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark
           value={selectedDrawing?.rev ?? null}
           onPick={rev => setDrawingPick({ bomAssemblyId: active.bomAssemblyId, rev })}
         />
+        {selectedDrawing && selectedDrawing.files.length > 1 && (
+          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+            {selectedDrawing.files.map((file, i) => (
+              <SheetButton
+                key={file.id}
+                label={`แผ่น ${i + 1}`}
+                active={i === sheetIndex}
+                onClick={() => setSheetIndex(i)}
+              />
+            ))}
+          </div>
+        )}
       </PaneHeader>
       <div className="flex-1 min-h-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
         {drawingsLoading ? (
           <LoadingBox />
         ) : drawingsError ? (
           <EmptyBox icon={<AlertTriangle size={28} />} message={`Couldn't load drawings for mark "${mark}".`} />
-        ) : selectedDrawing ? (
-          <DrawingPreviewPanel drawing={selectedDrawing.drawing} />
+        ) : sheetFile ? (
+          <DrawingPreviewPanel drawing={sheetFile} />
         ) : (
           <EmptyBox icon={<FileText size={28} />} message={`No drawing uploaded for mark "${mark}" yet.`} />
         )}

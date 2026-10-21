@@ -128,6 +128,54 @@ describe('WoVisualTab drawing version picker', () => {
   })
 })
 
+describe('WoVisualTab sheet picker', () => {
+  // CTR10 rev 1 has a single file (no buttons); rev 2 has two sheets,
+  // natural-sorted by file_name ("Sheet A" before "Sheet B").
+  const sheetDrawings = [
+    pdf(1, 1, 'CTR10 - - Rev 1.pdf', '2026-08-01T12:00:00Z'),
+    pdf(2, 2, 'CTR10 - Sheet A - Rev 2.pdf', '2026-09-20T12:00:00Z'),
+    pdf(3, 2, 'CTR10 - Sheet B - Rev 2.pdf', '2026-09-20T12:00:01Z'),
+  ]
+
+  it('shows no sheet buttons for a rev with a single file', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+
+    fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '1' } })
+
+    expect(screen.queryByText('แผ่น 1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - - Rev 1.pdf')
+  })
+
+  it('shows sheet buttons for a 2-file rev, defaults to sheet 1, and switches the preview on click', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+
+    // Rev 2 is the default (newest) and has 2 sheets.
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+    expect(screen.getByText('แผ่น 1')).toBeInTheDocument()
+    expect(screen.getByText('แผ่น 2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('แผ่น 2'))
+
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet B - Rev 2.pdf')
+  })
+
+  it('resets to sheet 1 when switching to a different rev', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+    fireEvent.click(screen.getByText('แผ่น 2'))
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet B - Rev 2.pdf')
+
+    fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '1' } })
+    expect(screen.queryByText('แผ่น 1')).not.toBeInTheDocument() // rev 1 has only one file
+
+    fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '2' } })
+
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+  })
+})
+
 describe('WoVisualTab 3D version picker', () => {
   it('shows the model the backend defaulted to, with non-complete versions labelled', () => {
     render(<WoVisualTab woId={1} marks={marks} />)
