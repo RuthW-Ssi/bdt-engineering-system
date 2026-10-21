@@ -10,7 +10,7 @@ import { currentRevSheetsWithAliases } from './mark-drawing-match'
 import { summarizeOperations, type OperationSummary, printedDrawingRevs, renamesForRev, sourceLabelOf } from './mo-print-format'
 import { staleDrawings, type CurrentDrawingRevItem, type StaleDrawingItem } from './drawing-rev-status'
 import { MarkAliasService } from '../../mark-rename/mark-alias.service'
-import { formerNames, scopeKey, type RenameRow } from '../../mark-rename/mark-alias'
+import { formerNames, scopeKey, usableFormerNames, type RenameRow } from '../../mark-rename/mark-alias'
 
 export interface MoPrintWorkOrderRow {
   wo: {
@@ -598,6 +598,7 @@ export class MoPrintService {
   private async resolveCurrentRevSheets(workOrders: WoForDrawingMatch[]): Promise<CurrentRevSheetEntry[]> {
     const drawingsByZone = new Map<string, ZoneDrawingRow[]>()
     const renamesByScope = new Map<string, RenameRow[]>()
+    const activeByScope = new Map<string, Set<string>>()
     const out: CurrentRevSheetEntry[] = []
     for (const wo of workOrders) {
       for (const mark of wo.marks) {
@@ -608,15 +609,23 @@ export class MoPrintService {
         // Former names (2026-10-21) — bounded by this row's own dispatch, so
         // a reused name never pulls another piece's drawings. Cached by
         // scope (not by mark) since many marks of the same dispatch share it.
+        // A former name that is an ACTIVE mark in the scope right now is
+        // another piece reusing it — skipped (its drawings are that piece's),
+        // here and in the stale-notice lookup alike. Fetched once per scope,
+        // only when some mark there has former names at all.
         let aliases: string[] = []
+        let active: Set<string> | undefined
         if (project_id != null && a.dispatch_id != null) {
           const scope = { project_id, zone_id, sub_zone_id }
           const sk = scopeKey(scope)
           if (!renamesByScope.has(sk)) renamesByScope.set(sk, await this.alias.renamesFor(scope))
           aliases = formerNames(renamesByScope.get(sk)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
+          if (aliases.length && !activeByScope.has(sk)) activeByScope.set(sk, await this.alias.activeMarksFor(scope))
+          active = activeByScope.get(sk)
+          aliases = usableFormerNames(aliases, active)
         }
         const zoneDrawings = drawingsByZone.get(key) ?? []
-        const { sheets, fromMark } = currentRevSheetsWithAliases(zoneDrawings, a.assembly_mark, aliases)
+        const { sheets, fromMark } = currentRevSheetsWithAliases(zoneDrawings, a.assembly_mark, aliases, active)
         out.push({ woId: wo.id, assemblyMark: a.assembly_mark, sheets, fromMark, aliases })
       }
     }

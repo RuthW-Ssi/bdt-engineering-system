@@ -690,6 +690,20 @@ describe('buildMoPrintPdf', () => {
       expect(top[0].x).toBeGreaterThan(pageWidth - 40) // bare "3 / 3"
     })
 
+    // final review: a long label on a narrow sheet shrinks to fit instead of
+    // running off the left edge
+    it('shrinks a long corner label to fit a narrow drawing page (x stays at or right of the border inset)', async () => {
+      const longMark = 'VERY-LONG-ASSEMBLY-MARK-NAME-WITH-MANY-PARTS-0001'
+      const row = makeRow({ marks: [{ ...makeRow().marks[0], assemblyMark: longMark }] })
+      const bytes = await buildMoPrintPdf(makePlan([row]), async () => fakePdfBytes(1, [300, 300]))
+      const merged = await PDFDocument.load(bytes)
+      const { height } = merged.getPage(2).getSize()
+      const corner = Array.from(decodedContentStream(merged, 2).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => ({ x: Number(m[1]), y: Number(m[2]) }))
+        .filter(p => p.y < height / 3)
+      expect(corner).toHaveLength(1)
+      expect(corner[0].x).toBeGreaterThanOrEqual(20)
+    })
+
     it('keeps a plain page number (no stamp) on the traveler page', async () => {
       const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1, [1600, 1000]))
       const merged = await PDFDocument.load(bytes)

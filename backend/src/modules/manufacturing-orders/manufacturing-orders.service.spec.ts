@@ -1375,6 +1375,17 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     expect(alias.markUsed).toHaveBeenCalledWith(tx, [7])
   })
 
+  // final review CRITICAL: "keep" on a same-valued pre-paired row still moves
+  // the line onto the renamed target — the pair is used and History says so
+  it('keep on a same-valued renamed row marks the pair used and logs the rename', async () => {
+    const alias = aliasOf({ id: 7, kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', dispatch_id: 28 })
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1B-18', 2, [P('C-f1')]))], [BOM(3010, '3BUH1B-18', 6, [P('C-f1')])], [], [], alias)
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1B-18', action: 'keep' }] } as any, 1, 'tao')
+    expect(tx.mo_assembly_line.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { bom_assembly_id: 3010, qty: expect.anything() } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [7])
+    expect(tx.mo_status_history.create.mock.calls[0][0].data.reason).toContain('3BUH1B-18 ชื่อ mark BUH1B-18 → 3BUH1B-18')
+  })
+
   // CRITICAL (fix round 1, Review Focus 1): a reused name must never recapture
   // another piece — the old A line follows its OWN confirmed pair to B, never
   // a later, unrelated A that reuses the freed name; that new A stays visible

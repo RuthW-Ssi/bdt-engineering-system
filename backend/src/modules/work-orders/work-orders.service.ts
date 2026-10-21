@@ -5,7 +5,7 @@ import { MailMessageService } from '../mail/mail-message.service'
 import { actualsTracking, parseActualDates, parseMarkFinish } from '../../common/actual-dates'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 import { MarkAliasService } from '../mark-rename/mark-alias.service'
-import { followRenames, formerNames, scopeKey, type BomScope, type RenameRow } from '../mark-rename/mark-alias'
+import { followRenames, formerNames, partRenameChain, scopeKey, usableFormerNames, type BomScope, type RenameRow } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
 import { AcceptVersionDto } from './dto/accept-version.dto'
 import { CancelWoDto, WoActualsDto, WoDoneDto } from './dto/wo-transition.dto'
@@ -14,7 +14,7 @@ import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
 import { UpdateMarkProgressDto } from './dto/update-mark-progress.dto'
 import { fmtBkk } from '../../common/history-format'
-import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField, type FinishChange, type ProgressChange } from './progress-changes'
+import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField, type FinishChange, type MarkNameChange, type ProgressChange } from './progress-changes'
 
 /**
  * WO list default sort tiebreak (T-WO.09): active work first, terminal last.
@@ -210,14 +210,20 @@ export class WorkOrdersService {
     })
   }
 
-  /** Older names of each mark (2026-10-21) — the WO Visual tab falls back to their Drawings. */
+  /** Older names of each mark (2026-10-21) — the WO Visual tab falls back to
+   *  their Drawings. A former name that is an ACTIVE mark in the scope now
+   *  belongs to another piece reusing it, so it's left out (final review) —
+   *  same rule as the print's currentRevSheetsWithAliases. */
   async formerMarks(assemblies: { id: number; assembly_mark: string; dispatch_id: number; dispatch: BomScope }[]): Promise<Map<number, string[]>> {
     const byScope = new Map<string, RenameRow[]>()
+    const activeByScope = new Map<string, Set<string>>()
     const out = new Map<number, string[]>()
     for (const a of assemblies) {
       const k = scopeKey(a.dispatch)
       if (!byScope.has(k)) byScope.set(k, await this.alias.renamesFor(a.dispatch))
-      out.set(a.id, formerNames(byScope.get(k)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id))
+      const names = formerNames(byScope.get(k)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
+      if (names.length && !activeByScope.has(k)) activeByScope.set(k, await this.alias.activeMarksFor(a.dispatch))
+      out.set(a.id, usableFormerNames(names, activeByScope.get(k)))
     }
     return out
   }
@@ -1542,11 +1548,13 @@ export class WorkOrdersService {
     // provided leaves them untouched. Audited (2026-10-05) on the
     // ACCEPT_VERSION event itself.
     const qc = provided ? this.qcBreakdownWrite(dto) : null
-    const changes: (ProgressChange | FinishChange)[] = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
+    const changes: (ProgressChange | FinishChange | MarkNameChange)[] = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
     // A finish date only stands while QC Passed = Quantity (2026-10-14, QA F-2).
     const qcAfter = toNum(qc ? qc.qty_qc_passed : mark.qty_qc_passed)
     const clearFinish = mark.actual_finish != null && qcAfter !== Number(newQtyPlanned)
     if (clearFinish) changes.push({ field: 'actual_finish', old: mark.actual_finish!.toISOString(), new: null })
+    // History standard: a rename is a field-level change too (final review)
+    if (renamedTo) changes.push({ field: 'assembly_mark', old: renamedTo.from, new: renamedTo.to })
 
     // WO part rows follow the mark (2026-10-21 fix — they used to stay on the old
     // version's rows and recomputeParts then added duplicates): by part mark,
@@ -1569,10 +1577,11 @@ export class WorkOrdersService {
     })
     const woCodeById = new Map(woParts.map(w => [w.work_order_id, (w as unknown as { work_order?: { wo_code: string } }).work_order?.wo_code]))
     const plan = planPartRepoint(oldParts, newParts, woParts, m => {
-      const f = followRenames(renames, 'PART', m, mark.bom_assembly.dispatch_id)
-      // If the chain lands somewhere this version doesn't actually have, fall back
-      // to the part's own name rather than apply a target that doesn't exist.
-      return f.name !== m && newPartMarks.has(f.name) ? { mark: f.name, renameIds: f.ids } : { mark: m, renameIds: [] }
+      // Same rule as MO switch (final review): the FURTHEST hop of the chain that
+      // this version actually has; none → the part's own name.
+      const chain = partRenameChain(renames, m, mark.bom_assembly.dispatch_id)
+      for (let i = chain.length - 1; i > 0; i--) if (newPartMarks.has(chain[i].mark)) return chain[i]
+      return { mark: m, renameIds: [] }
     })
     if (plan.stuck.length) {
       // A stuck row on a sibling WO (apply_to_other_wos) names that WO's code —

@@ -78,3 +78,32 @@ export function aliasWhere(aliases: Alias[], field: 'assembly_mark' | 'part_mark
   }
   return aliases.length === 1 ? one(aliases[0]) : { OR: aliases.map(one) }
 }
+
+/** Former names minus the ones that are an ACTIVE assembly mark in the same
+ *  scope right now (final review, 2026-10-21) — such a name was reused by
+ *  another piece, so whatever is filed under it (Drawings) is that piece's.
+ *  Case-insensitive, like every Drawing mark match. */
+export function usableFormerNames(names: string[], activeMarks: ReadonlySet<string> = new Set()): string[] {
+  const active = new Set([...activeMarks].map(m => m.toLowerCase()))
+  return names.filter(n => !active.has(n.toLowerCase()))
+}
+
+/** Every hop of a forward PART rename chain from `mark`, nearest first (index 0
+ *  is the mark itself, untouched). A target version may not actually carry the
+ *  chain's very last name — this lets the caller fall back to the FURTHEST hop
+ *  that IS among its own parts, not just the chain's end (fix round 2). Shared
+ *  by MO switch and WO accept (final review) so both pick the same target. */
+export function partRenameChain(renames: RenameRow[], mark: string, since: number): { mark: string; renameIds: number[] }[] {
+  const rows = renames.filter(r => r.kind === 'PART')
+  const chain = [{ mark, renameIds: [] as number[] }]
+  let name = mark, bound = since, ids: number[] = []
+  for (;;) {
+    const next = rows.filter(r => r.from_mark === name && r.dispatch_id > bound)
+    if (!next.length) return chain
+    const r = next.reduce((a, b) => (b.dispatch_id < a.dispatch_id ? b : a))
+    ids = [...ids, r.id]
+    name = r.to_mark
+    bound = r.dispatch_id
+    chain.push({ mark: name, renameIds: ids })
+  }
+}

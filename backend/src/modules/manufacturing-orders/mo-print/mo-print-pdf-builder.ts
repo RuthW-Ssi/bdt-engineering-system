@@ -977,10 +977,12 @@ async function buildDrawingPage(
   page.drawPage(embeddedDrawing, { x: 0, y: 0, width: embeddedDrawing.width, height: embeddedDrawing.height })
 
   const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
-  const labelSize = 12
+  // 12pt, shrunk to fit between the two border insets on a narrow sheet
+  // (final review) so a long mark/stamp never runs off the left edge
+  const labelSize = fitTextSize(fonts.bold, label, page.getWidth() - 2 * BORDER_INSET, 12, 4)
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
   page.drawText(label, {
-    x: page.getWidth() - BORDER_INSET - labelWidth,
+    x: Math.max(BORDER_INSET, page.getWidth() - BORDER_INSET - labelWidth),
     // A tighter margin than BORDER_INSET (2026-09-23: "เอาต่ำลงมาอีก" — move
     // it down more) — the drawing's own title block sits right at the
     // bottom of the sheet, so BORDER_INSET's 20pt margin still read as

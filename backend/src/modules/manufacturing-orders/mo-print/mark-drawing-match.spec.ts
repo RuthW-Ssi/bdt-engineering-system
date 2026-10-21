@@ -116,4 +116,10 @@ describe('currentRevSheetsWithAliases', () => {
   it('nothing anywhere → empty', () => {
     expect(currentRevSheetsWithAliases([], 'C', ['B'])).toEqual({ sheets: [], fromMark: null })
   })
+  it('a former name that is an ACTIVE mark in the scope now belongs to another piece → skipped', () => {
+    const drawings = [row('B - 1.pdf', 'B', 1), row('A - 3.pdf', 'A', 3)]
+    const r = currentRevSheetsWithAliases(drawings, 'C', ['B', 'A'], new Set(['a']))
+    expect([r.sheets.map(s => s.file_name), r.fromMark]).toEqual([['B - 1.pdf'], 'B'])
+    expect(currentRevSheetsWithAliases(drawings, 'C', ['A'], new Set(['A']))).toEqual({ sheets: [], fromMark: null })
+  })
 })

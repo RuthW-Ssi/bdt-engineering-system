@@ -24,7 +24,7 @@ import { fmtBkk } from '../../common/history-format'
 import { actualsTracking, parseActualDates } from '../../common/actual-dates'
 // mark/part renamed between dispatch versions (2026-10-21, [[bom-mark-rename-plan]])
 import { MarkAliasService } from '../mark-rename/mark-alias.service'
-import { followRenames, scopeKey, type RenameRow } from '../mark-rename/mark-alias'
+import { followRenames, partRenameChain, scopeKey, type RenameRow } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
 
 /**
@@ -165,25 +165,6 @@ function partProblems(parts: { part_mark: string; profile: string; length_mm: nu
   const dupes = [...new Set(names.filter((n, i) => names.indexOf(n) !== i))]
   if (dupes.length) out.push(`part ซ้ำ: ${dupes.join(', ')}`)
   return out
-}
-
-/** Every hop of a forward PART rename chain from `mark`, nearest first (index 0
- *  is the mark itself, untouched). A target version may not actually carry the
- *  chain's very last name — this lets the caller fall back to the FURTHEST hop
- *  that IS among its own parts, not just the chain's end (fix round 2). */
-function partRenameChain(renames: RenameRow[], mark: string, since: number): { mark: string; renameIds: number[] }[] {
-  const rows = renames.filter(r => r.kind === 'PART')
-  const chain = [{ mark, renameIds: [] as number[] }]
-  let name = mark, bound = since, ids: number[] = []
-  for (;;) {
-    const next = rows.filter(r => r.from_mark === name && r.dispatch_id > bound)
-    if (!next.length) return chain
-    const r = next.reduce((a, b) => (b.dispatch_id < a.dispatch_id ? b : a))
-    ids = [...ids, r.id]
-    name = r.to_mark
-    bound = r.dispatch_id
-    chain.push({ mark: name, renameIds: ids })
-  }
 }
 
 @Injectable()
@@ -1246,7 +1227,11 @@ export class ManufacturingOrderService {
           partRenameChain(allRenames.filter(r => r.dispatch_id <= boundDispatchId), pm, line.bom_assembly.dispatch_id)
         // applying onto the pre-paired target marks that pair used (explicit pair_with or the natural row.bom fallback — both land here)
         const pre = prePaired.get(m.assembly_mark)
-        if (m.action === 'apply' && pre && target?.assembly_id === pre.assembly_id) used.push(...pre.ids)
+        // whatever the action (final review): apply onto it, or keep a row that is
+        // the same in the new version — both move the line onto the renamed target
+        const keepSame = m.action === 'keep' && row.kind === 'bom' && row.status === 'same' && !!row.bom
+        const landsOn = m.action === 'apply' ? target?.assembly_id : keepSame ? row.bom!.assembly_id : undefined
+        if (pre && landsOn === pre.assembly_id) used.push(...pre.ids)
         if (m.action === 'apply' && row.kind === 'bom') {
           log.push(...(await this.switchToBomVersion(tx, id, line, row.existing, target!, m.final!.qty, cmp.bom!.dispatch_id, userName, 'ใช้ BOM version ใหม่', partMap, partAliasFor(target!.dispatch_id), used)))
         } else if (m.action === 'apply' && target && willLink(m, target)) {
@@ -1272,10 +1257,10 @@ export class ManufacturingOrderService {
           log.push(...changed)
           if (changed.length || renamed) await this.syncWos(tx, id, [line.bom_assembly_id], userName, changed)
           await tx.bom_assembly.update({ where: { id: line.bom_assembly_id }, data: { attributes: { ...attrs, ...ref(target?.assembly_id ?? null) } } })
-        } else if (m.action === 'keep' && row.kind === 'bom' && row.status === 'same' && row.bom) {
-          // identical in the new version — follow it so the MO and its WOs sit on the latest BOM
-          await this.switchToBomVersion(tx, id, line, row.existing, row.bom, row.existing.qty, cmp.bom!.dispatch_id, userName, undefined, undefined, partAliasFor(row.bom.dispatch_id), used)
-          log.push(`${m.assembly_mark} ตรงกับ BOM version ใหม่`)
+        } else if (keepSame) {
+          // identical in the new version — follow it so the MO and its WOs sit on the latest BOM;
+          // its lines carry a rename ("X ชื่อ mark A → X") so MO History / print show the old name
+          log.push(...(await this.switchToBomVersion(tx, id, line, row.existing, row.bom!, row.existing.qty, cmp.bom!.dispatch_id, userName, 'ตรงกับ BOM version ใหม่', undefined, partAliasFor(row.bom!.dispatch_id), used)))
         } else if (m.action === 'keep') {
           await tx.bom_assembly.update({ where: { id: line.bom_assembly_id }, data: { attributes: { ...attrs, ...ref(row.bom?.assembly_id ?? null) } } })
           log.push(`${m.assembly_mark} เก็บค่าเดิม${row.bom ? '' : ' (ไม่มีใน BOM)'}`)

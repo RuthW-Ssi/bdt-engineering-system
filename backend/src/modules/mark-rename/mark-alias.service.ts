@@ -32,6 +32,16 @@ export class MarkAliasService {
     return map
   }
 
+  /** Every ACTIVE assembly mark in a scope — a former name in here is a
+   *  different piece reusing it (see usableFormerNames). */
+  async activeMarksFor(scope: BomScope): Promise<Set<string>> {
+    const rows = await this.prisma.bom_assembly.findMany({
+      where: { status: 'ACTIVE', dispatch: { project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id } },
+      select: { assembly_mark: true }, distinct: ['assembly_mark'],
+    })
+    return new Set(rows.map(r => r.assembly_mark))
+  }
+
   /** First MO/WO accept through a pair — from then on it can't be undone (a1). */
   async markUsed(client: RenameClient, ids: number[]): Promise<void> {
     const unique = [...new Set(ids)]

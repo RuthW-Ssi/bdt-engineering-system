@@ -121,6 +121,7 @@ function makePrisma(overrides: Record<string, any> = {}) {
       )),
     },
     bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
     ...overrides,
   }
 }
@@ -931,5 +932,24 @@ describe('MoPrintService.drawingRevStatus', () => {
     const svc = new MoPrintService(prisma as any, makeDrawings({ findByZone: jest.fn().mockResolvedValue([makePdfDrawing({ rev: 2 })]) }) as any, makeFileStorage() as any, makeMoService() as any)
 
     expect(await svc.drawingRevStatus(85)).toEqual({ items: [{ wo_id: 1398, wo_code: 'WO-00000739', mark: '3DBN-A1-CTR1', printed_rev: 1, current_rev: 2 }] })
+  })
+
+  // final review: a former name reused by ANOTHER piece (ACTIVE in the same
+  // scope) is that piece's Drawing now — never printed / tracked for this one
+  it('a former name that is ACTIVE again in the scope (another piece) gives no fallback Drawing', async () => {
+    const renamedMark = makeMark({ bom_assembly: { id: 2868, assembly_mark: '3DBN-A1-CTR1', name: 'Column A1', weight_kg: 450, dispatch_id: 30,
+      dispatch: makeDispatch({ project_id: 6 }) } })
+    const bomAssemblyFind = jest.fn().mockResolvedValue([{ assembly_mark: '3DBN-A1-CTR1' }, { assembly_mark: 'DBN-A1-CTR1' }])
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([makeWo({ marks: [renamedMark] })]) },
+      mo_print_log: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([{ printed_at: new Date('2026-10-01T00:00:00Z'), drawing_revs: { '1398': { 'DBN-A1-CTR1': 1 } } }]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([{ id: 7, kind: 'ASSEMBLY', from_mark: 'DBN-A1-CTR1', to_mark: '3DBN-A1-CTR1', dispatch_id: 30 }]) },
+      bom_assembly: { findMany: bomAssemblyFind },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings({ findByZone: jest.fn().mockResolvedValue([makePdfDrawing({ rev: 2 })]) }) as any, makeFileStorage() as any, makeMoService() as any)
+
+    expect(await svc.drawingRevStatus(85)).toEqual({ items: [] })
+    expect(bomAssemblyFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'ACTIVE', dispatch: { project_id: 6, zone_id: 23, sub_zone_id: null } }) }))
   })
 })

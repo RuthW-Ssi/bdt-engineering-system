@@ -7,6 +7,8 @@
 // Split on " - " (the CAD export tool's own field separator) rather than a
 // prefix/substring check, so "CTR1" never matches a file actually named
 // "CTR10 - ...".
+import { usableFormerNames } from '../../mark-rename/mark-alias'
+
 export interface DrawingRow {
   file_name: string
   mark: string | null
@@ -54,16 +56,17 @@ export function currentRevSheetsForMark<T extends DrawingRow>(drawings: T[], mar
 
 // A renamed mark (2026-10-21): when the mark itself has no PDF drawing in the
 // zone, use the highest rev among its former names (nearest name wins a tie).
-// The Drawings page still lists those files under the old name. Controller
-// ruling: name lookups follow a confirmed rename chain bounded by the row's
-// own dispatch, and a reused name must never capture another piece's
-// drawings — so fallback to former names only kicks in when the current
-// mark has no PDF drawing of its own at all (never a partial mix of both).
-export function currentRevSheetsWithAliases<T extends DrawingRow>(drawings: T[], mark: string, formerNames: string[]): { sheets: T[]; fromMark: string | null } {
+// The Drawings page still lists those files under the old name. Fallback only
+// kicks in when the current mark has no PDF drawing of its own at all (never
+// a partial mix of both). `formerNames` is bounded by the row's own dispatch,
+// but that alone can't tell a reused name apart: a former name that is an
+// ACTIVE assembly mark in the same scope right now (`activeMarks`) belongs to
+// another piece, so its drawings are that piece's and are skipped.
+export function currentRevSheetsWithAliases<T extends DrawingRow>(drawings: T[], mark: string, formerNames: string[], activeMarks?: ReadonlySet<string>): { sheets: T[]; fromMark: string | null } {
   const own = currentRevSheetsForMark(drawings, mark)
   if (own.length) return { sheets: own, fromMark: null }
   let best: { sheets: T[]; fromMark: string | null } = { sheets: [], fromMark: null }
-  for (const name of formerNames) {
+  for (const name of usableFormerNames(formerNames, activeMarks)) {
     const s = currentRevSheetsForMark(drawings, name)
     if (s.length && (!best.sheets.length || (s[0].rev ?? 0) > (best.sheets[0].rev ?? 0))) best = { sheets: s, fromMark: name }
   }
