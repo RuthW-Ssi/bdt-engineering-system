@@ -281,5 +281,18 @@ describe('MoAllocationService', () => {
       const tips = await svc.allocationBreakdownMap()
       expect(tips.get(2)).toEqual([{ mo_code: 'MO-1', qty: 3 }])
     })
+
+    // fix round 1 (item 3): a SINGLE-row path (allocatedFor/allocationBreakdown)
+    // queried with the OLD A's own id must resolve forward to the current piece
+    // (B) first — so it counts B's own line too, and still never the new A's.
+    it('allocatedFor/allocationBreakdown given the OLD A row id resolve forward to B — counting B\'s own line too, never the new A\'s', async () => {
+      const linesWithB = [...lines, { id: 101, mo_id: 10, bom_assembly_id: 2, qty: 2 }, { id: 102, mo_id: 10, bom_assembly_id: 3, qty: 9 }]
+      const svc = new MoAllocationService(makeFakePrisma(assemblies, mos, linesWithB, renames) as any)
+      // queried by the stale/INACTIVE old A id (1) — must match querying by B's own id (2)
+      expect(await svc.allocatedFor(1)).toBe(5) // old A's own 3 + B's own 2 — never the new A's 9
+      expect(await svc.allocatedFor(1)).toBe(await svc.allocatedFor(2))
+      const breakdown = await svc.allocationBreakdown(1)
+      expect(breakdown.sort((a, b) => a.qty - b.qty)).toEqual([{ mo_code: 'MO-1', qty: 2 }, { mo_code: 'MO-1', qty: 3 }])
+    })
   })
 })

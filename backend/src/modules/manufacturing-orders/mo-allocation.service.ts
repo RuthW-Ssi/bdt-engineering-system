@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { MoStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { MarkAliasService } from '../mark-rename/mark-alias.service'
-import { aliasesOf, aliasMatches, aliasWhere, scopeKey, type Alias } from '../mark-rename/mark-alias'
+import { aliasesOf, aliasMatches, aliasWhere, followRenames, scopeKey, type Alias, type RenameRow } from '../mark-rename/mark-alias'
 
 /** Statuses that still consume assembly allocation (P15). Only CANCELLED returns qty. */
 export const ALLOCATING_STATUSES: MoStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'DONE']
@@ -53,24 +53,36 @@ export class MoAllocationService {
 
   /** This assembly's current name plus every former name it held, bounded to the
    *  dispatches that are really this physical piece (2026-10-21) — a reused name
-   *  never pulls an unrelated, later piece's allocation in (Review Focus 1). */
-  private async aliasesFor(a: { assembly_mark: string; dispatch_id: number; dispatch: DispatchGroup }) {
-    return aliasesOf(await this.alias.renamesFor(a.dispatch), 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
+   *  never pulls an unrelated, later piece's allocation in (Review Focus 1).
+   *  Fix round 1: the GIVEN row is resolved FORWARD first — an old/renamed-away
+   *  row id must count its CURRENT piece's lines (never a later, unrelated reuse
+   *  of its own freed name). Once at the current name there is nothing further
+   *  to chase, so any "as of now" bound gives the same aliases as the (unknown)
+   *  dispatch id of that current row would. */
+  private aliasesFrom(renames: RenameRow[], a: { assembly_mark: string; dispatch_id: number }) {
+    const current = followRenames(renames, 'ASSEMBLY', a.assembly_mark, a.dispatch_id).name
+    return aliasesOf(renames, 'ASSEMBLY', current, Number.MAX_SAFE_INTEGER)
   }
 
-  async remainingFor(bomAssemblyId: number, excludeMoId?: number): Promise<number> {
+  private async aliasesFor(a: { assembly_mark: string; dispatch_id: number; dispatch: DispatchGroup }, renames?: RenameRow[]) {
+    return this.aliasesFrom(renames ?? (await this.alias.renamesFor(a.dispatch)), a)
+  }
+
+  async remainingFor(bomAssemblyId: number, excludeMoId?: number, renames?: RenameRow[]): Promise<number> {
     const assembly = await this.prisma.bom_assembly.findUnique({ where: { id: bomAssemblyId } })
     const total = Number(assembly?.qty ?? 0)
-    return total - (await this.allocatedFor(bomAssemblyId, excludeMoId))
+    return total - (await this.allocatedFor(bomAssemblyId, excludeMoId, renames))
   }
 
-  async allocatedFor(bomAssemblyId: number, excludeMoId?: number): Promise<number> {
+  /** `renames` may be preloaded once by a caller iterating several assemblies of
+   *  the same MO/scope (2026-10-21 fix round 1) — avoids an N+1 on bom_mark_rename. */
+  async allocatedFor(bomAssemblyId: number, excludeMoId?: number, renames?: RenameRow[]): Promise<number> {
     const assembly = await this.prisma.bom_assembly.findUnique({
       where: { id: bomAssemblyId },
       select: { assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } },
     })
     if (!assembly) return 0
-    const aliases = await this.aliasesFor(assembly)
+    const aliases = await this.aliasesFor(assembly, renames)
     const agg = await this.prisma.mo_assembly_line.aggregate({
       _sum: { qty: true },
       where: {
@@ -89,13 +101,13 @@ export class MoAllocationService {
     return Number(agg._sum.qty ?? 0)
   }
 
-  async allocationBreakdown(bomAssemblyId: number): Promise<AllocationEntry[]> {
+  async allocationBreakdown(bomAssemblyId: number, renames?: RenameRow[]): Promise<AllocationEntry[]> {
     const assembly = await this.prisma.bom_assembly.findUnique({
       where: { id: bomAssemblyId },
       select: { assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } },
     })
     if (!assembly) return []
-    const aliases = await this.aliasesFor(assembly)
+    const aliases = await this.aliasesFor(assembly, renames)
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: {
         bom_assembly: {

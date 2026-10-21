@@ -1335,16 +1335,46 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
   const full = (l: any) => ({ ...l, bom_assembly: { ...l.bom_assembly, dispatch: { source: 'BOM_UPLOAD' } } })
   const aliasOf = (...rows: any[]) => ({ renamesFor: jest.fn().mockResolvedValue(rows), markUsed: jest.fn() })
 
-  it('a mark renamed on the BOM page comes pre-paired (top suggestion, 100); keeping it marks the pair used', async () => {
+  // fix round 1: a confirmed rename resolves the line directly (like any other
+  // matched BOM row) — no more candidate guessing for it, and applying needs
+  // no explicit pair_with (the row's own `bom` already carries the target).
+  it('a mark renamed on the BOM page resolves directly to its current BOM row; applying it marks the pair used', async () => {
     const alias = aliasOf({ id: 7, kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', dispatch_id: 28 })
     const { svc, tx } = make([full(LINE(1, 701, 'BUH1B-18', 2, [P('C-f1')]))], [BOM(3010, '3BUH1B-18', 6, [P('C-f1')]), BOM(3011, 'ZZ9', 1, [P('Q', 'PL1x1', 1, 1)])], [], [], alias)
     const r: any = await svc.bomCompare(46)
-    expect(r.rows[0]).toMatchObject({ status: 'not_in_bom', renamed_to: { assembly_id: 3010, assembly_mark: '3BUH1B-18', rename_id: 7 } })
-    expect(r.rows[0].candidates[0]).toMatchObject({ assembly_id: 3010, score: 100 })
+    expect(r.rows[0]).toMatchObject({ status: 'same', bom: { assembly_id: 3010 }, renamed_to: { assembly_id: 3010, assembly_mark: '3BUH1B-18', rename_id: 7 } })
+    expect(r.rows[0].candidates).toBeUndefined()
 
-    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1B-18', action: 'apply', pair_with: 3010, final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1B-18', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
     expect(tx.mo_assembly_line.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { bom_assembly_id: 3010, qty: expect.anything() } })
     expect(alias.markUsed).toHaveBeenCalledWith(tx, [7])
+  })
+
+  // CRITICAL (fix round 1, Review Focus 1): a reused name must never recapture
+  // another piece — the old A line follows its OWN confirmed pair to B, never
+  // a later, unrelated A that reuses the freed name; that new A stays visible
+  // (free) in the pool instead of being hidden as "already in this MO".
+  it('name reuse: an old A line with a confirmed A→B pair resolves to B, never a new unrelated A reusing the name', async () => {
+    const alias = aliasOf({ id: 9, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 28 })
+    const { svc } = make([full(LINE(1, 701, 'A', 2, [P('C-f1')]))], [BOM(3020, 'B', 6, [P('C-f1')]), BOM(3021, 'A', 3, [P('C-z9')])], [], [], alias)
+    const r: any = await svc.bomCompare(46)
+    expect(r.rows[0]).toMatchObject({ assembly_mark: 'A', bom: { assembly_id: 3020, assembly_mark: 'B' }, renamed_to: { assembly_id: 3020, assembly_mark: 'B', rename_id: 9 } })
+    expect(r.pool.map((p: any) => p.assembly_mark)).toEqual(['A'])
+  })
+
+  // multi-hop (fix round 1 minor): A→B→C marks EVERY hop's pair used, not just the last
+  it('a multi-hop rename (A→B→C) resolves to C and marks every hop used', async () => {
+    const alias = aliasOf(
+      { id: 10, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 20 },
+      { id: 11, kind: 'ASSEMBLY', from_mark: 'B', to_mark: 'C', dispatch_id: 28 },
+    )
+    const { svc, tx } = make([full(LINE(1, 701, 'A', 2, [P('C-f1')]))], [BOM(3030, 'C', 6, [P('C-f1')])], [], [], alias)
+    const r: any = await svc.bomCompare(46)
+    expect(r.rows[0].renamed_to).toMatchObject({ assembly_id: 3030, assembly_mark: 'C', rename_id: 11 })
+
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'A', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect(tx.mo_assembly_line.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { bom_assembly_id: 3030, qty: expect.anything() } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [10, 11])
   })
 
   it('a pre-shop mark is never pre-paired (manual pairing stays for those)', async () => {
@@ -1370,6 +1400,20 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
     expect((tx as any).work_order_part.update).toHaveBeenCalledWith({ where: { id: 900 }, data: { bom_assembly_part_id: 2 } })
     expect(alias.markUsed).toHaveBeenCalledWith(tx, [8])
+  })
+
+  // fix round 1 (item 4): a part-rename pair whose target isn't actually among
+  // this version's own parts (bounded by the target dispatch) falls back to
+  // the part's own name — never a target that doesn't exist here.
+  it('a part rename bounded by the target version falls back to the same name when the target part isn\'t there', async () => {
+    const alias = aliasOf({ id: 12, kind: 'PART', from_mark: 'C-x', to_mark: '9C-x', dispatch_id: 28 })
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1-3', 2, [P('C-x', 'PL12x150', 300, 4)]))], [BOM(3002, 'BUH1-3', 6, [P('C-x', 'PL12x150', 300, 4)])], [], [{ id: 61, work_order_id: 5 }], alias)
+    tx.bom_assembly_part.findMany = jest.fn(({ where }: any) => Promise.resolve(where.assembly_id === 701 ? [{ id: 1, part: { part_mark: 'C-x' } }] : [{ id: 2, part: { part_mark: 'C-x' } }]))
+    ;(tx as any).work_order_part = { findMany: jest.fn().mockResolvedValue([{ id: 900, work_order_id: 5, bom_assembly_part_id: 1, updated_by: 'tao', work_order: { wo_code: 'WO-1' } }]), update: jest.fn(), delete: jest.fn() }
+    ;(tx as any).work_order_mark.updateMany = jest.fn()
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect((tx as any).work_order_part.update).toHaveBeenCalledWith({ where: { id: 900 }, data: { bom_assembly_part_id: 2 } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [])
   })
 })
 
