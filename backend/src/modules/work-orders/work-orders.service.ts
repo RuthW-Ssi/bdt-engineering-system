@@ -1552,26 +1552,58 @@ export class WorkOrdersService {
     // version's rows and recomputeParts then added duplicates): by part mark,
     // through confirmed part renames; withdrawals (qty/weight) move with them.
     const scope = await this.prisma.bom_dispatch.findUnique({ where: { id: mark.bom_assembly.dispatch_id }, select: { project_id: true, zone_id: true, sub_zone_id: true } })
-    const renames = scope ? await this.alias.renamesFor(scope) : []
+    // Part chain bound (fix round 1): a pair confirmed for a LATER version than the
+    // one being accepted into belongs to a version not reached yet — never chase it.
+    const renames = (scope ? await this.alias.renamesFor(scope) : []).filter(r => r.dispatch_id <= latestAsm.dispatch_id)
     const partsOf = async (assemblyId: number) => (await this.prisma.bom_assembly_part.findMany({ where: { assembly_id: assemblyId }, select: { id: true, part: { select: { part_mark: true } } } }))
       .map(p => ({ id: p.id, part_mark: p.part.part_mark }))
     const oldParts = await partsOf(mark.bom_assembly_id)
     const newParts = await partsOf(latestAsm.id)
+    const newPartMarks = new Set(newParts.map(p => p.part_mark))
     const others = dto.apply_to_other_wos
       ? await this.prisma.work_order_mark.findMany({ where: { bom_assembly_id: originalBomAssemblyId, removed_at: null, work_order_id: { not: id }, work_order: { mo_id: wo.mo_id } } })
       : []
     const woParts = await this.prisma.work_order_part.findMany({
       where: { work_order_id: { in: [id, ...others.map(o => o.work_order_id)] }, bom_assembly_part_id: { in: [...oldParts, ...newParts].map(p => p.id) } },
-      select: { id: true, work_order_id: true, bom_assembly_part_id: true, updated_by: true },
+      select: { id: true, work_order_id: true, bom_assembly_part_id: true, updated_by: true, work_order: { select: { wo_code: true } } },
     })
+    const woCodeById = new Map(woParts.map(w => [w.work_order_id, (w as unknown as { work_order?: { wo_code: string } }).work_order?.wo_code]))
     const plan = planPartRepoint(oldParts, newParts, woParts, m => {
       const f = followRenames(renames, 'PART', m, mark.bom_assembly.dispatch_id)
-      return { mark: f.name, renameIds: f.ids }
+      // If the chain lands somewhere this version doesn't actually have, fall back
+      // to the part's own name rather than apply a target that doesn't exist.
+      return f.name !== m && newPartMarks.has(f.name) ? { mark: f.name, renameIds: f.ids } : { mark: m, renameIds: [] }
     })
     if (plan.stuck.length) {
+      // A stuck row on a sibling WO (apply_to_other_wos) names that WO's code —
+      // the user accepting here isn't necessarily looking at that WO (like MO switch).
+      const woOf = (woId: number) => (woId === id ? 'WO' : woCodeById.get(woId) ?? 'WO')
       throw new ConflictException(
-        plan.stuck.map(s => `${mark.bom_assembly.assembly_mark}: ${s.part_mark} ไม่มีใน BOM ใหม่ แต่มียอดเบิกใน WO แล้ว`).join(' · ') + ' — แก้ยอดเบิกใน WO ก่อน',
+        plan.stuck.map(s => `${mark.bom_assembly.assembly_mark}: ${s.part_mark} ไม่มีใน BOM ใหม่ แต่มียอดเบิกใน ${woOf(s.work_order_id)} แล้ว`).join(' · ') + ' — แก้ยอดเบิกใน WO ก่อน',
       )
+    }
+    // History (per-WO): which of its OWN part rows moved (old mark → new mark) or
+    // were dropped — folded into that WO's own ACCEPT_VERSION note. Computed NOW,
+    // from the plan — not re-derived later from `woParts` inside the transaction,
+    // which the re-point updates below are about to mutate the FK of.
+    const partLinesByWoId = new Map<number, string[]>()
+    const addPartLine = (woId: number, line: string) => partLinesByWoId.set(woId, [...(partLinesByWoId.get(woId) ?? []), line])
+    for (const m of plan.moves) {
+      const wp = woParts.find(w => w.id === m.id)
+      if (!wp) continue
+      const fromMark = oldParts.find(p => p.id === wp.bom_assembly_part_id)?.part_mark
+      const toMark = newParts.find(p => p.id === m.to)?.part_mark
+      if (fromMark && toMark && fromMark !== toMark) addPartLine(wp.work_order_id, `${fromMark} → ${toMark}`)
+    }
+    for (const dropId of plan.drops) {
+      const wp = woParts.find(w => w.id === dropId)
+      if (!wp) continue
+      const partMark = oldParts.find(p => p.id === wp.bom_assembly_part_id)?.part_mark
+      if (partMark) addPartLine(wp.work_order_id, `ลบ ${partMark}`)
+    }
+    const partNoteFor = (woId: number) => {
+      const lines = partLinesByWoId.get(woId)
+      return lines?.length ? ` — ยอดเบิก ${lines.join(', ')}` : ''
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -1592,7 +1624,7 @@ export class WorkOrdersService {
           work_order_id: id,
           work_order_mark_id: mark.id,
           event_type: 'ACCEPT_VERSION',
-          notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id}${status.delta_types.length ? ` (${status.delta_types.join(', ')})` : ''}${dto.note ? ` — ${dto.note}` : ''}${renamedTo ? ` — ชื่อ mark ${renamedTo.from} → ${renamedTo.to}` : ''}`,
+          notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id}${status.delta_types.length ? ` (${status.delta_types.join(', ')})` : ''}${dto.note ? ` — ${dto.note}` : ''}${renamedTo ? ` — ชื่อ mark ${renamedTo.from} → ${renamedTo.to}` : ''}${partNoteFor(id)}`,
           changes: changes.length ? (changes as unknown as Prisma.InputJsonValue) : undefined,
           recorded_by: userName,
         },
@@ -1601,7 +1633,7 @@ export class WorkOrdersService {
       // Re-point withdrawals to the new version's rows BEFORE recomputeParts runs,
       // so it sees them as already-existing (not missing → duplicate-creating).
       for (const m of plan.moves) await tx.work_order_part.update({ where: { id: m.id }, data: { bom_assembly_part_id: m.to } })
-      if (plan.drops.length) await tx.work_order_part.deleteMany({ where: { id: { in: plan.drops } } })
+      if (plan.drops.length) await tx.work_order_part.deleteMany({ where: { id: { in: plan.drops }, updated_by: null } })
       await this.alias.markUsed(tx, [...(renamedTo?.rename_ids ?? []), ...plan.usedRenameIds])
 
       await this.woAutoCreate.recomputeDuration(tx, id)
@@ -1626,7 +1658,7 @@ export class WorkOrdersService {
               work_order_id: other.work_order_id,
               work_order_mark_id: other.id,
               event_type: 'ACCEPT_VERSION',
-              notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id} (applied from WO ${id})`,
+              notes: `Accepted BOM version → dispatch ${status.latest_dispatch_id}${status.delta_types.length ? ` (${status.delta_types.join(', ')})` : ''} (applied from WO ${id})${renamedTo ? ` — ชื่อ mark ${renamedTo.from} → ${renamedTo.to}` : ''}${partNoteFor(other.work_order_id)}`,
               changes: otherChanges.length ? (otherChanges as unknown as Prisma.InputJsonValue) : undefined,
               recorded_by: userName,
             },
@@ -1683,7 +1715,24 @@ export class WorkOrdersService {
     // decides every value (2026-10-08) — never a WO-level "newer version".
     const own = await this.prisma.bom_dispatch.findUnique({ where: { id: assembly.dispatch_id }, select: { source: true } })
     if (own?.source === 'PRE_SHOP') return this.classifyAssemblyDelta(assembly, assembly)
-    // Pre-shop uploads are never a "newer version" of anything either.
+
+    // Name reuse (fix round 1, 2026-10-21 — controller ruling: the spec's name-reuse
+    // rule beats an own-name-first lookup): resolve a forward rename pair from THIS
+    // row's OWN dispatch first. A confirmed pair always wins over a same-named ACTIVE
+    // row that appeared later and reused the name for an unrelated piece — an
+    // own-name lookup done first would otherwise silently match that unrelated row.
+    const next = followRenames(await this.alias.renamesFor(group), 'ASSEMBLY', assembly.assembly_mark, assembly.dispatch_id)
+    if (next.name !== assembly.assembly_mark) {
+      const renamed = await this.prisma.bom_assembly.findFirst({
+        where: { assembly_mark: next.name, status: 'ACTIVE', dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id, source: { not: 'PRE_SHOP' } } },
+      })
+      if (!renamed) return this.classifyAssemblyDelta(assembly, null)
+      const cmp = this.classifyAssemblyDelta(assembly, renamed)
+      return { ...cmp, is_outdated: true, delta_types: ['RENAMED', ...cmp.delta_types],
+        delta_details: { ...(cmp.delta_details ?? {}), renamed: { from: assembly.assembly_mark, to: next.name, rename_ids: next.ids } } }
+    }
+
+    // No forward pair from this row's own dispatch — own-name lookup, as before.
     const latestAsm = await this.prisma.bom_assembly.findFirst({
       where: {
         assembly_mark: assembly.assembly_mark,
@@ -1691,17 +1740,7 @@ export class WorkOrdersService {
         dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id, source: { not: 'PRE_SHOP' } },
       },
     })
-    if (latestAsm) return this.classifyAssemblyDelta(assembly, latestAsm)
-    // No ACTIVE row under this name: a pair confirmed on the BOM page (2026-10-21)
-    // says which new mark it is now — RENAMED, accepted like any new version.
-    const next = followRenames(await this.alias.renamesFor(group), 'ASSEMBLY', assembly.assembly_mark, assembly.dispatch_id)
-    const renamed = next.name === assembly.assembly_mark ? null : await this.prisma.bom_assembly.findFirst({
-      where: { assembly_mark: next.name, status: 'ACTIVE', dispatch: { project_id: group.project_id, zone_id: group.zone_id, sub_zone_id: group.sub_zone_id, source: { not: 'PRE_SHOP' } } },
-    })
-    if (!renamed) return this.classifyAssemblyDelta(assembly, null)
-    const cmp = this.classifyAssemblyDelta(assembly, renamed)
-    return { ...cmp, is_outdated: true, delta_types: ['RENAMED', ...cmp.delta_types],
-      delta_details: { ...(cmp.delta_details ?? {}), renamed: { from: assembly.assembly_mark, to: next.name, rename_ids: next.ids } } }
+    return this.classifyAssemblyDelta(assembly, latestAsm)
   }
 
   /**
