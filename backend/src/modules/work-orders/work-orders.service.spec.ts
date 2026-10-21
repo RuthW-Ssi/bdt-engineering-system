@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
 import { WorkOrdersService, allowedActionsFrom } from './work-orders.service'
+import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 
 // Multi-mark redesign (2026-09-17): a work_order now spans many marks via
 // work_order_mark, so most of this file's fixtures build a WO's `marks[]`
@@ -130,6 +131,7 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
       work_order: { findUnique: jest.fn().mockResolvedValue(wo) },
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(null) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
 
@@ -391,6 +393,9 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
       },
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(snap) },
       bom_assembly: { findFirst: jest.fn().mockResolvedValue(latestAsm) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      work_order_part: { findMany: jest.fn().mockResolvedValue([]), update: jest.fn(), deleteMany: jest.fn() },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
     }
@@ -2070,5 +2075,104 @@ describe('WorkOrdersService.compareAssemblyToLatest — pre-shop rows', () => {
   it('a real BOM row is not a WO-level alert for a pre-shop mark either', async () => {
     const { svc } = make(makeBomAssembly({ id: 3000, dispatch_id: 40, assembly_mark: 'BUH1-3', weight_kg: 9999 }))
     await expect(svc.compareAssemblyToLatest(own as any, GROUP)).resolves.toMatchObject({ is_outdated: false })
+  })
+})
+
+describe('WorkOrdersService — mark renamed in the BOM (2026-10-21)', () => {
+  const renamesOf = (...rows: any[]) => ({ renamesFor: jest.fn().mockResolvedValue(rows), markUsed: jest.fn() })
+  const ASM_RENAME = { id: 7, kind: 'ASSEMBLY', from_mark: 'WH-CO-001', to_mark: '3WH-CO-001', dispatch_id: 20 }
+  const PART_RENAME = { id: 8, kind: 'PART', from_mark: 'C-x', to_mark: '3C-x', dispatch_id: 20 }
+
+  function makeAcceptPrisma(mark: ReturnType<typeof makeMark>, woParts: any[]) {
+    const renamed = { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: '3WH-CO-001' }
+    const prisma: any = {
+      work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, mo_id: 10 }) },
+      work_order_mark: { findFirst: jest.fn().mockResolvedValue(mark), update: jest.fn(), findMany: jest.fn().mockResolvedValue([{ bom_assembly_id: 200, qty_planned: 5 }]) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date('2026-01-01'))) },
+      bom_assembly: { findFirst: jest.fn(({ where }: any) => Promise.resolve(where.id === 200 || where.assembly_mark === '3WH-CO-001' ? renamed : null)) },
+      bom_assembly_part: { findMany: jest.fn(({ where }: any) => Promise.resolve(where.assembly_id === 100
+        ? [{ id: 11, qty: 2, part: { part_mark: 'C-f1', weight_kg: 2.5 } }, { id: 12, qty: 1, part: { part_mark: 'C-x', weight_kg: 1 } }]
+        : [{ id: 21, qty: 2, part: { part_mark: 'C-f1', weight_kg: 2.5 } }, { id: 22, qty: 1, part: { part_mark: '3C-x', weight_kg: 1 } }])) },
+      work_order_part: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(woParts.filter(w => (where.bom_assembly_part_id?.in ?? woParts.map(x => x.bom_assembly_part_id)).includes(w.bom_assembly_part_id)))),
+        update: jest.fn(({ where, data }: any) => { Object.assign(woParts.find(w => w.id === where.id), data); return Promise.resolve() }),
+        deleteMany: jest.fn(({ where }: any) => { for (const id of where.id.in) woParts.splice(woParts.findIndex(w => w.id === id), 1); return Promise.resolve() }),
+        create: jest.fn(({ data }: any) => { woParts.push({ id: 900 + woParts.length, ...data }); return Promise.resolve() }),
+      },
+      work_order_event: { create: jest.fn() },
+      $transaction: jest.fn(async (cb: any) => cb(prisma)),
+    }
+    return prisma
+  }
+
+  it('bomVersionStatus: no ACTIVE row under the old name but a confirmed pair → RENAMED, pointing at the new row', async () => {
+    const mark = makeMark()
+    const prisma: any = {
+      work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, marks: [mark] }) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
+      bom_assembly: { findFirst: jest.fn(({ where }: any) => Promise.resolve(where.assembly_mark === '3WH-CO-001' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: '3WH-CO-001' } : null)) },
+    }
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any, renamesOf(ASM_RENAME) as any)
+    const [s] = await svc.bomVersionStatus(1)
+    expect(s).toMatchObject({ is_outdated: true, delta_types: ['RENAMED'], latest_dispatch_id: 20, latest_assembly_id: 200,
+      delta_details: { renamed: { from: 'WH-CO-001', to: '3WH-CO-001', rename_ids: [7] } } })
+    expect(svc.isSignificantDelta(s)).toBe(true)
+  })
+
+  // Review Focus 2
+  it('accept on RENAMED re-points the mark AND its withdrawals (incl. a renamed part) before parts are recomputed; pairs marked used', async () => {
+    const mark = makeMark()
+    const woParts = [{ id: 501, work_order_id: 1, bom_assembly_part_id: 11, updated_by: 'tao', qty: 4, weight_kg: 10 }, { id: 502, work_order_id: 1, bom_assembly_part_id: 12, updated_by: 'tao', qty: 1, weight_kg: 1 }]
+    const prisma = makeAcceptPrisma(mark, woParts)
+    const autoCreate = makeAutoCreate()
+    const alias = renamesOf(ASM_RENAME, PART_RENAME)
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any, alias as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.acceptNewVersion(1, 'tao', { bom_assembly_id: 100 } as any)
+
+    expect(prisma.work_order_mark.update.mock.calls[0][0].data).toMatchObject({ bom_assembly_id: 200, bom_dispatch_id_snapshot: 20 })
+    expect(prisma.work_order_part.update.mock.calls.map((c: any) => c[0])).toEqual([
+      { where: { id: 501 }, data: { bom_assembly_part_id: 21 } },
+      { where: { id: 502 }, data: { bom_assembly_part_id: 22 } },
+    ])
+    expect(prisma.work_order_part.update.mock.invocationCallOrder[1]).toBeLessThan(autoCreate.recomputeParts.mock.invocationCallOrder[0])
+    expect(alias.markUsed).toHaveBeenCalledWith(prisma, expect.arrayContaining([7, 8]))
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.notes).toContain('ชื่อ mark WH-CO-001 → 3WH-CO-001')
+  })
+
+  it('the accept bug (no rename): with the real recomputeParts there is exactly one row per part, withdrawal kept', async () => {
+    const mark = makeMark()
+    const woParts: any[] = [{ id: 501, work_order_id: 1, bom_assembly_part_id: 11, updated_by: 'tao', qty: 4, weight_kg: 10 }]
+    const prisma = makeAcceptPrisma(mark, woParts)
+    prisma.bom_assembly.findFirst = jest.fn(({ where }: any) => Promise.resolve(where.assembly_mark === 'WH-CO-001' || where.id === 200 ? { ...mark.bom_assembly, id: 200, dispatch_id: 20 } : null))
+    prisma.bom_assembly_part.findMany = jest.fn(({ where }: any) => Promise.resolve(where.assembly_id === 100
+      ? [{ id: 11, qty: 2, part: { part_mark: 'C-f1', weight_kg: 2.5 } }]
+      : [{ id: 21, qty: 2, part: { part_mark: 'C-f1', weight_kg: 2.5 } }]))
+    const real = new WorkOrderAutoCreateService()
+    jest.spyOn(real, 'computePartBudget').mockResolvedValue({ total: Infinity, committed: 0, remaining: Infinity } as any)
+    const autoCreate = { ...makeAutoCreate(), recomputeParts: real.recomputeParts.bind(real) }
+    const svc = new WorkOrdersService(prisma, autoCreate as any, {} as any, renamesOf() as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+
+    await svc.acceptNewVersion(1, 'tao', { bom_assembly_id: 100 } as any)
+
+    expect(woParts).toEqual([expect.objectContaining({ id: 501, bom_assembly_part_id: 21, qty: 4, weight_kg: 10 })])
+  })
+
+  it('a part with a withdrawal and no target refuses in plain Thai; nothing is written', async () => {
+    const mark = makeMark()
+    const woParts = [{ id: 502, work_order_id: 1, bom_assembly_part_id: 12, updated_by: 'tao' }]
+    const prisma = makeAcceptPrisma(mark, woParts)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any, renamesOf(ASM_RENAME) as any)
+    await expect(svc.acceptNewVersion(1, 'tao', { bom_assembly_id: 100 } as any)).rejects.toThrow('C-x ไม่มีใน BOM ใหม่ แต่มียอดเบิกใน WO แล้ว — แก้ยอดเบิกใน WO ก่อน')
+    expect(prisma.work_order_mark.update).not.toHaveBeenCalled()
+  })
+
+  it('formerMarks: every older name of each mark, nearest first', async () => {
+    const svc = new WorkOrdersService({} as any, makeAutoCreate() as any, {} as any,
+      renamesOf({ id: 1, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 2 }, { id: 2, kind: 'ASSEMBLY', from_mark: 'B', to_mark: 'C', dispatch_id: 3 }) as any)
+    const map = await svc.formerMarks([{ id: 30, assembly_mark: 'C', dispatch_id: 3, dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }])
+    expect(map.get(30)).toEqual(['B', 'A'])
   })
 })
