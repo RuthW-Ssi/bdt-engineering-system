@@ -1045,6 +1045,31 @@ describe('ManufacturingOrderService.getAssemblies — parts per set', () => {
     expect(r.source_label).toBe('BOM rev 3')
     expect(prisma.mo_assembly_line.findMany.mock.calls[0][0].include.bom_assembly.include.assembly_parts).toEqual({ include: { part: true }, orderBy: { sequence: 'asc' } })
   })
+
+  // fix round 2 (item 4): the rename cache is keyed by each line's OWN full
+  // (project, zone, sub_zone) scope — an MO must not be assumed to sit in one
+  // sub-zone; two lines in different sub-zones get their own pairs, not one
+  // (wrongly) shared, and each scope is only fetched once.
+  it('caches renamed-mark pairs per line scope — two lines in different sub-zones get their own pairs', async () => {
+    const dispatchOf = (sub_zone_id: number) => ({ project_id: 3, zone_id: 5, sub_zone_id, project: { name: 'P' }, zone: { label: 'Z' }, sub_zone: { name: `S${sub_zone_id}` }, source: 'BOM_UPLOAD', revision: 1 })
+    const lineA = { id: 1, line_seq: 0, bom_assembly_id: 700, qty: '2', bom_assembly: { assembly_mark: 'A', name: null, qty: '2', dispatch: dispatchOf(1), assembly_parts: [] } }
+    const lineB = { id: 2, line_seq: 1, bom_assembly_id: 701, qty: '2', bom_assembly: { assembly_mark: 'B', name: null, qty: '2', dispatch: dispatchOf(2), assembly_parts: [] } }
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 36, kind: 'ASSEMBLY', project_id: 3, zone_id: 5, sub_zone_id: null }) },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue([lineA, lineB]) },
+      work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const alloc = { allocationBreakdown: jest.fn().mockResolvedValue([]) }
+    const pairsOf: Record<number, unknown[]> = { 1: [{ id: 901 }], 2: [{ id: 902 }] }
+    const renamesFor = jest.fn().mockImplementation(({ sub_zone_id }: { sub_zone_id: number }) => Promise.resolve(pairsOf[sub_zone_id]))
+    const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, alloc as any, {} as any, {} as any, undefined as any, { renamesFor } as any)
+    await svc.getAssemblies(36)
+    expect(renamesFor).toHaveBeenCalledWith({ project_id: 3, zone_id: 5, sub_zone_id: 1 })
+    expect(renamesFor).toHaveBeenCalledWith({ project_id: 3, zone_id: 5, sub_zone_id: 2 })
+    expect(renamesFor).toHaveBeenCalledTimes(2) // one call per distinct scope — never assumed from the MO's own single scope
+    expect(alloc.allocationBreakdown).toHaveBeenCalledWith(700, [{ id: 901 }])
+    expect(alloc.allocationBreakdown).toHaveBeenCalledWith(701, [{ id: 902 }])
+  })
 })
 
 // Per-mark production progress (user feedback 2026-10-14): every operation of the
@@ -1214,8 +1239,8 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     id, bom_assembly_id: asmId, qty: String(qty), line_seq: id - 1,
     bom_assembly: { id: asmId, assembly_mark: mark, dispatch_id: 14, length_mm: '10550', weight_kg: '3561.15', attributes, dispatch: { source: 'PRE_SHOP' }, assembly_parts: AP(parts) },
   })
-  const BOM = (id: number, mark: string, qty: number, parts: Part[], L = 10550) => ({
-    id, assembly_mark: mark, qty: String(qty), length_mm: String(L), weight_kg: '3561.15', assembly_parts: AP(parts),
+  const BOM = (id: number, mark: string, qty: number, parts: Part[], L = 10550, dispatch_id = 28) => ({
+    id, assembly_mark: mark, qty: String(qty), dispatch_id, length_mm: String(L), weight_kg: '3561.15', assembly_parts: AP(parts),
   })
   function make(lines: unknown[], bom: unknown[], planned: unknown[] = [], woMarks: unknown[] = [], alias?: unknown) {
     const tx = {
@@ -1375,6 +1400,66 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'A', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
     expect(tx.mo_assembly_line.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { bom_assembly_id: 3030, qty: expect.anything() } })
     expect(alias.markUsed).toHaveBeenCalledWith(tx, [10, 11])
+  })
+
+  // fix round 2 (item 1, slot case): the target row sits at dispatch 20 (its
+  // own "current" in that slot); a DIFFERENT slot's later rename (dispatch 25)
+  // must never reach it — bounded by the TARGET's own dispatch_id, not the
+  // scope's overall latest (28 here).
+  it('part chain bounded by the TARGET row\'s own dispatch: a different, later slot\'s rename never reaches it, and isn\'t stuck', async () => {
+    const alias = aliasOf(
+      { id: 20, kind: 'PART', from_mark: 'C-x', to_mark: 'C-y', dispatch_id: 20 },
+      { id: 21, kind: 'PART', from_mark: 'C-y', to_mark: 'C-z', dispatch_id: 25 }, // a different slot's later rename
+    )
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1-3', 2, [P('C-x', 'PL12x150', 300, 4)]))], [BOM(3002, 'BUH1-3', 6, [P('C-y', 'PL12x150', 300, 4)], 10550, 20)], [], [{ id: 61, work_order_id: 5 }], alias)
+    const r: any = await svc.bomCompare(46)
+    expect(r.rows[0].part_pairs).toEqual([{ from: 'C-x', to: 'C-y', how: 'rename' }])
+
+    tx.bom_assembly_part.findMany = jest.fn(({ where }: any) => Promise.resolve(where.assembly_id === 701 ? [{ id: 1, part: { part_mark: 'C-x' } }] : [{ id: 2, part: { part_mark: 'C-y' } }]))
+    ;(tx as any).work_order_part = { findMany: jest.fn().mockResolvedValue([{ id: 900, work_order_id: 5, bom_assembly_part_id: 1, updated_by: 'tao', work_order: { wo_code: 'WO-1' } }]), update: jest.fn(), delete: jest.fn() }
+    ;(tx as any).work_order_mark.updateMany = jest.fn()
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect((tx as any).work_order_part.update).toHaveBeenCalledWith({ where: { id: 900 }, data: { bom_assembly_part_id: 2 } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [20])
+  })
+
+  // fix round 2 (item 1, furthest-hop fallback): both hops are within bound
+  // this time (target dispatch 21), but this version's own parts only carry
+  // the INTERMEDIATE name — must land there, not fall straight past it to C-x.
+  it('falls back to the FURTHEST hop that IS among this version\'s own parts, not straight to the original name', async () => {
+    const alias = aliasOf(
+      { id: 22, kind: 'PART', from_mark: 'C-x', to_mark: 'C-y', dispatch_id: 20 },
+      { id: 23, kind: 'PART', from_mark: 'C-y', to_mark: 'C-z', dispatch_id: 21 },
+    )
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1-3', 2, [P('C-x', 'PL12x150', 300, 4)]))], [BOM(3002, 'BUH1-3', 6, [P('C-y', 'PL12x150', 300, 4)], 10550, 21)], [], [{ id: 61, work_order_id: 5 }], alias)
+    tx.bom_assembly_part.findMany = jest.fn(({ where }: any) => Promise.resolve(where.assembly_id === 701 ? [{ id: 1, part: { part_mark: 'C-x' } }] : [{ id: 2, part: { part_mark: 'C-y' } }]))
+    ;(tx as any).work_order_part = { findMany: jest.fn().mockResolvedValue([{ id: 900, work_order_id: 5, bom_assembly_part_id: 1, updated_by: 'tao', work_order: { wo_code: 'WO-1' } }]), update: jest.fn(), delete: jest.fn() }
+    ;(tx as any).work_order_mark.updateMany = jest.fn()
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect((tx as any).work_order_part.update).toHaveBeenCalledWith({ where: { id: 900 }, data: { bom_assembly_part_id: 2 } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [22])
+  })
+
+  // fix round 2 (item 2, Task 10 contract): re-sending the row's own pre-paired
+  // target as pair_with must not be refused — it's not in the free pool any
+  // more (it's already resolved), but that's not an error for this specific id.
+  it('pair_with naming the row\'s own pre-paired target is a no-op, same as leaving it out', async () => {
+    const alias = aliasOf({ id: 30, kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', dispatch_id: 28 })
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1B-18', 2, [P('C-f1')]))], [BOM(3010, '3BUH1B-18', 6, [P('C-f1')])], [], [], alias)
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1B-18', action: 'apply', pair_with: 3010, final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect(tx.mo_assembly_line.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { bom_assembly_id: 3010, qty: expect.anything() } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [30])
+  })
+
+  // fix round 2 (item 3): an existing direct-match line (B) and an old line
+  // renamed onto that same B (A→B) can't both land on assembly 3040.
+  it('rejects two MO lines resolving onto the same BOM assembly with a plain Thai 400', async () => {
+    const alias = aliasOf({ id: 40, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 28 })
+    const { svc } = make([full(LINE(1, 701, 'A', 2, [P('C-f1')])), full(LINE(2, 702, 'B', 2, [P('C-f1')]))], [BOM(3040, 'B', 6, [P('C-f1')])], [], [], alias)
+    await expect(svc.linkBom(46, { dispatch_id: 28, marks: [
+      { assembly_mark: 'A', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } },
+      { assembly_mark: 'B', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } },
+    ] } as any, 1, 'tao')).rejects.toThrow('A และ B ชี้ไปที่ mark เดียวกันใน BOM — เลือกได้แค่ตัวเดียว')
   })
 
   it('a pre-shop mark is never pre-paired (manual pairing stays for those)', async () => {
