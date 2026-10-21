@@ -94,6 +94,12 @@ function dispatchLabel(d: WoMark['snapshot_dispatch']): string {
   return [d.project?.name, d.zone?.label, d.sub_zone?.name].filter(Boolean).join(' · ')
 }
 
+/** RENAMED (2026-10-21): the mark's new name in the BOM, from a pair confirmed on the BOM page. */
+export function renamedTo(bom: BomVersionStatus | undefined | null): { from: string; to: string } | null {
+  const r = (bom?.delta_details as { renamed?: { from: string; to: string } } | null)?.renamed
+  return bom?.delta_types.includes('RENAMED') && r ? { from: r.from, to: r.to } : null
+}
+
 /**
  * Marks table for WoDetail's Overview tab (multi-mark redesign, 2026-09-17)
  * — replaces the old single bom_assembly + Qty Done/Scrapped fields. Follows
@@ -300,6 +306,7 @@ export function WoMarksTable({
             const bom = bomByAssembly.get(m.bom_assembly_id)
             const outdated = !!bom?.is_outdated
             const removedIrreversibly = bom?.delta_types.includes('REMOVED')
+            const rn = renamedTo(bom)
             const expanded = expandedId === m.id
             const historyRows = expanded ? markHistoryRows(events, m.id) : []
             const dispatchText = dispatchLabel(m.snapshot_dispatch ?? { id: 0, project_id: m.bom_assembly.dispatch.project_id, project: m.bom_assembly.dispatch.project, zone: m.bom_assembly.dispatch.zone, sub_zone: m.bom_assembly.dispatch.sub_zone })
@@ -311,7 +318,7 @@ export function WoMarksTable({
                     {m.bom_assembly.name && <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>{m.bom_assembly.name}</span>}
                     {outdated && (
                       <span title={`Newer BOM version: ${bom!.delta_types.join(' · ') || 'change'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#C62828' }}>
-                        <AlertTriangle size={11} /> outdated
+                        <AlertTriangle size={11} /> {rn ? `เปลี่ยนชื่อเป็น ${rn.to}` : 'outdated'}
                       </span>
                     )}
                     {dispatchText && <div style={{ fontSize: 10.5, color: '#ABABAB', marginTop: 1 }}>{dispatchText}</div>}
@@ -433,6 +440,7 @@ export function WoMarksTable({
                         <div style={{ marginTop: 10, fontSize: 11.5, color: '#8A2A0D' }}>
                           Dispatch #{bom!.latest_dispatch_id} changed this mark: {bom!.delta_types.join(' · ') || 'unspecified change'}.
                           {removedIrreversibly && ' The assembly was removed from the latest BOM version — remove this mark (or cancel the whole WO) instead of accepting.'}
+                          {rn && ` ชื่อใหม่ใน BOM: ${rn.to} — กด Accept เพื่อย้ายไปชื่อใหม่ (ยอดเบิก part ย้ายตามไปด้วย)`}
                         </div>
                       )}
                       {historyOpen && <MarkHistory rows={historyRows} loading={eventsLoading} />}
@@ -756,6 +764,7 @@ function AcceptVersionModal({
         <p style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>
           Adopts dispatch #{bom.latest_dispatch_id} ({bom.delta_types.join(' · ') || 'change'}) for this mark only, unless applied below.
         </p>
+        {renamedTo(bom) && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>{`ชื่อ mark ${renamedTo(bom)!.from} → ${renamedTo(bom)!.to}`}</div>}
         <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Note</label>
         <textarea
           value={note} onChange={e => setNote(e.target.value)} autoFocus rows={2} placeholder="Optional note…"

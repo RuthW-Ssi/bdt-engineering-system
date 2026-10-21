@@ -718,13 +718,17 @@ export interface BomCompare {
     bom: (BomValues & { assembly_id: number; assembly_mark: string }) | null
     part_pairs?: PartPair[] // matched by name: how its parts line up with the BOM's
     candidates?: (BomValues & { assembly_id: number; assembly_mark: string; score: number; part_pairs: PartPair[] })[] // not in the BOM by name: likely renamed to
+    // RENAMED (2026-10-21): a mark already paired on the BOM page — `bom` above is already
+    // the resolved (renamed) target; this is for display/history only. Never `candidates`.
+    renamed_to?: { assembly_id: number; assembly_mark: string; rename_id: number } | null
+    rename_ids?: number[] // every hop's id, nearest-first (rarely used by the frontend)
   }[]
   bom_only: (BomValues & { assembly_id: number; assembly_mark: string })[]
   pool: (BomValues & { assembly_id: number; assembly_mark: string })[] // every BOM mark the MO doesn't have (renamed marks are among these)
   pending: number
 }
-/** One part of an MO mark and its counterpart in the BOM (2026-10-09): same name, same spec (renamed) or none. */
-export interface PartPair { from: string; to: string | null; how: 'name' | 'spec' | 'none' }
+/** One part of an MO mark and its counterpart in the BOM (2026-10-09): same name, renamed (confirmed pair), same spec, or none. */
+export interface PartPair { from: string; to: string | null; how: 'name' | 'rename' | 'spec' | 'none' }
 /** Operation × mark still short of QC-passed sets — Complete waits for an empty list (2026-10-09). */
 export interface QcShortfall { assembly_mark: string; operation: string; passed: number; need: number }
 export async function getQcCheck(id: number): Promise<QcShortfall[]> {

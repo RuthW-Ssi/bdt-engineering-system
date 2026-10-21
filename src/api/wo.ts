@@ -275,10 +275,12 @@ export interface BomVersionStatus {
   bom_assembly_id: number
   assembly_mark: string
   is_outdated: boolean
-  delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED')[]
+  delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED' | 'RENAMED')[]
   delta_details: Record<string, unknown> | null
   snapshot_dispatch_id: number
   latest_dispatch_id: number
+  // RENAMED (2026-10-21): the mark's current (renamed) assembly id in the latest BOM, when known.
+  latest_assembly_id?: number | null
 }
 
 export interface WoScheduleGroup {
