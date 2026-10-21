@@ -24,6 +24,8 @@ export interface ScheduleRunRequest {
   now: string
   /** JWT login; stored in prod_schedule_version.created_by (max 120 chars). */
   requested_by: string
+  /** Limit the run to these WOs; omitted = every schedulable WO. */
+  work_order_ids?: number[]
 }
 
 /** backend-schedule/app/solver/kpi.py compute(). */
@@ -49,7 +51,14 @@ export interface ScheduleRunResult {
   version_code: string | null
   is_active: boolean
   requested_by: string
+  /** WOs left out of the run and why (Thai). */
+  skipped?: ScheduleSkippedWo[]
+  /** Started WOs that kept a line busy until their plan_finish. */
+  reserved?: ScheduleReservedLine[]
 }
+
+export interface ScheduleSkippedWo { wo_id: number; wo_code: string; reason: string }
+export interface ScheduleReservedLine { wo_code: string; line_id: number; until: string }
 
 const TIMEOUT_MS = 60_000
 
@@ -81,12 +90,17 @@ export class SchedulerApiClient {
       throw new InternalServerErrorException('Scheduler service is not configured')
     }
     let headers: Headers
-    try {
-      const client = await this.getClient(this.baseUrl)
-      headers = await client.getRequestHeaders()
-    } catch (err) {
-      this.logger.error(`Scheduler ID token failed: ${err instanceof Error ? err.message : String(err)}`)
-      throw new InternalServerErrorException('Scheduler failed')
+    if (isLocalSchedulerUrl(this.baseUrl)) {
+      // Local dev: backend-schedule/scripts/dev.sh on http://localhost:8100 has no Cloud Run IAM.
+      headers = new Headers()
+    } else {
+      try {
+        const client = await this.getClient(this.baseUrl)
+        headers = await client.getRequestHeaders()
+      } catch (err) {
+        this.logger.error(`Scheduler ID token failed: ${err instanceof Error ? err.message : String(err)}`)
+        throw new InternalServerErrorException('Scheduler failed')
+      }
     }
     headers.set('Content-Type', 'application/json')
 
@@ -121,6 +135,16 @@ export class SchedulerApiClient {
       throw new BadRequestException('Scheduler rejected the request')
     }
     throw new InternalServerErrorException('Scheduler failed')
+  }
+}
+
+/** Exactly http://localhost or http://127.0.0.1 (any port) — never a look-alike host or https. */
+function isLocalSchedulerUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw)
+    return u.protocol === 'http:' && (u.hostname === 'localhost' || u.hostname === '127.0.0.1')
+  } catch {
+    return false
   }
 }
 

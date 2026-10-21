@@ -1,6 +1,6 @@
 import { buildAxis } from './axis'
 import { FAMILY_COLOR } from './colors'
-import { barViews, dueMarkers, hiddenOpCount, idleWcIds, layoutRows, wcGroups } from './gantt'
+import { barViews, busyGroups, dueMarkers, hiddenOpCount, idleWcIds, layoutRows, wcGroups } from './gantt'
 import { activeLines, buildOps, indexBoard, usableVersions, versionLabel } from './model'
 import { bkk, line, makeBoard, mo, op, team, version, wc, wo } from './testBoard'
 
@@ -106,6 +106,17 @@ describe('Gantt layout', () => {
       ['WELD', '2L · 2 op'],
       ['SURFACE', '1L · 1 op'],
     ])
+  })
+
+  it('busyGroups keeps only WCs and lines that have ops in the version', () => {
+    const busy = busyGroups(groups, ops)
+    expect(busy.map((g) => g.code)).toEqual(['CUT', 'WELD', 'SURFACE'])
+    for (const g of busy) {
+      expect(g.lines.length).toBeGreaterThan(0)
+      for (const l of g.lines) expect(ops.some((o) => o.line?.id === l.id)).toBe(true)
+      expect(g.countLabel).toBe(`${g.lines.length}L · ${g.opCount} op`)
+    }
+    expect(groups.find((g) => g.code === 'DRILL')!.lines).toHaveLength(1) // input untouched
   })
 
   it('auto-collapses idle WCs and lays out header + line rows', () => {

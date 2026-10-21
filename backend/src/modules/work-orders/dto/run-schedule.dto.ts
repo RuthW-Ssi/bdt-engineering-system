@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsOptional } from 'class-validator'
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsOptional, Min } from 'class-validator'
 import { DISPATCH_RULES, DispatchRule, SCHEDULE_DIRECTIONS, ScheduleDirection } from '../scheduler-api.client'
 
 /**
@@ -16,4 +16,13 @@ export class RunScheduleDto {
   @IsOptional()
   @IsBoolean()
   activate?: boolean = false
+
+  /** Limit the run to these WOs (▶ Run · เลือกเอง). Omitted = every schedulable WO. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  work_order_ids?: number[]
 }

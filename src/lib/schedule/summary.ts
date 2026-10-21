@@ -124,14 +124,17 @@ export function backlog(ix: BoardIndex, ops: readonly SchedOp[], now: number = D
 export type KpiTone = 'accent' | 'bad' | 'good' | ''
 
 export interface KpiTile {
-  key: 'onTime' | 'late' | 'backlog' | 'finish'
+  key: 'onTime' | 'late' | 'backlog' | 'finish' | 'ops' | 'version'
   tone: KpiTone
   value: string
   label: string
+  /** Tooltip list behind an ⓘ icon (the late assemblies). */
+  items?: string[]
 }
 
 /** Per order (o.late is already the order's lateness). '—' when there is nothing to measure. */
 export function kpis(ix: BoardIndex, ops: readonly SchedOp[]): KpiTile[] {
+  const lateMarks = [...new Set(ops.filter((o) => o.late).map((o) => o.mark))]
   const ids = new Set(ops.filter((o) => o.mo).map((o) => o.mo!.id)).size
   const late = new Set(ops.filter((o) => o.late && o.mo).map((o) => o.mo!.id)).size
   const bl = new Set(backlogWOs(ix, ops).map((w) => w.mo_id)).size
@@ -139,9 +142,14 @@ export function kpis(ix: BoardIndex, ops: readonly SchedOp[]): KpiTile[] {
   for (const o of ops) if (maxEnd == null || o.e > maxEnd) maxEnd = o.e
   return [
     { key: 'onTime', tone: ids ? 'accent' : '', value: ids ? `${Math.round(((ids - late) / ids) * 100)}%` : '—', label: 'ส่งทันกำหนด' },
-    { key: 'late', tone: late ? 'bad' : 'good', value: String(late), label: 'งานสาย' },
+    {
+      key: 'late', tone: late ? 'bad' : 'good', value: String(late), label: 'งานล่าช้า',
+      ...(lateMarks.length && { items: lateMarks }),
+    },
     { key: 'backlog', tone: bl ? 'accent' : '', value: String(bl), label: 'Backlog (รอจัด)' },
     { key: 'finish', tone: '', value: maxEnd != null ? fmt(maxEnd, LONG_FMT) : '—', label: 'เสร็จทั้งหมด' },
+    { key: 'ops', tone: '', value: String(ops.length), label: 'operations' },
+    { key: 'version', tone: '', value: ix.version?.version_code ?? '—', label: 'Version' },
   ]
 }
 
@@ -178,8 +186,8 @@ export function orderList(ix: BoardIndex, ops: readonly SchedOp[]): OrderRow[] {
         firstOp: s,
         late,
         running,
-        dotColor: !s ? UI_COLOR.accent : late ? LATE_COLOR.border : UI_COLOR.neutralDot,
-        meta: !s ? (running ? 'กำลังผลิต' : 'รอจัด') : late ? 'สาย' : f != null ? 'ส่ง ' + fmt(f, DAY_MONTH_FMT) : '',
+        dotColor: !s ? UI_COLOR.warn : late ? LATE_COLOR.border : UI_COLOR.onTime,
+        meta: !s ? (running ? 'กำลังผลิต' : 'รอจัด') : late ? 'ล่าช้า' : f != null ? 'ส่ง ' + fmt(f, DAY_MONTH_FMT) : '',
       }
     })
 }
@@ -227,7 +235,7 @@ export function opDetail(o: SchedOp): OpDetail {
     title: o.mark,
     subtitle: (o.marks.length ? o.wo?.wo_code : o.mo?.mo_code) || '',
     late: o.late,
-    pill: o.late ? 'สาย (LATE)' : 'ตรงเวลา',
+    pill: o.late ? 'ล่าช้า (LATE)' : 'ตรงเวลา',
     rows,
   }
 }
@@ -245,13 +253,7 @@ export function opTooltip(o: SchedOp): { title: string; lines: string[]; late: b
 }
 
 // ── footer ────────────────────────────────────────────────────────────────────
-/** Footer lines: hidden-op warning (if any), then version · op count · late assemblies (first 8 +N). */
-export function footSummary(ops: readonly SchedOp[], hidden: number, version: BoardVersion | null): string[] {
-  const late = [...new Set(ops.filter((o) => o.late).map((o) => o.mark))]
-  const lateText = late.length ? late.slice(0, 8).join(', ') + (late.length > 8 ? ` +${late.length - 8}` : '') : 'ไม่มี'
-  const out: string[] = []
-  if (hidden) out.push(`⚠ ${hidden} op อยู่บน line ที่ปิดใช้ / ไม่มี line — ไม่แสดงบน Gantt`)
-  out.push(`Version: ${version?.version_code ?? '—'} · operations: ${ops.length} · assembly สาย: ${lateText}`)
-  out.push('read-only view · คลิก ▾ ที่ Work Center เพื่อย่อ/ขยาย · drag-drop edit = งานถัดไป')
-  return out
+/** Warning under the board when ops sit on a disabled / missing line (not drawn on the Gantt); null when none. */
+export function hiddenOpsNote(hidden: number): string | null {
+  return hidden ? `⚠ ${hidden} op อยู่บน line ที่ปิดใช้ / ไม่มี line — ไม่แสดงบน Gantt` : null
 }

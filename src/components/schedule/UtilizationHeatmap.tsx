@@ -9,34 +9,34 @@ export function UtilizationHeatmap({ grid }: { grid: HeatGrid | null }) {
       <table className="w-full border-collapse text-[11px]">
         <thead>
           <tr>
-            <th className="px-1.5 py-[5px] text-left font-medium text-[#1f2733] whitespace-nowrap">Work Center</th>
+            <th className="px-1.5 py-[5px] text-left font-medium text-[#1F1F1F] whitespace-nowrap">Work Center</th>
             {grid.days.map((d) => (
-              <th key={d.day} className="px-1.5 py-[5px] font-medium text-[#6b7682] text-center whitespace-nowrap">{d.label}</th>
+              <th key={d.day} className="px-1.5 py-[5px] font-medium text-[#555555] text-center whitespace-nowrap">{d.label}</th>
             ))}
-            <th className="px-1.5 py-[5px] font-medium text-[#6b7682] text-center">OEE</th>
+            <th className="px-1.5 py-[5px] font-medium text-[#555555] text-center">OEE</th>
           </tr>
         </thead>
         <tbody>
           {grid.rows.map((r) => (
             <tr key={r.wc.id}>
-              <td className="px-1.5 text-left whitespace-nowrap font-medium text-[#1f2733]">{r.code}</td>
+              <td className="px-1.5 text-left whitespace-nowrap font-medium text-[#1F1F1F]">{r.code}</td>
               {r.cells.map((c) => (
                 <td key={c.day} className="p-0 text-center">
                   <div
                     title={c.title}
                     className="h-[30px] min-w-[40px] rounded-[5px] m-0.5 flex items-center justify-center font-semibold"
-                    style={{ background: c.color, color: c.lightBg ? '#5a6470' : '#fff' }}
+                    style={{ background: c.color, color: c.lightBg ? '#555555' : '#fff' }}
                   >
                     {c.text}
                   </div>
                 </td>
               ))}
-              <td className="text-center text-[10px] text-[#6b7682]">{r.oeeText}</td>
+              <td className="text-center text-[10px] text-[#555555]">{r.oeeText}</td>
             </tr>
           ))}
         </tbody>
       </table>
-      <div className="text-[10px] text-[#6b7682] mt-1.5">{grid.note}</div>
+      <div className="text-[10px] text-[#555555] mt-1.5">{grid.note}</div>
     </div>
   )
 }

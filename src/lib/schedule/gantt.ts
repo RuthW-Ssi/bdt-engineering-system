@@ -57,6 +57,16 @@ export function wcGroups(ix: BoardIndex, lines: readonly BoardLine[], ops: reado
   return [...groups.values()]
 }
 
+/** "แสดงเฉพาะที่มีงาน": only WCs with ops in the version, and of those only the lines that carry an op. */
+export function busyGroups(groups: readonly WcGroup[], ops: readonly SchedOp[]): WcGroup[] {
+  const busyLines = new Set<number>()
+  for (const o of ops) if (o.line) busyLines.add(o.line.id)
+  return groups
+    .map((g) => ({ ...g, lines: g.lines.filter((l) => busyLines.has(l.id)) }))
+    .filter((g) => g.lines.length > 0)
+    .map((g) => ({ ...g, countLabel: `${g.lines.length}L · ${g.opCount} op` }))
+}
+
 /** Per version / reload: collapse every WC without ops (user toggles stick until the next one). */
 export function idleWcIds(groups: readonly WcGroup[], ops: readonly SchedOp[]): Set<number> {
   const busy = new Set<number>()

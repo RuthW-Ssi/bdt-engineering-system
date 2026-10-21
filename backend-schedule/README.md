@@ -66,6 +66,8 @@ cp .env.example .env            # set DATABASE_URL
 
 # API
 uvicorn app.main:app --reload --port 8100
+# local dev with the BDT app: ./scripts/dev.sh — same DATABASE_URL as backend/.env;
+# set SCHEDULER_API_URL=http://localhost:8100 in backend/.env
 # -> POST http://localhost:8100/schedule  -H 'Content-Type: application/json'
 #      -d '{"direction":"backward","dispatch_rule":"EDD","activate":false,"requested_by":"me"}'
 #    200 {version_id, kpi, ...} · 409 run_in_progress · 422 data_not_ready · 500 {code:internal}

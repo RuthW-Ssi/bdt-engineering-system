@@ -8,7 +8,7 @@ import { FOURM_CHART, type FmChartDay } from '../../../lib/schedule'
  */
 export function FmChart({ days }: { days: FmChartDay[] }) {
   return (
-    <div className="flex items-end gap-2.5 h-20 overflow-x-auto pt-1 border-b border-[#d8dde3]">
+    <div className="flex items-end gap-2.5 h-20 overflow-x-auto pt-1 border-b border-[#E0E0E0]">
       {days.map((d) => (
         <div key={d.day} data-testid="fm-day" className="flex flex-none flex-col items-center gap-[3px]">
           <div className="flex items-end gap-0.5" style={{ height: FOURM_CHART.barAreaPx }}>
@@ -26,7 +26,7 @@ export function FmChart({ days }: { days: FmChartDay[] }) {
               </div>
             ))}
           </div>
-          <div className="text-[9px] leading-[10px] text-[#6b7682] whitespace-nowrap">{d.label}</div>
+          <div className="text-[9px] leading-[10px] text-[#555555] whitespace-nowrap">{d.label}</div>
         </div>
       ))}
     </div>

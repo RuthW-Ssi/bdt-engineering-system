@@ -27,22 +27,47 @@ SOURCE = {"event": "heuristic-eventbased", "forward": "heuristic-eventbased",
           "backward": "heuristic-backward", "alap": "heuristic-backward"}
 
 
-def _check_ready(conn, wos, lines) -> None:
+def _check_ready(conn, wos, lines, skipped=()) -> None:
     """Raise DataNotReady (before anything is solved or written) if the inputs can't be scheduled."""
     if not wos:
-        raise DataNotReady(["no schedulable work orders (status NOT_STARTED/RELEASED, "
-                            "expected_duration_min > 0, plan_start and plan_finish set, active work center)"])
+        raise DataNotReady(["ไม่มีงานที่จัดได้ — ต้องเป็น WO ที่ยังไม่เริ่ม / ปล่อยงานแล้ว มีเวลาทำงาน "
+                            "มีวันเริ่ม-เสร็จตามแผน และ work center เปิดใช้"]
+                           + [f"{s['wo_code']} — {s['reason']}" for s in skipped])
     covered = {ln.wc_id for ln in lines}
     missing = collections.Counter(w.wc_id for w in wos if w.wc_id not in covered)
     if missing:
         codes = loader.load_workcenter_codes(conn, missing)
-        raise DataNotReady([f"work center {codes.get(wc, wc)} has no active line ({n} work orders)"
+        raise DataNotReady([f"{codes.get(wc, wc)} ไม่มีไลน์ผลิต ({n} WO) — แจ้งแอดมินเพิ่มไลน์ หรือเอา WO ออกจากการจัด"
                             for wc, n in sorted(missing.items())])
+
+
+def _reserve_lines(started, lines, now, cal):
+    """Put each IN_PROGRESS WO on the line of its work center that frees up first, busy for
+    the work still left on it (counted on the factory calendar from now) — or until its
+    plan_finish if that is later. A WO with nothing left frees its line.
+    -> ({line_id: until}, report rows)."""
+    by_wc = collections.defaultdict(list)
+    for ln in lines:
+        by_wc[ln.wc_id].append(ln.line_id)
+    busy: dict[int, datetime] = {}
+    reserved = []
+    for r in started:
+        if r["remaining_min"] <= 0 or not by_wc[r["wc_id"]]:
+            continue
+        line_id = min(by_wc[r["wc_id"]], key=lambda lid: busy.get(lid, now))
+        start = cal.next_work(busy.get(line_id, now))
+        until = cal.advance(start, r["remaining_min"])
+        if r["plan_finish"] and r["plan_finish"] > until:
+            until = r["plan_finish"]
+        busy[line_id] = until
+        reserved.append({"wo_code": r["wo_code"], "line_id": line_id, "until": until.isoformat()})
+    return busy, reserved
 
 
 def run(direction: str | None = None, dispatch_rule: str | None = None,
         now: datetime | None = None, persist: bool = True, dsn: str | None = None,
-        activate: bool = False, requested_by: str = "prod-scheduler") -> dict:
+        activate: bool = False, requested_by: str = "prod-scheduler",
+        work_order_ids: list[int] | None = None) -> dict:
     """One run = one transaction. `now` may be aware or naive Asia/Bangkok local."""
     now = to_local(now) if now else default_now()
     conn = get_conn(dsn)
@@ -58,18 +83,25 @@ def run(direction: str | None = None, dispatch_rule: str | None = None,
         if dispatch_rule:
             cfg.dispatch_rule = dispatch_rule
         cal = loader.load_calendar(conn, cfg.allow_ot)
-        wos = loader.load_work_orders(conn)
+        # work_order_ids = the planner's pick (▶ Run · เลือกเอง); None = every schedulable WO
+        wos = (loader.load_work_orders(conn) if work_order_ids is None
+               else loader.load_work_orders(conn, work_order_ids))
         lines = loader.load_lines(conn)
-        _check_ready(conn, wos, lines)
-        sched = Scheduler(wos, lines, cal, cfg, now).run()
+        skipped = loader.load_skipped(conn) if work_order_ids is None else loader.load_skipped(conn, work_order_ids)
+        _check_ready(conn, wos, lines, skipped)
+        busy, reserved = _reserve_lines(loader.load_reservations(conn), lines, now, cal)
+        sched = Scheduler(wos, lines, cal, cfg, now, busy_until=busy).run()
         by_id = {w.wo_id: w for w in wos}
         result = {"direction": cfg.direction, "dispatch_rule": cfg.dispatch_rule,
                   "kpi": kpi.compute(sched, by_id, now), "line_load_min": kpi.line_load(sched, by_id),
                   "version_id": None, "version_code": None, "is_active": False,
-                  "requested_by": requested_by}
+                  "requested_by": requested_by, "skipped": skipped, "reserved": reserved}
         if persist:
             vc = VERSION_CODE.get(cfg.direction, "SCHED-V1")
-            vid, is_active = write_schedule(conn, vc, f"{cfg.direction} {cfg.dispatch_rule}",
+            desc = f"{cfg.direction} {cfg.dispatch_rule}"
+            if work_order_ids is not None:
+                desc += f" · {len(wos)} WO selected"
+            vid, is_active = write_schedule(conn, vc, desc,
                                             SOURCE.get(cfg.direction, "heuristic"), sched,
                                             created_by=requested_by, activate=activate)
             result.update(version_id=vid, version_code=vc, is_active=is_active)

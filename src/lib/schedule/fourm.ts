@@ -30,7 +30,7 @@ export const FOURM_CHART = { barAreaPx: 62, barW: 9 } as const
 /** Bar colours: day shifts, OT, over 100 %, kg bars. */
 export const FOURM_COLOR = {
   shift: HEAT_COLORS[3],
-  ot: UI_COLOR.accent2,
+  ot: UI_COLOR.warn,
   over: LATE_COLOR.border,
   kg: FAMILY_COLOR.fit,
 } as const
@@ -39,10 +39,10 @@ export type FmChipTone = '' | 'ok' | 'warn' | 'bad'
 
 /** .fmchip backgrounds / text per tone. */
 export const FOURM_CHIP_COLOR: Record<FmChipTone, { bg: string; fg: string }> = {
-  '': { bg: '#f1f4f7', fg: UI_COLOR.muted },
-  ok: { bg: '#e3f5ea', fg: UI_COLOR.green },
-  warn: { bg: '#fff3ec', fg: UI_COLOR.accent },
-  bad: { bg: '#fde7e7', fg: LATE_COLOR.ink },
+  '': { bg: '#F5F5F5', fg: UI_COLOR.muted },
+  ok: { bg: '#E8F5E9', fg: UI_COLOR.green },
+  warn: { bg: '#FAEEDA', fg: UI_COLOR.warn },
+  bad: { bg: '#FCEBEB', fg: LATE_COLOR.ink },
 }
 
 // ── per-shift axis ────────────────────────────────────────────────────────────
