@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { WoDetail as WoDetailT, WoEvent, WoMark } from '../api/wo'
+import type { DrawingRevStatusItem } from '../api/mo'
 import type { ActualDatesValue } from '../components/ActualDatesModal'
 import { WoDetail } from './WoDetail'
 
@@ -30,6 +31,15 @@ vi.mock('../hooks/useWo', () => ({
   useUpdateMarkProgress: () => mutation(),
 }))
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => true }))
+// Drawing rev banner (Task 5, 2026-10-21) — same mocking precedent as
+// DrawingRevNotice.test.tsx / DrawingRevBadge.test.tsx: module-level vars
+// the hook mock reads lazily, reset in afterEach.
+let drawingRevItems: DrawingRevStatusItem[] = []
+let drawingRevLoading = false
+let drawingRevError = false
+vi.mock('../hooks/useMo', () => ({
+  useMoDrawingRevStatus: () => ({ data: { items: drawingRevItems }, isLoading: drawingRevLoading, isError: drawingRevError }),
+}))
 vi.mock('../components/wo/WoVisualTab', () => ({ WoVisualTab: () => null }))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 // The modal's own form is tested elsewhere — here it just confirms fixed actuals.
@@ -41,7 +51,12 @@ vi.mock('../components/ActualDatesModal', () => ({
   EditActualDatesButton: () => null,
 }))
 
-afterEach(() => vi.clearAllMocks())
+afterEach(() => {
+  vi.clearAllMocks()
+  drawingRevItems = []
+  drawingRevLoading = false
+  drawingRevError = false
+})
 
 function makeMark(overrides: Partial<WoMark> = {}): WoMark {
   return {
@@ -162,5 +177,43 @@ describe('WoDetail — mark edit panel wiring', () => {
     const region = await screen.findByRole('region', { name: 'History' })
     expect(within(region).getByText('Loading history…')).toBeInTheDocument()
     expect(refetch).toHaveBeenCalledWith({ throwOnError: true })
+  })
+})
+
+// Drawing rev banner (Task 5, 2026-10-21) — the QR opens this page, so it's
+// where a stale-printed-drawing warning needs to live. Same comparison the
+// MO print flow already shows (DrawingRevNotice/DrawingRevBadge), just
+// scoped to this one WO via the hook's `woId` param.
+describe('WoDetail — drawing rev banner', () => {
+  const row = (over: Partial<DrawingRevStatusItem> = {}): DrawingRevStatusItem => ({
+    wo_id: 7, wo_code: 'WO-00000007', mark: 'CTR1', printed_rev: 1, current_rev: 2, ...over,
+  })
+
+  it('shows the banner with marks + per-item rev detail for 2 items (2 marks)', () => {
+    drawingRevItems = [row(), row({ mark: 'CTR2', printed_rev: 2, current_rev: 3 })]
+    renderPage()
+    expect(screen.getByText(
+      'Drawing ของ CTR1, CTR2 มีรุ่นใหม่แล้ว (CTR1 Rev 1 → Rev 2, CTR2 Rev 2 → Rev 3) — ใบที่พิมพ์ไว้เป็นรุ่นเก่า ให้หัวหน้างานพิมพ์ใบงานใหม่ที่หน้า MO',
+    )).toBeInTheDocument()
+  })
+
+  it('is hidden when there are no stale items', () => {
+    drawingRevItems = []
+    renderPage()
+    expect(screen.queryByText(/มีรุ่นใหม่แล้ว/)).not.toBeInTheDocument()
+  })
+
+  it('is hidden on error, even with stale items', () => {
+    drawingRevItems = [row()]
+    drawingRevError = true
+    renderPage()
+    expect(screen.queryByText(/มีรุ่นใหม่แล้ว/)).not.toBeInTheDocument()
+  })
+
+  it('is hidden while loading, even with stale items', () => {
+    drawingRevItems = [row()]
+    drawingRevLoading = true
+    renderPage()
+    expect(screen.queryByText(/มีรุ่นใหม่แล้ว/)).not.toBeInTheDocument()
   })
 })

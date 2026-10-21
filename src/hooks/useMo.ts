@@ -61,10 +61,14 @@ export function useMoConsumeSummary(id: number) {
 // on when given) so a plain invalidateQueries({ queryKey: ['mo', moId,
 // 'drawing-rev-status'] }) after a print catches every woId variant too
 // (TanStack Query v5 invalidation is prefix-matched by default).
-export function useMoDrawingRevStatus(moId: number, woId?: number) {
+// `moId` is optional (Task 5, 2026-10-21) so WoDetail — which only learns
+// its MO id once `useWo` resolves — can call this hook unconditionally
+// (rules of hooks) and simply stay disabled until then; the key shape and
+// the MO print invalidation prefix are unchanged.
+export function useMoDrawingRevStatus(moId: number | undefined, woId?: number) {
   return useQuery({
     queryKey: woId !== undefined ? ['mo', moId, 'drawing-rev-status', woId] : ['mo', moId, 'drawing-rev-status'],
-    queryFn: () => getMoDrawingRevStatus(moId, woId),
+    queryFn: () => getMoDrawingRevStatus(moId!, woId),
     enabled: !!moId,
   })
 }
