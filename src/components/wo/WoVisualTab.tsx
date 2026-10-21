@@ -5,7 +5,7 @@ import { useBimViewerToken } from '../../hooks/useBim'
 import { useWoBimMatch } from '../../hooks/useWo'
 import { useZoneDrawings } from '../../hooks/useDrawings'
 import { DrawingPreviewPanel } from '../drawings/DrawingPreviewPanel'
-import { listMarkDrawingVersions } from '../../lib/markDrawingVersions'
+import { listMarkDrawingRevs } from '../../lib/markDrawingRevs'
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
@@ -117,13 +117,13 @@ export interface WoVisualMark {
 //
 // Multi-mark redesign (2026-09-17): a WO can now carry many marks, so this
 // takes the full list and lets the user pick one (defaulting to the first) —
-// threaded into both the drawing-pane lookup (listMarkDrawingVersions) and
+// threaded into both the drawing-pane lookup (listMarkDrawingRevs) and
 // the BIM-match hook (useWoBimMatch's optional bomAssemblyId).
 //
 // Pane headers (2026-10-05): each pane has a Mark dropdown (always the WO's
 // own marks, shown even for a single mark; the two stay in sync so 3D and
 // Drawing always show the same mark) next to its own version dropdown,
-// defaulting to the newest — the mark's newest drawing version and the
+// defaulting to the newest — the mark's newest drawing rev and the
 // project's newest complete 3D model. Two 3D toolbar toggles swap the
 // isolated piece for the full model — with every instance of the selected
 // mark highlighted, or with every mark on the WO highlighted. View-only: nothing is saved to the WO (WOs are
@@ -163,15 +163,15 @@ export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark
   const {
     data: zoneDrawings = [], isLoading: drawingsLoading, isError: drawingsError,
   } = useZoneDrawings(active?.zoneId ?? undefined, active?.subZoneId ?? null)
-  const drawingVersions = active && active.zoneId != null ? listMarkDrawingVersions(zoneDrawings, active.mark) : []
-  // Drawing version picker — tagged with the mark it was made on, so
-  // switching marks falls back to that mark's newest version without an effect.
-  const [drawingPick, setDrawingPick] = useState<{ bomAssemblyId: number; version: number } | null>(null)
-  const pickedVersion = drawingPick && drawingPick.bomAssemblyId === active?.bomAssemblyId ? drawingPick.version : null
-  const selectedDrawing = drawingVersions.find(v => v.version === pickedVersion) ?? drawingVersions[0] ?? null
-  const drawingOptions: PickerOption[] = drawingVersions.map((v, i) => ({
-    value: v.version,
-    label: `v${v.version} · ${formatDate(v.drawing.create_date)}${i === 0 ? ' (latest)' : ''}`,
+  const drawingRevs = active && active.zoneId != null ? listMarkDrawingRevs(zoneDrawings, active.mark) : []
+  // Drawing rev picker — tagged with the mark it was made on, so
+  // switching marks falls back to that mark's newest rev without an effect.
+  const [drawingPick, setDrawingPick] = useState<{ bomAssemblyId: number; rev: number } | null>(null)
+  const pickedRev = drawingPick && drawingPick.bomAssemblyId === active?.bomAssemblyId ? drawingPick.rev : null
+  const selectedDrawing = drawingRevs.find(v => v.rev === pickedRev) ?? drawingRevs[0] ?? null
+  const drawingOptions: PickerOption[] = drawingRevs.map((v, i) => ({
+    value: v.rev,
+    label: `Rev ${v.rev} · ${formatDate(v.drawing.create_date)}${i === 0 ? ' (latest)' : ''}`,
   }))
   const mark = active?.mark ?? ''
   const markOptions: PickerOption[] = marks.map(m => ({ value: m.bomAssemblyId, label: m.mark }))
@@ -387,8 +387,8 @@ export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark
         <Picker
           label="Drawing version"
           options={drawingOptions}
-          value={selectedDrawing?.version ?? null}
-          onPick={version => setDrawingPick({ bomAssemblyId: active.bomAssemblyId, version })}
+          value={selectedDrawing?.rev ?? null}
+          onPick={rev => setDrawingPick({ bomAssemblyId: active.bomAssemblyId, rev })}
         />
       </PaneHeader>
       <div className="flex-1 min-h-0" style={{ borderRadius: 12, overflow: 'hidden' }}>
