@@ -237,6 +237,19 @@ interface WoForDrawingMatch {
   }[]
 }
 
+// One row of DrawingsService.findByZone()'s result — named here (rather
+// than inlined at each use) so resolveCurrentRevSheets' return type and
+// buildPlan's lookup map of it don't each repeat the same Awaited<ReturnType<…>> spelling.
+type ZoneDrawingRow = Awaited<ReturnType<DrawingsService['findByZone']>>[number]
+
+// resolveCurrentRevSheets()'s per-(WO, mark) result — every sheet of that
+// mark's current rev, or [] when it has no PDF drawing at all.
+interface CurrentRevSheetEntry {
+  woId: number
+  assemblyMark: string
+  sheets: ZoneDrawingRow[]
+}
+
 // Orchestrates the data behind a printable MO/WO packet: pulls every
 // non-cancelled WO on the MO, resolves every one of its marks' current-rev
 // PDF drawing sheets (currentRevSheetsForMark — every sheet of the mark's
@@ -392,7 +405,7 @@ export class MoPrintService {
     // a multi-mark WO needs each mark's own drawing, and its marks can in
     // principle span zones) — shared with drawingRevStatus() below so print
     // and the stale-drawing status never disagree on "current rev".
-    const sheetsByWoAndMark = new Map<string, Awaited<ReturnType<typeof this.resolveCurrentRevSheets>>[number]['sheets']>()
+    const sheetsByWoAndMark = new Map<string, ZoneDrawingRow[]>()
     for (const entry of await this.resolveCurrentRevSheets(workOrders)) {
       sheetsByWoAndMark.set(woMarkKey(entry.woId, entry.assemblyMark), entry.sheets)
     }
@@ -555,10 +568,9 @@ export class MoPrintService {
   // Extracted so the print packet and the stale-drawing status endpoint
   // always agree on what "current rev" means — never two separate queries
   // that could silently drift apart.
-  private async resolveCurrentRevSheets(workOrders: WoForDrawingMatch[]) {
-    type ZoneDrawingRow = Awaited<ReturnType<DrawingsService['findByZone']>>[number]
+  private async resolveCurrentRevSheets(workOrders: WoForDrawingMatch[]): Promise<CurrentRevSheetEntry[]> {
     const drawingsByZone = new Map<string, ZoneDrawingRow[]>()
-    const out: { woId: number; assemblyMark: string; sheets: ZoneDrawingRow[] }[] = []
+    const out: CurrentRevSheetEntry[] = []
     for (const wo of workOrders) {
       for (const mark of wo.marks) {
         const { zone_id, sub_zone_id } = mark.bom_assembly.dispatch

@@ -842,6 +842,12 @@ describe('MoPrintService.drawingRevStatus', () => {
     expect(result).toEqual({ items: [
       { wo_id: 1398, wo_code: 'WO-00000739', mark: 'DBN-A1-CTR1', printed_rev: 1, current_rev: 2 },
     ] })
+    // Newest first (printed_at desc, id desc tie-break) — staleDrawings()
+    // relies on this ordering to take "first log that mentions the pair" as
+    // "the newest one that does" (Review Focus 4).
+    expect(prisma.mo_print_log.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ printed_at: 'desc' }, { id: 'desc' }],
+    }))
   })
 
   it('excludes a mark with no current drawing at all (Review Focus 5) — no crash, no item', async () => {
@@ -874,7 +880,7 @@ describe('MoPrintService.drawingRevStatus', () => {
     expect(result).toEqual({ items: [] })
   })
 
-  it('filters to a single wo_id when given, and orders work_order by its usual sequence', async () => {
+  it('filters to a single wo_id when given, and orders work_order by sequence/id (same sort as the print packet)', async () => {
     const prisma = makePrisma({
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
       work_order: { findMany: jest.fn().mockResolvedValue([]) },
@@ -885,6 +891,7 @@ describe('MoPrintService.drawingRevStatus', () => {
 
     expect(prisma.work_order.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ mo_id: 85, status: { not: 'CANCELLED' }, id: 1398 }),
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
     }))
   })
 
