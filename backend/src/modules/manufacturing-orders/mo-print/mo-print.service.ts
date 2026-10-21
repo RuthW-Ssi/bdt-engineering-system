@@ -8,6 +8,7 @@ import { buildMoPrintPdf } from './mo-print-pdf-builder'
 import type { PrintLang } from './mo-print-labels'
 import { currentRevSheetsForMark } from './mark-drawing-match'
 import { summarizeOperations, type OperationSummary, printedDrawingRevs, renamesForRev, sourceLabelOf } from './mo-print-format'
+import { staleDrawings, type CurrentDrawingRevItem, type StaleDrawingItem } from './drawing-rev-status'
 
 export interface MoPrintWorkOrderRow {
   wo: {
@@ -220,6 +221,21 @@ export interface MoPrintPacketPlan {
 }
 
 const zoneKey = (zoneId: number, subZoneId: number | null) => `${zoneId}:${subZoneId ?? ''}`
+const woMarkKey = (woId: number, assemblyMark: string) => `${woId}:${assemblyMark}`
+
+// The shape resolveCurrentRevSheets() needs from each WO — a structural
+// subset so buildPlan's full Prisma payload (mrp_workcenter, subcontractor,
+// schedules, …) and drawingRevStatus()'s narrower `select` both satisfy it
+// without either query carrying fields the other doesn't need.
+interface WoForDrawingMatch {
+  id: number
+  marks: {
+    bom_assembly: {
+      assembly_mark: string
+      dispatch: { zone_id: number; sub_zone_id: number | null }
+    }
+  }[]
+}
 
 // Orchestrates the data behind a printable MO/WO packet: pulls every
 // non-cancelled WO on the MO, resolves every one of its marks' current-rev
@@ -371,20 +387,14 @@ export class MoPrintService {
       )
     }
 
-    // One findByZone call per distinct (zone, sub_zone) — every mark of the
-    // same zone shares a drawing list, so this dedups instead of re-fetching
-    // per mark. Every non-removed mark on every WO is looked up (2026-09-22:
-    // "ต้อง print ทุก drawing ที่มี mark" — a multi-mark WO now needs each
-    // mark's own drawing, and its marks can in principle span zones).
-    const drawingsByZone = new Map<string, Awaited<ReturnType<DrawingsService['findByZone']>>>()
-    for (const wo of workOrders) {
-      for (const mark of wo.marks) {
-        const { zone_id, sub_zone_id } = mark.bom_assembly.dispatch
-        const key = zoneKey(zone_id, sub_zone_id)
-        if (!drawingsByZone.has(key)) {
-          drawingsByZone.set(key, await this.drawings.findByZone(zone_id, sub_zone_id))
-        }
-      }
+    // Every non-removed mark on every WO resolved to its current-rev PDF
+    // sheets in one pass (2026-09-22: "ต้อง print ทุก drawing ที่มี mark" —
+    // a multi-mark WO needs each mark's own drawing, and its marks can in
+    // principle span zones) — shared with drawingRevStatus() below so print
+    // and the stale-drawing status never disagree on "current rev".
+    const sheetsByWoAndMark = new Map<string, Awaited<ReturnType<typeof this.resolveCurrentRevSheets>>[number]['sheets']>()
+    for (const entry of await this.resolveCurrentRevSheets(workOrders)) {
+      sheetsByWoAndMark.set(woMarkKey(entry.woId, entry.assemblyMark), entry.sheets)
     }
 
     // Batch-fetch every activity referenced across all WOs in one query —
@@ -457,8 +467,7 @@ export class MoPrintService {
       for (const mark of wo.marks) {
         const assembly = mark.bom_assembly
         const dispatch = assembly.dispatch
-        const zoneDrawings = drawingsByZone.get(zoneKey(dispatch.zone_id, dispatch.sub_zone_id)) ?? []
-        const sheets = currentRevSheetsForMark(zoneDrawings, assembly.assembly_mark)
+        const sheets = sheetsByWoAndMark.get(woMarkKey(wo.id, assembly.assembly_mark)) ?? []
         marks.push({
           assemblyMark: assembly.assembly_mark,
           sourceLabel: sourceLabelOf(dispatch),
@@ -536,6 +545,90 @@ export class MoPrintService {
     }
 
     return { mo: moWithScope, rows, routingOps, marks, assemblyParts }
+  }
+
+  // Shared by buildPlan (above) and drawingRevStatus (below): for every
+  // non-removed mark across the given WOs, fetch its dispatch zone(+sub-
+  // zone)'s drawing list (one findByZone call per distinct zone — every
+  // mark of the same zone shares a list, deduped instead of re-fetched) and
+  // resolve the mark's current-rev PDF sheets via currentRevSheetsForMark.
+  // Extracted so the print packet and the stale-drawing status endpoint
+  // always agree on what "current rev" means — never two separate queries
+  // that could silently drift apart.
+  private async resolveCurrentRevSheets(workOrders: WoForDrawingMatch[]) {
+    type ZoneDrawingRow = Awaited<ReturnType<DrawingsService['findByZone']>>[number]
+    const drawingsByZone = new Map<string, ZoneDrawingRow[]>()
+    const out: { woId: number; assemblyMark: string; sheets: ZoneDrawingRow[] }[] = []
+    for (const wo of workOrders) {
+      for (const mark of wo.marks) {
+        const { zone_id, sub_zone_id } = mark.bom_assembly.dispatch
+        const key = zoneKey(zone_id, sub_zone_id)
+        if (!drawingsByZone.has(key)) {
+          drawingsByZone.set(key, await this.drawings.findByZone(zone_id, sub_zone_id))
+        }
+        const zoneDrawings = drawingsByZone.get(key) ?? []
+        out.push({ woId: wo.id, assemblyMark: mark.bom_assembly.assembly_mark, sheets: currentRevSheetsForMark(zoneDrawings, mark.bom_assembly.assembly_mark) })
+      }
+    }
+    return out
+  }
+
+  // `GET /mo/:id/drawing-rev-status` (2026-10-21, Task 3) — warn-only: which
+  // (WO, mark) pairs were printed with a drawing rev that is now stale
+  // (current rev > the newest print log that covered that pair). Never
+  // blocks Start/progress; purely informational, read by the MO/WO page to
+  // show a notice icon. `woId` narrows to a single WO (e.g. the WO detail
+  // page); omitted means every non-cancelled WO on the MO.
+  //
+  // Only non-cancelled WOs and only marks that currently have a drawing
+  // (Review Focus 5: no drawing at all → absent, never a crash) feed into
+  // `current`. Logs are read newest first (printed_at desc, id desc
+  // tie-break) so staleDrawings() can take "the first log that mentions
+  // this pair" as "the newest one that does" — see that helper for how a
+  // legacy log (drawing_revs null) or a later partial reprint that omitted
+  // the pair are handled.
+  async drawingRevStatus(moId: number, woId?: number): Promise<{ items: StaleDrawingItem[] }> {
+    const mo = await this.prisma.manufacturing_order.findUnique({ where: { id: moId }, select: { id: true } })
+    if (!mo) throw new NotFoundException(`MO ${moId} not found`)
+
+    const workOrders = await this.prisma.work_order.findMany({
+      where: {
+        mo_id: moId,
+        status: { not: 'CANCELLED' },
+        ...(woId !== undefined ? { id: woId } : {}),
+      },
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        wo_code: true,
+        marks: {
+          where: { removed_at: null },
+          orderBy: { id: 'asc' },
+          select: {
+            bom_assembly: { select: { assembly_mark: true, dispatch: { select: { zone_id: true, sub_zone_id: true } } } },
+          },
+        },
+      },
+    })
+    const woCodeById = new Map(workOrders.map(wo => [wo.id, wo.wo_code]))
+
+    const current: CurrentDrawingRevItem[] = []
+    for (const entry of await this.resolveCurrentRevSheets(workOrders)) {
+      if (entry.sheets.length === 0) continue // no drawing at all → not tracked (Review Focus 5)
+      const currentRev = Math.max(...entry.sheets.map(s => s.rev ?? 0))
+      current.push({ wo_id: entry.woId, wo_code: woCodeById.get(entry.woId)!, mark: entry.assemblyMark, current_rev: currentRev })
+    }
+
+    const logs = await this.prisma.mo_print_log.findMany({
+      where: { mo_id: moId },
+      orderBy: [{ printed_at: 'desc' }, { id: 'desc' }],
+      select: { printed_at: true, drawing_revs: true },
+    })
+
+    const items = staleDrawings(logs, current)
+      .sort((a, b) => a.wo_code.localeCompare(b.wo_code) || a.mark.localeCompare(b.mark))
+
+    return { items }
   }
 
   // The MO's whole planned routing, ignoring `workOrderIds` — a separate,
