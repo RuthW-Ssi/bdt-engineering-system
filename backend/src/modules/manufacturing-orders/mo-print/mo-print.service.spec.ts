@@ -751,7 +751,12 @@ describe('MoPrintService.buildPdf', () => {
 
     const bytes = await svc.buildPdf(85, undefined, true, 'en', 'tao')
     const merged = await PDFDocument.load(bytes)
-    expect(prisma.mo_print_log.create).toHaveBeenCalledWith({ data: { mo_id: 85, revision: 0, wo_ids: [1398], include_manifest: true, printed_by: 'tao' } })
+    // drawing_revs (2026-10-21): the rev of every (WO, mark) pair whose
+    // drawing this print actually included — here, WO 1398's one mark at
+    // its matched drawing's rev (1).
+    expect(prisma.mo_print_log.create).toHaveBeenCalledWith({
+      data: { mo_id: 85, revision: 0, wo_ids: [1398], include_manifest: true, printed_by: 'tao', drawing_revs: { '1398': { 'DBN-A1-CTR1': 1 } } },
+    })
 
     expect(fileStorage.getObject).toHaveBeenCalledWith('drawings/dbn-a1-ctr1-rev1.pdf')
     expect(fileStorage.getDownloadUrl).not.toHaveBeenCalled()

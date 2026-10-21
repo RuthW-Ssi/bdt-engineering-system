@@ -84,6 +84,28 @@ export function drawingsUpdatedAfter(
     .map(({ mark, d }) => `${mark} Rev ${d.rev} (${formatShortDate(d.uploaded_at)})`)
 }
 
+/** mo_print_log.drawing_revs (2026-10-21) — what each printed (WO, mark)
+ *  pair's drawing rev was at print time: `woId → { assemblyMark → rev }`.
+ *  A mark with no drawing is skipped; a WO none of whose marks has a
+ *  drawing gets no entry at all (not `{}`) so the log only ever records
+ *  pairs that actually printed a drawing page. Compared later against the
+ *  mark's current rev to warn (never block) that paper is stale — see
+ *  drawingsUpdatedAfter's note above on why no date-based check works for
+ *  that (same-rev re-uploads must not trigger a false notice). */
+export function printedDrawingRevs(
+  plan: { rows: { wo: { id: number }; marks: { assemblyMark: string; drawing: { rev: number } | null }[] }[] },
+): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {}
+  for (const row of plan.rows) {
+    const revs: Record<string, number> = {}
+    for (const mark of row.marks) {
+      if (mark.drawing) revs[mark.assemblyMark] = mark.drawing.rev
+    }
+    if (Object.keys(revs).length > 0) out[String(row.wo.id)] = revs
+  }
+  return out
+}
+
 // MO page Routing checklist: one row per routing operation (by sequence),
 // collecting the codes of every WO that operation currently has — one per
 // mark today (2026-09-16).

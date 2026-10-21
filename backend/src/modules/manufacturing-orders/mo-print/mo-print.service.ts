@@ -7,7 +7,7 @@ import { computeActivityDuration, type ActivityDurationBreakdownItem } from '../
 import { buildMoPrintPdf } from './mo-print-pdf-builder'
 import type { PrintLang } from './mo-print-labels'
 import { findLatestPdfForMark } from './mark-drawing-match'
-import { summarizeOperations, type OperationSummary, renamesForRev, sourceLabelOf } from './mo-print-format'
+import { summarizeOperations, type OperationSummary, printedDrawingRevs, renamesForRev, sourceLabelOf } from './mo-print-format'
 
 export interface MoPrintWorkOrderRow {
   wo: {
@@ -268,7 +268,17 @@ export class MoPrintService {
     )
     if (printedBy) {
       await this.prisma.mo_print_log.create({
-        data: { mo_id: moId, revision: plan.mo.revision, wo_ids: plan.rows.map(r => r.wo.id), include_manifest: includeManifest, printed_by: printedBy },
+        data: {
+          mo_id: moId,
+          revision: plan.mo.revision,
+          wo_ids: plan.rows.map(r => r.wo.id),
+          include_manifest: includeManifest,
+          printed_by: printedBy,
+          // The rev of every (WO, mark) pair this print actually included a
+          // drawing page for (2026-10-21) — feeds a later warn-only "drawing
+          // changed since this paper was printed" notice.
+          drawing_revs: printedDrawingRevs(plan),
+        },
       })
     }
     return bytes

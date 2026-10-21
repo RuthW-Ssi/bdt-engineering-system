@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, markCell, moCodeCell, renamesForRev, sourceLabelOf, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
 
 describe('fmt2', () => {
   it('pads a whole number to 2 decimal places', () => {
@@ -206,5 +206,49 @@ describe('print cells for MO type / Rev / mark source', () => {
     ]
     expect(renamesForRev(reasons, 3)).toEqual(new Map([['C1-BUH1-3', 'BUH1-3']]))
     expect(renamesForRev(reasons, 4)).toEqual(new Map())
+  })
+})
+
+// mo_print_log.drawing_revs (2026-10-21) — what each printed (WO, mark)
+// pair's drawing rev was at print time, so a later-uploaded rev can be
+// compared against it (warn-only notice, never a block).
+describe('printedDrawingRevs', () => {
+  it('maps woId (as a string key) → { assemblyMark → drawing.rev }, skipping marks with no drawing', () => {
+    const plan = {
+      rows: [
+        {
+          wo: { id: 1398 },
+          marks: [
+            { assemblyMark: 'DBN-A1-CTR1', drawing: { rev: 2 } },
+            { assemblyMark: 'DBN-A1-CTR2', drawing: null },
+          ],
+        },
+        {
+          wo: { id: 1399 },
+          marks: [
+            { assemblyMark: 'DBN-A1-STR1', drawing: { rev: 1 } },
+          ],
+        },
+      ],
+    }
+
+    expect(printedDrawingRevs(plan)).toEqual({
+      '1398': { 'DBN-A1-CTR1': 2 },
+      '1399': { 'DBN-A1-STR1': 1 },
+    })
+  })
+
+  it('omits a WO entirely when none of its marks has a drawing', () => {
+    const plan = {
+      rows: [
+        { wo: { id: 1398 }, marks: [{ assemblyMark: 'DBN-A1-CTR1', drawing: null }] },
+      ],
+    }
+
+    expect(printedDrawingRevs(plan)).toEqual({})
+  })
+
+  it('returns {} for a plan with no rows', () => {
+    expect(printedDrawingRevs({ rows: [] })).toEqual({})
   })
 })
