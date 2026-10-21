@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, drawingsUpdatedAfter, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
+import { capList, drawingPageStamps, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
 import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
@@ -529,7 +529,6 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels,
   // (drawActivities/drawAssemblyAndQcChunk use the same formula), so their
   // bottom edges read as level with each other without needing to be
   // physically joined.
-  drawDrawingUpdatedNote(page, fonts, L, row)
   drawWoWatermark(page, fonts, row)
 
   // Every mark must show (2026-09-21: "ต้องแสดง assembly list ทั้งหมด") —
@@ -542,24 +541,6 @@ async function buildTravelerPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels,
     remaining = remaining.slice(n)
     drawWoWatermark(contPage, fonts, row)
   }
-}
-
-// Drawings uploaded after this WO was created (2026-10-05, print option A):
-// one red line in the traveler's top margin, above both columns, so the floor
-// knows the sheet changed since the job was issued. Nothing when none did.
-function drawDrawingUpdatedNote(page: PDFPage, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow): void {
-  const updated = drawingsUpdatedAfter(row.wo.created_at, row.marks)
-  if (updated.length === 0) return
-  const text = L.drawingUpdatedAfterWo(updated.join(', '))
-  // Baseline just above the content's top edge — inside the band between
-  // the page border (BORDER_INSET) and the content (MARGIN), clear of both.
-  page.drawText(text, {
-    x: MARGIN,
-    y: PAGE_HEIGHT - MARGIN + 5,
-    size: fitTextSize(fonts.bold, text, CONTENT_WIDTH, 10),
-    font: fonts.bold,
-    color: rgb(0.78, 0.13, 0.16),
-  })
 }
 
 // Identification grid + the QR in its own bordered box to the grid's
@@ -954,21 +935,24 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, L: PrintLabels, cols: Tabl
   return top - y
 }
 
-// Shop drawing on its own page, right after its WO's traveler — one page
-// PER MARK, not per WO (2026-09-22: "wo มีหลายมาก mark ทำไมถึงแสดงแค่
-// print แค่ 1 drawing ต้อง print ทุก drawing ที่มี mark" — a multi-mark WO
-// used to embed only its primary mark's drawing once; now every mark gets
-// its own page, see buildMoPrintPdf's per-mark loop). Only the drawing's
-// first page (real shop drawings in this app are single-view PDFs).
+// Shop drawing sheets on their own pages, right after their WO's traveler —
+// every PAGE of every SHEET of the mark's current rev, not just one page per
+// mark (2026-09-22: "wo มีหลายมาก mark ทำไมถึงแสดงแค่ print แค่ 1 drawing
+// ต้อง print ทุก drawing ที่มี mark" — a multi-mark WO used to embed only its
+// primary mark's drawing once; every mark gets its own page(s), see
+// buildMoPrintPdf's per-mark loop; extended 2026-10-21, "print every sheet
+// and every page of the current rev" — a batch upload can hold several
+// sheets of one mark, and a sheet itself can be a multi-page PDF; all of it
+// must print, not just each sheet's first page).
 //
-// Full-bleed, sized to the drawing's OWN native page dimensions (2026-09-23:
+// Full-bleed, sized to the embedded page's OWN native dimensions (2026-09-23:
 // "drawing ต้องเต็มแผ่นตามของจริง" — the drawing must fill the sheet,
 // matching the real thing). Was previously fit-and-centered onto a fixed
 // A3-landscape sheet shared with the rest of the packet — since a shop
 // drawing's own title-block page is rarely A3-landscape-shaped, that always
 // left letterboxing on one axis. Now the destination PAGE itself is created
-// at the embedded drawing's exact width/height, so it draws 1:1 at (0,0)
-// with zero scaling and zero blank margin — a printed sheet that's pixel-
+// at the embedded page's exact width/height, so it draws 1:1 at (0,0) with
+// zero scaling and zero blank margin — a printed sheet that's pixel-
 // identical to opening the source drawing file on its own. PDF pages may
 // vary in size within one document; this reads fine in any viewer/printer.
 // No page border, since the drawing has its own title-block frame; the
@@ -977,15 +961,21 @@ function drawCappedTable(page: PDFPage, fonts: Fonts, L: PrintLabels, cols: Tabl
 // produce several of these sheets) moved from top-left to BOTTOM-RIGHT the
 // same day, on the user's direct instruction, to sit clear of the drawing's
 // own content up top.
-async function buildDrawingPage(doc: PDFDocument, fonts: Fonts, L: PrintLabels, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow, drawingDoc: PDFDocument): Promise<void> {
-  const embeddedDrawing = await doc.embedPage(drawingDoc.getPage(0))
+//
+// `stamp` (2026-10-21, computed by mo-print-format.ts's drawingPageStamps —
+// see the fix-round-1 note there) is this exact page's full "Drawing Rev N ·
+// date[ · sheet i/n]" text, already resolved by the caller — rides as-is at
+// the end of the corner label and as the watermark's third line ("เอามาอยู่
+// ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย"). No new element is drawn
+// for the sheet suffix — it's just part of this one string.
+async function buildDrawingPage(
+  doc: PDFDocument, fonts: Fonts, row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow,
+  stamp: string, sourcePage: PDFPage,
+): Promise<void> {
+  const embeddedDrawing = await doc.embedPage(sourcePage)
   const page = doc.addPage([embeddedDrawing.width, embeddedDrawing.height])
   page.drawPage(embeddedDrawing, { x: 0, y: 0, width: embeddedDrawing.width, height: embeddedDrawing.height })
 
-  // Which revision this sheet is (2026-10-05, print option A) rides at the
-  // end of the corner label and as the watermark's third line ("เอามาอยู่
-  // ต่อท้าย DBN-B1-CTR10", "เอาไปใส่ตรงลายน้ำด้วย").
-  const stamp = L.drawingStamp(`Rev ${mark.drawing!.rev} · ${formatShortDate(mark.drawing!.uploaded_at)}`)
   const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
   const labelSize = 12
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
@@ -1119,19 +1109,22 @@ function drawMoWatermark(page: PDFPage, fonts: Fonts, plan: MoPrintPacketPlan): 
 
 // Builds the full printable packet: one manifest page summarizing the MO,
 // then per WO a signable traveler page followed by ITS MARKS' matched shop
-// drawings, one page each (see buildDrawingPage; 2026-09-22 — a WO used to
-// contribute a single drawing page from its primary mark only).
+// drawings — every page of every sheet of each mark's current rev (see
+// buildDrawingPage; 2026-09-22 — a WO used to contribute a single drawing
+// page from its primary mark only; 2026-10-21 — a mark used to contribute
+// only its single newest sheet's first page).
 // `fetchDrawingBytes` is injected so this function stays pure/testable —
 // the caller (MoPrintService) owns actually reaching file storage, and now
-// takes the specific mark being drawn alongside its row. Callers must have
-// already resolved plan.rows[].marks[] against findLatestPdfForMark; a mark
-// whose drawing is null gets no drawing page (2026-10-07).
+// takes the specific sheet being drawn alongside its row/mark. Callers must
+// have already resolved plan.rows[].marks[] against
+// mark-drawing-match.ts's currentRevSheetsForMark; a mark whose `drawings`
+// is empty gets no drawing page (2026-10-07).
 // `includeManifest` (2026-09-21 selective print) — the MO overview page is
 // now its own toggle, independent of which WO travelers are picked, so
 // "just the MO" (no WOs) and "just some WOs, no MO page" are both valid.
 export async function buildMoPrintPdf(
   plan: MoPrintPacketPlan,
-  fetchDrawingBytes: (row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow) => Promise<Uint8Array>,
+  fetchDrawingBytes: (row: MoPrintWorkOrderRow, mark: MoPrintAssemblyMarkRow, sheet: MoPrintAssemblyMarkRow['drawings'][number]) => Promise<Uint8Array>,
   includeManifest = true,
   lang: PrintLang = 'en',
 ): Promise<Uint8Array> {
@@ -1155,10 +1148,36 @@ export async function buildMoPrintPdf(
   for (const row of plan.rows) {
     await buildTravelerPage(doc, fonts, L, plan, row)
     for (const mark of row.marks) {
-      if (!mark.drawing) continue // no drawing yet (pre-shop) — traveler only, 2026-10-07
-      const drawingBytes = await fetchDrawingBytes(row, mark)
-      const drawingDoc = await PDFDocument.load(drawingBytes)
-      await buildDrawingPage(doc, fonts, L, row, mark, drawingDoc)
+      if (mark.drawings.length === 0) continue // no drawing yet (pre-shop) — traveler only, 2026-10-07
+      // Every sheet of the mark's current rev is fetched/loaded up front so
+      // the total page count across all of them (n) is known before any
+      // page is drawn — each drawn page needs n for its " · sheet i/n" stamp.
+      const sheetDocs: PDFDocument[] = []
+      for (const sheet of mark.drawings) {
+        const drawingBytes = await fetchDrawingBytes(row, mark, sheet)
+        sheetDocs.push(await PDFDocument.load(drawingBytes))
+      }
+      const pageCounts = sheetDocs.map(d => d.getPageCount())
+      // A fetched sheet can come back with 0 pages (a bad/empty source PDF,
+      // 2026-10-21 fix round 1) — if every sheet of this mark has 0 pages,
+      // there's nothing at all to print for it; skip the mark entirely
+      // (same as a mark with no `drawings`) rather than silently falling
+      // through the page loops with nothing drawn. A partial case (one
+      // sheet of several empty) still prints every page of the others.
+      if (pageCounts.every(n => n === 0)) continue
+      // Every sheet shares the mark's current rev (currentRevSheetsForMark's
+      // guarantee), so the first sheet's rev/date is representative of all
+      // of them — drawingPageStamps turns that into one stamp string per
+      // physical page, numbered 1..n across every sheet (never per-sheet).
+      const revLabel = `Rev ${mark.drawings[0].rev} · ${formatShortDate(mark.drawings[0].uploaded_at)}`
+      const stamps = drawingPageStamps(revLabel, pageCounts, L)
+      let printedPage = 0
+      for (const sheetDoc of sheetDocs) {
+        for (let p = 0; p < sheetDoc.getPageCount(); p++) {
+          await buildDrawingPage(doc, fonts, row, mark, stamps[printedPage], sheetDoc.getPage(p))
+          printedPage++
+        }
+      }
     }
   }
 

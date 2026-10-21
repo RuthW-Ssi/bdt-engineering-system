@@ -2,7 +2,7 @@ import { formatMarks } from './WoList'
 
 // NOTE on scope: WoList.tsx itself (data fetching via useWos, filters,
 // pagination) isn't mounted/tested here — same "extract and test the pure
-// piece" precedent as qtyReusableValid / findLatestPdfForMark elsewhere in
+// piece" precedent as qtyReusableValid / currentRevSheetsForMark elsewhere in
 // this codebase. `formatMarks` is the one bit of new logic the multi-mark
 // redesign added to this page (assembly_mark singular → assembly_marks[]).
 

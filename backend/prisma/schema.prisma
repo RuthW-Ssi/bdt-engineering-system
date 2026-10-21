@@ -1674,6 +1674,10 @@ model mo_print_log {
   include_manifest Boolean             @default(true)
   printed_by       String              @db.VarChar(120)
   printed_at       DateTime            @default(now()) @db.Timestamptz
+  // woId → { assemblyMark → drawing rev } for every (WO, mark) pair this
+  // print included a drawing page for (2026-10-21) — null on every log
+  // written before this column existed ("legacy", never produces a notice).
+  drawing_revs     Json?
 
   @@index([mo_id])
 }

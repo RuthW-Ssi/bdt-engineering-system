@@ -1,4 +1,5 @@
 import type { PDFFont } from 'pdf-lib'
+import type { PrintLabels } from './mo-print-labels'
 
 // Every quantity/time value on the print packet displays to a fixed 2
 // decimal places — mixing whole numbers and varying-precision decimals in
@@ -58,9 +59,8 @@ export function formatPlanDateTime(d: Date | null): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`
 }
 
-// Drawing rev stamp + the traveler's "updated after this WO" note
-// (2026-10-05, print option A) — dd/mm/yy in shop-floor time, same reason
-// as formatPlanDateTime above.
+// Drawing rev stamp on each printed sheet (2026-10-05, print option A) —
+// dd/mm/yy in shop-floor time, same reason as formatPlanDateTime above.
 export function formatShortDate(d: Date | string): string {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Bangkok', year: '2-digit', month: '2-digit', day: '2-digit' })
@@ -69,19 +69,53 @@ export function formatShortDate(d: Date | string): string {
   return `${parts.day}/${parts.month}/${parts.year}`
 }
 
-/** Marks whose printed drawing was uploaded after the WO was created —
- *  "CTR10 Rev 3 (02/10/26)" each — so the floor knows the sheet changed
- *  since the job was issued. Upload date vs WO creation, no stored
- *  WO↔drawing link. */
-export function drawingsUpdatedAfter(
-  woCreatedAt: Date | string,
-  marks: { assemblyMark: string; drawing: { rev: number; uploaded_at: Date | string } | null }[],
-): string[] {
-  const created = new Date(woCreatedAt).getTime()
-  // A mark with no drawing yet (pre-shop, 2026-10-07) has nothing to flag.
-  return marks
-    .flatMap(m => (m.drawing && new Date(m.drawing.uploaded_at).getTime() > created ? [{ mark: m.assemblyMark, d: m.drawing }] : []))
-    .map(({ mark, d }) => `${mark} Rev ${d.rev} (${formatShortDate(d.uploaded_at)})`)
+/** Per-page drawing-page stamp text (2026-10-21 fix round 1) — one entry per
+ *  physical page, in print order, across EVERY sheet of one mark's current
+ *  rev. `rev` is the already-formatted "Rev N · dd/mm/yy" fragment (shared by
+ *  every sheet, since they're all the mark's current rev); `pageCounts` is
+ *  that mark's sheets' page counts, in sheet order (a 0 is a sheet that
+ *  turned out to have no pages — contributes nothing, not a crash).
+ *  n = the TOTAL page count across every sheet (not the sheet count) — a
+ *  2-sheet mark where one sheet is a 2-page PDF ([2, 1]) numbers its 3
+ *  printed pages 1/3, 2/3, 3/3, continuing the count across the sheet
+ *  boundary rather than resetting per sheet. No suffix at all when n <= 1
+ *  (nothing to disambiguate). The suffix rides inside this one returned
+ *  string — never a separate draw call — so it fits the "no new band/box"
+ *  printed-paper rule. */
+export function drawingPageStamps(rev: string, pageCounts: number[], L: PrintLabels): string[] {
+  const base = L.drawingStamp(rev)
+  const totalPages = pageCounts.reduce((sum, n) => sum + n, 0)
+  let i = 0
+  return pageCounts.flatMap(count =>
+    Array.from({ length: count }, () => {
+      i += 1
+      return totalPages > 1 ? base + L.sheet(i, totalPages) : base
+    }),
+  )
+}
+
+/** mo_print_log.drawing_revs (2026-10-21) — what each printed (WO, mark)
+ *  pair's drawing rev was at print time: `woId → { assemblyMark → rev }`.
+ *  A mark prints every sheet of its current rev (mark-drawing-match.ts'
+ *  currentRevSheetsForMark) — every sheet shares that one rev, so the first
+ *  one read is representative. A mark with no drawing (`drawings: []`) is
+ *  skipped; a WO none of whose marks has a drawing gets no entry at all
+ *  (not `{}`) so the log only ever records pairs that actually printed a
+ *  drawing page. Compared later against the mark's current rev to warn
+ *  (never block) that paper is stale — a same-rev re-upload must not
+ *  trigger a false notice, hence comparing revs here, never dates. */
+export function printedDrawingRevs(
+  plan: { rows: { wo: { id: number }; marks: { assemblyMark: string; drawings: { rev: number }[] }[] }[] },
+): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {}
+  for (const row of plan.rows) {
+    const revs: Record<string, number> = {}
+    for (const mark of row.marks) {
+      if (mark.drawings.length > 0) revs[mark.assemblyMark] = mark.drawings[0].rev
+    }
+    if (Object.keys(revs).length > 0) out[String(row.wo.id)] = revs
+  }
+  return out
 }
 
 // MO page Routing checklist: one row per routing operation (by sequence),

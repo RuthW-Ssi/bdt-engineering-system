@@ -95,7 +95,7 @@ function makePdfDrawing(overrides: Record<string, any> = {}) {
 function makePrisma(overrides: Record<string, any> = {}) {
   return {
     mo_status_history: { findMany: jest.fn().mockResolvedValue([]) },
-    mo_print_log: { create: jest.fn() },
+    mo_print_log: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     manufacturing_order: {
       findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-00014', plan_start: null, plan_finish: null, actual_start: null, actual_finish: null, status: 'CONFIRMED', primary_mark_prefix_code: 'CTR', revision: 0, routing_template_id: 17 }),
     },
@@ -162,8 +162,8 @@ describe('MoPrintService.buildPlan', () => {
     expect(plan.rows[0].marks).toEqual([{
       assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
       // rev + upload date (2026-10-05, print option A) — stamped on the
-      // drawing page and compared against the WO's own create_date.
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      // drawing page. Every sheet of the mark's current rev (2026-10-21).
+      drawings: [{ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }],
     }])
     expect(plan.rows[0].wo).toMatchObject({ expected_duration_min: 45, setup_time_min: 10, created_at: new Date('2026-09-20T00:00:00Z') })
   })
@@ -636,7 +636,7 @@ describe('MoPrintService.buildPlan', () => {
   // 2026-10-07 (user: "ในกรณีที่ไม่มี drawing ก็ print ได้"): used to block the
   // whole packet — a pre-shop MO has no shop drawing yet. A mark with no PDF
   // drawing still lists on its traveler; it just gets no drawing page.
-  it('still prints when a mark has no PDF drawing — the mark keeps its row, drawing is null', async () => {
+  it('still prints when a mark has no PDF drawing — the mark keeps its row, drawings is empty', async () => {
     const prisma = makePrisma({
       work_order: { findMany: jest.fn().mockResolvedValue([makeWo(), makeWo({ id: 1399, wo_code: 'WO-00000740', sequence: 20 })]) },
     })
@@ -645,7 +645,7 @@ describe('MoPrintService.buildPlan', () => {
 
     const plan = await svc.buildPlan(85)
     expect(plan.rows.map(r => r.wo.wo_code)).toEqual(['WO-00000739', 'WO-00000740'])
-    expect(plan.rows[0].marks).toEqual([expect.objectContaining({ assemblyMark: 'DBN-A1-CTR1', drawing: null })])
+    expect(plan.rows[0].marks).toEqual([expect.objectContaining({ assemblyMark: 'DBN-A1-CTR1', drawings: [] })])
   })
 
   // 2026-10-05 (print option A): used to 409 — the zone's newest batch held
@@ -662,7 +662,28 @@ describe('MoPrintService.buildPlan', () => {
 
     const plan = await svc.buildPlan(85)
 
-    expect(plan.rows[0].marks[0].drawing).toMatchObject({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', rev: 1 })
+    expect(plan.rows[0].marks[0].drawings).toEqual([expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', rev: 1 })])
+  })
+
+  // 2026-10-21 (print every sheet of the current rev): a batch upload can
+  // hold several sheets of one mark at the same rev — every one prints.
+  it("includes every sheet of the mark's current rev, natural-sorted by file_name, excluding older revs", async () => {
+    const prisma = makePrisma()
+    const drawings = makeDrawings({
+      findByZone: jest.fn().mockResolvedValue([
+        makePdfDrawing({ id: 1, rev: 1, file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }),
+        makePdfDrawing({ id: 2, rev: 2, file_key: 'drawings/dbn-a1-ctr1-rev2-sheet1.pdf', file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf' }),
+        makePdfDrawing({ id: 3, rev: 2, file_key: 'drawings/dbn-a1-ctr1-rev2-sheet2.pdf', file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.pdf' }),
+      ]),
+    })
+    const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
+
+    const plan = await svc.buildPlan(85)
+
+    expect(plan.rows[0].marks[0].drawings).toEqual([
+      expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev2-sheet1.pdf', rev: 2 }),
+      expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev2-sheet2.pdf', rev: 2 }),
+    ])
   })
 
   it('fetches a zone\'s drawings only once even when multiple WOs share the same zone', async () => {
@@ -718,8 +739,8 @@ describe('MoPrintService.buildPlan', () => {
 
     expect(plan.rows).toHaveLength(1)
     expect(plan.rows[0].marks).toEqual([
-      { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' }) },
-      { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 3, weight_kg: 220, drawing: expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' }) },
+      { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf' })] },
+      { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 3, weight_kg: 220, drawings: [expect.objectContaining({ file_key: 'drawings/dbn-a1-ctr2-rev1.pdf', file_name: 'DBN-A1-CTR2 - - Rev 1.pdf' })] },
     ])
   })
 
@@ -751,7 +772,12 @@ describe('MoPrintService.buildPdf', () => {
 
     const bytes = await svc.buildPdf(85, undefined, true, 'en', 'tao')
     const merged = await PDFDocument.load(bytes)
-    expect(prisma.mo_print_log.create).toHaveBeenCalledWith({ data: { mo_id: 85, revision: 0, wo_ids: [1398], include_manifest: true, printed_by: 'tao' } })
+    // drawing_revs (2026-10-21): the rev of every (WO, mark) pair whose
+    // drawing this print actually included — here, WO 1398's one mark at
+    // its matched drawing's rev (1).
+    expect(prisma.mo_print_log.create).toHaveBeenCalledWith({
+      data: { mo_id: 85, revision: 0, wo_ids: [1398], include_manifest: true, printed_by: 'tao', drawing_revs: { '1398': { 'DBN-A1-CTR1': 1 } } },
+    })
 
     expect(fileStorage.getObject).toHaveBeenCalledWith('drawings/dbn-a1-ctr1-rev1.pdf')
     expect(fileStorage.getDownloadUrl).not.toHaveBeenCalled()
@@ -781,5 +807,113 @@ describe('MoPrintService.buildPdf', () => {
     await expect(svc.buildPdf(85)).rejects.toMatchObject({
       message: expect.stringContaining('WO-00000739'),
     })
+  })
+})
+
+describe('MoPrintService.drawingRevStatus', () => {
+  it('throws NotFoundException for an unknown MO', async () => {
+    const prisma = makePrisma({ manufacturing_order: { findUnique: jest.fn().mockResolvedValue(null) } })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    await expect(svc.drawingRevStatus(999)).rejects.toThrow(NotFoundException)
+  })
+
+  // Wires the zone(+sub-zone) drawing lookup + currentRevSheetsForMark the
+  // exact same way buildPlan does for the print packet (shared private
+  // helper) — here, the mark's one matched drawing sits at rev 2 while the
+  // newest print log only covered it at rev 1, so it's reported stale.
+  it("reuses currentRevSheetsForMark's zone-drawing matching to resolve each mark's current rev, and flags it stale against the newest print log", async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([makeWo()]) },
+      mo_print_log: {
+        create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          { printed_at: new Date('2026-10-01T00:00:00Z'), drawing_revs: { '1398': { 'DBN-A1-CTR1': 1 } } },
+        ]),
+      },
+    })
+    const drawings = makeDrawings({ findByZone: jest.fn().mockResolvedValue([makePdfDrawing({ rev: 2 })]) })
+    const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
+
+    const result = await svc.drawingRevStatus(85)
+
+    expect(drawings.findByZone).toHaveBeenCalledWith(23, null)
+    expect(result).toEqual({ items: [
+      { wo_id: 1398, wo_code: 'WO-00000739', mark: 'DBN-A1-CTR1', printed_rev: 1, current_rev: 2 },
+    ] })
+    // Newest first (printed_at desc, id desc tie-break) — staleDrawings()
+    // relies on this ordering to take "first log that mentions the pair" as
+    // "the newest one that does" (Review Focus 4).
+    expect(prisma.mo_print_log.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ printed_at: 'desc' }, { id: 'desc' }],
+    }))
+  })
+
+  it('excludes a mark with no current drawing at all (Review Focus 5) — no crash, no item', async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([makeWo()]) },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings({ findByZone: jest.fn().mockResolvedValue([]) }) as any, makeFileStorage() as any, makeMoService() as any)
+
+    const result = await svc.drawingRevStatus(85)
+
+    expect(result).toEqual({ items: [] })
+  })
+
+  it('is not stale when the newest print log already covers the mark at its current rev', async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([makeWo()]) },
+      mo_print_log: {
+        create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([
+          { printed_at: new Date('2026-10-01T00:00:00Z'), drawing_revs: { '1398': { 'DBN-A1-CTR1': 1 } } },
+        ]),
+      },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings({ findByZone: jest.fn().mockResolvedValue([makePdfDrawing({ rev: 1 })]) }) as any, makeFileStorage() as any, makeMoService() as any)
+
+    const result = await svc.drawingRevStatus(85)
+
+    expect(result).toEqual({ items: [] })
+  })
+
+  it('filters to a single wo_id when given, and orders work_order by sequence/id (same sort as the print packet)', async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([]) },
+    })
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+
+    await svc.drawingRevStatus(85, 1398)
+
+    expect(prisma.work_order.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ mo_id: 85, status: { not: 'CANCELLED' }, id: 1398 }),
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+    }))
+  })
+
+  it('orders items by wo_code then mark', async () => {
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([
+        makeWo({ id: 2, wo_code: 'WO-00000002', marks: [makeMark({ bom_assembly: { id: 1, assembly_mark: 'DBN-A1-CTR2', dispatch: makeDispatch() } })] }),
+        makeWo({ id: 1, wo_code: 'WO-00000001', marks: [makeMark({ bom_assembly: { id: 2, assembly_mark: 'DBN-A1-CTR1', dispatch: makeDispatch() } })] }),
+      ]) },
+      mo_print_log: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([
+        { printed_at: new Date('2026-10-01T00:00:00Z'), drawing_revs: { '1': { 'DBN-A1-CTR1': 1 }, '2': { 'DBN-A1-CTR2': 1 } } },
+      ]) },
+    })
+    const drawings = makeDrawings({ findByZone: jest.fn().mockResolvedValue([
+      makePdfDrawing({ file_name: 'DBN-A1-CTR1 - - Rev 2.pdf', rev: 2 }),
+      makePdfDrawing({ file_name: 'DBN-A1-CTR2 - - Rev 2.pdf', rev: 2 }),
+    ]) })
+    const svc = new MoPrintService(prisma as any, drawings as any, makeFileStorage() as any, makeMoService() as any)
+
+    const result = await svc.drawingRevStatus(85)
+
+    expect(result.items.map(i => i.wo_code)).toEqual(['WO-00000001', 'WO-00000002'])
   })
 })

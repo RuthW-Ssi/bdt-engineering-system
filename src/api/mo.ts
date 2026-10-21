@@ -674,6 +674,36 @@ export async function fetchMoPrintPacketBlob(id: number, woIds?: number[], inclu
   }
 }
 
+// Stale-drawing status (2026-10-21, Task 4 of "MO/WO follow the drawing
+// revision") — warn-only: which (WO, mark) pairs on this MO were printed
+// with a drawing rev that's now older than the current one. Mirrors the
+// backend's StaleDrawingItem (drawing-rev-status.ts) field-for-field. A
+// legacy/unprinted WO never appears — never block Start/progress, this is
+// purely informational (notice + reprint shortcut on MoDetail's Print flow).
+export interface DrawingRevStatusItem {
+  wo_id: number
+  wo_code: string
+  mark: string
+  printed_rev: number
+  current_rev: number
+}
+
+// Shared by DrawingRevBadge (the count) and DrawingRevNotice (the reprint
+// button's wo_ids) — fix round 1: was duplicated as `new Set(...)` in both
+// components. Several marks on the same WO must still count/print as one WO.
+export function distinctWoIds(items: DrawingRevStatusItem[]): number[] {
+  return [...new Set(items.map(i => i.wo_id))]
+}
+
+// `woId` narrows to a single WO (unused by Task 4's MO-level badge/notice,
+// kept for the WO detail page to reuse); omitted means every non-cancelled
+// WO on the MO — same default as fetchMoPrintPacketBlob's `woIds`.
+export async function getMoDrawingRevStatus(moId: number, woId?: number): Promise<{ items: DrawingRevStatusItem[] }> {
+  return (await apiClient.get(`/mo/${moId}/drawing-rev-status`, {
+    params: woId !== undefined ? { wo_id: woId } : undefined,
+  })).data
+}
+
 // ── Pre-shop MO vs the zone's real BOM (2026-10-08) ─────────────────────────
 export interface BomValues { qty: number; name?: string | null; length_mm: number | null; width_mm?: number | null; height_mm?: number | null; weight_kg: number | null; surface_area_m2?: number | null; parts: PreshopPart[] }
 export interface BomCompare {

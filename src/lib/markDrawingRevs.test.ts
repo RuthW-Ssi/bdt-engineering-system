@@ -65,12 +65,50 @@ describe('listMarkDrawingRevs', () => {
     expect(ids(listMarkDrawingRevs(drawings, 'DBN-B1-CTR11'))).toEqual([[2, 2]])
   })
 
-  it('keeps the most recently uploaded file when one rev has several matches for the mark', () => {
+  // Several matches for one rev are sheets of the same drawing (e.g.
+  // multiple views of one assembly from a single batch upload), not
+  // duplicate re-uploads — every one of them is kept, not just the most
+  // recent. Natural-sorted by file_name, same order the backend print uses
+  // (mo-print/mark-drawing-match.ts's currentRevSheetsForMark).
+  it('keeps every file at a rev as a sheet, natural-sorted by file_name, with drawing = files[0]', () => {
     const drawings = [
-      makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - - Rev 1.pdf', create_date: '2026-01-01T00:00:00Z' }),
-      makePdf({ id: 2, file_name: 'DBN-B1-CTR10 - - Rev 2.pdf', create_date: '2026-01-02T00:00:00Z' }),
+      makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - Sheet 10 - Rev 1.pdf', create_date: '2026-01-02T00:00:00Z' }),
+      makePdf({ id: 2, file_name: 'DBN-B1-CTR10 - Sheet 2 - Rev 1.pdf', create_date: '2026-01-01T00:00:00Z' }),
     ]
-    expect(ids(listMarkDrawingRevs(drawings, 'DBN-B1-CTR10'))).toEqual([[1, 2]])
+    const [entry] = listMarkDrawingRevs(drawings, 'DBN-B1-CTR10')
+    // "Sheet 2" sorts before "Sheet 10" — numeric-aware, not lexicographic
+    // (which would put "10" before "2").
+    expect(entry.files.map(f => f.id)).toEqual([2, 1])
+    expect(entry.drawing).toBe(entry.files[0])
+  })
+
+  it('is case-insensitive when natural-sorting sheet file names', () => {
+    const drawings = [
+      makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - sheet B - Rev 1.pdf' }),
+      makePdf({ id: 2, file_name: 'DBN-B1-CTR10 - Sheet A - Rev 1.pdf' }),
+    ]
+    const [entry] = listMarkDrawingRevs(drawings, 'DBN-B1-CTR10')
+    expect(entry.files.map(f => f.id)).toEqual([2, 1])
+  })
+
+  // Two file names that differ ONLY by case tie under the { sensitivity:
+  // 'base' } compare — the trailing plain-string tie-break must still give
+  // a deterministic order, and the same one the backend twin picks (see
+  // mark-drawing-match.spec.ts's matching test).
+  it('breaks a case-only-different file_name tie deterministically', () => {
+    const drawings = [
+      makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - sheet 1 - Rev 2.pdf', rev: 2 }),
+      makePdf({ id: 2, file_name: 'DBN-B1-CTR10 - SHEET 1 - REV 2.PDF', rev: 2 }),
+    ]
+    const [entry] = listMarkDrawingRevs(drawings, 'DBN-B1-CTR10')
+    expect(entry.files.map(f => f.id)).toEqual([2, 1])
+  })
+
+  it('returns a single-element files array (= [drawing]) when a rev has only one file', () => {
+    const drawings = [makePdf({ id: 1, file_name: 'DBN-B1-CTR10 - - Rev 1.pdf' })]
+    const [entry] = listMarkDrawingRevs(drawings, 'DBN-B1-CTR10')
+    expect(entry.files).toEqual([entry.drawing])
+    expect(entry.files).toHaveLength(1)
   })
 
   // A higher rev must win even when a lower rev's file happens to have been
