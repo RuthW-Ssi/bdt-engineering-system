@@ -688,6 +688,13 @@ export interface DrawingRevStatusItem {
   current_rev: number
 }
 
+// Shared by DrawingRevBadge (the count) and DrawingRevNotice (the reprint
+// button's wo_ids) — fix round 1: was duplicated as `new Set(...)` in both
+// components. Several marks on the same WO must still count/print as one WO.
+export function distinctWoIds(items: DrawingRevStatusItem[]): number[] {
+  return [...new Set(items.map(i => i.wo_id))]
+}
+
 // `woId` narrows to a single WO (unused by Task 4's MO-level badge/notice,
 // kept for the WO detail page to reuse); omitted means every non-cancelled
 // WO on the MO — same default as fetchMoPrintPacketBlob's `woIds`.

@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
-import type { PrintLang } from '../../api/mo'
+import { distinctWoIds, type PrintLang } from '../../api/mo'
 import { useMoDrawingRevStatus } from '../../hooks/useMo'
 
 // MO print "drawing rev" warning (2026-10-21, Task 4) — notice at the top of
@@ -12,16 +12,18 @@ import { useMoDrawingRevStatus } from '../../hooks/useMo'
 export function DrawingRevNotice({
   moId,
   lang,
+  printing,
   onPrint,
 }: {
   moId: number
   lang: PrintLang
+  printing: boolean
   onPrint: (woIds: number[], includeManifest: boolean, lang: PrintLang) => void
 }) {
   const { data, isLoading, isError } = useMoDrawingRevStatus(moId)
   const items = data?.items ?? []
   if (isLoading || isError || items.length === 0) return null
-  const woIds = [...new Set(items.map(i => i.wo_id))]
+  const woIds = distinctWoIds(items)
 
   return (
     <div className="bg-molten-50" style={{ border: '1px solid #FAC775', borderRadius: 6, padding: '10px 12px', marginBottom: 14 }}>
@@ -37,9 +39,10 @@ export function DrawingRevNotice({
       </div>
       <button
         type="button"
+        disabled={printing}
         onClick={() => onPrint(woIds, false, lang)}
         className="text-molten-600"
-        style={{ fontSize: 12.5, fontWeight: 700, padding: '6px 12px', borderRadius: 5, border: '1px solid #BA7517', background: '#fff', cursor: 'pointer' }}
+        style={{ fontSize: 12.5, fontWeight: 700, padding: '6px 12px', borderRadius: 5, border: '1px solid #BA7517', background: '#fff', cursor: printing ? 'default' : 'pointer', opacity: printing ? 0.6 : 1 }}
       >
         พิมพ์ WO ที่ Drawing เปลี่ยน
       </button>

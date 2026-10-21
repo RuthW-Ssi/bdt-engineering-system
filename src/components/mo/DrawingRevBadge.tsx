@@ -1,3 +1,4 @@
+import { distinctWoIds } from '../../api/mo'
 import { useMoDrawingRevStatus } from '../../hooks/useMo'
 
 // MO print "drawing rev" warning (2026-10-21, Task 4) — small pill next to
@@ -11,7 +12,7 @@ export function DrawingRevBadge({ moId }: { moId: number }) {
   if (isLoading || isError) return null
   const items = data?.items ?? []
   if (items.length === 0) return null
-  const woCount = new Set(items.map(i => i.wo_id)).size
+  const woCount = distinctWoIds(items).length
   return (
     <span
       className="bg-molten-50 text-molten-600"

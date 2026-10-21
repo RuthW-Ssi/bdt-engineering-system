@@ -409,7 +409,7 @@ function PrintSelectModal({
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Print — select what to include</h2>
         <p style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>Pick the MO overview page and/or which work order travelers to print.</p>
 
-        <DrawingRevNotice moId={moId} lang={lang} onPrint={handleReprintStale} />
+        <DrawingRevNotice moId={moId} lang={lang} printing={printing} onPrint={handleReprintStale} />
 
         <div className="flex items-center gap-3" style={{ marginBottom: 12 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Language</span>
