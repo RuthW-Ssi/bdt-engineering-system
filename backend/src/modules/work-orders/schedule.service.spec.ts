@@ -51,6 +51,27 @@ describe('bangkokNowIso', () => {
 })
 
 describe('ScheduleService.run', () => {
+  it('forwards the picked work_order_ids and notes the pick in the audit', async () => {
+    const { svc, scheduler, mail } = makeDeps()
+    await svc.run({ direction: 'event', work_order_ids: [5, 7] }, USER)
+    expect(scheduler.run.mock.calls[0][0].work_order_ids).toEqual([5, 7])
+    expect(mail.log.mock.calls[0][0].body).toContain('picked=2')
+  })
+
+  it('notes skipped WOs in the audit', async () => {
+    const { svc, scheduler, mail } = makeDeps()
+    scheduler.run.mockResolvedValueOnce({ ...RESULT, skipped: [{ wo_id: 1, wo_code: 'WO-1', reason: 'x' }] })
+    await svc.run({ direction: 'event' }, USER)
+    expect(mail.log.mock.calls[0][0].body).toContain('skipped=1')
+  })
+
+  it('omits work_order_ids when none were picked (run every schedulable WO)', async () => {
+    const { svc, scheduler } = makeDeps()
+    await svc.run({ direction: 'event' }, USER)
+    expect('work_order_ids' in scheduler.run.mock.calls[0][0]).toBe(false)
+  })
+
+
   it('calls the scheduler with persist=true, a +07:00 now, requested_by = JWT login, and defaults', async () => {
     const { svc, scheduler } = makeDeps()
 
@@ -224,8 +245,10 @@ describe('ScheduleService.board', () => {
     source_routing_op_id: null,
     subcontractor_id: null,
     team_headcount: 2,
+    work_center_id: 18,
     marks: [],
     parts: [],
+    events: [],
     ...over,
   })
 
@@ -256,7 +279,10 @@ describe('ScheduleService.board', () => {
           parts: [part('2.0', 'A-1'), part('5.0', 'C-3')],
         }),
         wo(14, 'ON_HOLD'),
-        wo(15, 'PAUSED', { source_routing_op_id: 999 }),
+        wo(15, 'PAUSED', {
+          source_routing_op_id: 999,
+          events: [{ notes: 'รอ shop drawing', recorded_by: 'admin', recorded_at: T('2026-10-01T03:20:56.000Z') }],
+        }),
       ],
       routingOps: [
         { id: 501, op_type: { key: 'cut', label: 'Cutting' } },
@@ -385,7 +411,24 @@ describe('ScheduleService.board', () => {
       marks: ['A-1', 'B-2'],
       // 0.1 + 0.2 + 1.5 as floats is 1.8000000000000003 — summed as Decimal.
       weight_kg: 1.8,
+      work_center_id: 18,
+      pause: null,
     })
+  })
+
+  it('a PAUSED WO carries its latest pause reason, who and when; others carry null', async () => {
+    const { svc, prisma } = makeBoardDeps()
+    const board = await svc.board()
+    expect(prisma.work_order.findMany.mock.calls[0][0].select.events).toEqual({
+      where: { event_type: 'PAUSE' },
+      orderBy: { recorded_at: 'desc' },
+      take: 1,
+      select: { notes: true, recorded_by: true, recorded_at: true },
+    })
+    expect(board.work_orders.find((w) => w.id === 15)!.pause).toEqual({
+      reason: 'รอ shop drawing', by: 'admin', at: '2026-10-01T03:20:56.000Z',
+    })
+    expect(board.work_orders.find((w) => w.id === 14)!.pause).toBeNull()
   })
 
   it('returns weight_kg null and no marks for a WO without parts', async () => {

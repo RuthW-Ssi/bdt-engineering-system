@@ -16,16 +16,22 @@ export const FAMILY_COLOR: Record<OpFamily, string> = {
 
 export const LATE_COLOR = { fill: 'rgba(220,38,38,.16)', border: '#dc2626', ink: '#b91c1c' } as const
 
-/** Non-family tokens the page needs (mockup :root). */
+/** Non-family tokens the page needs — the app theme (index.css @theme: ssi / molten / chrome). */
 export const UI_COLOR = {
-  accent: '#e8590c',
-  accent2: '#fd7e14',
-  green: '#1f9d57',
-  ink: '#1f2733',
-  muted: '#6b7682',
-  line: '#d8dde3',
-  /** Due diamond / order-list dot of an on-time MO. */
-  neutralDot: '#9aa3ad',
+  /** SSI brand red — buttons, active tab, selection. */
+  accent: '#C8202A',
+  /** Molten gold — needs-attention (backlog, OT, warn chips); kept apart from the red of late work. */
+  warn: '#BA7517',
+  /** "Now" cursor on the Gantt (steel blue, so it never reads as late). */
+  now: '#185FA5',
+  green: '#2E7D32',
+  ink: '#1F1F1F',
+  muted: '#555555',
+  line: '#E0E0E0',
+  /** On-time MO: due diamond, order-list dot, detail pill text (steel blue). */
+  onTime: '#185FA5',
+  /** Background of the on-time detail pill. */
+  onTimeBg: '#E6F1FB',
 } as const
 
 /** Full legend, in toolbar order. Late is drawn separately (fill + red outline). */
@@ -38,7 +44,7 @@ export const LEGEND: ReadonlyArray<{ family: OpFamily; label: string }> = [
   { family: 'paint', label: 'พ่นสี' },
   { family: 'assy', label: 'ประกอบรวม' },
 ]
-export const LATE_LABEL = 'งานสาย'
+export const LATE_LABEL = 'งานล่าช้า'
 
 /** Family of a work center code. */
 export function wcColor(code: string | null | undefined): OpFamily {
@@ -81,7 +87,7 @@ export function byFamily(a: string, b: string): number {
 }
 
 // Heatmap ramp (load ÷ available·OEE) — sched-design-system.css --heat-*.
-export const HEAT_COLORS = ['#eef1f4', '#cfe0ef', '#8fbce0', '#4a90c4', '#2f6f9f', '#e8731a'] as const
+export const HEAT_COLORS = ['#F5F5F5', '#cfe0ef', '#8fbce0', '#4a90c4', '#2f6f9f', '#e8731a'] as const
 
 export function heatBand(u: number): string {
   return u <= 0 ? HEAT_COLORS[0] : u < 0.4 ? HEAT_COLORS[1] : u < 0.7 ? HEAT_COLORS[2] : u < 0.92 ? HEAT_COLORS[3] : u < 1 ? HEAT_COLORS[4] : HEAT_COLORS[5]

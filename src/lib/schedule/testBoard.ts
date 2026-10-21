@@ -20,7 +20,8 @@ export const mo = (id: number, plan_finish: string | null, over: Partial<BoardMo
 
 export const wo = (id: number, mo_id: number, over: Partial<BoardWorkOrder> = {}): BoardWorkOrder => ({
   id, wo_code: `WO-${id}`, mo_id, sequence: 10, status: 'RELEASED', expected_duration_min: 60, setup_time_min: null,
-  plan_start: null, plan_finish: null, op_label: null, team_id: null, team_headcount: null, marks: [], weight_kg: null, ...over,
+  plan_start: null, plan_finish: null, op_label: null, team_id: null, team_headcount: null, marks: [], weight_kg: null,
+  work_center_id: 1, pause: null, ...over,
 })
 
 export const op = (work_order_id: number, workcenter_line_id: number | null, start: string, end: string): BoardOp => ({

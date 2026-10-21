@@ -10,10 +10,11 @@ import {
   backlog,
   barViews,
   bottleneck,
+  busyGroups,
   buildAxis,
   buildOps,
   dueMarkers,
-  footSummary,
+  hiddenOpsNote,
   headerInfo,
   heatGrid,
   hiddenOpCount,
@@ -22,6 +23,7 @@ import {
   kpis,
   layoutRows,
   orderList,
+  pausedWarnings,
   usableVersions,
   wcGroups,
   zoomIn,
@@ -51,12 +53,37 @@ const NO_HOLIDAYS: ReadonlySet<string> = new Set()
  * the retired HTML cockpit (git history: backend-schedule/cockpit/prod-scheduler.html); all logic in lib/schedule.
  * Users with orders:update can also run the scheduler and activate a version.
  */
+type ScheduleTab = 'gantt' | 'load' | 'fourm'
+const TABS: { key: ScheduleTab; label: string }[] = [
+  { key: 'gantt', label: 'ตาราง Gantt' },
+  { key: 'load', label: 'ภาระงาน' },
+  { key: 'fourm', label: '4M + WIP' },
+]
+
+// ?tab=load opens a tab directly; kept in the URL (replaceState) so a refresh stays on it.
+function tabFromUrl(): ScheduleTab {
+  const t = new URLSearchParams(window.location.search).get('tab')
+  return TABS.some((x) => x.key === t) ? (t as ScheduleTab) : 'gantt'
+}
+
 export function ProductionSchedule() {
   const [versionId, setVersionId] = useState<number | null>(null)
   const [lateOnly, setLateOnly] = useState(false)
   const [pxh, setPxh] = useState<number>(ZOOM.initial)
   const [selUid, setSelUid] = useState<number | null>(null)
   const [reloadN, setReloadN] = useState(0)
+  const [tab, setTabState] = useState<ScheduleTab>(tabFromUrl)
+  const [showPaused, setShowPaused] = useState(false)
+  // Gantt side panel (order list / WO detail + Backlog); hiding it gives the Gantt the full width
+  const [sideOpen, setSideOpen] = useState(true)
+  const [backlogOpen, setBacklogOpen] = useState(true)
+  const setTab = (t: ScheduleTab) => {
+    setTabState(t)
+    const url = new URL(window.location.href)
+    if (t === 'gantt') url.searchParams.delete('tab')
+    else url.searchParams.set('tab', t)
+    window.history.replaceState(window.history.state, '', url)
+  }
   // User toggles of the WC tree, valid for one seed (version + reload) only.
   const [collapseState, setCollapseState] = useState<{ key: string; set: Set<number> } | null>(null)
   const [scrollTarget, setScrollTarget] = useState<{ uid: number; n: number } | null>(null)
@@ -78,7 +105,10 @@ export function ProductionSchedule() {
   const autoCollapsed = useMemo(() => idleWcIds(groups, ops), [groups, ops])
   const collapsed = collapseState?.key === seedKey ? collapseState.set : autoCollapsed
 
-  const layout = useMemo(() => layoutRows(groups, collapsed), [groups, collapsed])
+  // "แสดงเฉพาะที่มีงาน" hides WCs / lines with no op in the shown version
+  const [busyOnly, setBusyOnly] = useState(false)
+  const shownGroups = useMemo(() => (busyOnly ? busyGroups(groups, ops) : groups), [busyOnly, groups, ops])
+  const layout = useMemo(() => layoutRows(shownGroups, collapsed), [shownGroups, collapsed])
   const bars = useMemo(() => barViews(ops, axis, layout.rowY, { lateOnly, selUid }), [ops, axis, layout, lateOnly, selUid])
   const dues = useMemo(() => dueMarkers(ops, axis), [ops, axis])
   const heat = useMemo(() => (ix ? heatGrid(ix, ops, axis) : null), [ix, ops, axis])
@@ -87,11 +117,12 @@ export function ProductionSchedule() {
   const tiles = useMemo(() => (ix ? kpis(ix, ops) : []), [ix, ops])
   const orders = useMemo(() => (ix ? orderList(ix, ops) : []), [ix, ops])
   const versions = useMemo(() => (board ? usableVersions(board) : []), [board])
+  const paused = useMemo(() => (board ? pausedWarnings(board) : []), [board])
 
   const selected = ops.find((o) => o.uid === selUid) ?? null
   const version = ix?.version ?? null
   const header = headerInfo(version)
-  const foot = footSummary(ops, hiddenOpCount(ops, layout.rowY, collapsed), version)
+  const hiddenNote = hiddenOpsNote(hiddenOpCount(ops, layout.rowY, collapsed))
 
   const setCollapsed = (next: Set<number>) => setCollapseState({ key: seedKey, set: next })
 
@@ -114,6 +145,11 @@ export function ProductionSchedule() {
   }
 
   // order list → select the MO's first op, open its WC, scroll the bar into view
+  // picking a bar shows its detail, so a hidden side panel opens again
+  const selectOp = (uid: number | null) => {
+    setSelUid(uid)
+    if (uid != null) setSideOpen(true)
+  }
   const pickOrder = (row: OrderRow) => {
     const o = row.firstOp
     if (!o) return
@@ -141,17 +177,17 @@ export function ProductionSchedule() {
           <div className="text-[11px] text-chrome-400 truncate">{header.sub}</div>
         </div>
         {board && (
-          <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold text-white" style={{ background: '#e8590c' }}>
+          <span className="rounded-full border border-ssi-100 bg-ssi-50 px-2.5 py-1 text-[11px] font-semibold text-ssi-600">
             {header.badge}
           </span>
         )}
         <div style={{ flex: 1 }} />
-        {canUpdate && <RunSchedulePanel onRan={onRan} />}
+        {canUpdate && <RunSchedulePanel onRan={onRan} mos={board?.mos ?? []} workOrders={board?.work_orders ?? []} />}
       </div>
 
-      <div className="flex-1 overflow-auto bg-[#eef1f5] p-4">
+      <div className="flex-1 overflow-auto bg-[#F5F5F5] p-4">
         {isLoading ? (
-          <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#6b7682]">
+          <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#555555]">
             <Loader2 size={18} className="animate-spin" /> กำลังโหลดตาราง…
           </div>
         ) : !board || !ix || !bl ? (
@@ -174,7 +210,27 @@ export function ProductionSchedule() {
                 Reload ไม่สำเร็จ — แสดงข้อมูลเดิม: {getErrorMessage(error, 'Failed to load the schedule board.')}
               </div>
             )}
-            <KpiTiles tiles={tiles} />
+            <div className="bg-white border border-[#E0E0E0] rounded-lg px-3.5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
+              <KpiTiles tiles={tiles} />
+              {paused.length > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={showPaused}
+                  onClick={() => setShowPaused((v) => !v)}
+                  className="ml-auto rounded-full border border-[#FAC775] bg-[#FAEEDA] text-[#854F0B] text-xs font-semibold px-3 py-1 cursor-pointer"
+                >
+                  ⏸ หยุดชั่วคราว {paused.length} WO
+                </button>
+              )}
+            </div>
+            {showPaused && paused.length > 0 && (
+              <div role="status" className="rounded-lg border border-[#FAC775] bg-[#FAEEDA] text-[#854F0B] text-xs px-3 py-2">
+                <div className="font-semibold">⏸ หยุดชั่วคราว {paused.length} WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง</div>
+                <ul className="mt-1 mb-0 pl-4 list-disc">
+                  {paused.map((p) => <li key={p}>{p}</li>)}
+                </ul>
+              </div>
+            )}
             <ScheduleToolbar
               versions={versions}
               currentId={shownVersionId}
@@ -193,15 +249,47 @@ export function ProductionSchedule() {
               }
             />
 
-            {/* 3 columns from the content width (container query), not the window: the app sidebar eats 60–240 px.
-                1040 keeps 3 columns on a 1440 px laptop with the sidebar open (gantt ≈ 640 px, it scrolls inside). */}
-            <div className="grid gap-3 items-start grid-cols-1 @min-[1040px]:grid-cols-[206px_minmax(0,1fr)_280px]">
-              <SchedCard icon="📥" title="Backlog" tag={bl.countLabel}>
-                <BacklogPanel view={bl} />
-              </SchedCard>
+            <div role="tablist" aria-label="มุมมอง" className="flex gap-1 border-b border-[#E0E0E0]">
+              {TABS.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`px-3.5 py-2 text-[13px] border-0 border-b-2 -mb-px bg-transparent cursor-pointer ${
+                    tab === t.key ? 'border-[#C8202A] text-[#C8202A] font-semibold' : 'border-transparent text-[#555555] hover:text-[#1F1F1F]'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
 
-              <div className="flex flex-col gap-3 min-w-0">
-                <SchedCard icon="🏭" title="Resource Gantt" tag="rows = line · bars = scheduled op">
+            {tab === 'gantt' && (
+              <div role="tabpanel" aria-label="ตาราง Gantt" className={`grid gap-3 items-start grid-cols-1 ${sideOpen ? '@min-[1040px]:grid-cols-[minmax(0,1fr)_300px]' : ''}`}>
+                <SchedCard
+                  icon="🏭"
+                  title="Resource Gantt"
+                  tag={
+                    <span className="inline-flex items-center gap-3">
+                      <label className="inline-flex items-center gap-1.5 font-sans text-[12px] text-[#1F1F1F] cursor-pointer select-none">
+                        <input type="checkbox" checked={busyOnly} onChange={(e) => setBusyOnly(e.target.checked)} />
+                        แสดงเฉพาะ work center / line ที่มีงาน
+                      </label>
+                      <span>rows = line · bars = scheduled op</span>
+                      <button
+                        type="button"
+                        aria-pressed={sideOpen}
+                        title={sideOpen ? 'ซ่อนแผงคำสั่งผลิต / Backlog' : undefined}
+                        onClick={() => setSideOpen((v) => !v)}
+                        className="font-sans text-[12px] text-[#555555] border border-[#E0E0E0] rounded-md bg-white px-2 py-0.5 cursor-pointer hover:bg-[#FAFAFA]"
+                      >
+                        {sideOpen ? 'ซ่อน ▸' : '◂ คำสั่งผลิต / Backlog'}
+                      </button>
+                    </span>
+                  }
+                >
                   <ResourceGantt
                     axis={axis}
                     layout={layout}
@@ -209,36 +297,72 @@ export function ProductionSchedule() {
                     dues={dues}
                     opCount={ops.length}
                     onToggleWc={toggleWc}
-                    onSelect={setSelUid}
+                    onSelect={selectOp}
                     autoScrollKey={seedKey}
                     scrollTarget={scrollTarget}
                   />
                 </SchedCard>
-                <SchedCard icon="🔥" title="Utilization Heatmap" tag="load ÷ (available × OEE)">
-                  <UtilizationHeatmap grid={heat} />
-                </SchedCard>
+                {sideOpen && (
+                  <div className="flex flex-col gap-3 min-w-0">
+                    {selected ? (
+                      <SchedCard
+                        icon="📋"
+                        title="รายละเอียด"
+                        tag={<button type="button" aria-label="ปิดรายละเอียด" onClick={() => setSelUid(null)} className="border-0 bg-transparent cursor-pointer font-sans text-[12px] text-[#555555]">← คำสั่งผลิต</button>}
+                      >
+                        <DetailPanel op={selected} orders={orders} onPickOrder={pickOrder} show="detail" />
+                      </SchedCard>
+                    ) : (
+                      <SchedCard icon="📋" title="คำสั่งผลิต" tag={`${orders.length} MO · กดเพื่อดูใน Gantt`}>
+                        <DetailPanel op={null} orders={orders} onPickOrder={pickOrder} show="orders" />
+                      </SchedCard>
+                    )}
+                    <SchedCard
+                      icon="📥"
+                      title="Backlog"
+                      tag={
+                        <button
+                          type="button"
+                          aria-expanded={backlogOpen}
+                          onClick={() => setBacklogOpen((v) => !v)}
+                          className="border-0 bg-transparent cursor-pointer font-mono text-[10px] text-[#555555]"
+                        >
+                          {bl.countLabel} {backlogOpen ? '▾' : '▸'}
+                        </button>
+                      }
+                    >
+                      {backlogOpen && <BacklogPanel view={bl} />}
+                    </SchedCard>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === 'load' && (
+              <div role="tabpanel" aria-label="ภาระงาน" className="flex flex-col gap-3">
                 <SchedCard icon="⚡" title="Bottleneck Load" tag={bn?.tag}>
                   <BottleneckLoad data={bn} />
                 </SchedCard>
+                <SchedCard icon="🔥" title="Utilization Heatmap" tag="load ÷ (available × OEE)">
+                  <UtilizationHeatmap grid={heat} />
+                </SchedCard>
               </div>
+            )}
 
-              <SchedCard icon="📋" title="รายละเอียด" className="self-start">
-                <DetailPanel op={selected} orders={orders} onPickOrder={pickOrder} />
-              </SchedCard>
-            </div>
+            {tab === 'fourm' && (
+              <div role="tabpanel" aria-label="4M + WIP">
+                <FourMSection
+                  ix={ix}
+                  ops={ops}
+                  data={fourm.data}
+                  isError={fourm.isError}
+                  error={fourm.error}
+                  onRetry={() => void fourm.refetch()}
+                />
+              </div>
+            )}
 
-            <FourMSection
-              ix={ix}
-              ops={ops}
-              data={fourm.data}
-              isError={fourm.isError}
-              error={fourm.error}
-              onRetry={() => void fourm.refetch()}
-            />
-
-            <div className="text-[11px] text-[#6b7682] leading-relaxed">
-              {foot.map((l) => <div key={l}>{l}</div>)}
-            </div>
+            {hiddenNote && <div role="status" className="text-[11px] text-[#854F0B]">{hiddenNote}</div>}
           </div>
         )}
       </div>

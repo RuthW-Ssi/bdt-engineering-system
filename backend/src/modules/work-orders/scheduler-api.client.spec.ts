@@ -181,4 +181,30 @@ describe('SchedulerApiClient', () => {
     await expect(new SchedulerApiClient().run(REQ)).rejects.toThrow('Scheduler service is not configured')
     expect(global.fetch).not.toHaveBeenCalled()
   })
+
+  describe('local dev scheduler (no Cloud Run IAM)', () => {
+    it.each(['http://localhost:8100', 'http://127.0.0.1:8100'])('%s gets no ID token', async (url) => {
+      process.env.SCHEDULER_API_URL = url
+      const fetchMock = respond(200, RESULT)
+      global.fetch = fetchMock
+      await new SchedulerApiClient().run(REQ)
+      expect(mockGetIdTokenClient).not.toHaveBeenCalled()
+      const headers = (fetchMock as unknown as jest.Mock).mock.calls[0][1].headers as Headers
+      expect(headers.get('Authorization')).toBeNull()
+      expect(headers.get('Content-Type')).toBe('application/json')
+    })
+
+    it.each(['http://localhost.evil.com', 'http://127.0.0.1.nip.io', 'https://localhost:8100'])(
+      '%s still gets the ID token',
+      async (url) => {
+        process.env.SCHEDULER_API_URL = url
+        const fetchMock = respond(200, RESULT)
+        global.fetch = fetchMock
+        await new SchedulerApiClient().run(REQ)
+        expect(mockGetIdTokenClient).toHaveBeenCalledWith(url)
+        const headers = (fetchMock as unknown as jest.Mock).mock.calls[0][1].headers as Headers
+        expect(headers.get('Authorization')).toBe('Bearer fake-id-token')
+      },
+    )
+  })
 })

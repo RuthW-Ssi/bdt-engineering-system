@@ -29,8 +29,11 @@ def _dispatch_key(rule: str, wo: WorkOrder, now: datetime):
 
 class Scheduler:
     def __init__(self, wos: list[WorkOrder], lines: list[Line],
-                 cal: FactoryCalendar, cfg: SchedulerConfig, now: datetime):
+                 cal: FactoryCalendar, cfg: SchedulerConfig, now: datetime,
+                 busy_until: dict[int, datetime] | None = None):
         self.wos = {w.wo_id: w for w in wos}
+        # line_id -> time the line frees up from work already started (event-based only)
+        self.busy_until = busy_until or {}
         self.cal = cal
         self.cfg = cfg
         self.now = now
@@ -47,7 +50,8 @@ class Scheduler:
     # ---- event-based forward dispatch ----
     def event_based(self) -> dict[int, Assignment]:
         sched: dict[int, Assignment] = {}
-        line_free = {ln.line_id: self.now for lns in self.lines_of_wc.values() for ln in lns}
+        line_free = {ln.line_id: max(self.now, self.busy_until.get(ln.line_id, self.now))
+                     for lns in self.lines_of_wc.values() for ln in lns}
         remaining = set(self.wos)
         while remaining:
             ready = [i for i in remaining if all(p in sched for p in self._preds(self.wos[i]))]
