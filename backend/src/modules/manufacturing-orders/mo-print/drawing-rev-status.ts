@@ -24,6 +24,7 @@ export interface CurrentDrawingRevItem {
   wo_code: string
   mark: string
   current_rev: number
+  aliases?: string[] // former names (2026-10-21) — a log under an old name still counts
 }
 
 export interface StaleDrawingItem {
@@ -49,16 +50,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 // skipping a log that doesn't mention the pair falls through to older ones
 // naturally). A log whose drawing_revs is null or not a plain object
 // (legacy, or malformed) is skipped entirely — Review Focus 3.
-function printedRevFor(logs: DrawingRevLogEntry[], woId: number, mark: string): number | undefined {
-  const target = normalizeMark(mark)
+//
+// `marks` (2026-10-21) — the item's own current name first, then its former
+// names: a log written under an old name still counts for the renamed mark,
+// but within any ONE log the own name wins over an old name when both are
+// present (own name checked first per log, not across logs).
+function printedRevFor(logs: DrawingRevLogEntry[], woId: number, marks: string[]): number | undefined {
+  const targets = marks.map(normalizeMark)
   for (const entry of logs) {
     const revs = entry.drawing_revs
     if (!isPlainObject(revs)) continue
     const woRevs = revs[String(woId)]
     if (!isPlainObject(woRevs)) continue
-    for (const [markKey, rev] of Object.entries(woRevs)) {
-      if (normalizeMark(markKey) === target && typeof rev === 'number') return rev
-    }
+    const byMark = new Map(Object.entries(woRevs).filter(([, r]) => typeof r === 'number').map(([k, r]) => [normalizeMark(k), r as number]))
+    for (const t of targets) if (byMark.has(t)) return byMark.get(t)
   }
   return undefined
 }
@@ -71,7 +76,7 @@ function printedRevFor(logs: DrawingRevLogEntry[], woId: number, mark: string): 
 export function staleDrawings(logs: DrawingRevLogEntry[], current: CurrentDrawingRevItem[]): StaleDrawingItem[] {
   const out: StaleDrawingItem[] = []
   for (const item of current) {
-    const printedRev = printedRevFor(logs, item.wo_id, item.mark)
+    const printedRev = printedRevFor(logs, item.wo_id, [item.mark, ...(item.aliases ?? [])])
     if (printedRev === undefined) continue
     if (item.current_rev > printedRev) {
       out.push({ wo_id: item.wo_id, wo_code: item.wo_code, mark: item.mark, printed_rev: printedRev, current_rev: item.current_rev })

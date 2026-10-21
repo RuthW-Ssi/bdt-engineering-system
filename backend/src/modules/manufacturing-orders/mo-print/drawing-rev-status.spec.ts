@@ -130,3 +130,16 @@ describe('staleDrawings', () => {
     ])
   })
 })
+
+describe('staleDrawings through former names', () => {
+  it('a log written under the old name still counts for the new name', () => {
+    const logs = [{ printed_at: '2026-10-01T00:00:00Z', drawing_revs: { '1398': { 'BUH1B-18': 1 } } }]
+    const item = { wo_id: 1398, wo_code: 'WO-1', mark: '3BUH1B-18', current_rev: 2 }
+    expect(staleDrawings(logs, [item])).toEqual([])
+    expect(staleDrawings(logs, [{ ...item, aliases: ['BUH1B-18'] }])).toEqual([{ wo_id: 1398, wo_code: 'WO-1', mark: '3BUH1B-18', printed_rev: 1, current_rev: 2 }])
+  })
+  it('the own name in the same log wins over an old name', () => {
+    const logs = [{ printed_at: '2026-10-01T00:00:00Z', drawing_revs: { '1': { 'B': 2, 'A': 1 } } }]
+    expect(staleDrawings(logs, [{ wo_id: 1, wo_code: 'W', mark: 'B', current_rev: 2, aliases: ['A'] }])).toEqual([])
+  })
+})

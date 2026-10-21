@@ -67,3 +67,18 @@ export function listMarkDrawingRevs(drawings: Drawing[], mark: string): MarkDraw
       return { rev, files: sorted, drawing: sorted[0] }
     })
 }
+
+// A renamed mark (2026-10-21, twin of the backend's currentRevSheetsWithAliases):
+// with no drawing of its own, show the former name whose newest rev is highest.
+// Controller ruling: fallback to former names only when the current mark has
+// no PDF drawing at all — a reused name never pulls another piece's drawings.
+export function listMarkDrawingRevsWithAliases(drawings: Drawing[], mark: string, formerNames: string[] = []): { revs: MarkDrawingRev[]; fromMark: string | null } {
+  const own = listMarkDrawingRevs(drawings, mark)
+  if (own.length) return { revs: own, fromMark: null }
+  let best: { revs: MarkDrawingRev[]; fromMark: string | null } = { revs: [], fromMark: null }
+  for (const name of formerNames) {
+    const r = listMarkDrawingRevs(drawings, name)
+    if (r.length && (!best.revs.length || r[0].rev > best.revs[0].rev)) best = { revs: r, fromMark: name }
+  }
+  return best
+}

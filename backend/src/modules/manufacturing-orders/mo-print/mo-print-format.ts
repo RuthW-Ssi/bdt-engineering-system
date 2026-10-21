@@ -69,6 +69,12 @@ export function formatShortDate(d: Date | string): string {
   return `${parts.day}/${parts.month}/${parts.year}`
 }
 
+/** The drawing page's rev text (2026-10-21): "Rev 2 · 02/10/26", plus " · Drawing ของชื่อเดิม X"
+ *  when the mark was renamed and only its old name has a drawing. */
+export function drawingRevLabel(rev: number, uploadedAt: Date, drawingFrom: string | null | undefined, L: PrintLabels): string {
+  return `Rev ${rev} · ${formatShortDate(uploadedAt)}${drawingFrom ? L.drawingOfOldName(drawingFrom) : ''}`
+}
+
 /** Per-page drawing-page stamp text (2026-10-21 fix round 1) — one entry per
  *  physical page, in print order, across EVERY sheet of one mark's current
  *  rev. `rev` is the already-formatted "Rev N · dd/mm/yy" fragment (shared by

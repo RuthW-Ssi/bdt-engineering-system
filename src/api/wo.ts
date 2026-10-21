@@ -123,6 +123,7 @@ export interface WoMark {
   id: number
   bom_assembly_id: number
   bom_assembly: WoMarkBomAssembly
+  former_marks?: string[] // older names of this mark (2026-10-21)
   bom_dispatch_id_snapshot: number
   snapshot_dispatch: WoMarkDispatch | null
   qty_planned: string | number

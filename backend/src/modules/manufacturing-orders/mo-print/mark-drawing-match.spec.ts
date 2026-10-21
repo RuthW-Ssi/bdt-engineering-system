@@ -1,4 +1,4 @@
-import { currentRevSheetsForMark, type DrawingRow } from './mark-drawing-match'
+import { currentRevSheetsForMark, currentRevSheetsWithAliases, type DrawingRow } from './mark-drawing-match'
 
 // mark: null on every fixture here unless a test overrides it — exercises
 // the filename fallback (legacy rows that predate the mark/rev backfill).
@@ -100,5 +100,20 @@ describe('currentRevSheetsForMark', () => {
     const lower = drawing({ file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf', rev: 2 })
     const upper = drawing({ file_name: 'DBN-A1-CTR1 - SHEET 1 - REV 2.PDF', rev: 2 })
     expect(currentRevSheetsForMark([lower, upper], 'DBN-A1-CTR1')).toEqual([upper, lower])
+  })
+})
+
+describe('currentRevSheetsWithAliases', () => {
+  const row = (file_name: string, mark: string | null, rev: number) => ({ file_name, mark, rev, create_date: '2026-10-01T00:00:00Z' })
+  it('own drawing wins; no fallback label', () => {
+    const r = currentRevSheetsWithAliases([row('3B - 1.pdf', '3B', 1), row('B - 1.pdf', 'B', 4)], '3B', ['B'])
+    expect([r.sheets.map(s => s.file_name), r.fromMark]).toEqual([['3B - 1.pdf'], null])
+  })
+  it('no own drawing → the highest rev among former names, labelled with that name', () => {
+    const r = currentRevSheetsWithAliases([row('B - 1.pdf', 'B', 1), row('A - 3.pdf', 'A', 3)], 'C', ['B', 'A'])
+    expect([r.sheets.map(s => s.file_name), r.fromMark]).toEqual([['A - 3.pdf'], 'A'])
+  })
+  it('nothing anywhere → empty', () => {
+    expect(currentRevSheetsWithAliases([], 'C', ['B'])).toEqual({ sheets: [], fromMark: null })
   })
 })
