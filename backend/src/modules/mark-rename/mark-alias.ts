@@ -18,12 +18,21 @@ const ofKind = (renames: RenameRow[], kind: RenameKind) => renames.filter(r => r
  *  renamed away before, older rows of that name belong to the other piece. */
 export function aliasesOf(renames: RenameRow[], kind: RenameKind, mark: string, atDispatchId: number): Alias[] {
   const rows = ofKind(renames, kind)
-  const leftAt = rows.filter(r => r.from_mark === mark && r.dispatch_id <= atDispatchId).map(r => r.dispatch_id)
-  const own: Alias = { mark, fromDispatchId: leftAt.length ? Math.max(...leftAt) : null, beforeDispatchId: null }
+  // Latest dispatch (< bound) at which `name` was itself renamed away — the
+  // point its identifier was freed for a later, unrelated piece to reuse.
+  // Re-derived every hop (not just for `own`): a predecessor name can equally
+  // have been vacated-and-reused before the row that fed into it.
+  const vacatedBefore = (name: string, bound: number) => {
+    const left = rows.filter(r => r.from_mark === name && r.dispatch_id < bound).map(r => r.dispatch_id)
+    return left.length ? Math.max(...left) : 0
+  }
+  const bound0 = atDispatchId + 1
+  const ownFloor = vacatedBefore(mark, bound0)
+  const own: Alias = { mark, fromDispatchId: ownFloor || null, beforeDispatchId: null }
   const out: Alias[] = [own]
   let name = mark
-  let bound = atDispatchId + 1
-  let floor = own.fromDispatchId ?? 0
+  let bound = bound0
+  let floor = ownFloor
   for (;;) {
     const into = rows.filter(r => r.to_mark === name && r.dispatch_id < bound && r.dispatch_id >= floor)
     if (!into.length) return out
@@ -31,7 +40,7 @@ export function aliasesOf(renames: RenameRow[], kind: RenameKind, mark: string, 
     out.push({ mark: r.from_mark, fromDispatchId: null, beforeDispatchId: r.dispatch_id })
     name = r.from_mark
     bound = r.dispatch_id
-    floor = 0
+    floor = vacatedBefore(name, bound)
   }
 }
 

@@ -41,6 +41,22 @@ describe('mark-alias', () => {
     expect(followRenames(r, 'ASSEMBLY', 'A', 1)).toEqual({ name: 'A', ids: [1, 2] })
   })
 
+  it('multi-hop reuse: Z→W (1), W→M (2, old W vacates), W→A (4, a later unrelated W) — A\'s chain stops at W, never reaches Z', () => {
+    const r = [R(1, 'Z', 'W', 1), R(2, 'W', 'M', 2), R(3, 'W', 'A', 4)]
+    expect(aliasesOf(r, 'ASSEMBLY', 'A', 5)).toEqual([
+      { mark: 'A', fromDispatchId: null, beforeDispatchId: null },
+      { mark: 'W', fromDispatchId: null, beforeDispatchId: 4 },
+    ])
+    expect(formerNames(r, 'ASSEMBLY', 'A', 5)).toEqual(['W'])
+  })
+
+  it('followRenames forward through a reused name picks the earlier (correct) departure, not a later reuse\'s', () => {
+    // X→B (2), entity1's B→C (3); separately entity2 later reuses name B and
+    // departs it too (B→D, 6) — must not confuse the two.
+    const r = [R(1, 'X', 'B', 2), R(2, 'B', 'C', 3), R(3, 'B', 'D', 6)]
+    expect(followRenames(r, 'ASSEMBLY', 'X', 1)).toEqual({ name: 'C', ids: [1, 2] })
+  })
+
   it('kinds never mix', () => {
     const r = [R(1, 'C-f1', '3C-f1', 2, 'PART')]
     expect(currentNameOf(r, 'ASSEMBLY', 'C-f1', 1)).toBe('C-f1')
