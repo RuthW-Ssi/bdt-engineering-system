@@ -5,6 +5,7 @@ import type {
   AssemblyDiffItem, PartDiffItem, JunctionDiffItem,
   DispatchDiffResult,
 } from './dto/diff.dto'
+import { renamePrev, tagRenamed } from './diff-renames'
 
 const FLOAT_TOL = 0.001
 
@@ -264,6 +265,12 @@ export class BomDiffService {
       this.loadRevisionGroupData(previous),
     ])
 
+    const renames = await this.prisma.bom_mark_rename.findMany({
+      where: { dispatch_id: { in: this.renameDispatchIds(groups) } },
+      select: { id: true, kind: true, from_mark: true, to_mark: true },
+    })
+    const prev = renamePrev(prevDetail, renames)
+
     // Dispatch-level info (status, for computeWarning()) — not mark-level,
     // blind `id: { in }` is correct here, no slot-awareness needed.
     const currDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: currentIds } } })
@@ -274,18 +281,18 @@ export class BomDiffService {
       currDispatches.map(d => d.status),
     )
 
-    const assembly_diff = diffEntities(
-      prevDetail.assemblies, currDetail.assemblies,
-      a => a.assembly_mark, assembliesEqual,
+    const assembly_diff = tagRenamed(
+      diffEntities(prev.assemblies, currDetail.assemblies, a => a.assembly_mark, assembliesEqual),
+      a => a.assembly_mark, renames, 'ASSEMBLY',
     )
 
-    const part_diff = diffEntities(
-      prevDetail.parts, currDetail.parts,
-      p => p.part_mark, partsEqual,
+    const part_diff = tagRenamed(
+      diffEntities(prev.parts, currDetail.parts, p => p.part_mark, partsEqual),
+      p => p.part_mark, renames, 'PART',
     )
 
     const junction_diff = diffEntities(
-      prevDetail.junctions, currDetail.junctions,
+      prev.junctions, currDetail.junctions,
       j => `${j.assembly_mark}__${j.part_mark}`, junctionsEqual,
     )
 

@@ -147,6 +147,7 @@ function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
     bom_assembly_part: {
       findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(allJunctionRows, where?.assembly))),
     },
+    bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
   }
 }
 
@@ -178,6 +179,7 @@ describe('BomDiffService — fixture-based contract test', () => {
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const result = await new BomDiffService(noPrevPrisma as any).computeDiff(99)
     expect(result).toBeNull()
@@ -189,6 +191,7 @@ describe('BomDiffService — fixture-based contract test', () => {
       bom_assembly: { findMany: jest.fn() },
       bom_part: { findMany: jest.fn(), count: jest.fn() },
       bom_assembly_part: { findMany: jest.fn() },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     await expect(new BomDiffService(unknownPrisma as any).computeDiff(9999)).rejects.toThrow(NotFoundException)
   })
@@ -277,6 +280,7 @@ describe('BomDiffService — algorithm unit tests', () => {
         count: jest.fn().mockResolvedValue(0),
       },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
   }
 
@@ -323,6 +327,7 @@ describe('BomDiffService — algorithm unit tests', () => {
         },
         bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
         bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+        bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       }
     }
 
@@ -373,6 +378,7 @@ describe('BomDiffService — revision-group aggregation', () => {
       },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
   }
 
@@ -441,6 +447,7 @@ describe('BomDiffService — revision-group aggregation', () => {
       },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
 
     const svc = new BomDiffService(prisma as any)
@@ -487,6 +494,7 @@ describe('BomDiffService — slot-aware group loading', () => {
       bom_assembly_part: {
         findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere([] as any[], where?.assembly))),
       },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
   }
 
