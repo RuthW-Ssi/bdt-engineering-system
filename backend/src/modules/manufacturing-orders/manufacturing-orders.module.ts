@@ -3,6 +3,7 @@ import { MailModule } from '../mail/mail.module'
 import { WorkOrdersModule } from '../work-orders/work-orders.module'
 import { DrawingsModule } from '../drawings/drawings.module'
 import { FileStorageModule } from '../file-storage/file-storage.module'
+import { MarkRenameModule } from '../mark-rename/mark-rename.module'
 import { ManufacturingOrderController } from './manufacturing-orders.controller'
 import { ManufacturingOrderService } from './manufacturing-orders.service'
 import { MoCodeGenerator } from './mo-code.generator'
@@ -12,7 +13,7 @@ import { PreshopService } from './preshop/preshop.service'
 import { MoPartService } from './mo-part/mo-part.service'
 
 @Module({
-  imports: [MailModule, WorkOrdersModule, DrawingsModule, FileStorageModule],
+  imports: [MailModule, WorkOrdersModule, DrawingsModule, FileStorageModule, MarkRenameModule],
   controllers: [ManufacturingOrderController],
   providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService, MoPrintService, MoPartService, PreshopService],
   exports: [ManufacturingOrderService, MoAllocationService],

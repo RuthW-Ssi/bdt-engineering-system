@@ -18,9 +18,14 @@ import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
 import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 import { ASM_FIELDS, ASM_SELECT, asmValues, valueChanges, valueText, type AsmValues } from './preshop/asm-fields'
 import { PreshopService } from './preshop/preshop.service'
+import { pairPartsWithRenames } from './preshop/pair-score'
 import { PRESHOP_TEMPLATE_CODE } from './preshop/preshop-op'
 import { fmtBkk } from '../../common/history-format'
 import { actualsTracking, parseActualDates } from '../../common/actual-dates'
+// mark/part renamed between dispatch versions (2026-10-21, [[bom-mark-rename-plan]])
+import { MarkAliasService } from '../mark-rename/mark-alias.service'
+import { followRenames } from '../mark-rename/mark-alias'
+import { planPartRepoint } from '../mark-rename/part-repoint'
 
 /**
  * P3 status state machine: allowed forward transitions.
@@ -176,6 +181,8 @@ export class ManufacturingOrderService {
     private readonly workOrders: WorkOrdersService,
     // Pre-shop MO (2026-10-07) — writes the PRE_SHOP BOM dispatch of an upload.
     private readonly preshop: PreshopService = new PreshopService(),
+    // mark/part renamed in the BOM (2026-10-21) — pre-pairs + used_at
+    private readonly alias: MarkAliasService = new MarkAliasService(prisma),
   ) {}
 
   // ── List (filter status | mark_prefix | project · search mo_code) ──────────
@@ -805,36 +812,41 @@ export class ManufacturingOrderService {
     qty: number, dispatchId: number, userName: string,
     headline = 'ใช้ BOM version ใหม่',
     partMap?: { from: string; to: string | null }[], // old part mark → new (renamed parts, 2026-10-09); default: same name
+    partAlias?: (m: string) => { name: string; ids: number[] }, // a part rename confirmed on the BOM page (2026-10-21)
+    used?: number[], // bom_mark_rename ids used by this switch (2026-10-21) — caller marks them used_at
   ): Promise<string[]> {
     const oldMark = line.bom_assembly.assembly_mark
     const mark = now.assembly_mark ?? oldMark
     const rename = new Map((partMap ?? []).map(p => [p.from, p.to]))
-    const target = (m: string) => (rename.has(m) ? rename.get(m)! : m)
-    const oldParts = await tx.bom_assembly_part.findMany({ where: { assembly_id: line.bom_assembly_id }, select: { id: true, part: { select: { part_mark: true } } } })
-    const newParts = await tx.bom_assembly_part.findMany({ where: { assembly_id: now.assembly_id }, select: { id: true, part: { select: { part_mark: true } } } })
-    const newIdByMark = new Map(newParts.map(p => [p.part.part_mark, p.id]))
-    const oldMarkById = new Map(oldParts.map(p => [p.id, p.part.part_mark]))
-    const newIdFor = (oldPartId: number) => { const t = target(oldMarkById.get(oldPartId)!); return t ? newIdByMark.get(t) : undefined }
+    // the user's map first, then a part rename confirmed on the BOM page, then the same name
+    const partTarget = (m: string) => {
+      if (rename.has(m)) return { mark: rename.get(m) ?? null, renameIds: [] as number[] }
+      const f = partAlias?.(m)
+      return f ? { mark: f.name, renameIds: f.ids } : { mark: m, renameIds: [] as number[] }
+    }
+    const target = (m: string) => partTarget(m).mark
+    const toParts = (rows: { id: number; part: { part_mark: string } }[]) => rows.map(p => ({ id: p.id, part_mark: p.part.part_mark }))
+    const oldParts = toParts(await tx.bom_assembly_part.findMany({ where: { assembly_id: line.bom_assembly_id }, select: { id: true, part: { select: { part_mark: true } } } }))
+    const newParts = toParts(await tx.bom_assembly_part.findMany({ where: { assembly_id: now.assembly_id }, select: { id: true, part: { select: { part_mark: true } } } }))
 
     const woMarks = await tx.work_order_mark.findMany({ where: { bom_assembly_id: line.bom_assembly_id, removed_at: null, work_order: { mo_id: moId } }, select: { id: true, work_order_id: true } })
     const woIds = [...new Set(woMarks.map(w => w.work_order_id))]
     const woParts = woIds.length
-      ? await tx.work_order_part.findMany({ where: { work_order_id: { in: woIds }, bom_assembly_part_id: { in: oldParts.map(p => p.id) } }, select: { id: true, bom_assembly_part_id: true, updated_by: true, work_order: { select: { wo_code: true } } } })
+      ? await tx.work_order_part.findMany({ where: { work_order_id: { in: woIds }, bom_assembly_part_id: { in: [...oldParts, ...newParts].map(p => p.id) } }, select: { id: true, work_order_id: true, bom_assembly_part_id: true, updated_by: true, work_order: { select: { wo_code: true } } } })
       : []
-    const stuck = woParts.filter(wp => !newIdFor(wp.bom_assembly_part_id) && wp.updated_by)
-    if (stuck.length) {
-      throw new ConflictException(stuck.map(wp => `${oldMark}: ${oldMarkById.get(wp.bom_assembly_part_id)} ไม่มีใน BOM ใหม่ แต่ ${wp.work_order?.wo_code ?? 'WO'} กรอกยอดเบิกแล้ว`).join(' · ') + ' — แก้ยอดเบิกใน WO ก่อน')
+    const plan = planPartRepoint(oldParts, newParts, woParts, partTarget)
+    if (plan.stuck.length) {
+      const code = new Map(woParts.map(w => [w.id, w.work_order?.wo_code ?? 'WO']))
+      throw new ConflictException(plan.stuck.map(s => `${oldMark}: ${s.part_mark} ไม่มีใน BOM ใหม่ แต่ ${code.get(s.id)} กรอกยอดเบิกแล้ว`).join(' · ') + ' — แก้ยอดเบิกใน WO ก่อน')
     }
 
     await tx.mo_assembly_line.update({ where: { id: line.id }, data: { bom_assembly_id: now.assembly_id, qty: new Prisma.Decimal(qty) } })
     if (woMarks.length) await tx.work_order_mark.updateMany({ where: { id: { in: woMarks.map(w => w.id) } }, data: { bom_assembly_id: now.assembly_id, bom_dispatch_id_snapshot: dispatchId } })
-    for (const wp of woParts) {
-      const to = newIdFor(wp.bom_assembly_part_id)
-      if (to) await tx.work_order_part.update({ where: { id: wp.id }, data: { bom_assembly_part_id: to } })
-      else await tx.work_order_part.delete({ where: { id: wp.id } })
-    }
+    for (const m of plan.moves) await tx.work_order_part.update({ where: { id: m.id }, data: { bom_assembly_part_id: m.to } })
+    for (const dropId of plan.drops) await tx.work_order_part.delete({ where: { id: dropId } })
+    used?.push(...plan.usedRenameIds)
     // compare under the new names, so a renamed part reads as a rename, not remove + add
-    const partRenames = [...rename].filter(([f, t]) => t && t !== f).map(([f, t]) => `${mark} ${f} ชื่อ ${f} → ${t}`)
+    const partRenames = oldParts.map(p => [p.part_mark, target(p.part_mark)] as const).filter(([f, t]) => t && t !== f).map(([f, t]) => `${mark} ${f} ชื่อ ${f} → ${t}`)
     const wasRenamed = { ...was, parts: was.parts.map(p => ({ ...p, part_mark: target(p.part_mark) ?? p.part_mark })) }
     const diff = assemblyDiff(mark, wasRenamed, now)
     for (const woId of woIds) {
@@ -996,6 +1008,9 @@ export class ManufacturingOrderService {
       select: { id: true, assembly_mark: true, qty: true, ...ASM_SELECT,
         assembly_parts: { orderBy: { sequence: 'asc' }, select: { qty: true, part: { select: { part_mark: true, profile: true, length_mm: true, grade: true, weight_kg: true } } } } },
     })
+    // mark/part renamed on the BOM page (2026-10-21) — pre-pairs Full shop lines
+    const renames = await this.alias.renamesFor(scope)
+    const partAliasFrom = (dispatchId: number) => (m: string) => followRenames(renames, 'PART', m, dispatchId).name
     const lines = await this.preshopLines(id)
     const issued = await this.issuedSets(id, lines.map(l => l.bom_assembly_id))
     const n = (v: unknown) => (v == null ? null : Number(v))
@@ -1017,8 +1032,12 @@ export class ManufacturingOrderService {
       const onLatest = kind === 'bom' && bom?.assembly_id === l.bom_assembly_id
       const status = !bom ? 'not_in_bom' as const : onLatest || !this.preshop.sizeChanges(existing, bom, { strict: true }).length ? 'same' as const : 'changed' as const
       const reviewed = onLatest || (bom ? ref?.assembly_id === bom.assembly_id : ref?.assembly_id === null && ref?.dispatch_id === dispatch.id)
-      return { line_id: l.id, assembly_mark: b.assembly_mark, kind, status, reviewed, existing, bom,
-        part_pairs: bom ? this.preshop.pairParts(existing.parts, bom.parts) : [] }
+      // renamed on the BOM page (2026-10-21) → pre-paired; Full shop lines only
+      const next = kind === 'bom' && !bom ? followRenames(renames, 'ASSEMBLY', b.assembly_mark, b.dispatch_id) : null
+      const target = next && next.name !== b.assembly_mark && !inMo.has(next.name) ? bomByMark.get(next.name) : undefined
+      const renamed_to = target ? { assembly_id: target.id, assembly_mark: target.assembly_mark, rename_id: next!.ids[next!.ids.length - 1] } : null
+      return { line_id: l.id, assembly_mark: b.assembly_mark, kind, status, reviewed, existing, bom, renamed_to,
+        part_pairs: bom ? pairPartsWithRenames(existing.parts, bom.parts, kind === 'bom' ? partAliasFrom(b.dispatch_id) : (m: string) => m) : [] }
     })
     // A Full shop MO is a chosen subset of its BOM — offer only marks this
     // upload brought in, not ones the MO left out of the version it was made from.
@@ -1036,12 +1055,12 @@ export class ManufacturingOrderService {
     const pool = bomRows.filter(b => !inMo.has(b.assembly_mark)).map(b => ({
       assembly_id: b.id, assembly_mark: b.assembly_mark, qty: Number(b.qty ?? 0), ...asmValues(b), parts: partsOf(b.assembly_parts),
     }))
-    const withCandidates = rows.map(r => (r.bom ? r : {
-      ...r,
-      candidates: pool
-        .map(c => ({ ...c, score: this.preshop.pairScore(r.assembly_mark, r.existing, c.assembly_mark, c), part_pairs: this.preshop.pairParts(r.existing.parts, c.parts) }))
-        .filter(c => c.score >= 30).sort((x, y) => y.score - x.score).slice(0, 3),
-    }))
+    const withCandidates = rows.map(r => {
+      if (r.bom) return r
+      const scored = pool.map(c => ({ ...c, score: c.assembly_id === r.renamed_to?.assembly_id ? 100 : this.preshop.pairScore(r.assembly_mark, r.existing, c.assembly_mark, c),
+        part_pairs: pairPartsWithRenames(r.existing.parts, c.parts, r.kind === 'bom' ? partAliasFrom(lines.find(l => l.id === r.line_id)!.bom_assembly.dispatch_id) : (m: string) => m) }))
+      return { ...r, candidates: scored.filter(c => c.score >= 30).sort((x, y) => y.score - x.score).slice(0, 3) }
+    })
     return { bom: { dispatch_id: dispatch.id, revision: dispatch.revision, uploaded_at: dispatch.uploaded_at }, rows: withCandidates, bom_only, pool, pending: rows.filter(r => !r.reviewed).length }
   }
 
@@ -1101,8 +1120,13 @@ export class ManufacturingOrderService {
     })
     if (adds.length) await this.assertQtyWithinRemaining(adds.map(a => ({ bom_assembly_id: a.bom_assembly_id, qty: a.qty })), id)
 
+    // a mark pre-paired from a confirmed BOM-page rename (2026-10-21) — kept as-is marks the pair used
+    const prePaired = new Map(cmp.rows.flatMap(r => (r.renamed_to ? [[r.assembly_mark, r.renamed_to] as const] : [])))
+    const renames = await this.alias.renamesFor({ project_id: mo.project_id!, zone_id: mo.zone_id!, sub_zone_id: mo.sub_zone_id ?? null })
+
     await this.prisma.$transaction(async (tx) => {
       const log: string[] = []
+      const used: number[] = []
       let onPaper = false // anything but a plain keep changes what is printed → Rev bump (QA review F-004)
       for (const m of dto.marks ?? []) {
         const line = lineByMark.get(m.assembly_mark)!
@@ -1111,11 +1135,16 @@ export class ManufacturingOrderService {
         const target = targetOf(m, row)
         // parts move by name unless the user confirmed a map (spec pairs are suggestions on screen only)
         const partMap = m.part_map ?? []
+        const partAlias = (pm: string) => followRenames(renames, 'PART', pm, line.bom_assembly.dispatch_id)
+        // the user kept a mark pre-paired from a confirmed BOM-page rename → that pair is used
+        const pre = prePaired.get(m.assembly_mark)
+        if (m.action === 'apply' && m.pair_with && pre?.assembly_id === m.pair_with) used.push(pre.rename_id)
         if (m.action === 'apply' && row.kind === 'bom') {
-          log.push(...(await this.switchToBomVersion(tx, id, line, row.existing, target!, m.final!.qty, cmp.bom!.dispatch_id, userName, 'ใช้ BOM version ใหม่', partMap)))
+          log.push(...(await this.switchToBomVersion(tx, id, line, row.existing, target!, m.final!.qty, cmp.bom!.dispatch_id, userName, 'ใช้ BOM version ใหม่', partMap, partAlias, used)))
         } else if (m.action === 'apply' && target && willLink(m, target)) {
           // pre-shop mark taken exactly as the real BOM has it → link the line to the real BOM row (2026-10-09)
-          log.push(...(await this.switchToBomVersion(tx, id, line, row.existing, target, m.final!.qty, cmp.bom!.dispatch_id, userName, 'ผูกกับ BOM จริง', partMap)))
+          // pre-shop dispatch ids are not part of the BOM rename chain — no partAlias here
+          log.push(...(await this.switchToBomVersion(tx, id, line, row.existing, target, m.final!.qty, cmp.bom!.dispatch_id, userName, 'ผูกกับ BOM จริง', partMap, undefined, used)))
         } else if (m.action === 'apply') {
           // own values chosen somewhere → the MO keeps its own data, under the BOM's names
           const renamed = target && target.assembly_mark !== m.assembly_mark ? target.assembly_mark : null
@@ -1137,7 +1166,7 @@ export class ManufacturingOrderService {
           await tx.bom_assembly.update({ where: { id: line.bom_assembly_id }, data: { attributes: { ...attrs, ...ref(target?.assembly_id ?? null) } } })
         } else if (m.action === 'keep' && row.kind === 'bom' && row.status === 'same' && row.bom) {
           // identical in the new version — follow it so the MO and its WOs sit on the latest BOM
-          await this.switchToBomVersion(tx, id, line, row.existing, row.bom, row.existing.qty, cmp.bom!.dispatch_id, userName)
+          await this.switchToBomVersion(tx, id, line, row.existing, row.bom, row.existing.qty, cmp.bom!.dispatch_id, userName, undefined, undefined, partAlias, used)
           log.push(`${m.assembly_mark} ตรงกับ BOM version ใหม่`)
         } else if (m.action === 'keep') {
           await tx.bom_assembly.update({ where: { id: line.bom_assembly_id }, data: { attributes: { ...attrs, ...ref(row.bom?.assembly_id ?? null) } } })
@@ -1154,6 +1183,7 @@ export class ManufacturingOrderService {
         await tx.mo_assembly_line.createMany({ data: adds.map(a => ({ mo_id: id, bom_assembly_id: a.bom_assembly_id, qty: new Prisma.Decimal(a.qty), line_seq: seq++ })) })
         for (const a of adds) log.push(`เพิ่ม ${a.b.assembly_mark} (ชุด ${a.qty}) จาก BOM`, ...a.b.parts.map(p => `${a.b.assembly_mark} part ${partText(p)}`))
       }
+      await this.alias.markUsed(tx, used)
       // "keep as is" changes nothing on paper — anything else bumps the MO Rev
       if (onPaper || adds.length) await this.bumpRevision(tx, mo, log)
       if (log.length) {

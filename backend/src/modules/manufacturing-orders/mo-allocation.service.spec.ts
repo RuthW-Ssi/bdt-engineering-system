@@ -13,9 +13,10 @@ import { MoAllocationService, ALLOCATING_STATUSES } from './mo-allocation.servic
 // (assembly_mark, project_id, zone_id, sub_zone_id) instead of the raw FK.
 
 type FakeDispatch = { project_id: number; zone_id: number; sub_zone_id: number | null }
-type FakeAssembly = { id: number; assembly_mark: string; qty: number; status: string; dispatch: FakeDispatch }
+type FakeAssembly = { id: number; assembly_mark: string; qty: number; status: string; dispatch: FakeDispatch; dispatch_id?: number }
 type FakeMo = { id: number; status: string; mo_code: string }
 type FakeLine = { id: number; mo_id: number; bom_assembly_id: number; qty: number }
+type FakeRename = { id: number; kind: string; from_mark: string; to_mark: string; dispatch_id: number; project_id: number; zone_id: number; sub_zone_id: number | null }
 
 function matchesDispatch(where: any, d: FakeDispatch): boolean {
   if (!where) return true
@@ -25,7 +26,7 @@ function matchesDispatch(where: any, d: FakeDispatch): boolean {
   return true
 }
 
-function makeFakePrisma(assemblies: FakeAssembly[], mos: FakeMo[], lines: FakeLine[]) {
+function makeFakePrisma(assemblies: FakeAssembly[], mos: FakeMo[], lines: FakeLine[], renames: FakeRename[] = []) {
   function filterLines(where: any): FakeLine[] {
     return lines.filter((l) => {
       const mo = mos.find((m) => m.id === l.mo_id)
@@ -36,7 +37,17 @@ function makeFakePrisma(assemblies: FakeAssembly[], mos: FakeMo[], lines: FakeLi
       if (where.bom_assembly) {
         const a = assemblies.find((x) => x.id === l.bom_assembly_id)
         if (!a) return false
-        if (where.bom_assembly.assembly_mark !== undefined && a.assembly_mark !== where.bom_assembly.assembly_mark) return false
+        if (where.bom_assembly.OR) {
+          const ok = where.bom_assembly.OR.some((c: any) => c.assembly_mark === a.assembly_mark
+            && (c.dispatch_id?.gte == null || (a as any).dispatch_id >= c.dispatch_id.gte)
+            && (c.dispatch_id?.lt == null || (a as any).dispatch_id < c.dispatch_id.lt))
+          if (!ok) return false
+        } else if (where.bom_assembly.assembly_mark !== undefined && a.assembly_mark !== where.bom_assembly.assembly_mark) return false
+        else if (where.bom_assembly.dispatch_id) {
+          const r = where.bom_assembly.dispatch_id
+          if (r.gte != null && (a as any).dispatch_id < r.gte) return false
+          if (r.lt != null && (a as any).dispatch_id >= r.lt) return false
+        }
         if (!matchesDispatch(where.bom_assembly.dispatch, a.dispatch)) return false
       }
       return true
@@ -49,7 +60,7 @@ function makeFakePrisma(assemblies: FakeAssembly[], mos: FakeMo[], lines: FakeLi
     return {
       ...l,
       mo: { mo_code: mo?.mo_code ?? '' },
-      bom_assembly: a ? { assembly_mark: a.assembly_mark, dispatch: a.dispatch } : undefined,
+      bom_assembly: a ? { assembly_mark: a.assembly_mark, dispatch_id: a.dispatch_id, dispatch: a.dispatch } : undefined,
     }
   }
 
@@ -58,13 +69,13 @@ function makeFakePrisma(assemblies: FakeAssembly[], mos: FakeMo[], lines: FakeLi
       findUnique: jest.fn(({ where: { id } }: any) => {
         const a = assemblies.find((x) => x.id === id)
         if (!a) return Promise.resolve(null)
-        return Promise.resolve({ assembly_mark: a.assembly_mark, qty: a.qty, dispatch: a.dispatch })
+        return Promise.resolve({ assembly_mark: a.assembly_mark, qty: a.qty, dispatch_id: a.dispatch_id, dispatch: a.dispatch })
       }),
       findMany: jest.fn(({ where }: any) =>
         Promise.resolve(
           assemblies
             .filter((a) => a.status === where.status)
-            .map((a) => ({ id: a.id, assembly_mark: a.assembly_mark, dispatch: a.dispatch })),
+            .map((a) => ({ id: a.id, assembly_mark: a.assembly_mark, dispatch_id: a.dispatch_id, dispatch: a.dispatch })),
         ),
       ),
     },
@@ -76,6 +87,7 @@ function makeFakePrisma(assemblies: FakeAssembly[], mos: FakeMo[], lines: FakeLi
       }),
       findMany: jest.fn(({ where }: any) => Promise.resolve(filterLines(where).map(hydrate))),
     },
+    bom_mark_rename: { findMany: jest.fn().mockResolvedValue(renames) },
   }
 }
 
@@ -246,6 +258,28 @@ describe('MoAllocationService', () => {
       await expect(svc.allocatedFor(999)).resolves.toBe(0)
       await expect(svc.allocationBreakdown(999)).resolves.toEqual([])
       await expect(svc.remainingFor(999)).resolves.toBe(0)
+    })
+  })
+
+  describe('MoAllocationService — mark renamed in the BOM (2026-10-21)', () => {
+    const d = { project_id: 1, zone_id: 1, sub_zone_id: null }
+    const assemblies: any[] = [
+      { id: 1, dispatch_id: 1, assembly_mark: 'A', qty: 5, status: 'INACTIVE', dispatch: d },
+      { id: 2, dispatch_id: 2, assembly_mark: 'B', qty: 5, status: 'ACTIVE', dispatch: d },
+      { id: 3, dispatch_id: 3, assembly_mark: 'A', qty: 4, status: 'ACTIVE', dispatch: d }, // a NEW piece reusing the old name
+    ]
+    const mos = [{ id: 10, status: 'CONFIRMED', mo_code: 'MO-1' }]
+    const lines = [{ id: 100, mo_id: 10, bom_assembly_id: 1, qty: 3 }]
+    const renames = [{ id: 7, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 2, project_id: 1, zone_id: 1, sub_zone_id: null }]
+
+    it('B (renamed from A) keeps A\'s 3 allocated sets; the later new A does not get them', async () => {
+      const svc = new MoAllocationService(makeFakePrisma(assemblies, mos, lines, renames) as any)
+      expect(await svc.allocatedFor(2)).toBe(3)
+      expect(await svc.allocatedFor(3)).toBe(0)
+      const map = await svc.allocationMap()
+      expect([map.get(2), map.get(3)]).toEqual([3, undefined])
+      const tips = await svc.allocationBreakdownMap()
+      expect(tips.get(2)).toEqual([{ mo_code: 'MO-1', qty: 3 }])
     })
   })
 })

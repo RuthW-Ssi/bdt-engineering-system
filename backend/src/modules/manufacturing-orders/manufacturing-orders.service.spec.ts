@@ -1217,7 +1217,7 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
   const BOM = (id: number, mark: string, qty: number, parts: Part[], L = 10550) => ({
     id, assembly_mark: mark, qty: String(qty), length_mm: String(L), weight_kg: '3561.15', assembly_parts: AP(parts),
   })
-  function make(lines: unknown[], bom: unknown[], planned: unknown[] = [], woMarks: unknown[] = []) {
+  function make(lines: unknown[], bom: unknown[], planned: unknown[] = [], woMarks: unknown[] = [], alias?: unknown) {
     const tx = {
       mo_assembly_line: { update: jest.fn(), createMany: jest.fn(), delete: jest.fn() },
       bom_assembly: { update: jest.fn() },
@@ -1229,6 +1229,7 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
       manufacturing_order: { update: jest.fn() },
       work_order_mark: { findMany: jest.fn().mockResolvedValue(woMarks) },
       work_order_event: { create: jest.fn() },
+      bom_mark_rename: { updateMany: jest.fn() },
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 46, mo_code: 'MO-23', status: 'DRAFT', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 3, zone_id: 6, sub_zone_id: null }) },
@@ -1236,9 +1237,10 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
       bom_dispatch: { findFirst: jest.fn().mockResolvedValue(bom.length ? { id: 28, revision: 1, uploaded_at: new Date('2026-10-08T10:57:00Z') } : null) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue(bom) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue(planned) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
-    const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, {} as any, {} as any, {} as any, {} as any, new PreshopService())
+    const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, {} as any, {} as any, { recomputeParts: jest.fn(), recomputeDuration: jest.fn() } as any, {} as any, new PreshopService(), alias as any)
     jest.spyOn(svc as any, 'assertQtyWithinRemaining').mockResolvedValue(undefined)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 46 } as any)
     return { svc, tx, prisma }
@@ -1327,6 +1329,48 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     await expect(svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'remove' }] } as any, 1, 'tao')).rejects.toThrow('BUH1-3 มีใน WO แล้ว')
     await expect(svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'apply', final: { qty: 1, length_mm: 10550, weight_kg: 3561.15, parts: [P('C-f1')] } }] } as any, 1, 'tao')).rejects.toThrow('ออก WO ไปแล้ว 2 ชุด')
   })
+
+  // mark/part renamed between dispatch versions (2026-10-21) — pre-pairs a
+  // Full shop mark renamed in the BOM; pre-shop marks are never pre-paired.
+  const full = (l: any) => ({ ...l, bom_assembly: { ...l.bom_assembly, dispatch: { source: 'BOM_UPLOAD' } } })
+  const aliasOf = (...rows: any[]) => ({ renamesFor: jest.fn().mockResolvedValue(rows), markUsed: jest.fn() })
+
+  it('a mark renamed on the BOM page comes pre-paired (top suggestion, 100); keeping it marks the pair used', async () => {
+    const alias = aliasOf({ id: 7, kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', dispatch_id: 28 })
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1B-18', 2, [P('C-f1')]))], [BOM(3010, '3BUH1B-18', 6, [P('C-f1')]), BOM(3011, 'ZZ9', 1, [P('Q', 'PL1x1', 1, 1)])], [], [], alias)
+    const r: any = await svc.bomCompare(46)
+    expect(r.rows[0]).toMatchObject({ status: 'not_in_bom', renamed_to: { assembly_id: 3010, assembly_mark: '3BUH1B-18', rename_id: 7 } })
+    expect(r.rows[0].candidates[0]).toMatchObject({ assembly_id: 3010, score: 100 })
+
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1B-18', action: 'apply', pair_with: 3010, final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect(tx.mo_assembly_line.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { bom_assembly_id: 3010, qty: expect.anything() } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [7])
+  })
+
+  it('a pre-shop mark is never pre-paired (manual pairing stays for those)', async () => {
+    const alias = aliasOf({ id: 7, kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', dispatch_id: 28 })
+    const { svc } = make([LINE(1, 701, 'BUH1B-18', 2, [P('C-f1')])], [BOM(3010, '3BUH1B-18', 6, [P('C-f1')])], [], [], alias)
+    const r: any = await svc.bomCompare(46)
+    expect(r.rows[0].renamed_to).toBeNull()
+  })
+
+  it('part renames pre-fill part_pairs', async () => {
+    const alias = aliasOf({ id: 8, kind: 'PART', from_mark: 'C-x', to_mark: '3C-x', dispatch_id: 28 })
+    const { svc } = make([full(LINE(1, 701, 'BUH1-3', 2, [P('C-f1'), P('C-x', 'PL12x150', 300, 4)]))], [BOM(3002, 'BUH1-3', 6, [P('C-f1'), P('3C-x', 'PL12x150', 300, 4)])], [], [], alias)
+    const r: any = await svc.bomCompare(46)
+    expect(r.rows[0].part_pairs).toEqual([{ from: 'C-f1', to: 'C-f1', how: 'name' }, { from: 'C-x', to: '3C-x', how: 'rename' }])
+  })
+
+  it('MO switch moves a WO withdrawal through a part rename and marks that pair used', async () => {
+    const alias = aliasOf({ id: 8, kind: 'PART', from_mark: 'C-x', to_mark: '3C-x', dispatch_id: 28 })
+    const { svc, tx } = make([full(LINE(1, 701, 'BUH1-3', 2, [P('C-x', 'PL12x150', 300, 4)]))], [BOM(3002, 'BUH1-3', 6, [P('3C-x', 'PL12x150', 300, 4)])], [], [{ id: 61, work_order_id: 5 }], alias)
+    tx.bom_assembly_part.findMany = jest.fn(({ where }: any) => Promise.resolve(where.assembly_id === 701 ? [{ id: 1, part: { part_mark: 'C-x' } }] : [{ id: 2, part: { part_mark: '3C-x' } }]))
+    ;(tx as any).work_order_part = { findMany: jest.fn().mockResolvedValue([{ id: 900, work_order_id: 5, bom_assembly_part_id: 1, updated_by: 'tao', work_order: { wo_code: 'WO-1' } }]), update: jest.fn(), delete: jest.fn() }
+    ;(tx as any).work_order_mark.updateMany = jest.fn()
+    await svc.linkBom(46, { dispatch_id: 28, marks: [{ assembly_mark: 'BUH1-3', action: 'apply', final: { qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: [] } }] } as any, 1, 'tao')
+    expect((tx as any).work_order_part.update).toHaveBeenCalledWith({ where: { id: 900 }, data: { bom_assembly_part_id: 2 } })
+    expect(alias.markUsed).toHaveBeenCalledWith(tx, [8])
+  })
 })
 
 // Full shop MO when its zone's BOM gets a new upload (2026-10-09, user: when a
@@ -1353,6 +1397,7 @@ describe('ManufacturingOrderService — Full shop MO vs a new BOM version', () =
       work_order_event: { create: jest.fn() },
       mo_status_history: { create: jest.fn() },
       manufacturing_order: { update: jest.fn() },
+      bom_mark_rename: { updateMany: jest.fn() },
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 50, mo_code: 'MO-50', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'FULL_SHOP', project_id: 3, zone_id: 5, sub_zone_id: null }) },
@@ -1360,6 +1405,7 @@ describe('ManufacturingOrderService — Full shop MO vs a new BOM version', () =
       bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 30, revision: 2, uploaded_at: new Date('2026-10-09T03:00:00Z') }) },
       bom_assembly: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.status === 'ACTIVE' ? latest : oldMarks.map(m => ({ assembly_mark: m })))) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
     const auto = { recomputeParts: jest.fn(), recomputeDuration: jest.fn() }
@@ -1439,6 +1485,7 @@ describe('ManufacturingOrderService — Full shop mark confirmed as matching the
       work_order_part: { findMany: jest.fn().mockResolvedValue([]) },
       mo_status_history: { create: jest.fn() },
       manufacturing_order: { update: jest.fn() },
+      bom_mark_rename: { updateMany: jest.fn() },
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 50, mo_code: 'MO-50', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'FULL_SHOP', project_id: 3, zone_id: 5, sub_zone_id: null }) },
@@ -1446,6 +1493,7 @@ describe('ManufacturingOrderService — Full shop mark confirmed as matching the
       bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 30, revision: 2, uploaded_at: new Date() }) },
       bom_assembly: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.status === 'ACTIVE' ? [latest] : [{ assembly_mark: 'B' }])) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
     const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, {} as any, { recomputeParts: jest.fn(), recomputeDuration: jest.fn() } as any, {} as any, new PreshopService())
@@ -1532,6 +1580,7 @@ describe('ManufacturingOrderService — marks renamed in the real BOM', () => {
       work_order_event: { create: jest.fn() },
       manufacturing_order: { update: jest.fn() },
       mo_status_history: { create: jest.fn() },
+      bom_mark_rename: { updateMany: jest.fn() },
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 46, mo_code: 'MO-P2600023', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 3, zone_id: 6, sub_zone_id: null, revision: 1 }) },
@@ -1539,6 +1588,7 @@ describe('ManufacturingOrderService — marks renamed in the real BOM', () => {
       bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 28, revision: 1, uploaded_at: new Date() }) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue(bomRows) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
     const auto = { recomputeParts: jest.fn(), recomputeDuration: jest.fn() }
