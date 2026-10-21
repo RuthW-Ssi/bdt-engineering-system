@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Param, Query, Body,
+  Controller, Get, Post, Delete, Param, Query, Body,
   UseInterceptors, UploadedFiles,
   ParseIntPipe, UseGuards, BadRequestException,
   Res, HttpStatus, HttpCode,
@@ -12,10 +12,12 @@ import { BomUploadService, FileInput, NcFileInput } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
 import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
+import { MarkRenameService } from './mark-rename.service'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
 import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
+import { SaveRenamesDto } from './dto/rename.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
@@ -40,6 +42,7 @@ export class BomUploadController {
     private readonly diffSvc: BomDiffService,
     private readonly diffBimMatchSvc: BomDiffBimMatchService,
     private readonly paintSvc: PaintConfigService,
+    private readonly renameSvc: MarkRenameService,
   ) {}
 
   @Post('bom/upload')
@@ -207,6 +210,34 @@ export class BomUploadController {
     })
     if (!result) return res.status(HttpStatus.NO_CONTENT).send()
     return res.status(HttpStatus.OK).json(result)
+  }
+
+  @Get('dispatches/:id/rename-candidates')
+  @RequiresPermission('boms', 'view')
+  @ApiOperation({ summary: 'Marks/parts that disappeared in this BOM version + likely new names (rename pairing, 2026-10-21)' })
+  getRenameCandidates(@Param('id', ParseIntPipe) id: number) {
+    return this.renameSvc.candidates(id)
+  }
+
+  @Get('dispatches/:id/renames')
+  @RequiresPermission('boms', 'view')
+  @ApiOperation({ summary: 'Confirmed mark/part renames of this BOM version + their History' })
+  getRenames(@Param('id', ParseIntPipe) id: number) {
+    return this.renameSvc.list(id)
+  }
+
+  @Post('dispatches/:id/renames')
+  @RequiresPermission('boms', 'create')
+  @ApiOperation({ summary: 'Confirm mark/part renames (old name = same piece as new name)' })
+  saveRenames(@Param('id', ParseIntPipe) id: number, @Body() dto: SaveRenamesDto, @CurrentUser() user: JwtPayload) {
+    return this.renameSvc.pair(id, dto.renames, user.sub, user.login)
+  }
+
+  @Delete('dispatches/:id/renames/:renameId')
+  @RequiresPermission('boms', 'create')
+  @ApiOperation({ summary: 'Undo a rename pair while nothing has used it (a1)' })
+  undoRename(@Param('id', ParseIntPipe) id: number, @Param('renameId', ParseIntPipe) renameId: number, @CurrentUser() user: JwtPayload) {
+    return this.renameSvc.undo(id, renameId, user.sub, user.login)
   }
 
   @Get('dispatches/:id/mapping')

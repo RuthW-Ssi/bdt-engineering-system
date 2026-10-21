@@ -208,6 +208,13 @@ export class BomDiffService {
     return { current: currentGroup, previous: previousGroup }
   }
 
+  /** Dispatches this version brought in (current group minus previous) — the
+   *  ones whose bom_mark_rename rows belong to this version (2026-10-21). */
+  renameDispatchIds(groups: { current: EffectiveGroup; previous: EffectiveGroup }): number[] {
+    const prev = new Set(groupToIds(groups.previous))
+    return groupToIds(groups.current).filter(id => !prev.has(id))
+  }
+
   // "major.minor" display label for a set of dispatches — minor is each
   // dispatch's 0-indexed position (by upload order) among ALL dispatches
   // sharing its exact revision number in the same zone/sub-zone (not just
