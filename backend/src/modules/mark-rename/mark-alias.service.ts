@@ -1,0 +1,41 @@
+import { Injectable } from '@nestjs/common'
+import { PrismaService } from '../../prisma/prisma.service'
+import { scopeKey, type BomScope, type RenameRow } from './mark-alias'
+
+type RenameClient = { bom_mark_rename: PrismaService['bom_mark_rename'] }
+const SELECT = { id: true, kind: true, from_mark: true, to_mark: true, dispatch_id: true } as const
+
+/** Loads confirmed mark/part pairs (2026-10-21). Leaf service: Prisma only, so
+ *  BOM upload, MO, WO and print can all import it without a module cycle. */
+@Injectable()
+export class MarkAliasService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async renamesFor(scope: BomScope, client: RenameClient = this.prisma): Promise<RenameRow[]> {
+    return client.bom_mark_rename.findMany({
+      where: { project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id },
+      select: SELECT,
+      orderBy: [{ dispatch_id: 'asc' }, { id: 'asc' }],
+    })
+  }
+
+  async renamesByScope(): Promise<Map<string, RenameRow[]>> {
+    const rows = await this.prisma.bom_mark_rename.findMany({
+      select: { ...SELECT, project_id: true, zone_id: true, sub_zone_id: true },
+      orderBy: [{ dispatch_id: 'asc' }, { id: 'asc' }],
+    })
+    const map = new Map<string, RenameRow[]>()
+    for (const { project_id, zone_id, sub_zone_id, ...r } of rows) {
+      const k = scopeKey({ project_id, zone_id, sub_zone_id })
+      map.set(k, [...(map.get(k) ?? []), r])
+    }
+    return map
+  }
+
+  /** First MO/WO accept through a pair — from then on it can't be undone (a1). */
+  async markUsed(client: RenameClient, ids: number[]): Promise<void> {
+    const unique = [...new Set(ids)]
+    if (!unique.length) return
+    await client.bom_mark_rename.updateMany({ where: { id: { in: unique }, used_at: null }, data: { used_at: new Date() } })
+  }
+}
