@@ -61,6 +61,16 @@ function make(o: { asm: Row[]; parts?: Row[]; groups: any; progress?: any[]; pai
       findFirst: jest.fn(({ where }: any) => Promise.resolve(renames.find(r => r.id === where.id) ?? null)),
       create: jest.fn(({ data }: any) => { const r = { id: renames.length + 1, confirmed_at: new Date('2026-10-21T03:00:00Z'), used_at: null, ...data }; renames.push(r); return Promise.resolve(r) }),
       delete: jest.fn(({ where }: any) => { renames.splice(renames.findIndex(r => r.id === where.id), 1); return Promise.resolve() }),
+      // Fix round 1, ruling 3 — the atomic "claim" delete undo() uses: only
+      // removes the row (and reports count 1) if `used_at` still matches.
+      deleteMany: jest.fn(({ where }: any) => {
+        const before = renames.length
+        for (let i = renames.length - 1; i >= 0; i--) {
+          const r = renames[i]
+          if (r.id === where.id && (!('used_at' in where) || r.used_at === where.used_at)) renames.splice(i, 1)
+        }
+        return Promise.resolve({ count: before - renames.length })
+      }),
     },
     bom_mark_rename_event: { create: jest.fn(({ data }: any) => { events.push(data); return Promise.resolve(data) }), findMany: jest.fn(() => Promise.resolve(events)) },
     $transaction: jest.fn((cb: any) => cb(prisma)),
@@ -123,6 +133,28 @@ describe('MarkRenameService.pair', () => {
     const m = make({ ...base(), progress: [prog(1, { cut: 50 }), prog(11, { cut: 20 })] })
     await expect(m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 7, 'tao'))
       .rejects.toThrow('BUH1B-18 → 3BUH1B-18: เลือกว่าจะใช้ข้อมูลของชื่อเดิมหรือชื่อใหม่')
+  })
+
+  // Fix round 1, ruling 2 — default keep = old side has data ? 'old' : 'new'
+  it('b2 default: only the new mark has data → defaults to keep "new", nothing touched, no prompt', async () => {
+    const m = make({ ...base(), progress: [prog(11, { cut: 20 })] }) // old (1) has no row at all; new (11) has data
+    await m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 7, 'tao')
+    expect(m.progress.find(p => p.assembly_id === 11)!.cut).toBe(20)
+    expect(m.renames[0].carried).toEqual({ keep: 'new' })
+  })
+
+  // Fix round 1, ruling 2 — keep:'old' mirrors the old set EXACTLY: a
+  // category the old side has nothing in gets reset/cleared on the new mark,
+  // not left untouched, and what was cleared is snapshotted for undo.
+  it('b2 keep "old" mirrors exactly: old has progress but no paint → new mark\'s paint is cleared, undo restores it', async () => {
+    const m = make({ ...base(), progress: [prog(1, { cut: 50 })],
+      paint: [{ id: 2, dispatch_id: 9, assembly_id: 11, paint_type: 'topcoat', material_id: 1, layers: 1, material: { name: 'Zinc' } }] })
+    await m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', keep: 'old' }], 7, 'tao')
+    expect(m.progress.find(p => p.assembly_id === 11)!.cut).toBe(50)
+    expect(m.paint.filter(p => p.assembly_id === 11)).toEqual([])
+
+    await m.svc.undo(9, 1, 7, 'tao')
+    expect(m.paint.filter(p => p.assembly_id === 11).map(p => [p.paint_type, p.layers])).toEqual([['topcoat', 1]])
   })
 
   it('b2 keep "new": nothing copied, carried says so', async () => {
@@ -188,6 +220,49 @@ describe('MarkRenameService.pair', () => {
     expect(m.renames[0].carried ?? null).toBeNull()
     expect(m.events[0].changes).toEqual([{ field: 'ชื่อ part', old: 'C-f1', new: '3C-f1' }])
   })
+
+  // Fix round 1, ruling 1 — stale/double submit on an already-paired mark
+  it('stale: from_mark (or to_mark) already paired in this version → 409, not 400', async () => {
+    const already = { id: 1, project_id: 3, zone_id: 6, sub_zone_id: null, dispatch_id: 9, kind: 'ASSEMBLY',
+      from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', from_ref_id: 1, to_ref_id: 11, carried: { keep: 'new' },
+      confirmed_by: 'someone-else', confirmed_at: new Date(), used_at: null }
+    const m = make({ ...base(), renames: [already] })
+    await expect(m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 7, 'tao'))
+      .rejects.toThrow(ConflictException)
+    await expect(m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 7, 'tao'))
+      .rejects.toThrow('มีคนจับคู่ชื่อนี้ไปแล้ว — ปิดหน้านี้แล้วเปิดใหม่')
+  })
+
+  // Fix round 1, ruling 4 — paint edited after pairing blocks undo, same as
+  // the progress rule
+  it('refused once paint was edited on the new mark after pairing', async () => {
+    const m = make({ ...base(), paint: [{ id: 1, dispatch_id: 5, assembly_id: 1, paint_type: 'primer', material_id: 1, layers: 2, material: { name: 'Zinc' } }] })
+    await m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', keep: 'old' }], 7, 'tao')
+    const row = m.paint.find(p => p.assembly_id === 11)!
+    row.layers = 9 // someone edited the paint after pairing
+    await expect(m.svc.undo(9, 1, 7, 'tao')).rejects.toThrow('แก้ค่าสีของ mark นี้หลังจับคู่แล้ว — ยกเลิกคู่ไม่ได้')
+  })
+
+  // Minor fix — re-check the `to` row is still ACTIVE inside the transaction
+  it('a concurrent upload superseded the new mark mid-pair → 409, nothing written', async () => {
+    const m = make(base())
+    m.prisma.bom_assembly.findUnique.mockResolvedValueOnce({ status: 'INACTIVE' })
+    await expect(m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 7, 'tao')).rejects.toThrow(ConflictException)
+    expect(m.renames).toHaveLength(0)
+  })
+
+  // Fix round 1, ruling 5 — big batches prefetch once, writes only inside the transaction
+  it('big batches: progress + paint are prefetched once for all ids, not re-read per pair', async () => {
+    const m = make({ groups: COMBINED,
+      asm: [A(1, 5, 'P1', 'INACTIVE'), A(2, 5, 'P2', 'INACTIVE'), A(11, 9, 'N1'), A(12, 9, 'N2')],
+      progress: [prog(1, { cut: 30 }), prog(2, { cut: 40 })] })
+    await m.svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'P1', to_mark: 'N1' }, { kind: 'ASSEMBLY', from_mark: 'P2', to_mark: 'N2' }], 7, 'tao')
+    expect(m.prisma.bom_assembly_progress.findMany).toHaveBeenCalledTimes(1)
+    expect(m.prisma.bom_assembly_progress.findUnique).not.toHaveBeenCalled()
+    expect(m.prisma.mbom_assembly_paint.findMany).toHaveBeenCalledTimes(1)
+    expect(m.progress.find(p => p.assembly_id === 11)!.cut).toBe(30)
+    expect(m.progress.find(p => p.assembly_id === 12)!.cut).toBe(40)
+  })
 })
 
 describe('MarkRenameService.undo — a1', () => {
@@ -203,6 +278,14 @@ describe('MarkRenameService.undo — a1', () => {
     const m = make({ groups: COMBINED, asm: [A(11, 9, '3BUH1B-18')], renames: [paired()], entries: 1 })
     await expect(m.svc.undo(9, 1, 7, 'tao')).rejects.toThrow('หลังจับคู่แล้ว')
     expect(m.prisma.progress_change_entry.count).toHaveBeenCalledWith({ where: { assembly_id: 11, batch: { create_date: { gt: new Date('2026-10-21T03:00:00Z') } } } })
+  })
+
+  // Fix round 1, ruling 3 — undo race: a concurrent undo/MO-WO-use claimed
+  // the row first (atomic deleteMany count=0) → 409, never a 500
+  it('undo race: a concurrent undo/use already claimed the row → 409, not a 500', async () => {
+    const m = make({ groups: COMBINED, asm: [A(11, 9, '3BUH1B-18')], renames: [paired()] })
+    m.prisma.bom_mark_rename.deleteMany.mockResolvedValueOnce({ count: 0 })
+    await expect(m.svc.undo(9, 1, 7, 'tao')).rejects.toThrow('คู่นี้ถูกยกเลิกหรือถูกใช้ไปแล้ว — เปิดหน้าใหม่')
   })
 
   it('list() shows each pair with its undo_blocked reason', async () => {
