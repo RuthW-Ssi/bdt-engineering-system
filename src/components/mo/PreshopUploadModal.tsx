@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { mergePreshop, type AssemblyPickerItem, type MoDetail, type PreshopAssembly } from '../../api/mo'
@@ -51,11 +51,20 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
     queryFn: () => mergePreshop(mo.id, { source, dry_run: true, preshop_assemblies: toSend(debounced) }),
     // compare as soon as a file is read — sets may still be blank
     enabled: debounced.length > 0 && debounced.every(a => a.assembly_mark.trim()),
+    // Any edit changes the key; without this `check.data` is undefined while
+    // the new dry run is in flight → an EMPTY compare map → every pairing
+    // (and every existing-mark compare box) vanished until it returned, and
+    // reconcilePairing wrongly dropped them all (live bug 2026-10-22).
+    placeholderData: keepPreviousData,
   })
   // Stable reference across renders (only changes when the query actually
   // resolves) — the reconciliation effect below depends on it.
   const compare = useMemo(() => new Map((check.data?.rows ?? []).map(r => [r.assembly_mark, r])), [check.data])
   const checking = assemblies.length > 0 && (debounced !== assemblies || check.isFetching)
+  // A COMPLETED dry run for exactly the rows on screen — the only result
+  // allowed to drop a pairing. Never a placeholder (previous key's data), an
+  // in-flight refetch, or a pending debounce.
+  const settledCompare = check.isSuccess && !check.isPlaceholderData && !checking ? compare : undefined
   // Old-vs-new choices per mark already in the MO; equal values pre-picked.
   const [choices, setChoices] = useState<Record<string, MergeChoice>>({})
   // Pair a renamed mark (2026-10-22): a new row paired with an absent PRE_SHOP
@@ -78,9 +87,10 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
   // appears elsewhere in the batch) — a stale pairing must never keep acting
   // "paired" (stuck qty cell, Save silently dropping rename_from and adding a
   // duplicate mark instead of renaming in place). Reconcile on every fresh
-  // dry-run result.
+  // dry-run result — and ONLY a completed one (see `settledCompare`).
   useEffect(() => {
-    const { pairing: next, dropped } = reconcilePairing(pairing, compare)
+    if (!settledCompare) return
+    const { pairing: next, dropped } = reconcilePairing(pairing, settledCompare)
     if (!dropped.length) return
     // Reacting to a value that only changes when the server's candidate list
     // actually changes, not a local render loop — same shape as the existing
@@ -89,10 +99,10 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
     setPairing(next)
     setChoices(c => { const n = { ...c }; for (const m of dropped) delete n[m]; return n })
     setStaleNotice(s => { const n = new Set(s); for (const m of dropped) n.add(m); return n })
-    // Deliberately depends only on `compare` (stable until a fresh dry run
-    // resolves) — `pairing` is read fresh from the closure either way.
+    // Deliberately depends only on `settledCompare` (set only once a fresh
+    // dry run has fully resolved) — `pairing` is read fresh from the closure.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compare])
+  }, [settledCompare])
   const candidatesOf = (mark: string) => compare.get(mark)?.rename_candidates
   const chosenCandidateOf = (mark: string) => candidateFor(candidatesOf(mark), pairing[mark])
   // A paired new row's "existing" is the chosen candidate's — it then behaves

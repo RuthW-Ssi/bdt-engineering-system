@@ -49,6 +49,8 @@ export function finalRenamedAssembly(incoming: PreshopAssembly, choice: MergeCho
  *  longer resolves against `compare`'s CURRENT `rename_candidates`, returning
  *  the cleaned pairing (same reference when nothing changed) and which marks
  *  were dropped — their `choices` should be cleared and a notice shown. */
+/** `compare` MUST be a completed dry run for the rows on screen — never a
+ *  loading/placeholder/empty map, or every pairing would be dropped. */
 export function reconcilePairing(pairing: RenamePairing, compare: Map<string, PreshopMergeRow>): { pairing: RenamePairing; dropped: string[] } {
   const dropped = Object.keys(pairing).filter(mark => pairing[mark] !== undefined && !candidateFor(compare.get(mark)?.rename_candidates, pairing[mark]))
   if (!dropped.length) return { pairing, dropped }
