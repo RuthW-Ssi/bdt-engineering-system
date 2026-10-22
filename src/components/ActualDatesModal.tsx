@@ -1,6 +1,7 @@
 import { useId, useState } from 'react'
 import { Pencil } from 'lucide-react'
 import { datetimeLocalToIso, toDatetimeLocal } from '../lib/datetimeLocal'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 type Timeliness = 'ON_PLAN' | 'DELAYED'
 
@@ -143,11 +144,11 @@ export function ActualDatesModal({
         <div style={{ display: 'flex', gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label htmlFor={`${id}-start`} style={LABEL}>Actual Start <Req /></label>
-            <input id={`${id}-start`} type="datetime-local" max={maxNow} value={form.start} onChange={e => set('start', e.target.value)} style={DATE_INPUT} />
+            <input id={`${id}-start`} type="datetime-local" max={maxNow} value={form.start} style={DATE_INPUT} {...dateInputGuardHandlers(v => set('start', v), 'Actual Start')} />
           </div>
           <div style={{ flex: 1 }}>
             <label htmlFor={`${id}-finish`} style={LABEL}>Actual Finish <Req /></label>
-            <input id={`${id}-finish`} type="datetime-local" max={maxNow} value={form.finish} onChange={e => set('finish', e.target.value)} style={DATE_INPUT} />
+            <input id={`${id}-finish`} type="datetime-local" max={maxNow} value={form.finish} style={DATE_INPUT} {...dateInputGuardHandlers(v => set('finish', v), 'Actual Finish')} />
           </div>
         </div>
 

@@ -67,3 +67,23 @@ export function listMarkDrawingRevs(drawings: Drawing[], mark: string): MarkDraw
       return { rev, files: sorted, drawing: sorted[0] }
     })
 }
+
+// A renamed mark (2026-10-21, twin of the backend's currentRevSheetsWithAliases):
+// with no drawing of its own, show the former name whose newest rev is highest.
+// Fallback to former names only when the current mark has no PDF drawing at
+// all. A former name that is an ACTIVE mark in the same scope now
+// (`activeMarks`) belongs to another piece reusing it, so it's skipped. The WO
+// page passes the backend's `former_marks`, which already leave those out
+// (WorkOrdersService.formerMarks); `activeMarks` is for callers holding raw names.
+export function listMarkDrawingRevsWithAliases(drawings: Drawing[], mark: string, formerNames: string[] = [], activeMarks: ReadonlySet<string> = new Set()): { revs: MarkDrawingRev[]; fromMark: string | null } {
+  const own = listMarkDrawingRevs(drawings, mark)
+  if (own.length) return { revs: own, fromMark: null }
+  const active = new Set([...activeMarks].map(m => m.toLowerCase()))
+  let best: { revs: MarkDrawingRev[]; fromMark: string | null } = { revs: [], fromMark: null }
+  for (const name of formerNames) {
+    if (active.has(name.toLowerCase())) continue
+    const r = listMarkDrawingRevs(drawings, name)
+    if (r.length && (!best.revs.length || r[0].rev > best.revs[0].rev)) best = { revs: r, fromMark: name }
+  }
+  return best
+}

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { PartMarkInput } from '../mo-part/dispatch-note-parser'
 import { valueChanges, valueText, type AsmValues } from './asm-fields'
+import { pairParts, pairScore } from './pair-score'
 import type { PreshopAssembly } from './preshop-pdf-parser'
 
 const dec = (v: number | null | undefined) => (v == null ? null : new Prisma.Decimal(v))
@@ -143,40 +144,10 @@ export class PreshopService {
   /** Pairs one assembly's parts with another version's (2026-10-09): same part
    *  mark first, then the same spec (profile + L + count per set) — a part
    *  renamed in the real BOM. What finds no partner is `to: null`. */
-  pairParts(was: PreshopAssembly['parts'], now: PreshopAssembly['parts']): { from: string; to: string | null; how: 'name' | 'spec' | 'none' }[] {
-    const spec = (p: PreshopAssembly['parts'][number]) => `${p.profile.trim()}|${p.length_mm}|${p.qty}`
-    const free = new Map(now.map(p => [p.part_mark, p]))
-    const out: { from: string; to: string | null; how: 'name' | 'spec' | 'none' }[] = []
-    const rest: PreshopAssembly['parts'] = []
-    for (const p of was) {
-      if (free.has(p.part_mark)) { out.push({ from: p.part_mark, to: p.part_mark, how: 'name' }); free.delete(p.part_mark) }
-      else rest.push(p)
-    }
-    for (const p of rest) {
-      const hit = [...free.values()].find(q => spec(q) === spec(p))
-      if (hit) { out.push({ from: p.part_mark, to: hit.part_mark, how: 'spec' }); free.delete(hit.part_mark) }
-      else out.push({ from: p.part_mark, to: null, how: 'none' })
-    }
-    return out
-  }
+  pairParts(was: PreshopAssembly['parts'], now: PreshopAssembly['parts']) { return pairParts(was, now) }
 
   /** How likely two assemblies are the same piece under different marks, 0–100:
    *  parts with the same spec 60, same L 15, kg/set within 2 % 15, one mark
    *  containing the other 10. A suggestion only — the user confirms. */
-  pairScore(
-    wasMark: string, was: { length_mm: number | null; weight_kg: number | null; parts: PreshopAssembly['parts'] },
-    nowMark: string, now: { length_mm: number | null; weight_kg: number | null; parts: PreshopAssembly['parts'] },
-  ): number {
-    const spec = (p: PreshopAssembly['parts'][number]) => `${p.profile.trim()}|${p.length_mm}|${p.qty}`
-    const nowSpecs = now.parts.map(spec)
-    let same = 0
-    for (const k of was.parts.map(spec)) { const i = nowSpecs.indexOf(k); if (i >= 0) { same++; nowSpecs.splice(i, 1) } }
-    const partScore = Math.max(was.parts.length, now.parts.length) ? same / Math.max(was.parts.length, now.parts.length) : 0
-    const lScore = was.length_mm != null && now.length_mm != null && Math.abs(was.length_mm - now.length_mm) <= 1 ? 1 : 0
-    const kgScore = was.weight_kg && now.weight_kg && Math.abs(was.weight_kg - now.weight_kg) <= was.weight_kg * 0.02 ? 1 : 0
-    const norm = (m: string) => m.toUpperCase().replace(/[^A-Z0-9]/g, '')
-    const a = norm(wasMark), b = norm(nowMark)
-    const nameScore = a && b && (a.includes(b) || b.includes(a)) ? 1 : 0
-    return Math.round(100 * (0.6 * partScore + 0.15 * lScore + 0.15 * kgScore + 0.1 * nameScore))
-  }
+  pairScore(wasMark: string, was: Parameters<typeof pairScore>[1], nowMark: string, now: Parameters<typeof pairScore>[3]): number { return pairScore(wasMark, was, nowMark, now) }
 }

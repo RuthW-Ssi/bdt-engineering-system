@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { MoStatus } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
+import { MarkAliasService } from '../mark-rename/mark-alias.service'
+import { aliasesOf, aliasMatches, aliasWhere, followRenames, scopeKey, type Alias, type RenameRow } from '../mark-rename/mark-alias'
 
 /** Statuses that still consume assembly allocation (P15). Only CANCELLED returns qty. */
 export const ALLOCATING_STATUSES: MoStatus[] = ['DRAFT', 'CONFIRMED', 'IN_PROGRESS', 'DONE']
@@ -11,11 +13,18 @@ export interface AllocationEntry {
 }
 
 type DispatchGroup = { project_id: number; zone_id: number; sub_zone_id: number | null }
+const SCOPE = { project_id: true, zone_id: true, sub_zone_id: true } as const
+type Entry = { dispatch_id: number; qty: number; mo_code?: string }
 
 /** Composite key for "same physical mark" across bom_assembly row history (P2 full-slot-replace
  *  gives every re-uploaded mark a brand-new row id, even when content is unchanged). */
 function markGroupKey(mark: string, dispatch: DispatchGroup): string {
   return `${mark}|${dispatch.project_id}|${dispatch.zone_id}|${dispatch.sub_zone_id ?? 'null'}`
+}
+
+/** Lines under any alias (2026-10-21) — a renamed mark keeps its old name's allocation. */
+function aliased(byKey: Map<string, Entry[]>, aliases: Alias[], d: DispatchGroup): Entry[] {
+  return aliases.flatMap(a => (byKey.get(markGroupKey(a.mark, d)) ?? []).filter(e => aliasMatches(a, e.dispatch_id)))
 }
 
 /**
@@ -37,25 +46,48 @@ function markGroupKey(mark: string, dispatch: DispatchGroup): string {
  */
 @Injectable()
 export class MoAllocationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alias: MarkAliasService = new MarkAliasService(prisma),
+  ) {}
 
-  async remainingFor(bomAssemblyId: number, excludeMoId?: number): Promise<number> {
-    const assembly = await this.prisma.bom_assembly.findUnique({ where: { id: bomAssemblyId } })
-    const total = Number(assembly?.qty ?? 0)
-    return total - (await this.allocatedFor(bomAssemblyId, excludeMoId))
+  /** This assembly's current name plus every former name it held, bounded to the
+   *  dispatches that are really this physical piece (2026-10-21) — a reused name
+   *  never pulls an unrelated, later piece's allocation in (Review Focus 1).
+   *  Fix round 1: the GIVEN row is resolved FORWARD first — an old/renamed-away
+   *  row id must count its CURRENT piece's lines (never a later, unrelated reuse
+   *  of its own freed name). Once at the current name there is nothing further
+   *  to chase, so any "as of now" bound gives the same aliases as the (unknown)
+   *  dispatch id of that current row would. */
+  private aliasesFrom(renames: RenameRow[], a: { assembly_mark: string; dispatch_id: number }) {
+    const current = followRenames(renames, 'ASSEMBLY', a.assembly_mark, a.dispatch_id).name
+    return aliasesOf(renames, 'ASSEMBLY', current, Number.MAX_SAFE_INTEGER)
   }
 
-  async allocatedFor(bomAssemblyId: number, excludeMoId?: number): Promise<number> {
+  private async aliasesFor(a: { assembly_mark: string; dispatch_id: number; dispatch: DispatchGroup }, renames?: RenameRow[]) {
+    return this.aliasesFrom(renames ?? (await this.alias.renamesFor(a.dispatch)), a)
+  }
+
+  async remainingFor(bomAssemblyId: number, excludeMoId?: number, renames?: RenameRow[]): Promise<number> {
+    const assembly = await this.prisma.bom_assembly.findUnique({ where: { id: bomAssemblyId } })
+    const total = Number(assembly?.qty ?? 0)
+    return total - (await this.allocatedFor(bomAssemblyId, excludeMoId, renames))
+  }
+
+  /** `renames` may be preloaded once by a caller iterating several assemblies of
+   *  the same MO/scope (2026-10-21 fix round 1) — avoids an N+1 on bom_mark_rename. */
+  async allocatedFor(bomAssemblyId: number, excludeMoId?: number, renames?: RenameRow[]): Promise<number> {
     const assembly = await this.prisma.bom_assembly.findUnique({
       where: { id: bomAssemblyId },
-      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+      select: { assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } },
     })
     if (!assembly) return 0
+    const aliases = await this.aliasesFor(assembly, renames)
     const agg = await this.prisma.mo_assembly_line.aggregate({
       _sum: { qty: true },
       where: {
         bom_assembly: {
-          assembly_mark: assembly.assembly_mark,
+          ...aliasWhere(aliases, 'assembly_mark'),
           dispatch: {
             project_id: assembly.dispatch.project_id,
             zone_id: assembly.dispatch.zone_id,
@@ -69,16 +101,17 @@ export class MoAllocationService {
     return Number(agg._sum.qty ?? 0)
   }
 
-  async allocationBreakdown(bomAssemblyId: number): Promise<AllocationEntry[]> {
+  async allocationBreakdown(bomAssemblyId: number, renames?: RenameRow[]): Promise<AllocationEntry[]> {
     const assembly = await this.prisma.bom_assembly.findUnique({
       where: { id: bomAssemblyId },
-      select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+      select: { assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } },
     })
     if (!assembly) return []
+    const aliases = await this.aliasesFor(assembly, renames)
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: {
         bom_assembly: {
-          assembly_mark: assembly.assembly_mark,
+          ...aliasWhere(aliases, 'assembly_mark'),
           dispatch: {
             project_id: assembly.dispatch.project_id,
             zone_id: assembly.dispatch.zone_id,
@@ -103,24 +136,26 @@ export class MoAllocationService {
       where: { mo: { status: { in: ALLOCATING_STATUSES } } },
       select: {
         qty: true,
-        bom_assembly: {
-          select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
-        },
+        bom_assembly: { select: { assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } } },
       },
     })
-    const sumByMarkGroup = new Map<string, number>()
+    const byKey = new Map<string, Entry[]>()
     for (const l of lines) {
       const key = markGroupKey(l.bom_assembly.assembly_mark, l.bom_assembly.dispatch)
-      sumByMarkGroup.set(key, (sumByMarkGroup.get(key) ?? 0) + Number(l.qty))
+      const arr = byKey.get(key) ?? []
+      arr.push({ dispatch_id: l.bom_assembly.dispatch_id, qty: Number(l.qty) })
+      byKey.set(key, arr)
     }
 
+    const renames = await this.alias.renamesByScope()
     const activeAssemblies = await this.prisma.bom_assembly.findMany({
       where: { status: 'ACTIVE' },
-      select: { id: true, assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+      select: { id: true, assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } },
     })
     const map = new Map<number, number>()
     for (const a of activeAssemblies) {
-      const total = sumByMarkGroup.get(markGroupKey(a.assembly_mark, a.dispatch))
+      const aliases = aliasesOf(renames.get(scopeKey(a.dispatch)) ?? [], 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
+      const total = aliased(byKey, aliases, a.dispatch).reduce((s, e) => s + e.qty, 0)
       if (total) map.set(a.id, total)
     }
     return map
@@ -135,28 +170,28 @@ export class MoAllocationService {
       where: { mo: { status: { in: ALLOCATING_STATUSES } } },
       include: {
         mo: { select: { mo_code: true } },
-        bom_assembly: {
-          select: { assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
-        },
+        bom_assembly: { select: { assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } } },
       },
       orderBy: { mo_id: 'asc' },
     })
-    const entriesByMarkGroup = new Map<string, AllocationEntry[]>()
+    const byKey = new Map<string, Entry[]>()
     for (const l of lines) {
       const key = markGroupKey(l.bom_assembly.assembly_mark, l.bom_assembly.dispatch)
-      const arr = entriesByMarkGroup.get(key) ?? []
-      arr.push({ mo_code: l.mo.mo_code, qty: Number(l.qty) })
-      entriesByMarkGroup.set(key, arr)
+      const arr = byKey.get(key) ?? []
+      arr.push({ dispatch_id: l.bom_assembly.dispatch_id, qty: Number(l.qty), mo_code: l.mo.mo_code })
+      byKey.set(key, arr)
     }
 
+    const renames = await this.alias.renamesByScope()
     const activeAssemblies = await this.prisma.bom_assembly.findMany({
       where: { status: 'ACTIVE' },
-      select: { id: true, assembly_mark: true, dispatch: { select: { project_id: true, zone_id: true, sub_zone_id: true } } },
+      select: { id: true, assembly_mark: true, dispatch_id: true, dispatch: { select: SCOPE } },
     })
     const map = new Map<number, AllocationEntry[]>()
     for (const a of activeAssemblies) {
-      const entries = entriesByMarkGroup.get(markGroupKey(a.assembly_mark, a.dispatch))
-      if (entries) map.set(a.id, entries)
+      const aliases = aliasesOf(renames.get(scopeKey(a.dispatch)) ?? [], 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
+      const entries = aliased(byKey, aliases, a.dispatch)
+      if (entries.length) map.set(a.id, entries.map(e => ({ mo_code: e.mo_code!, qty: e.qty })))
     }
     return map
   }

@@ -3,7 +3,7 @@ import type { ProgressImportChange } from '../../api/projectProgress'
 // Field name → display label. Shared by both call sites (import review,
 // history detail) so a "cut" diff always reads as "Cut" in either place —
 // one label map, not two drifting copies.
-const FIELD_LABEL: Record<string, string> = {
+export const FIELD_LABEL: Record<string, string> = {
   cut: 'Cut', buildup: 'Build-Up', weld1: 'Weld', fitup_drill: 'Fitup/Drill', weld2: 'Weld (2)',
   qc_inspection: 'QC Inspection', primer: 'Primer', fireproof: 'Fireproof', top_coat: 'TOP', qc_final: 'QC Final Inspection',
   fab_plan_finish_date: 'Fabrication Plan Finish', fab_actual_finish_date: 'Fabrication Actual Finish',

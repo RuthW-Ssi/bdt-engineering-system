@@ -3,6 +3,7 @@ import { useCloseRepairTicket, useChangeStatus } from '../../hooks/useMachines'
 import { PhotoUploadField } from './PhotoUploadField'
 import { MachineStatusPill } from './MachineStatusPill'
 import type { RepairTicket, EquipmentStatus, SuggestedStatusChange } from '../../api/machines'
+import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 
 interface Props {
   machineId: number
@@ -103,7 +104,7 @@ export function CloseRepairTicketModal({ machineId, ticket, onClose }: Props) {
             <input required value={form.repaired_by} onChange={e => set('repaired_by', e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Repair completion date *">
-            <input required type="datetime-local" value={form.closed_at} onChange={e => set('closed_at', e.target.value)} style={inputStyle} />
+            <input required type="datetime-local" value={form.closed_at} style={inputStyle} {...dateInputGuardHandlers(v => set('closed_at', v), 'Repair completion date')} />
           </Field>
           <Field label="Repair description *">
             <textarea required value={form.repair_description} onChange={e => set('repair_description', e.target.value)} rows={4} style={{ ...inputStyle, resize: 'vertical' }} />

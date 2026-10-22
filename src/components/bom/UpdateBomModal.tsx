@@ -3,8 +3,10 @@ import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
 import { useUploadBomWithPreview, useLatestRevision } from '../../hooks/useBomDispatches'
+import { useRenameStep } from '../../hooks/useRenameStep'
 import type { DispatchDetailDto } from '../../api/dispatches'
 import { JunctionMismatchModal } from './JunctionMismatchModal'
+import { RenamePairDialog } from './RenamePairDialog'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
@@ -81,6 +83,7 @@ interface Props {
 export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploadMode, onClose }: Props) {
   const qc = useQueryClient()
   const uploadFlow = useUploadBomWithPreview()
+  const renameStep = useRenameStep()
   const [files, setFiles] = useState<FileEntry[]>([])
   const [mainFiles, setMainFiles] = useState<FileEntry[]>([])
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
@@ -108,7 +111,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
   const canSubmit = bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
-  const handleUploadSuccess = (res: DispatchDetailDto) => {
+  const handleUploadSuccess = async (res: DispatchDetailDto) => {
     qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatches'] })
@@ -117,6 +120,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
+    if (await renameStep.afterUpload(res.id)) return
     onClose()
   }
 
@@ -145,7 +149,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     try {
       const res = await uploadFlow.submit(formData, pct => setProgress(pct))
       if (res == null) { setProgress(null); return }
-      handleUploadSuccess(res)
+      await handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
@@ -155,7 +159,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     try {
       const res = await uploadFlow.confirm()
       if (res == null) return
-      handleUploadSuccess(res)
+      await handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
@@ -302,6 +306,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           onConfirm={handleConfirmUpload}
           isUploading={uploadFlow.uploadMutation.isPending}
         />
+      )}
+
+      {renameStep.dispatchId != null && (
+        <RenamePairDialog dispatchId={renameStep.dispatchId} onClose={() => { renameStep.close(); onClose() }} />
       )}
     </div>
   )

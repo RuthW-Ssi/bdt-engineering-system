@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, drawingPageStamps, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, drawingPageStamps, drawingRevLabel, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
 import { PRINT_LABELS } from './mo-print-labels'
 
 describe('fmt2', () => {
@@ -302,5 +302,14 @@ describe('printedDrawingRevs', () => {
 
   it('returns {} for a plan with no rows', () => {
     expect(printedDrawingRevs({ rows: [] })).toEqual({})
+  })
+})
+
+describe('drawingRevLabel', () => {
+  it('adds "Drawing ของชื่อเดิม X" inside the existing label only when the drawing came from an old name', () => {
+    const d = new Date('2026-10-02T05:00:00Z')
+    expect(drawingRevLabel(2, d, null, PRINT_LABELS.th)).toBe(`Rev 2 · ${formatShortDate(d)}`)
+    expect(drawingRevLabel(2, d, 'BUH1B-18', PRINT_LABELS.th)).toBe(`Rev 2 · ${formatShortDate(d)} · Drawing ของชื่อเดิม BUH1B-18`)
+    expect(drawingRevLabel(2, d, 'BUH1B-18', PRINT_LABELS.en)).toBe(`Rev 2 · ${formatShortDate(d)} · drawing of old name BUH1B-18`)
   })
 })

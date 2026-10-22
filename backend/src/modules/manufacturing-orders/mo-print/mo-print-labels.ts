@@ -97,6 +97,11 @@ const en = {
   // than one page across its sheets, e.g. "Drawing Rev 2 · 02/10/26 · sheet 2/3".
   // Never a standalone element, so it's a plain fragment, not a full label.
   sheet: (i: number, n: number) => ` · sheet ${i}/${n}`,
+  // Renamed-mark drawing fallback (2026-10-21) — appended inside the drawing
+  // page's existing rev label when the mark has no drawing of its own and
+  // prints its former name's instead; never a standalone element (2026-10-09
+  // "keep existing print layout" rule).
+  drawingOfOldName: (mark: string) => ` · drawing of old name ${mark}`,
 }
 
 export type PrintLabels = typeof en
@@ -180,6 +185,8 @@ const th: PrintLabels = {
   // Thai print copy uses "Drawing", never "แบบ" (2026-10-21 wording fix).
   drawingStamp: (rev: string) => `Drawing ${rev}`,
   sheet: (i: number, n: number) => ` · แผ่น ${i}/${n}`,
+  // "Drawing" never "แบบ" (2026-10-21 wording rule).
+  drawingOfOldName: (mark: string) => ` · Drawing ของชื่อเดิม ${mark}`,
 }
 
 export const PRINT_LABELS: Record<PrintLang, PrintLabels> = { en, th }

@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dispatchesApi } from '../api/dispatches'
-import type { PreviewJunctionsResult } from '../api/dispatches'
+import type { PreviewJunctionsResult, RenamePairInput } from '../api/dispatches'
 
 export function useDispatches(params?: Parameters<typeof dispatchesApi.list>[0]) {
   return useQuery({
@@ -56,6 +56,56 @@ export function useLatestRevision(projectId: number | undefined, zoneId: number 
     queryKey: ['latest-revision', projectId, zoneId, subZoneId],
     queryFn: () => dispatchesApi.getLatestRevision(projectId!, zoneId!, subZoneId ?? null),
     enabled: !!projectId && !!zoneId,
+  })
+}
+
+// ── BOM mark/part rename pairing ────────────────────────────────
+export function useRenameCandidates(id: number | undefined) {
+  return useQuery({
+    queryKey: ['rename-candidates', id],
+    queryFn: () => dispatchesApi.getRenameCandidates(id!),
+    enabled: !!id,
+    meta: { skipGlobalErrorToast: true },
+  })
+}
+
+export function useDispatchRenames(id: number | undefined) {
+  return useQuery({
+    queryKey: ['dispatch-renames', id],
+    queryFn: () => dispatchesApi.getRenames(id!),
+    enabled: !!id,
+    meta: { skipGlobalErrorToast: true },
+  })
+}
+
+function useRenameInvalidate(id: number) {
+  const qc = useQueryClient()
+  return () => {
+    for (const k of ['rename-candidates', 'dispatch-renames', 'dispatch-diff', 'dispatch']) {
+      qc.invalidateQueries({ queryKey: [k, id] })
+    }
+    // a pair / undo also changes what other pages show (final review): MO BOM
+    // compare + drawing notice ('mo'), WO version status / Visual ('wo'),
+    // carried paint ('paint-config', 'mbom') and progress ('project-progress')
+    for (const k of ['mo', 'wo', 'paint-config', 'mbom', 'project-progress']) {
+      qc.invalidateQueries({ queryKey: [k] })
+    }
+  }
+}
+
+export function useSaveRenames(id: number) {
+  const invalidate = useRenameInvalidate(id)
+  return useMutation({
+    mutationFn: (renames: RenamePairInput[]) => dispatchesApi.saveRenames(id, renames),
+    onSuccess: invalidate,
+  })
+}
+
+export function useUndoRename(id: number) {
+  const invalidate = useRenameInvalidate(id)
+  return useMutation({
+    mutationFn: (renameId: number) => dispatchesApi.undoRename(id, renameId),
+    onSuccess: invalidate,
   })
 }
 

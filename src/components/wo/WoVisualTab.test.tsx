@@ -436,3 +436,16 @@ describe('WoVisualTab highlight-every-WO-mark toggle', () => {
     expect(new Map(JSON.parse(screen.getByTestId('bim-viewport').dataset.colors!)).get('guid-9')).toBe('#C8202A')
   })
 })
+
+describe('WoVisualTab — renamed mark', () => {
+  it('shows the old name\'s drawing, labelled "Drawing ของชื่อเดิม"', () => {
+    render(<WoVisualTab woId={1} marks={[{ bomAssemblyId: 1, mark: '3CTR10', projectId: 1, zoneId: 7, subZoneId: null, aliases: ['CTR10'] }]} />)
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - - Rev 2.pdf')
+    expect(screen.getByText('Drawing ของชื่อเดิม CTR10')).toBeInTheDocument()
+  })
+
+  it('no label when the mark has its own drawing', () => {
+    render(<WoVisualTab woId={1} marks={marks} />)
+    expect(screen.queryByText(/Drawing ของชื่อเดิม/)).not.toBeInTheDocument()
+  })
+})

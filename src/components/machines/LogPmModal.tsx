@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useCreateMaintenanceLog } from '../../hooks/useMachines'
 import { PhotoUploadField } from './PhotoUploadField'
+import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 
 interface Props {
   machineId: number
@@ -49,7 +50,7 @@ export function LogPmModal({ machineId, onClose }: Props) {
             <input required value={form.performed_by} onChange={e => set('performed_by', e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Date performed *">
-            <input required type="datetime-local" value={form.performed_at} onChange={e => set('performed_at', e.target.value)} style={inputStyle} />
+            <input required type="datetime-local" value={form.performed_at} style={inputStyle} {...dateInputGuardHandlers(v => set('performed_at', v), 'Date performed')} />
           </Field>
           <Field label="Description *">
             <textarea required value={form.description} onChange={e => set('description', e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />

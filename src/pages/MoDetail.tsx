@@ -23,6 +23,7 @@ import { ASM_FIELDS, norm, showValue } from '../lib/asmFields'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -87,7 +88,9 @@ export function MoDetail() {
   // Confirm / Start wait for assemblies and a routing.
   const isPreshop = mo.shop_type === 'PRE_SHOP'
   // Upload is the only way to add assemblies (2026-10-08) — Full shop: BOM only.
-  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'
+  // Pre-shop: once the zone has a real BOM, data comes from the BOM only — via
+  // "เทียบกับ BOM" (2026-10-22). The server refuses the upload too.
+  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED' && !(isPreshop && bomCmp?.bom)
   const preshopBlock = !isPreshop ? null
     : mo.assembly_lines.length === 0 ? 'ยังไม่มี assembly — กด Upload แล้วเลือก Dispatch Note หรือ Pre-shop drawing ก่อน'
     : mo.routing_template_id == null ? 'ยังไม่ได้เลือก routing — กด Edit แล้วเลือก routing ก่อน'
@@ -1084,14 +1087,14 @@ function WoMarkPickerModal({
               <div style={{ flex: 1 }}>
                 <div style={sectionLabel}>Plan Start <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
-                  type="datetime-local" value={planStart} onChange={(e) => setPlanStart(e.target.value)}
+                  type="datetime-local" value={planStart} {...dateInputGuardHandlers(setPlanStart, 'Plan Start')}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={sectionLabel}>Plan Finish <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
-                  type="datetime-local" value={planFinish} onChange={(e) => setPlanFinish(e.target.value)}
+                  type="datetime-local" value={planFinish} {...dateInputGuardHandlers(setPlanFinish, 'Plan Finish')}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>

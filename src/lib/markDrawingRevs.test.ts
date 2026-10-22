@@ -1,5 +1,5 @@
 import type { Drawing } from '../api/drawings'
-import { listMarkDrawingRevs } from './markDrawingRevs'
+import { listMarkDrawingRevs, listMarkDrawingRevsWithAliases } from './markDrawingRevs'
 
 // mark: null on every fixture here unless a test overrides it — exercises
 // the filename fallback (legacy rows that predate the mark/rev backfill).
@@ -135,5 +135,19 @@ describe('listMarkDrawingRevs', () => {
   it('falls back to the filename-derived mark when d.mark is null', () => {
     const drawings = [makePdf({ id: 1, mark: null, file_name: 'DBN-B1-CTR10 - - Rev 1.pdf' })]
     expect(ids(listMarkDrawingRevs(drawings, 'DBN-B1-CTR10'))).toEqual([[1, 1]])
+  })
+})
+
+describe('listMarkDrawingRevsWithAliases', () => {
+  it('own drawings first; otherwise the former name with the highest rev', () => {
+    const drawings = [makePdf({ id: 1, file_name: 'B - - Rev 1.pdf', rev: 1 }), makePdf({ id: 2, file_name: 'A - - Rev 3.pdf', rev: 3 })]
+    expect(listMarkDrawingRevsWithAliases(drawings, 'C', ['B', 'A'])).toMatchObject({ fromMark: 'A', revs: [{ rev: 3 }] })
+    expect(listMarkDrawingRevsWithAliases([...drawings, makePdf({ id: 3, file_name: 'C - - Rev 1.pdf', rev: 1 })], 'C', ['A'])).toMatchObject({ fromMark: null, revs: [{ rev: 1 }] })
+    expect(listMarkDrawingRevsWithAliases(drawings, 'C')).toEqual({ revs: [], fromMark: null })
+  })
+  it('skips a former name that is an ACTIVE mark in the scope now (another piece reusing it)', () => {
+    const drawings = [makePdf({ id: 1, file_name: 'B - - Rev 1.pdf', rev: 1 }), makePdf({ id: 2, file_name: 'A - - Rev 3.pdf', rev: 3 })]
+    expect(listMarkDrawingRevsWithAliases(drawings, 'C', ['B', 'A'], new Set(['a']))).toMatchObject({ fromMark: 'B', revs: [{ rev: 1 }] })
+    expect(listMarkDrawingRevsWithAliases(drawings, 'C', ['A'], new Set(['A']))).toEqual({ revs: [], fromMark: null })
   })
 })

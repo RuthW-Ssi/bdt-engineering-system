@@ -5,7 +5,7 @@ import { useBimViewerToken } from '../../hooks/useBim'
 import { useWoBimMatch } from '../../hooks/useWo'
 import { useZoneDrawings } from '../../hooks/useDrawings'
 import { DrawingPreviewPanel } from '../drawings/DrawingPreviewPanel'
-import { listMarkDrawingRevs } from '../../lib/markDrawingRevs'
+import { listMarkDrawingRevsWithAliases } from '../../lib/markDrawingRevs'
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
@@ -128,6 +128,7 @@ export interface WoVisualMark {
   projectId: number
   zoneId: number | null
   subZoneId: number | null
+  aliases?: string[] // former names (2026-10-21) — falls back to the old name's drawing when this mark has none of its own
 }
 
 // Sprint 28 · F-WO Visual Tab — isolated 3D view of a single assembly mark on
@@ -184,7 +185,9 @@ export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark
   const {
     data: zoneDrawings = [], isLoading: drawingsLoading, isError: drawingsError,
   } = useZoneDrawings(active?.zoneId ?? undefined, active?.subZoneId ?? null)
-  const drawingRevs = active && active.zoneId != null ? listMarkDrawingRevs(zoneDrawings, active.mark) : []
+  const { revs: drawingRevs, fromMark: drawingFrom } = active && active.zoneId != null
+    ? listMarkDrawingRevsWithAliases(zoneDrawings, active.mark, active.aliases ?? [])
+    : { revs: [], fromMark: null }
   // Drawing rev picker — tagged with the mark it was made on, so
   // switching marks falls back to that mark's newest rev without an effect.
   const [drawingPick, setDrawingPick] = useState<{ bomAssemblyId: number; rev: number } | null>(null)
@@ -428,6 +431,9 @@ export function WoVisualTab({ woId, marks }: { woId: number; marks: WoVisualMark
           value={selectedDrawing?.rev ?? null}
           onPick={rev => setDrawingPick({ bomAssemblyId: active.bomAssemblyId, rev })}
         />
+        {drawingFrom && (
+          <span style={{ fontSize: 11.5, color: '#854F0B', marginLeft: 8, whiteSpace: 'nowrap' }}>Drawing ของชื่อเดิม {drawingFrom}</span>
+        )}
         {selectedDrawing && selectedDrawing.files.length > 1 && (
           <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
             {selectedDrawing.files.map((file, i) => (

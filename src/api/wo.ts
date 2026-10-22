@@ -123,6 +123,7 @@ export interface WoMark {
   id: number
   bom_assembly_id: number
   bom_assembly: WoMarkBomAssembly
+  former_marks?: string[] // older names of this mark (2026-10-21)
   bom_dispatch_id_snapshot: number
   snapshot_dispatch: WoMarkDispatch | null
   qty_planned: string | number
@@ -274,10 +275,12 @@ export interface BomVersionStatus {
   bom_assembly_id: number
   assembly_mark: string
   is_outdated: boolean
-  delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED')[]
+  delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED' | 'RENAMED')[]
   delta_details: Record<string, unknown> | null
   snapshot_dispatch_id: number
   latest_dispatch_id: number
+  // RENAMED (2026-10-21): the mark's current (renamed) assembly id in the latest BOM, when known.
+  latest_assembly_id?: number | null
 }
 
 export interface WoScheduleGroup {

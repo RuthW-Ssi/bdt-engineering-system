@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, drawingPageStamps, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
+import { capList, drawingPageStamps, drawingRevLabel, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
 import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
@@ -977,10 +977,12 @@ async function buildDrawingPage(
   page.drawPage(embeddedDrawing, { x: 0, y: 0, width: embeddedDrawing.width, height: embeddedDrawing.height })
 
   const label = `${row.wo.wo_code} · ${mark.assemblyMark} · ${stamp}`
-  const labelSize = 12
+  // 12pt, shrunk to fit between the two border insets on a narrow sheet
+  // (final review) so a long mark/stamp never runs off the left edge
+  const labelSize = fitTextSize(fonts.bold, label, page.getWidth() - 2 * BORDER_INSET, 12, 4)
   const labelWidth = fonts.bold.widthOfTextAtSize(label, labelSize)
   page.drawText(label, {
-    x: page.getWidth() - BORDER_INSET - labelWidth,
+    x: Math.max(BORDER_INSET, page.getWidth() - BORDER_INSET - labelWidth),
     // A tighter margin than BORDER_INSET (2026-09-23: "เอาต่ำลงมาอีก" — move
     // it down more) — the drawing's own title block sits right at the
     // bottom of the sheet, so BORDER_INSET's 20pt margin still read as
@@ -1169,7 +1171,7 @@ export async function buildMoPrintPdf(
       // guarantee), so the first sheet's rev/date is representative of all
       // of them — drawingPageStamps turns that into one stamp string per
       // physical page, numbered 1..n across every sheet (never per-sheet).
-      const revLabel = `Rev ${mark.drawings[0].rev} · ${formatShortDate(mark.drawings[0].uploaded_at)}`
+      const revLabel = drawingRevLabel(mark.drawings[0].rev, mark.drawings[0].uploaded_at, mark.drawingFrom, L)
       const stamps = drawingPageStamps(revLabel, pageCounts, L)
       let printedPage = 0
       for (const sheetDoc of sheetDocs) {
