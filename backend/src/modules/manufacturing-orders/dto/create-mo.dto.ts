@@ -40,6 +40,9 @@ export class PreshopPartDto {
 
 export class PreshopAssemblyDto {
   @IsString() @Length(1, 60) assembly_mark: string
+  // pairs this new row with an MO mark absent from the upload — renamed in
+  // place instead of added as a new mark (2026-10-22, [[preshop-mark-rename-plan]])
+  @IsOptional() @IsString() @Length(1, 60) rename_from?: string
   @IsOptional() @IsString() @MaxLength(200) name?: string | null
   @IsNumber() @Min(0) @Max(999999) qty: number
   @IsOptional() @IsNumber() @Min(0) @Max(999999999) weight_kg: number | null

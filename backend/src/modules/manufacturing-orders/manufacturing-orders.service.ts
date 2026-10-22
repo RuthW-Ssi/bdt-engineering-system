@@ -18,7 +18,7 @@ import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
 import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 import { ASM_FIELDS, ASM_SELECT, asmValues, valueChanges, valueText, type AsmValues } from './preshop/asm-fields'
 import { PreshopService } from './preshop/preshop.service'
-import { nameSimilar, pairPartsWithRenames, pairScore } from './preshop/pair-score'
+import { nameSimilar, pairParts, pairPartsWithRenames, pairScore } from './preshop/pair-score'
 import { PRESHOP_TEMPLATE_CODE } from './preshop/preshop-op'
 import { fmtBkk } from '../../common/history-format'
 import { actualsTracking, parseActualDates } from '../../common/actual-dates'
@@ -692,7 +692,7 @@ export class ManufacturingOrderService {
       return { qty: Number(line.qty), ...asmValues(b), parts: partsOf(line), wo_qty: issued(line.bom_assembly_id), wo_parts: b.assembly_parts.filter(ap => ap._count.work_order_parts > 0).map(ap => ap.part.part_mark) }
     }
 
-    const pre = (dto.preshop_assemblies ?? []).map(a => ({ ...a, assembly_mark: a.assembly_mark.trim() }))
+    const pre = (dto.preshop_assemblies ?? []).map(a => ({ ...a, assembly_mark: a.assembly_mark.trim(), rename_from: a.rename_from?.trim() || undefined }))
     const fileMarks = new Set(pre.map(a => a.assembly_mark))
     // Every mark the MO already carries from a pre-shop upload, absent from
     // this file — a `new` row may be the same piece under one of these names
@@ -720,6 +720,28 @@ export class ManufacturingOrderService {
       return { assembly_mark: a.assembly_mark, status: changes.length ? 'changed' as const : 'same' as const, existing: existingOf(line) }
     })
     if (dto.dry_run) return { rows }
+
+    // Pair a renamed mark (2026-10-22, [[preshop-mark-rename-plan]]): the row
+    // is applied IN PLACE on that absent pre-shop line, never as a new
+    // assembly. Every check here is plain input validation (400) — the line
+    // itself is re-read fresh at the top of every call, so a stale pick
+    // (someone already renamed/removed it) reads as "not found" too.
+    const renameFrom = new Map<string, (typeof lines)[number]>()
+    for (const a of pre) {
+      if (!a.rename_from) continue
+      const from = a.rename_from
+      if (pre.filter(x => x.rename_from === from).length > 1) throw new BadRequestException(`${from}: ถูกจับคู่กับมากกว่า 1 mark — เลือกได้ครั้งเดียว`)
+      const fromLine = byMark.get(from)
+      if (!fromLine) throw new BadRequestException(`${from}: ไม่พบ mark นี้ใน MO — จับคู่ไม่ได้`)
+      if (fromLine.bom_assembly.dispatch.source !== 'PRE_SHOP') throw new BadRequestException(`${from}: ไม่ใช่ pre-shop mark — จับคู่ไม่ได้`)
+      if (fileMarks.has(from)) throw new BadRequestException(`${from}: ยังอยู่ในไฟล์ที่อัปโหลด — จับคู่ไม่ได้`)
+      if (byMark.has(a.assembly_mark)) throw new BadRequestException(`${a.assembly_mark}: มีอยู่ใน MO แล้ว — ไม่ต้องจับคู่`)
+      const clash = await this.prisma.bom_assembly.findFirst({ where: { dispatch_id: fromLine.bom_assembly.dispatch_id, assembly_mark: a.assembly_mark } })
+      if (clash) throw new BadRequestException(`${a.assembly_mark}: มีชื่อนี้อยู่แล้วใน BOM ชุดเดียวกับ ${from} — จับคู่ไม่ได้`)
+      renameFrom.set(a.assembly_mark, fromLine)
+    }
+    const lineFor = (a: (typeof pre)[number]) => byMark.get(a.assembly_mark) ?? renameFrom.get(a.assembly_mark)
+
     // sets are checked only on save — the dry run compares as soon as a file
     // is read, before the user typed them (a pre-shop PDF has none)
     const unset = pre.filter(a => !(a.qty > 0)).map(a => a.assembly_mark)
@@ -727,21 +749,24 @@ export class ManufacturingOrderService {
 
     // Every mark must end up with complete parts (2026-10-08, user: a Dispatch
     // Note means production starts — estimates are fine, blanks are not).
-    const noParts = pre.filter(a => !a.parts.length && !byMark.get(a.assembly_mark)?.bom_assembly.assembly_parts.length).map(a => a.assembly_mark)
+    const noParts = pre.filter(a => !a.parts.length && !lineFor(a)?.bom_assembly.assembly_parts.length).map(a => a.assembly_mark)
     if (noParts.length) throw new BadRequestException(`${noParts.join(', ')}: ยังไม่มี part — ใส่ part ก่อนบันทึก`)
     const badParts = pre.flatMap(a => partProblems(a.parts).map(e => `${a.assembly_mark} · ${e}`))
     if (badParts.length) throw new BadRequestException(badParts.join(' · '))
     for (const a of pre) {
-      const line = byMark.get(a.assembly_mark)
+      const line = lineFor(a)
       const floor = line ? issued(line.bom_assembly_id) : 0
       if (line && a.qty < floor) throw new BadRequestException(`${a.assembly_mark}: ออก WO ไปแล้ว ${floor} ชุด — ต่ำกว่านี้ไม่ได้`)
     }
 
     // A new mark is logged with every value it brings (2026-10-08, user: every
-    // assembly / part field in History — what, when, who).
-    const log: string[] = pre.filter(a => !byMark.has(a.assembly_mark)).flatMap(newMarkLog)
-    const fresh = pre.filter(a => !byMark.has(a.assembly_mark))
+    // assembly / part field in History — what, when, who). A paired (renamed)
+    // row is NOT a new mark — it is applied in the transaction loop below.
+    const trulyNew = pre.filter(a => !lineFor(a))
+    const log: string[] = trulyNew.flatMap(newMarkLog)
+    const fresh = trulyNew
     const warnings: string[] = []
+    const scope = { project_id: mo.project_id!, zone_id: mo.zone_id!, sub_zone_id: mo.sub_zone_id ?? null }
 
     let bomLines = dto.assembly_lines ?? []
     if (bomLines.length) {
@@ -760,9 +785,18 @@ export class ManufacturingOrderService {
 
     await this.prisma.$transaction(async (tx) => {
       for (const a of pre) {
-        const line = byMark.get(a.assembly_mark)
+        const line = lineFor(a)
         if (!line) continue
-        const changed = await this.applyAssemblyState(tx, line, a, userId)
+        const changed: string[] = []
+        const renamedFromMark = renameFrom.has(a.assembly_mark) ? line.bom_assembly.assembly_mark : null
+        if (renamedFromMark) {
+          await tx.bom_assembly.update({ where: { id: line.bom_assembly_id }, data: { assembly_mark: a.assembly_mark } })
+          const partLog = a.parts.length ? await this.renamePartsInPlace(tx, line.bom_assembly_id, line.bom_assembly.dispatch_id, scope, a.parts, userId, userName) : []
+          line.bom_assembly.assembly_mark = a.assembly_mark // so applyAssemblyState's own logging uses the NEW name
+          await this.recordAssemblyMarkRename(tx, scope, line.bom_assembly.dispatch_id, line.bom_assembly_id, renamedFromMark, a.assembly_mark, userName)
+          changed.push(`${a.assembly_mark} ชื่อ mark ${renamedFromMark} → ${a.assembly_mark}`, ...partLog.map(x => `${a.assembly_mark} ${x}`))
+        }
+        changed.push(...(await this.applyAssemblyState(tx, line, a, userId)))
         log.push(...changed)
         if (changed.length) await this.syncWos(tx, id, [line.bom_assembly_id], userName, changed)
       }
@@ -784,6 +818,67 @@ export class ManufacturingOrderService {
       }
     })
     return { mo: await this.findOne(id), rows, warnings, changed: log.length }
+  }
+
+  /** Records a pre-shop mark paired by the user (2026-10-22,
+   *  [[preshop-mark-rename-plan]]) — an IN-PLACE rename, so from_ref_id =
+   *  to_ref_id = the one assembly that was renamed. used_at is stamped right
+   *  away: there is no separate undo here (re-upload and pair back instead). */
+  private async recordAssemblyMarkRename(
+    tx: Prisma.TransactionClient, scope: { project_id: number; zone_id: number; sub_zone_id: number | null },
+    dispatchId: number, assemblyId: number, fromMark: string, toMark: string, userName: string,
+  ): Promise<void> {
+    await tx.bom_mark_rename.create({ data: {
+      project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id, dispatch_id: dispatchId,
+      kind: 'ASSEMBLY', from_mark: fromMark, to_mark: toMark, from_ref_id: assemblyId, to_ref_id: assemblyId,
+      confirmed_by: userName, used_at: new Date(),
+    } })
+    await tx.bom_mark_rename_event.create({ data: {
+      dispatch_id: dispatchId, kind: 'ASSEMBLY', action: 'PAIR', from_mark: fromMark, to_mark: toMark, recorded_by: userName,
+      changes: [{ field: 'ชื่อ mark', old: fromMark, new: toMark }] as unknown as Prisma.InputJsonValue,
+    } })
+  }
+
+  /** Spec-matched part renames in place (2026-10-22, [[preshop-mark-rename-plan]]):
+   *  pairs the renamed assembly's current parts with the file's by name then
+   *  spec (pairParts), and renames a spec match's bom_part.part_mark so a
+   *  withdrawal already entered against it survives applyParts' usual
+   *  name-match right after — never deleted and re-created. A target name
+   *  that clashes with another part already in the dispatch is left alone
+   *  for applyParts' ordinary diff. Returns the History lines, "<part> ชื่อ
+   *  <from> → <to>" (the caller prefixes the assembly mark). */
+  private async renamePartsInPlace(
+    tx: Prisma.TransactionClient, assemblyId: number, dispatchId: number,
+    scope: { project_id: number; zone_id: number; sub_zone_id: number | null },
+    newParts: PreshopPartDto[], userId: number, userName: string,
+  ): Promise<string[]> {
+    const rows = await tx.bom_assembly_part.findMany({
+      where: { assembly_id: assemblyId },
+      select: { part_id: true, qty: true, part: { select: { part_mark: true, profile: true, length_mm: true, grade: true, weight_kg: true } } },
+    })
+    const n = (v: unknown) => (v == null ? null : Number(v))
+    const was = rows.map(r => ({ part_mark: r.part.part_mark, profile: r.part.profile ?? '', length_mm: n(r.part.length_mm) ?? 0, grade: r.part.grade ?? '', qty: Number(r.qty), unit_weight_kg: n(r.part.weight_kg) ?? 0 }))
+    const now = newParts.map(p => ({ part_mark: p.part_mark.trim(), profile: p.profile, length_mm: p.length_mm, grade: p.grade, qty: p.qty, unit_weight_kg: p.unit_weight_kg }))
+    const partIdByMark = new Map(rows.map(r => [r.part.part_mark, r.part_id]))
+    const log: string[] = []
+    for (const p of pairParts(was, now)) {
+      if (p.how !== 'spec' || !p.to || p.to === p.from) continue
+      const partId = partIdByMark.get(p.from)!
+      const clash = await tx.bom_part.findFirst({ where: { dispatch_id: dispatchId, part_mark: p.to, id: { not: partId } } })
+      if (clash) continue
+      await tx.bom_part.update({ where: { id: partId }, data: { part_mark: p.to, write_uid: userId } })
+      await tx.bom_mark_rename.create({ data: {
+        project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id, dispatch_id: dispatchId,
+        kind: 'PART', from_mark: p.from, to_mark: p.to, from_ref_id: partId, to_ref_id: partId,
+        confirmed_by: userName, used_at: new Date(),
+      } })
+      await tx.bom_mark_rename_event.create({ data: {
+        dispatch_id: dispatchId, kind: 'PART', action: 'PAIR', from_mark: p.from, to_mark: p.to, recorded_by: userName,
+        changes: [{ field: 'ชื่อ part', old: p.from, new: p.to }] as unknown as Prisma.InputJsonValue,
+      } })
+      log.push(`${p.from} ชื่อ ${p.from} → ${p.to}`)
+    }
+    return log
   }
 
   /** Puts one MO line's assembly into the state the user chose: sets (part
