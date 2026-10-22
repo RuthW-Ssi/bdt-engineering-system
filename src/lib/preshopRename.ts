@@ -39,3 +39,20 @@ export function withRenameFrom(a: PreshopAssembly, fromMark: string | undefined)
 export function finalRenamedAssembly(incoming: PreshopAssembly, choice: MergeChoice, pairedWithMark: string | undefined): PreshopAssembly {
   return withRenameFrom(finalAssembly(incoming, choice), pairedWithMark)
 }
+
+/** A fresh dry run can drop a chosen candidate (e.g. the old mark now appears
+ *  elsewhere in the batch, so it's no longer absent and the server stops
+ *  offering it) — a stale pairing must never keep acting "paired": the qty
+ *  cell would stay stuck on "เลือกด้านล่าง" with nothing behind it, and Save
+ *  would silently drop `rename_from` and add the row as a brand-new mark
+ *  instead of renaming in place. Drops any pairing whose chosen line no
+ *  longer resolves against `compare`'s CURRENT `rename_candidates`, returning
+ *  the cleaned pairing (same reference when nothing changed) and which marks
+ *  were dropped — their `choices` should be cleared and a notice shown. */
+export function reconcilePairing(pairing: RenamePairing, compare: Map<string, PreshopMergeRow>): { pairing: RenamePairing; dropped: string[] } {
+  const dropped = Object.keys(pairing).filter(mark => pairing[mark] !== undefined && !candidateFor(compare.get(mark)?.rename_candidates, pairing[mark]))
+  if (!dropped.length) return { pairing, dropped }
+  const next = { ...pairing }
+  for (const mark of dropped) delete next[mark]
+  return { pairing: next, dropped }
+}

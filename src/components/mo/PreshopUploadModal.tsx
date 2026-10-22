@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -6,7 +6,7 @@ import { mergePreshop, type AssemblyPickerItem, type MoDetail, type PreshopAssem
 import { getErrorMessage } from '../../lib/getErrorMessage'
 import { partErrors, preshopErrors } from '../../lib/preshop'
 import { autoChoice, choiceErrors, unchosen, type MergeChoice } from '../../lib/preshopMerge'
-import { candidateFor, finalRenamedAssembly, pairedLineIds, type RenamePairing } from '../../lib/preshopRename'
+import { candidateFor, finalRenamedAssembly, pairedLineIds, reconcilePairing, type RenamePairing } from '../../lib/preshopRename'
 import { PreshopMergeCompare } from './PreshopMergeCompare'
 import { PreshopRenamePair } from './PreshopRenamePair'
 import { DEFAULT_FILTER } from './AssemblyFilterBar'
@@ -52,7 +52,9 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
     // compare as soon as a file is read — sets may still be blank
     enabled: debounced.length > 0 && debounced.every(a => a.assembly_mark.trim()),
   })
-  const compare = new Map((check.data?.rows ?? []).map(r => [r.assembly_mark, r]))
+  // Stable reference across renders (only changes when the query actually
+  // resolves) — the reconciliation effect below depends on it.
+  const compare = useMemo(() => new Map((check.data?.rows ?? []).map(r => [r.assembly_mark, r])), [check.data])
   const checking = assemblies.length > 0 && (debounced !== assemblies || check.isFetching)
   // Old-vs-new choices per mark already in the MO; equal values pre-picked.
   const [choices, setChoices] = useState<Record<string, MergeChoice>>({})
@@ -60,15 +62,37 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
   // mark of the MO — keyed by the incoming (trimmed) mark, undefined/absent =
   // "ไม่ใช่ — เพิ่มเป็น mark ใหม่" (the default).
   const [pairing, setPairing] = useState<RenamePairing>({})
+  // A fresh dry run just dropped this mark's chosen candidate (reconcilePairing,
+  // below) — shown as a notice until the user picks again.
+  const [staleNotice, setStaleNotice] = useState<Set<string>>(new Set())
   // A newly read file starts the choices/pairing over; removing a wrong file
   // keeps the choices made for the other files' marks.
   const prevFiles = useRef<string[]>([])
   useEffect(() => {
     const now = uploadedFrom.map(f => f.name)
     const onlyRemoved = now.length > 0 && now.length < prevFiles.current.length && now.every(f => prevFiles.current.includes(f))
-    if (!onlyRemoved) { setChoices({}); setPairing({}) }
+    if (!onlyRemoved) { setChoices({}); setPairing({}); setStaleNotice(new Set()) }
     prevFiles.current = now
   }, [uploadedFrom])
+  // A later dry run can drop a chosen candidate (e.g. the old mark now
+  // appears elsewhere in the batch) — a stale pairing must never keep acting
+  // "paired" (stuck qty cell, Save silently dropping rename_from and adding a
+  // duplicate mark instead of renaming in place). Reconcile on every fresh
+  // dry-run result.
+  useEffect(() => {
+    const { pairing: next, dropped } = reconcilePairing(pairing, compare)
+    if (!dropped.length) return
+    // Reacting to a value that only changes when the server's candidate list
+    // actually changes, not a local render loop — same shape as the existing
+    // sync-setState-in-effect elsewhere in this app (ProgressAssemblyTable.tsx).
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPairing(next)
+    setChoices(c => { const n = { ...c }; for (const m of dropped) delete n[m]; return n })
+    setStaleNotice(s => { const n = new Set(s); for (const m of dropped) n.add(m); return n })
+    // Deliberately depends only on `compare` (stable until a fresh dry run
+    // resolves) — `pairing` is read fresh from the closure either way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compare])
   const candidatesOf = (mark: string) => compare.get(mark)?.rename_candidates
   const chosenCandidateOf = (mark: string) => candidateFor(candidatesOf(mark), pairing[mark])
   // A paired new row's "existing" is the chosen candidate's — it then behaves
@@ -78,6 +102,7 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
   function pairRename(mark: string, lineId: number | undefined) {
     setPairing(p => ({ ...p, [mark]: lineId }))
     setChoices(c => { const n = { ...c }; delete n[mark]; return n })
+    setStaleNotice(s => { if (!s.has(mark)) return s; const n = new Set(s); n.delete(mark); return n })
   }
   const inMo = assemblies.flatMap(a => {
     const mark = a.assembly_mark.trim()
@@ -99,7 +124,11 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
   const invalid = rowErrors.length > 0
   // Every new mark needs parts before saving (2026-10-08) — a paired one doesn't, its parts come from the compare box.
   const needsParts = new Set(assemblies.filter(a => !a.parts.length && !existingOf(a.assembly_mark.trim())).map(a => a.assembly_mark.trim()))
-  const pairedMarks = new Set(assemblies.map(a => a.assembly_mark.trim()).filter(m => pairing[m] !== undefined))
+  // Only a pairing that still RESOLVES against the current candidates counts
+  // as paired — never raw key presence in `pairing` (a dropped one must fall
+  // back to a plain editable row, not stay stuck on "เลือกด้านล่าง").
+  const pairedMarks = new Set(assemblies.map(a => a.assembly_mark.trim()).filter(m => !!chosenCandidateOf(m)))
+  const staleMarks = new Set(assemblies.map(a => a.assembly_mark.trim()).filter(m => staleNotice.has(m)))
   const canSave = isFull
     ? !saving && picks.length > 0
     : !saving && !invalid && !checking && !missingBoth && pending.length === 0 && mergeErrors.length === 0 && needsParts.size === 0 && assemblies.length > 0
@@ -184,7 +213,7 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
           {mo.shop_type === 'FULL_SHOP'
             ? <AssemblyPicker markPrefix={null} selected={selected} onSetQty={setQty} filter={filter} />
             : <PreshopPanel assemblies={assemblies} onChange={setAssemblies} uploadedFrom={uploadedFrom} onUploadedFrom={setUploadedFrom} compare={compare} needsParts={needsParts} errors={rowErrors} mode={mode} onMode={setMode}
-                pairedMarks={pairedMarks}
+                pairedMarks={pairedMarks} staleMarks={staleMarks}
                 renderCompare={(a, row) => row.existing && (
                   <PreshopMergeCompare existing={row.existing} incoming={a} choice={choiceOf(a.assembly_mark.trim(), a)}
                     onChange={c => setChoices(prev => ({ ...prev, [a.assembly_mark.trim()]: c }))} />
@@ -193,7 +222,8 @@ export function PreshopUploadModal({ mo, onClose }: { mo: MoDetail; onClose: () 
                   const mark = a.assembly_mark.trim()
                   return (
                     <PreshopRenamePair mark={mark} incoming={a} candidates={row.rename_candidates ?? []} chosenId={pairing[mark]} takenIds={takenLineIds}
-                      choice={choiceOf(mark, a)} onPair={id => pairRename(mark, id)} onChoiceChange={c => setChoices(prev => ({ ...prev, [mark]: c }))} />
+                      choice={choiceOf(mark, a)} onPair={id => pairRename(mark, id)} onChoiceChange={c => setChoices(prev => ({ ...prev, [mark]: c }))}
+                      notice={staleNotice.has(mark) ? 'mark ที่จับคู่ไว้ไม่อยู่ในรายการแล้ว — เลือกใหม่' : undefined} />
                   )
                 }} />}
         </div>

@@ -81,6 +81,16 @@ describe('PreshopRenamePair', () => {
     expect(onPair).toHaveBeenCalledWith(undefined)
   })
 
+  it('shows the stale-pairing notice when given one, even unpaired (reconcilePairing already reset chosenId)', () => {
+    setup({ chosenId: undefined, notice: 'mark ที่จับคู่ไว้ไม่อยู่ในรายการแล้ว — เลือกใหม่' })
+    expect(screen.getByText('mark ที่จับคู่ไว้ไม่อยู่ในรายการแล้ว — เลือกใหม่')).toBeInTheDocument()
+  })
+
+  it('no notice by default', () => {
+    setup()
+    expect(screen.queryByText(/จับคู่ไว้ไม่อยู่ในรายการแล้ว/)).not.toBeInTheDocument()
+  })
+
   it('1:1 — a candidate chosen by another row is disabled here, except this row\'s own pick', () => {
     setup({ chosenId: 20, takenIds: new Set([10, 20]) })
     const select = screen.getByLabelText('จับคู่กับ mark เดิมของ 9BUH1B-4') as HTMLSelectElement

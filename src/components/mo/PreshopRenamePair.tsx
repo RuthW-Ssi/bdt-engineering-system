@@ -11,7 +11,7 @@ import { PreshopMergeCompare } from './PreshopMergeCompare'
 // row renders exactly like an existing-mark compare row — same component,
 // same cards/rules — plus a "ชื่อ mark X → Y" line. Picking "ไม่ใช่…" again
 // (the default) unpairs it back to a plain new row.
-export function PreshopRenamePair({ mark, incoming, candidates, chosenId, takenIds, choice, onPair, onChoiceChange }: {
+export function PreshopRenamePair({ mark, incoming, candidates, chosenId, takenIds, choice, onPair, onChoiceChange, notice }: {
   mark: string // the incoming (trimmed) assembly_mark — the file's new name
   incoming: PreshopAssembly
   candidates: RenameCandidate[]
@@ -20,6 +20,9 @@ export function PreshopRenamePair({ mark, incoming, candidates, chosenId, takenI
   choice: MergeChoice
   onPair: (lineId: number | undefined) => void
   onChoiceChange: (c: MergeChoice) => void
+  // A fresh dry run dropped this row's chosen candidate (reconcilePairing) —
+  // the select already reset to "ไม่ใช่…"; this explains why.
+  notice?: string
 }) {
   const chosen = candidateFor(candidates, chosenId)
   return (
@@ -44,6 +47,7 @@ export function PreshopRenamePair({ mark, incoming, candidates, chosenId, takenI
           ))}
         </select>
       </label>
+      {notice && <div style={{ fontSize: 11.5, fontWeight: 600, color: '#C8202A', marginTop: 4 }}>{notice}</div>}
       {chosen && (
         <>
           <div style={{ fontSize: 12.5, fontWeight: 600, color: '#854F0B', margin: '6px 0' }}>{`ชื่อ mark ${chosen.assembly_mark} → ${mark}`}</div>
