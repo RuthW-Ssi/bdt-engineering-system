@@ -26,6 +26,22 @@ export function pairPartsWithRenames(was: PreshopPart[], now: PreshopPart[], ren
 
 export const pairParts = (was: PreshopPart[], now: PreshopPart[]) => pairPartsWithRenames(was, now, m => m)
 
+const stripLeadingDigits = (m: string) => m.replace(/^[0-9]+/, '')
+
+/** Mark-only similarity for a pre-shop upload pairing suggestion (2026-10-22,
+ *  [[preshop-mark-rename-plan]]): after upper-casing and stripping non-
+ *  alphanumerics, one mark contains the other, or they are equal once their
+ *  leading floor/prefix digits are stripped (`2BUH1B-4` ~ `9BUH1B-4` ~
+ *  `BUH1B-4`). A suggestion only — the user confirms. */
+export function nameSimilar(markA: string, markB: string): boolean {
+  const norm = (m: string) => m.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const a = norm(markA), b = norm(markB)
+  if (!a || !b) return false
+  if (a.includes(b) || b.includes(a)) return true
+  const sa = stripLeadingDigits(a), sb = stripLeadingDigits(b)
+  return sa.length > 0 && sa === sb
+}
+
 /** How likely two assemblies are the same piece under different marks, 0–100:
  *  parts with the same spec 60, same L 15, kg/set within 2 % 15, one mark
  *  containing the other 10. A suggestion only — the user confirms. */

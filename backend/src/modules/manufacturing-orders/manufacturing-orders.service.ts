@@ -18,7 +18,7 @@ import { UpdateMoActualDatesDto } from './dto/update-actual-dates.dto'
 import { CreateWoDto, PreviewWoDto } from './dto/create-wo.dto'
 import { ASM_FIELDS, ASM_SELECT, asmValues, valueChanges, valueText, type AsmValues } from './preshop/asm-fields'
 import { PreshopService } from './preshop/preshop.service'
-import { pairPartsWithRenames } from './preshop/pair-score'
+import { nameSimilar, pairPartsWithRenames, pairScore } from './preshop/pair-score'
 import { PRESHOP_TEMPLATE_CODE } from './preshop/preshop-op'
 import { fmtBkk } from '../../common/history-format'
 import { actualsTracking, parseActualDates } from '../../common/actual-dates'
@@ -687,18 +687,37 @@ export class ManufacturingOrderService {
       for (const p of planned) if (p.bom_assembly_id === asmId) perOp.set(p.work_order.source_routing_op_id, (perOp.get(p.work_order.source_routing_op_id) ?? 0) + Number(p.qty_planned))
       return Math.max(0, ...perOp.values())
     }
+    const existingOf = (line: (typeof lines)[number]) => {
+      const b = line.bom_assembly
+      return { qty: Number(line.qty), ...asmValues(b), parts: partsOf(line), wo_qty: issued(line.bom_assembly_id), wo_parts: b.assembly_parts.filter(ap => ap._count.work_order_parts > 0).map(ap => ap.part.part_mark) }
+    }
 
     const pre = (dto.preshop_assemblies ?? []).map(a => ({ ...a, assembly_mark: a.assembly_mark.trim() }))
+    const fileMarks = new Set(pre.map(a => a.assembly_mark))
+    // Every mark the MO already carries from a pre-shop upload, absent from
+    // this file — a `new` row may be the same piece under one of these names
+    // (2026-10-22, [[preshop-mark-rename-plan]]). A mark linked to the real
+    // BOM ("เทียบกับ BOM") switched dispatches and is never PRE_SHOP any
+    // more, so it is never offered. Ordered name-similar first, then by the
+    // existing pairScore as a tie-break only — never filtered, never a %.
+    const renamePool = lines.filter(l => l.bom_assembly.dispatch.source === 'PRE_SHOP' && !fileMarks.has(l.bom_assembly.assembly_mark))
     const rows = pre.map(a => {
       const line = byMark.get(a.assembly_mark)
-      if (!line) return { assembly_mark: a.assembly_mark, status: 'new' as const, existing: null }
-      const b = line.bom_assembly
-      const was = { ...asmValues(b), parts: partsOf(line) }
-      const changes = this.preshop.sizeChanges(was, { ...asmValues(a), parts: a.parts })
-      return {
-        assembly_mark: a.assembly_mark, status: changes.length ? 'changed' as const : 'same' as const,
-        existing: { qty: Number(line.qty), ...was, wo_qty: issued(line.bom_assembly_id), wo_parts: b.assembly_parts.filter(ap => ap._count.work_order_parts > 0).map(ap => ap.part.part_mark) },
+      if (!line) {
+        const nowSide = { ...asmValues(a), parts: a.parts }
+        const rename_candidates = renamePool
+          .map(l => ({
+            line_id: l.id, assembly_mark: l.bom_assembly.assembly_mark, existing: existingOf(l),
+            name_similar: nameSimilar(l.bom_assembly.assembly_mark, a.assembly_mark),
+            score: pairScore(l.bom_assembly.assembly_mark, { ...asmValues(l.bom_assembly), parts: partsOf(l) }, a.assembly_mark, nowSide),
+          }))
+          .sort((x, y) => (Number(y.name_similar) - Number(x.name_similar)) || (y.score - x.score) || x.assembly_mark.localeCompare(y.assembly_mark))
+          .map(({ line_id, assembly_mark, existing }) => ({ line_id, assembly_mark, existing }))
+        return { assembly_mark: a.assembly_mark, status: 'new' as const, existing: null, rename_candidates }
       }
+      const was = { ...asmValues(line.bom_assembly), parts: partsOf(line) }
+      const changes = this.preshop.sizeChanges(was, { ...asmValues(a), parts: a.parts })
+      return { assembly_mark: a.assembly_mark, status: changes.length ? 'changed' as const : 'same' as const, existing: existingOf(line) }
     })
     if (dto.dry_run) return { rows }
     // sets are checked only on save — the dry run compares as soon as a file

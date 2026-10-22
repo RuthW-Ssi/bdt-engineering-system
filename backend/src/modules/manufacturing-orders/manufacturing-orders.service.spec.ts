@@ -909,7 +909,7 @@ describe('ManufacturingOrderService.mergePreshop', () => {
     expect(r.rows).toEqual([
       { assembly_mark: 'BUH1-3', status: 'same', existing: { qty: 2, ...NONE, length_mm: 10550, weight_kg: 3561.15, parts: P, wo_qty: 1, wo_parts: [] } },
       { assembly_mark: 'BUH1A-12', status: 'changed', existing: { qty: 1, ...NONE, length_mm: 10550, weight_kg: 3561.15, parts: [], wo_qty: 0, wo_parts: [] } },
-      { assembly_mark: 'BUH9', status: 'new', existing: null },
+      { assembly_mark: 'BUH9', status: 'new', existing: null, rename_candidates: [] },
     ])
     expect(tx.mo_assembly_line.update).not.toHaveBeenCalled()
   })
@@ -1009,6 +1009,64 @@ describe('ManufacturingOrderService.mergePreshop', () => {
     await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [A('X', 1)] }, 1, 'tao')).rejects.toThrow('Full shop')
     // security review M1 (2026-10-09): a Full shop MO takes no pre-shop rows, even sent with source BOM
     await expect(svc.mergePreshop(36, { source: 'BOM', preshop_assemblies: [A('X', 1)] }, 1, 'tao')).rejects.toThrow('Full shop')
+  })
+
+  // 2026-10-22, [[preshop-mark-rename-plan]]: a Dispatch Note / pre-shop drawing
+  // whose mark changed name is suggested against every MO mark the upload
+  // doesn't carry any more, so the user can pair it instead of adding a
+  // duplicate. T1 = the dry-run suggestions; T2 below = the paired save.
+  describe('dry run — rename_candidates (T1)', () => {
+    it('offers every absent pre-shop mark, name-similar ones first, no score exposed', async () => {
+      const { svc, prisma } = make()
+      prisma.mo_assembly_line.findMany.mockResolvedValue([
+        LINE(1, 700, '2BUH1B-4', 2, AP), // absent from this upload, name-similar to 9BUH1B-4
+        LINE(2, 701, 'BUH1A-12', 1, []), // absent too, not name-similar
+      ])
+      const r = await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('9BUH1B-4', 2, [])] }, 1, 'tao')
+      const rows = r.rows as any[]
+      expect(rows[0].status).toBe('new')
+      const candidates = rows[0].rename_candidates
+      expect(candidates.map((c: any) => c.assembly_mark)).toEqual(['2BUH1B-4', 'BUH1A-12'])
+      expect(Object.keys(candidates[0]).sort()).toEqual(['assembly_mark', 'existing', 'line_id'])
+      expect(candidates[0]).toMatchObject({ line_id: 1, assembly_mark: '2BUH1B-4' })
+      expect(candidates[0].existing).toMatchObject({ qty: 2, length_mm: 10550, weight_kg: 3561.15, parts: P })
+    })
+
+    // Review Focus 1: a DN-only (no parts) upload still offers absent marks to
+    // pair with — scoring never gates or filters the list any more.
+    it('a DN-only upload (no parts on either side) still offers the absent marks', async () => {
+      const { svc, prisma } = make()
+      prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, 'ZZZ-1', 1, [], 99999)]) // L very different, no parts
+      const r = await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('ZZZ-9', 2, [])] }, 1, 'tao')
+      expect((r.rows as any[])[0].rename_candidates.map((c: any) => c.assembly_mark)).toEqual(['ZZZ-1'])
+    })
+
+    it('no absent pre-shop marks → an empty list', async () => {
+      const { svc } = make() // both existing lines (BUH1-3, BUH1A-12) are in this upload
+      const r = await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('BUH1-3', 2), A('BUH1A-12', 1, []), A('BUH9', 4)] }, 1, 'tao')
+      expect((r.rows as any[]).find((x: any) => x.assembly_mark === 'BUH9').rename_candidates).toEqual([])
+    })
+
+    // Review Focus 3 (part 2): a mark linked to the real BOM switched
+    // dispatches (bomCompare/linkBom) and is never PRE_SHOP any more.
+    it('a mark linked to the real BOM (not a PRE_SHOP dispatch) is never offered', async () => {
+      const { svc, prisma } = make()
+      const linked = LINE(3, 702, 'LINKED-1', 1, [])
+      linked.bom_assembly.dispatch = { source: 'BOM_UPLOAD' }
+      prisma.mo_assembly_line.findMany.mockResolvedValue([linked])
+      const r = await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('NEWMARK', 2, [])] }, 1, 'tao')
+      expect((r.rows as any[])[0].rename_candidates).toEqual([])
+    })
+
+    it('ties on name-similarity break by the existing pairScore, descending', async () => {
+      const { svc, prisma } = make()
+      prisma.mo_assembly_line.findMany.mockResolvedValue([
+        LINE(1, 700, 'ZZZ-2', 1, []), // neither similar to Q-9 nor matching parts/dims
+        LINE(2, 701, 'ZZZ-1', 1, AP), // neither similar to Q-9, but parts/L/kg match → higher pairScore
+      ])
+      const r = await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('Q-9', 2, P)] }, 1, 'tao')
+      expect((r.rows as any[])[0].rename_candidates.map((c: any) => c.assembly_mark)).toEqual(['ZZZ-1', 'ZZZ-2'])
+    })
   })
 })
 
