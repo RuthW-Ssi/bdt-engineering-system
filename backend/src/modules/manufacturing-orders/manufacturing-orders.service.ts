@@ -696,6 +696,15 @@ export class ManufacturingOrderService {
       throw new BadRequestException('MO Pre-shop รับข้อมูลจาก BOM ผ่าน "เทียบกับ BOM" เท่านั้น')
     }
     if (!mo.project_id || !mo.zone_id) throw new BadRequestException(`MO ${mo.mo_code} has no project/zone`)
+    // Once the zone has a real BOM the pre-shop data is closed (2026-10-22, Tao):
+    // a Pre-shop MO then takes its data from the BOM only, via "เทียบกับ BOM".
+    if (mo.shop_type === 'PRE_SHOP') {
+      const realBom = await this.prisma.bom_dispatch.findFirst({
+        where: { project_id: mo.project_id, zone_id: mo.zone_id, sub_zone_id: mo.sub_zone_id ?? null, source: 'BOM_UPLOAD' },
+        select: { id: true },
+      })
+      if (realBom) throw new ConflictException('zone นี้มี BOM แล้ว — อัปโหลด Dispatch Note / Pre-shop drawing ไม่ได้ ให้ใช้ "เทียบกับ BOM" ที่หน้า MO แทน')
+    }
 
     const lines = await this.prisma.mo_assembly_line.findMany({
       where: { mo_id: id }, orderBy: { line_seq: 'asc' },

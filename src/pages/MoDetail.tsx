@@ -87,7 +87,9 @@ export function MoDetail() {
   // Confirm / Start wait for assemblies and a routing.
   const isPreshop = mo.shop_type === 'PRE_SHOP'
   // Upload is the only way to add assemblies (2026-10-08) — Full shop: BOM only.
-  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'
+  // Pre-shop: once the zone has a real BOM, data comes from the BOM only — via
+  // "เทียบกับ BOM" (2026-10-22). The server refuses the upload too.
+  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED' && !(isPreshop && bomCmp?.bom)
   const preshopBlock = !isPreshop ? null
     : mo.assembly_lines.length === 0 ? 'ยังไม่มี assembly — กด Upload แล้วเลือก Dispatch Note หรือ Pre-shop drawing ก่อน'
     : mo.routing_template_id == null ? 'ยังไม่ได้เลือก routing — กด Edit แล้วเลือก routing ก่อน'

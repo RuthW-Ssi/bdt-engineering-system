@@ -924,6 +924,7 @@ describe('ManufacturingOrderService.mergePreshop', () => {
     }
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([LINE(1, 700, 'BUH1-3', 2, AP), LINE(2, 701, 'BUH1A-12', 1, [])]) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue(planned) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1050,6 +1051,15 @@ describe('ManufacturingOrderService.mergePreshop', () => {
   // whose mark changed name is suggested against every MO mark the upload
   // doesn't carry any more, so the user can pair it instead of adding a
   // duplicate. T1 = the dry-run suggestions; T2 below = the paired save.
+  it('refuses a pre-shop upload once the zone has a real BOM — use "เทียบกับ BOM" instead', async () => {
+    const { svc, prisma, tx } = make('IN_PROGRESS')
+    ;(prisma as any).bom_dispatch.findFirst.mockResolvedValue({ id: 60 })
+    await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('BUH9', 1)] }, 1, 'tao'))
+      .rejects.toThrow('zone นี้มี BOM แล้ว')
+    expect((prisma as any).bom_dispatch.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ project_id: 16, zone_id: 33, sub_zone_id: null, source: 'BOM_UPLOAD' }) }))
+    expect(tx.mo_assembly_line.createMany).not.toHaveBeenCalled()
+  })
+
   describe('dry run — rename_candidates (T1)', () => {
     it('offers every absent pre-shop mark, name-similar ones first, no score exposed', async () => {
       const { svc, prisma } = make()
@@ -1141,6 +1151,7 @@ describe('ManufacturingOrderService.mergePreshop', () => {
       }
       const prisma = {
         manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
+        bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) },
         mo_assembly_line: { findMany: jest.fn().mockResolvedValue([LINE(1, 700, '2BUH1B-4', 2, [partRow()])]) },
         work_order_mark: { findMany: jest.fn().mockResolvedValue([]) }, // issued() — nothing planned unless overridden below
         bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(opts.bomAssemblyFindFirst ?? null) },
@@ -1372,6 +1383,7 @@ describe('ManufacturingOrderService.mergePreshop', () => {
       }
       const prisma = {
         manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
+        bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) },
         mo_assembly_line: { findMany: jest.fn().mockResolvedValue([{
           id: 1, bom_assembly_id: 700, qty: '2', line_seq: 0,
           bom_assembly: { id: 700, assembly_mark: '2BUH1B-4', dispatch_id: 14, length_mm: '10550', weight_kg: '3561.15', dispatch: { source: 'PRE_SHOP' },
@@ -1442,6 +1454,7 @@ describe('ManufacturingOrderService.mergePreshop', () => {
       }
       const prisma = {
         manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
+        bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) },
         mo_assembly_line: { findMany: jest.fn().mockResolvedValue([
           { id: 1, bom_assembly_id: 700, qty: '1', line_seq: 0,
             bom_assembly: { id: 700, assembly_mark: '2AAA-1', dispatch_id: 14, length_mm: '300', weight_kg: '10', dispatch: { source: 'PRE_SHOP' },
