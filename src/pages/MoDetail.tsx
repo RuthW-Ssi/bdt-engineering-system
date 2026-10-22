@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ProgressChips, ProgressTable } from '../components/mo/MarkProgress'
+import { DrawingRevBadge } from '../components/mo/DrawingRevBadge'
+import { DrawingRevNotice } from '../components/mo/DrawingRevNotice'
 import { ArrowLeft, Loader2, Info, Pencil, Cpu, FlaskConical, Users, Wrench, Printer, Upload, AlertTriangle, ChevronDown, ChevronRight, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useMo, useMoAssemblies, useMoHistory, useMoParts, useMoConsumeSummary, useChangeMoStatus, useUpdateMoActualDates, useCreateWorkOrder, usePreviewWorkOrder } from '../hooks/useMo'
@@ -21,6 +23,7 @@ import { ASM_FIELDS, norm, showValue } from '../lib/asmFields'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -58,6 +61,7 @@ export function MoDetail() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [bomOpen, setBomOpen] = useState(false)
 
+  const qc = useQueryClient()
   const { data: mo, isLoading } = useMo(moId)
   // Pre-shop MO vs the zone's real BOM (2026-10-08) — only asked when one exists.
   const { data: bomCmp } = useQuery({
@@ -84,7 +88,9 @@ export function MoDetail() {
   // Confirm / Start wait for assemblies and a routing.
   const isPreshop = mo.shop_type === 'PRE_SHOP'
   // Upload is the only way to add assemblies (2026-10-08) — Full shop: BOM only.
-  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED'
+  // Pre-shop: once the zone has a real BOM, data comes from the BOM only — via
+  // "เทียบกับ BOM" (2026-10-22). The server refuses the upload too.
+  const canUpload = canWrite && mo.status !== 'DONE' && mo.status !== 'CANCELLED' && !(isPreshop && bomCmp?.bom)
   const preshopBlock = !isPreshop ? null
     : mo.assembly_lines.length === 0 ? 'ยังไม่มี assembly — กด Upload แล้วเลือก Dispatch Note หรือ Pre-shop drawing ก่อน'
     : mo.routing_template_id == null ? 'ยังไม่ได้เลือก routing — กด Edit แล้วเลือก routing ก่อน'
@@ -139,6 +145,11 @@ export function MoDetail() {
       const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }))
       window.open(url, '_blank')
       setPrintPickerOpen(false)
+      // Any successful print — full or selective — may have just printed the
+      // stale drawings away; invalidate every drawing-rev-status variant for
+      // this MO (prefix match catches the woId-scoped keys too) so the badge
+      // and notice clear instead of showing yesterday's warning.
+      qc.invalidateQueries({ queryKey: ['mo', moId, 'drawing-rev-status'] })
     } catch (err) {
       setPrintError(getErrorMessage(err, 'Failed to generate the print packet.'))
     } finally {
@@ -167,6 +178,7 @@ export function MoDetail() {
           >
             {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Print
           </button>
+          <DrawingRevBadge moId={moId} />
           {canUpload && (
             <button
               onClick={() => setUploadOpen(true)}
@@ -384,11 +396,23 @@ function PrintSelectModal({
     })
   }
 
+  // Drawing-rev reprint shortcut (2026-10-21, Task 4) — one click prints
+  // exactly the affected WOs (never also the MO overview); it also moves the
+  // modal's own selection to match, so the checkbox list reflects what was
+  // just sent to print if the user looks back at it.
+  function handleReprintStale(woIds: number[], includeManifest: boolean, printLang: PrintLang) {
+    setSelected(new Set(woIds))
+    setIncludeManifest(includeManifest)
+    onPrint(woIds, includeManifest, printLang)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.4)' }}>
       <div style={{ background: '#fff', borderRadius: 8, padding: '24px 28px', width: 480, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Print — select what to include</h2>
         <p style={{ fontSize: 12, color: '#888', marginBottom: 14 }}>Pick the MO overview page and/or which work order travelers to print.</p>
+
+        <DrawingRevNotice moId={moId} lang={lang} printing={printing} onPrint={handleReprintStale} />
 
         <div className="flex items-center gap-3" style={{ marginBottom: 12 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Language</span>
@@ -1063,14 +1087,14 @@ function WoMarkPickerModal({
               <div style={{ flex: 1 }}>
                 <div style={sectionLabel}>Plan Start <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
-                  type="datetime-local" value={planStart} onChange={(e) => setPlanStart(e.target.value)}
+                  type="datetime-local" value={planStart} {...dateInputGuardHandlers(setPlanStart, 'Plan Start')}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={sectionLabel}>Plan Finish <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
-                  type="datetime-local" value={planFinish} onChange={(e) => setPlanFinish(e.target.value)}
+                  type="datetime-local" value={planFinish} {...dateInputGuardHandlers(setPlanFinish, 'Plan Finish')}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>

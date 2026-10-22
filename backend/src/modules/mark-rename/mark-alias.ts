@@ -1,0 +1,109 @@
+// BOM mark/part renamed between dispatch versions (2026-10-21, [[bom-mark-rename-plan]]).
+// Pure name resolution over confirmed pairs (bom_mark_rename rows). Dispatch ids
+// only grow, so walking forward/backward through them always ends.
+
+export type RenameKind = 'ASSEMBLY' | 'PART'
+export interface RenameRow { id: number; kind: string; from_mark: string; to_mark: string; dispatch_id: number }
+export interface BomScope { project_id: number; zone_id: number; sub_zone_id: number | null }
+/** One name a piece had, and which dispatches its rows under that name sit in
+ *  (fromDispatchId inclusive, beforeDispatchId exclusive; null = open). */
+export interface Alias { mark: string; fromDispatchId: number | null; beforeDispatchId: number | null }
+
+export const scopeKey = (s: BomScope) => `${s.project_id}:${s.zone_id}:${s.sub_zone_id ?? ''}`
+
+const ofKind = (renames: RenameRow[], kind: RenameKind) => renames.filter(r => r.kind === kind)
+
+/** The piece's own name first, then every earlier name, nearest first.
+ *  `atDispatchId` = the dispatch of the row asking. If the same name was
+ *  renamed away before, older rows of that name belong to the other piece. */
+export function aliasesOf(renames: RenameRow[], kind: RenameKind, mark: string, atDispatchId: number): Alias[] {
+  const rows = ofKind(renames, kind)
+  // Latest dispatch (< bound) at which `name` was itself renamed away — the
+  // point its identifier was freed for a later, unrelated piece to reuse.
+  // Re-derived every hop (not just for `own`): a predecessor name can equally
+  // have been vacated-and-reused before the row that fed into it.
+  const vacatedBefore = (name: string, bound: number) => {
+    const left = rows.filter(r => r.from_mark === name && r.dispatch_id < bound).map(r => r.dispatch_id)
+    return left.length ? Math.max(...left) : 0
+  }
+  const bound0 = atDispatchId + 1
+  const ownFloor = vacatedBefore(mark, bound0)
+  const own: Alias = { mark, fromDispatchId: ownFloor || null, beforeDispatchId: null }
+  const out: Alias[] = [own]
+  let name = mark
+  let bound = bound0
+  let floor = ownFloor
+  for (;;) {
+    const into = rows.filter(r => r.to_mark === name && r.dispatch_id < bound && r.dispatch_id >= floor)
+    if (!into.length) return out
+    const r = into.reduce((a, b) => (b.dispatch_id > a.dispatch_id ? b : a))
+    out.push({ mark: r.from_mark, fromDispatchId: null, beforeDispatchId: r.dispatch_id })
+    name = r.from_mark
+    bound = r.dispatch_id
+    floor = vacatedBefore(name, bound)
+  }
+}
+
+/** Follows a row's name forward through later pairs: its current name and the pair ids used. */
+export function followRenames(renames: RenameRow[], kind: RenameKind, mark: string, sinceDispatchId: number): { name: string; ids: number[] } {
+  const rows = ofKind(renames, kind)
+  let name = mark
+  let since = sinceDispatchId
+  const ids: number[] = []
+  for (;;) {
+    const next = rows.filter(r => r.from_mark === name && r.dispatch_id > since)
+    if (!next.length) return { name, ids }
+    const r = next.reduce((a, b) => (b.dispatch_id < a.dispatch_id ? b : a))
+    ids.push(r.id)
+    name = r.to_mark
+    since = r.dispatch_id
+  }
+}
+
+export const currentNameOf = (renames: RenameRow[], kind: RenameKind, mark: string, sinceDispatchId: number) =>
+  followRenames(renames, kind, mark, sinceDispatchId).name
+
+export const formerNames = (renames: RenameRow[], kind: RenameKind, mark: string, atDispatchId: number) =>
+  aliasesOf(renames, kind, mark, atDispatchId).slice(1).map(a => a.mark)
+
+export function aliasMatches(a: Alias, dispatchId: number): boolean {
+  return (a.fromDispatchId == null || dispatchId >= a.fromDispatchId) && (a.beforeDispatchId == null || dispatchId < a.beforeDispatchId)
+}
+
+/** Prisma `where` fragment for rows (bom_assembly / bom_part) under any alias. */
+export function aliasWhere(aliases: Alias[], field: 'assembly_mark' | 'part_mark'): Record<string, unknown> {
+  const one = (a: Alias) => {
+    const range = { ...(a.fromDispatchId != null ? { gte: a.fromDispatchId } : {}), ...(a.beforeDispatchId != null ? { lt: a.beforeDispatchId } : {}) }
+    return { [field]: a.mark, ...(Object.keys(range).length ? { dispatch_id: range } : {}) }
+  }
+  return aliases.length === 1 ? one(aliases[0]) : { OR: aliases.map(one) }
+}
+
+/** Former names minus the ones that are an ACTIVE assembly mark in the same
+ *  scope right now (final review, 2026-10-21) — such a name was reused by
+ *  another piece, so whatever is filed under it (Drawings) is that piece's.
+ *  Case-insensitive, like every Drawing mark match. */
+export function usableFormerNames(names: string[], activeMarks: ReadonlySet<string> = new Set()): string[] {
+  const active = new Set([...activeMarks].map(m => m.toLowerCase()))
+  return names.filter(n => !active.has(n.toLowerCase()))
+}
+
+/** Every hop of a forward PART rename chain from `mark`, nearest first (index 0
+ *  is the mark itself, untouched). A target version may not actually carry the
+ *  chain's very last name — this lets the caller fall back to the FURTHEST hop
+ *  that IS among its own parts, not just the chain's end (fix round 2). Shared
+ *  by MO switch and WO accept (final review) so both pick the same target. */
+export function partRenameChain(renames: RenameRow[], mark: string, since: number): { mark: string; renameIds: number[] }[] {
+  const rows = renames.filter(r => r.kind === 'PART')
+  const chain = [{ mark, renameIds: [] as number[] }]
+  let name = mark, bound = since, ids: number[] = []
+  for (;;) {
+    const next = rows.filter(r => r.from_mark === name && r.dispatch_id > bound)
+    if (!next.length) return chain
+    const r = next.reduce((a, b) => (b.dispatch_id < a.dispatch_id ? b : a))
+    ids = [...ids, r.id]
+    name = r.to_mark
+    bound = r.dispatch_id
+    chain.push({ mark: name, renameIds: ids })
+  }
+}

@@ -17,6 +17,7 @@ import { consumeFormulasApi, FORMULA_CATEGORY_LABELS, type ConsumeFormula } from
 import type { EquipmentStatus, Machine } from '../api/machines'
 import type { Operator, Team, TeamType } from '../api/laborSkills'
 import { usePermission } from '../hooks/usePermission'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 type Tab = 'machine' | 'tool' | 'operator' | 'formula'
 
@@ -736,8 +737,8 @@ function OperatorModal({ row, onClose }: { row?: Operator; onClose: () => void }
               placeholder="Welder B..." style={inputStyle} />
           </FormField>
           <FormField label="Start date">
-            <input type="date" value={form.start_raw} onChange={e => set('start_raw', e.target.value)}
-              style={inputStyle} />
+            <input type="date" value={form.start_raw} style={inputStyle}
+              {...dateInputGuardHandlers(v => set('start_raw', v), 'Start date')} />
           </FormField>
           <FormField label="Team">
             <select value={form.team_id} onChange={e => set('team_id', e.target.value)} style={inputStyle}>

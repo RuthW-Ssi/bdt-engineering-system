@@ -4,7 +4,7 @@ import type { QcBreakdown } from '../components/wo/QcBreakdownFields'
 // NOTE on scope: WoDetail.tsx itself (react-router params, useWo/useWoDone/
 // useWoCancel/etc. hooks, the sticky header, tab bar) isn't mounted here —
 // same "extract and test the pure piece" precedent as qcBreakdownValid /
-// findLatestPdfForMark / formatMarks elsewhere in this codebase: Cancel's
+// currentRevSheetsForMark / formatMarks elsewhere in this codebase: Cancel's
 // per-mark QC breakdown payload (2026-09-23 — was qty_reusable) and the
 // Complete gate. Progress is saved per mark since 2026-10-05, so Complete
 // sends no marks — the Marks table's own interactions (save, history) are

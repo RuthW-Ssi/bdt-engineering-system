@@ -9,6 +9,7 @@ import { usePermission } from '../hooks/usePermission'
 import { useIsCustomer } from '../hooks/useIsCustomer'
 import type { CreateProjectPayload } from '../api/projects'
 import type { ProjectDTO } from '../api/types'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 const STATE_LABELS: Record<string, string> = {
   lead: 'Lead',
@@ -330,8 +331,8 @@ export function ProjectList() {
                   <input
                     type="date"
                     value={form.start_date ?? ''}
-                    onChange={e => setForm(f => ({ ...f, start_date: e.target.value || undefined }))}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                    {...dateInputGuardHandlers(v => setForm(f => ({ ...f, start_date: v || undefined })), 'Start Date')}
                   />
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -339,8 +340,8 @@ export function ProjectList() {
                   <input
                     type="date"
                     value={form.target_handover ?? ''}
-                    onChange={e => setForm(f => ({ ...f, target_handover: e.target.value || undefined }))}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                    {...dateInputGuardHandlers(v => setForm(f => ({ ...f, target_handover: v || undefined })), 'Due Date')}
                   />
                 </div>
               </div>

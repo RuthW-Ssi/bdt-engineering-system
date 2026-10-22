@@ -111,6 +111,10 @@ export interface DiffRowDto<T> {
   status: DiffStatus
   prev: T | null
   curr: T | null
+  /** Set when this row is a confirmed rename pair — the old mark it was paired from. */
+  renamed_from?: string
+  /** The `bom_mark_rename` pair id backing `renamed_from`, for undo. */
+  rename_id?: number
 }
 
 export interface AssemblyDiffItemDto {
@@ -165,6 +169,79 @@ interface DiffBimModelMatch {
 export interface DispatchDiffBimModelsDto {
   old: DiffBimModelMatch | null
   new: DiffBimModelMatch | null
+}
+
+// ── BOM mark/part rename pairing (disappeared ↔ fresh names across versions) ──
+export type RenameKind = 'ASSEMBLY' | 'PART'
+
+export interface RenameDataSetDto {
+  progress: { field: string; value: string | number }[]
+  paint: { paint_type: string; material: string | null; layers: number }[]
+}
+
+export interface RenameOptionDto {
+  mark: string
+  ref_id: number
+  score: number | null
+  data: RenameDataSetDto | null
+}
+
+export interface DisappearedMarkDto {
+  mark: string
+  ref_id: number
+  data: RenameDataSetDto | null
+  suggestions: RenameOptionDto[]
+}
+
+export interface RenameCandidatesDto {
+  dispatch_id: number
+  latest: boolean
+  assemblies: DisappearedMarkDto[]
+  parts: DisappearedMarkDto[]
+  new_assemblies: RenameOptionDto[]
+  new_parts: RenameOptionDto[]
+}
+
+export interface RenamePairInput {
+  kind: RenameKind
+  from_mark: string
+  to_mark: string
+  keep?: 'old' | 'new'
+}
+
+export interface RenameChangeDto {
+  field: string
+  old: string | number | null
+  new: string | number | null
+}
+
+export interface RenamePairDto {
+  id: number
+  kind: RenameKind
+  from_mark: string
+  to_mark: string
+  keep: 'old' | 'new' | null
+  confirmed_by: string
+  confirmed_at: string
+  used_at: string | null
+  undo_blocked: string | null
+}
+
+export interface RenameEventDto {
+  id: number
+  kind: RenameKind
+  action: 'PAIR' | 'UNDO'
+  from_mark: string
+  to_mark: string
+  keep: 'old' | 'new' | null
+  changes: RenameChangeDto[]
+  recorded_by: string
+  recorded_at: string
+}
+
+export interface RenameListDto {
+  pairs: RenamePairDto[]
+  history: RenameEventDto[]
 }
 
 export const dispatchesApi = {
@@ -231,5 +308,18 @@ export const dispatchesApi = {
     return apiClient
       .get('/dispatches/latest-revision', { params: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })
       .then(r => r.data.revision)
+  },
+
+  getRenameCandidates(id: number): Promise<RenameCandidatesDto> {
+    return apiClient.get(`/dispatches/${id}/rename-candidates`).then(r => r.data)
+  },
+  getRenames(id: number): Promise<RenameListDto> {
+    return apiClient.get(`/dispatches/${id}/renames`).then(r => r.data)
+  },
+  saveRenames(id: number, renames: RenamePairInput[]): Promise<RenameListDto> {
+    return apiClient.post(`/dispatches/${id}/renames`, { renames }).then(r => r.data)
+  },
+  undoRename(id: number, renameId: number): Promise<RenameListDto> {
+    return apiClient.delete(`/dispatches/${id}/renames/${renameId}`).then(r => r.data)
   },
 }

@@ -1,14 +1,19 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Package } from 'lucide-react'
-import { useDispatchDetail, useDispatchDiff } from '../hooks/useBomDispatches'
+import { toast } from 'sonner'
+import { useDispatchDetail, useDispatchDiff, useRenameCandidates, useDispatchRenames, useUndoRename } from '../hooks/useBomDispatches'
+import { usePermission } from '../hooks/usePermission'
+import { getErrorMessage } from '../lib/getErrorMessage'
 import { DiffWarningBanner } from '../components/bom/DiffWarningBanner'
 import { DiffAggregateCard } from '../components/bom/DiffAggregateCard'
 import { DiffHierarchyView } from '../components/bom/DiffHierarchyView'
 import { DiffExportButtons } from '../components/bom/DiffExportButtons'
 import { DiffBimComparePanel } from '../components/bom/DiffBimComparePanel'
+import { RenamePairDialog } from '../components/bom/RenamePairDialog'
+import { RenameHistory } from '../components/bom/RenameHistory'
 import { buildAssemblyStatusMap } from '../lib/bom/diffBimMatch'
-import type { DispatchDiffDto } from '../api/dispatches'
+import type { DispatchDiffDto, RenameKind, RenamePairDto, RenameEventDto } from '../api/dispatches'
 
 // ─── BomDispatchDetail ──────────────────────────────────────────────────────
 
@@ -19,6 +24,19 @@ export function BomDispatchDetail() {
   const { data: detail, isLoading, isError } = useDispatchDetail(dispatchId, { skipGlobalErrorToast: true })
   const { data: diff, isLoading: isDiffLoading, isError: isDiffError } = useDispatchDiff(dispatchId)
   const [selectedMark, setSelectedMark] = useState<string | null>(null)
+
+  // Pair a removed row / undo a confirmed pair / History (2026-10-21)
+  const { data: candidates } = useRenameCandidates(dispatchId)
+  const { data: renameList } = useDispatchRenames(dispatchId)
+  const undo = useUndoRename(dispatchId ?? 0)
+  const canPair = usePermission('boms', 'update') && !!candidates?.latest
+  // only rows the backend offers as disappeared get a pair button
+  const pairable = { ASSEMBLY: new Set((candidates?.assemblies ?? []).map(a => a.mark)), PART: new Set((candidates?.parts ?? []).map(p => p.mark)) }
+  const [pairing, setPairing] = useState<{ kind: RenameKind; mark: string } | null>(null)
+  const onUndo = async (r: RenamePairDto) => {
+    if (!window.confirm(`ยกเลิกการจับคู่ ${r.from_mark} → ${r.to_mark} ?\nข้อมูลที่ย้ายไปตอนจับคู่จะถูกคืน`)) return
+    try { await undo.mutateAsync(r.id); toast.success('ยกเลิกคู่แล้ว') } catch (e) { toast.error(getErrorMessage(e, 'ยกเลิกคู่ไม่สำเร็จ')) }
+  }
 
   if (isLoading) {
     return (
@@ -87,8 +105,16 @@ export function BomDispatchDetail() {
           projectId={detail.project_id}
           selectedMark={selectedMark}
           onSelectMark={setSelectedMark}
+          renames={renameList?.pairs}
+          history={renameList?.history ?? []}
+          canPair={canPair}
+          pairable={pairable}
+          onPair={(kind, mark) => setPairing({ kind, mark })}
+          onUndo={onUndo}
         />
       </div>
+
+      {pairing && <RenamePairDialog dispatchId={dispatchId!} only={pairing} onClose={() => setPairing(null)} />}
     </div>
   )
 }
@@ -97,6 +123,7 @@ export function BomDispatchDetail() {
 
 function CompareContent({
   isDiffLoading, isDiffError, diff, dispatchId, projectId, selectedMark, onSelectMark,
+  renames, history, canPair, pairable, onPair, onUndo,
 }: {
   isDiffLoading: boolean
   isDiffError: boolean
@@ -105,6 +132,12 @@ function CompareContent({
   projectId: number
   selectedMark: string | null
   onSelectMark: (mark: string) => void
+  renames: RenamePairDto[] | undefined
+  history: RenameEventDto[]
+  canPair: boolean
+  pairable: Record<RenameKind, ReadonlySet<string>>
+  onPair: (kind: RenameKind, mark: string) => void
+  onUndo: (r: RenamePairDto) => void
 }) {
   if (isDiffLoading) {
     return (
@@ -151,8 +184,15 @@ function CompareContent({
             junction_diff={diff.junction_diff}
             selectedMark={selectedMark}
             onSelectRow={onSelectMark}
+            renames={renames}
+            canPair={canPair}
+            pairable={pairable}
+            onPair={onPair}
+            onUndo={onUndo}
           />
         </div>
+
+        <RenameHistory history={history} />
       </div>
 
       <DiffBimComparePanel

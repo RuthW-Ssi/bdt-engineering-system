@@ -5,6 +5,7 @@ import type {
   AssemblyDiffItem, PartDiffItem, JunctionDiffItem,
   DispatchDiffResult,
 } from './dto/diff.dto'
+import { renamePrev, tagRenamed } from './diff-renames'
 
 const FLOAT_TOL = 0.001
 
@@ -159,7 +160,15 @@ export class BomDiffService {
     idBound: { lte: number } | { lt: number },
   ): Promise<EffectiveGroup> {
     const dispatches = await this.prisma.bom_dispatch.findMany({
-      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, status: { not: 'error' }, id: idBound },
+      // source: 'BOM_UPLOAD' only — a PRE_SHOP dispatch (per-MO pre-shop
+      // data, see PreshopService.createDispatch) or a BIM_PLACEHOLDER
+      // dispatch (project-level, lives in its own placeholder zone — never
+      // matches a real zoneId anyway) must never be resolved as a "version"
+      // of this zone's real BOM (bug fix 2026-10-22: a zone with only
+      // PRE_SHOP dispatches was wrongly treated as having a previous BOM
+      // version, since a PRE_SHOP row has no doc_revisions and so
+      // classifyDispatchSlot() misread it as a 'combined' snapshot).
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, status: { not: 'error' }, source: 'BOM_UPLOAD', id: idBound },
       select: { id: true, doc_revisions: { select: { doc_type: true } } },
       orderBy: { id: 'desc' },
     })
@@ -206,6 +215,13 @@ export class BomDiffService {
     if (previousGroup.mainId == null && previousGroup.accId == null) return null
 
     return { current: currentGroup, previous: previousGroup }
+  }
+
+  /** Dispatches this version brought in (current group minus previous) — the
+   *  ones whose bom_mark_rename rows belong to this version (2026-10-21). */
+  renameDispatchIds(groups: { current: EffectiveGroup; previous: EffectiveGroup }): number[] {
+    const prev = new Set(groupToIds(groups.previous))
+    return groupToIds(groups.current).filter(id => !prev.has(id))
   }
 
   // "major.minor" display label for a set of dispatches — minor is each
@@ -257,6 +273,12 @@ export class BomDiffService {
       this.loadRevisionGroupData(previous),
     ])
 
+    const renames = await this.prisma.bom_mark_rename.findMany({
+      where: { dispatch_id: { in: this.renameDispatchIds(groups) } },
+      select: { id: true, kind: true, from_mark: true, to_mark: true },
+    })
+    const prev = renamePrev(prevDetail, renames)
+
     // Dispatch-level info (status, for computeWarning()) — not mark-level,
     // blind `id: { in }` is correct here, no slot-awareness needed.
     const currDispatches = await this.prisma.bom_dispatch.findMany({ where: { id: { in: currentIds } } })
@@ -267,18 +289,18 @@ export class BomDiffService {
       currDispatches.map(d => d.status),
     )
 
-    const assembly_diff = diffEntities(
-      prevDetail.assemblies, currDetail.assemblies,
-      a => a.assembly_mark, assembliesEqual,
+    const assembly_diff = tagRenamed(
+      diffEntities(prev.assemblies, currDetail.assemblies, a => a.assembly_mark, assembliesEqual),
+      a => a.assembly_mark, renames, 'ASSEMBLY',
     )
 
-    const part_diff = diffEntities(
-      prevDetail.parts, currDetail.parts,
-      p => p.part_mark, partsEqual,
+    const part_diff = tagRenamed(
+      diffEntities(prev.parts, currDetail.parts, p => p.part_mark, partsEqual),
+      p => p.part_mark, renames, 'PART',
     )
 
     const junction_diff = diffEntities(
-      prevDetail.junctions, currDetail.junctions,
+      prev.junctions, currDetail.junctions,
       j => `${j.assembly_mark}__${j.part_mark}`, junctionsEqual,
     )
 

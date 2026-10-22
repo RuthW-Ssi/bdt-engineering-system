@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
 import { MailModule } from '../mail/mail.module'
+import { MarkRenameModule } from '../mark-rename/mark-rename.module'
 import { WorkOrdersController } from './work-orders.controller'
 import { ScheduleController } from './schedule.controller'
 import { WorkOrdersService } from './work-orders.service'
@@ -17,9 +18,11 @@ import { WoBimMatchService } from './wo-bim-match.service'
  * minimal dispatch helpers instead of reusing MoAllocationService.
  * MailModule (audit log for edit-actuals 2026-10-01, scheduler runs 2026-10-03) is a
  * leaf — no cycle. SchedulerApiClient calls the prod-scheduler Cloud Run service (ADR-0015).
+ * MarkRenameModule (mark/part renamed between dispatch versions, 2026-10-21) is also a
+ * leaf — WorkOrdersService uses it to re-point a mark/its withdrawn parts on accept.
  */
 @Module({
-  imports: [MailModule],
+  imports: [MailModule, MarkRenameModule],
   controllers: [WorkOrdersController, ScheduleController],
   providers: [WorkOrdersService, ScheduleService, SchedulerApiClient, WorkOrderAutoCreateService, WoBimMatchService],
   exports: [WorkOrdersService, WorkOrderAutoCreateService],

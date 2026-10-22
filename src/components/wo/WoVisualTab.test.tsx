@@ -128,6 +128,79 @@ describe('WoVisualTab drawing version picker', () => {
   })
 })
 
+describe('WoVisualTab sheet picker', () => {
+  // CTR10 rev 1 has a single file (no buttons); rev 2 has two sheets,
+  // natural-sorted by file_name ("Sheet A" before "Sheet B").
+  const sheetDrawings = [
+    pdf(1, 1, 'CTR10 - - Rev 1.pdf', '2026-08-01T12:00:00Z'),
+    pdf(2, 2, 'CTR10 - Sheet A - Rev 2.pdf', '2026-09-20T12:00:00Z'),
+    pdf(3, 2, 'CTR10 - Sheet B - Rev 2.pdf', '2026-09-20T12:00:01Z'),
+    pdf(4, 1, 'CTR11 - - Rev 1.pdf', '2026-08-10T12:00:00Z'),
+  ]
+
+  it('shows no sheet buttons for a rev with a single file', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+
+    fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '1' } })
+
+    expect(screen.queryByText('แผ่น 1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - - Rev 1.pdf')
+  })
+
+  it('shows sheet buttons for a 2-file rev, defaults to sheet 1, and switches the preview on click', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+
+    // Rev 2 is the default (newest) and has 2 sheets.
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+    expect(screen.getByText('แผ่น 1')).toBeInTheDocument()
+    expect(screen.getByText('แผ่น 2')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('แผ่น 2'))
+
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet B - Rev 2.pdf')
+  })
+
+  it('resets to sheet 1 when switching to a different rev', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+    fireEvent.click(screen.getByText('แผ่น 2'))
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet B - Rev 2.pdf')
+
+    fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '1' } })
+    expect(screen.queryByText('แผ่น 1')).not.toBeInTheDocument() // rev 1 has only one file
+
+    fireEvent.change(screen.getByLabelText('Drawing version'), { target: { value: '2' } })
+
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+  })
+
+  // sheetKey is tagged with the mark's bomAssemblyId (see WoVisualTab.tsx),
+  // so a round trip back to the same mark+rev must still reset to sheet 1 —
+  // not silently restore the sheet 2 pick left over from before the switch.
+  it('resets the sheet picker to sheet 1 when switching mark and back', () => {
+    mockedDrawings.mockReturnValue({ data: sheetDrawings, isLoading: false, isError: false } as any)
+    render(<WoVisualTab woId={1} marks={marks} />)
+
+    // CTR10 (default mark) defaults to rev 2, which has 2 sheets; pick sheet 2.
+    fireEvent.click(screen.getByText('แผ่น 2'))
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet B - Rev 2.pdf')
+
+    // Switch to CTR11 — a single-file rev, so no sheet buttons at all.
+    fireEvent.change(screen.getByLabelText('Drawing mark'), { target: { value: '2' } })
+    expect(screen.queryByText('แผ่น 1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR11 - - Rev 1.pdf')
+
+    // Switch back to CTR10 — same rev as before, but must show sheet 1
+    // (files[0]), not the sheet 2 pick left over from the first visit.
+    fireEvent.change(screen.getByLabelText('Drawing mark'), { target: { value: '1' } })
+
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - Sheet A - Rev 2.pdf')
+    expect([...screen.getAllByText(/แผ่น/)].map(b => b.textContent)).toEqual(['แผ่น 1', 'แผ่น 2'])
+  })
+})
+
 describe('WoVisualTab 3D version picker', () => {
   it('shows the model the backend defaulted to, with non-complete versions labelled', () => {
     render(<WoVisualTab woId={1} marks={marks} />)
@@ -361,5 +434,18 @@ describe('WoVisualTab highlight-every-WO-mark toggle', () => {
 
     expect(focusSeen[focusSeen.length - 1]).toBe(before)
     expect(new Map(JSON.parse(screen.getByTestId('bim-viewport').dataset.colors!)).get('guid-9')).toBe('#C8202A')
+  })
+})
+
+describe('WoVisualTab — renamed mark', () => {
+  it('shows the old name\'s drawing, labelled "Drawing ของชื่อเดิม"', () => {
+    render(<WoVisualTab woId={1} marks={[{ bomAssemblyId: 1, mark: '3CTR10', projectId: 1, zoneId: 7, subZoneId: null, aliases: ['CTR10'] }]} />)
+    expect(screen.getByTestId('drawing-preview')).toHaveTextContent('CTR10 - - Rev 2.pdf')
+    expect(screen.getByText('Drawing ของชื่อเดิม CTR10')).toBeInTheDocument()
+  })
+
+  it('no label when the mark has its own drawing', () => {
+    render(<WoVisualTab woId={1} marks={marks} />)
+    expect(screen.queryByText(/Drawing ของชื่อเดิม/)).not.toBeInTheDocument()
   })
 })

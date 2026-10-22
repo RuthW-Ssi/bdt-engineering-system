@@ -231,6 +231,10 @@ export interface PreshopAssembly {
   // fields the two files disagree on that the user still has to pick.
   sources?: { DN?: PreshopSourceValues; PDF?: PreshopSourceValues }
   conflicts?: PreshopConflictField[]
+  // Pair a renamed mark (2026-10-22): this `new` row is the same piece as an
+  // absent PRE_SHOP mark of the MO (`existing.assembly_mark`), just renamed —
+  // the server renames that line in place instead of adding a new one.
+  rename_from?: string
 }
 
 export interface PreshopSourceValues { file: string; qty: number; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null; parts: PreshopPart[] }
@@ -555,21 +559,29 @@ export async function getZoneMo(zoneId: number): Promise<{ id: number; mo_code: 
 /** An uploaded mark vs the MO (2026-10-08): new, or already in the MO — then
  *  its current values come back so the user compares old vs new and chooses
  *  (status 'same' = sizes and parts already match). */
+export interface PreshopExisting {
+  qty: number
+  name?: string | null
+  length_mm: number | null
+  width_mm?: number | null
+  height_mm?: number | null
+  weight_kg: number | null
+  surface_area_m2?: number | null
+  parts: PreshopPart[]
+  wo_qty: number // sets WOs already planned — the floor
+  wo_parts: string[] // part marks on a WO — can't be dropped
+}
+
 export interface PreshopMergeRow {
   assembly_mark: string
   status: 'new' | 'same' | 'changed'
-  existing: {
-    qty: number
-    name?: string | null
-    length_mm: number | null
-    width_mm?: number | null
-    height_mm?: number | null
-    weight_kg: number | null
-    surface_area_m2?: number | null
-    parts: PreshopPart[]
-    wo_qty: number // sets WOs already planned — the floor
-    wo_parts: string[] // part marks on a WO — can't be dropped
-  } | null
+  existing: PreshopExisting | null
+  // Pair a renamed mark (2026-10-22) — `status: 'new'` rows only. Every
+  // absent PRE_SHOP mark of the MO that might be this same piece, just
+  // renamed: scope cut, no % — name-similar ones first (server order, keep as
+  // given). Build the compare client-side from `existing` (shaped identically
+  // to this row's own `existing`) — no extra dry-run round-trip.
+  rename_candidates?: { line_id: number; assembly_mark: string; existing: PreshopExisting }[]
 }
 
 /** POST /mo/:id/preshop — add / fill in assemblies of a PRE_SHOP MO from ONE source. */
@@ -674,6 +686,36 @@ export async function fetchMoPrintPacketBlob(id: number, woIds?: number[], inclu
   }
 }
 
+// Stale-drawing status (2026-10-21, Task 4 of "MO/WO follow the drawing
+// revision") — warn-only: which (WO, mark) pairs on this MO were printed
+// with a drawing rev that's now older than the current one. Mirrors the
+// backend's StaleDrawingItem (drawing-rev-status.ts) field-for-field. A
+// legacy/unprinted WO never appears — never block Start/progress, this is
+// purely informational (notice + reprint shortcut on MoDetail's Print flow).
+export interface DrawingRevStatusItem {
+  wo_id: number
+  wo_code: string
+  mark: string
+  printed_rev: number
+  current_rev: number
+}
+
+// Shared by DrawingRevBadge (the count) and DrawingRevNotice (the reprint
+// button's wo_ids) — fix round 1: was duplicated as `new Set(...)` in both
+// components. Several marks on the same WO must still count/print as one WO.
+export function distinctWoIds(items: DrawingRevStatusItem[]): number[] {
+  return [...new Set(items.map(i => i.wo_id))]
+}
+
+// `woId` narrows to a single WO (unused by Task 4's MO-level badge/notice,
+// kept for the WO detail page to reuse); omitted means every non-cancelled
+// WO on the MO — same default as fetchMoPrintPacketBlob's `woIds`.
+export async function getMoDrawingRevStatus(moId: number, woId?: number): Promise<{ items: DrawingRevStatusItem[] }> {
+  return (await apiClient.get(`/mo/${moId}/drawing-rev-status`, {
+    params: woId !== undefined ? { wo_id: woId } : undefined,
+  })).data
+}
+
 // ── Pre-shop MO vs the zone's real BOM (2026-10-08) ─────────────────────────
 export interface BomValues { qty: number; name?: string | null; length_mm: number | null; width_mm?: number | null; height_mm?: number | null; weight_kg: number | null; surface_area_m2?: number | null; parts: PreshopPart[] }
 export interface BomCompare {
@@ -688,13 +730,17 @@ export interface BomCompare {
     bom: (BomValues & { assembly_id: number; assembly_mark: string }) | null
     part_pairs?: PartPair[] // matched by name: how its parts line up with the BOM's
     candidates?: (BomValues & { assembly_id: number; assembly_mark: string; score: number; part_pairs: PartPair[] })[] // not in the BOM by name: likely renamed to
+    // RENAMED (2026-10-21): a mark already paired on the BOM page — `bom` above is already
+    // the resolved (renamed) target; this is for display/history only. Never `candidates`.
+    renamed_to?: { assembly_id: number; assembly_mark: string; rename_id: number } | null
+    rename_ids?: number[] // every hop's id, nearest-first (rarely used by the frontend)
   }[]
   bom_only: (BomValues & { assembly_id: number; assembly_mark: string })[]
   pool: (BomValues & { assembly_id: number; assembly_mark: string })[] // every BOM mark the MO doesn't have (renamed marks are among these)
   pending: number
 }
-/** One part of an MO mark and its counterpart in the BOM (2026-10-09): same name, same spec (renamed) or none. */
-export interface PartPair { from: string; to: string | null; how: 'name' | 'spec' | 'none' }
+/** One part of an MO mark and its counterpart in the BOM (2026-10-09): same name, renamed (confirmed pair), same spec, or none. */
+export interface PartPair { from: string; to: string | null; how: 'name' | 'rename' | 'spec' | 'none' }
 /** Operation × mark still short of QC-passed sets — Complete waits for an empty list (2026-10-09). */
 export interface QcShortfall { assembly_mark: string; operation: string; passed: number; need: number }
 export async function getQcCheck(id: number): Promise<QcShortfall[]> {

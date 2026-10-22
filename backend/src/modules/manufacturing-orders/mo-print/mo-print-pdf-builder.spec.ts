@@ -137,6 +137,28 @@ async function fakePdfBytes(pageCount: number, size: [number, number] = [200, 20
   return doc.save()
 }
 
+// A genuinely 0-page PDF (2026-10-21 fix round 1, point 3) — simulates a
+// bad/empty fetched sheet. NOT pdf-lib's own PDFDocument.create()+save(),
+// which always auto-inserts a blank page on save when a document has none
+// (confirmed: reloading that gives getPageCount() === 1, not 0); this is a
+// hand-written minimal PDF with an empty /Pages tree, which pdf-lib's
+// loader (unlike its saver) reports faithfully as 0 pages.
+function zeroPagePdfBytes(): Buffer {
+  const pdf = [
+    '%PDF-1.4',
+    '1 0 obj',
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    'endobj',
+    '2 0 obj',
+    '<< /Type /Pages /Kids [] /Count 0 >>',
+    'endobj',
+    'trailer',
+    '<< /Size 3 /Root 1 0 R >>',
+    '%%EOF',
+  ].join('\n')
+  return Buffer.from(pdf, 'latin1')
+}
+
 function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrderRow {
   return {
     wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') },
@@ -151,7 +173,7 @@ function makeRow(overrides: Partial<MoPrintWorkOrderRow> = {}): MoPrintWorkOrder
     operationLabel: 'OP-WELD-SAW — SAW auto weld',
     marks: [{
       assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450,
-      drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      drawings: [{ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }],
     }],
     assignedTo: null,
     teamHeadcount: 1,
@@ -179,14 +201,12 @@ function makePlan(rows: MoPrintWorkOrderRow[], overrides: Partial<MoPrintPacketP
 jest.setTimeout(20000)
 
 describe('buildMoPrintPdf', () => {
-  it('produces one manifest page, then a traveler page + one dedicated drawing page per WO row, in order', async () => {
+  it('produces one manifest page, then a traveler page + one drawing page per WO row\'s single-sheet mark, in order', async () => {
     const plan = makePlan([
       makeRow({ wo: { id: 1398, wo_code: 'WO-00000739', sequence: 10, status: 'NOT_STARTED', expected_duration_min: 60, setup_time_min: 15, created_at: new Date('2026-09-20T00:00:00Z') } }),
       makeRow({ wo: { id: 1399, wo_code: 'WO-00000740', sequence: 20, status: 'NOT_STARTED', expected_duration_min: 30, setup_time_min: 5, created_at: new Date('2026-09-20T00:00:00Z') } }),
     ])
-    const drawingPageCounts = [1, 2] // a multi-page drawing source must not inflate output page count
-    let call = 0
-    const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(drawingPageCounts[call++]))
+    const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
 
     const bytes = await buildMoPrintPdf(plan, fetchDrawingBytes)
     const merged = await PDFDocument.load(bytes)
@@ -195,8 +215,54 @@ describe('buildMoPrintPdf', () => {
     expect(fetchDrawingBytes).toHaveBeenCalledTimes(2)
   })
 
+  // 2026-10-21 ("print every sheet and every page of the current rev"):
+  // supersedes the old "a multi-page drawing source must not inflate output
+  // page count" rule — every page of every sheet now prints.
+  it('prints every page of every sheet of a mark\'s current rev, not just each sheet\'s first page', async () => {
+    const twoPageSheet = { file_key: 'd1.pdf', file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+    const onePageSheet = { file_key: 'd2.pdf', file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+    const plan = makePlan([makeRow({
+      marks: [{ assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [twoPageSheet, onePageSheet] }],
+    })])
+    const pageCountBySheet: Record<string, number> = { 'd1.pdf': 2, 'd2.pdf': 1 }
+    const fetchDrawingBytes = jest.fn(async (_row, _mark, sheet) => fakePdfBytes(pageCountBySheet[sheet.file_key]))
+
+    const bytes = await buildMoPrintPdf(plan, fetchDrawingBytes)
+    const merged = await PDFDocument.load(bytes)
+
+    // manifest(0) + traveler(1) + 3 drawing pages (2-page sheet + 1-page sheet).
+    expect(merged.getPageCount()).toBe(1 + 1 + 3)
+    expect(fetchDrawingBytes).toHaveBeenCalledTimes(2)
+  })
+
+  // 2026-10-21 fix round 1, point 3: a fetched sheet can come back with 0
+  // pages (a bad/empty source PDF) — must not crash, and contributes no
+  // page of its own; its mark's other sheets still print in full.
+  it('does not crash when one sheet comes back with 0 pages — its other sheets still print in full', async () => {
+    const emptySheet = { file_key: 'empty.pdf', file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+    const realSheet = { file_key: 'd2.pdf', file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+    const plan = makePlan([makeRow({
+      marks: [{ assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [emptySheet, realSheet] }],
+    })])
+    const fetchDrawingBytes = jest.fn(async (_row, _mark, sheet) => (sheet.file_key === 'empty.pdf' ? zeroPagePdfBytes() : fakePdfBytes(2)))
+
+    const bytes = await buildMoPrintPdf(plan, fetchDrawingBytes)
+    const merged = await PDFDocument.load(bytes)
+
+    // manifest(0) + traveler(1) + 2 drawing pages from the real sheet only.
+    expect(merged.getPageCount()).toBe(1 + 1 + 2)
+  })
+
+  it('skips a mark entirely (no drawing page, no crash) when every one of its sheets comes back with 0 pages', async () => {
+    const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => zeroPagePdfBytes())
+    const merged = await PDFDocument.load(bytes)
+
+    // manifest(0) + traveler(1), no drawing page at all.
+    expect(merged.getPageCount()).toBe(1 + 1)
+  })
+
   it('2026-10-07: a mark with no drawing keeps its traveler page but gets no drawing page (nothing fetched)', async () => {
-    const plan = makePlan([makeRow({ marks: [{ assemblyMark: 'BUH1-3', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, qty: 2, weight_kg: 3561.15, drawing: null }] })])
+    const plan = makePlan([makeRow({ marks: [{ assemblyMark: 'BUH1-3', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, qty: 2, weight_kg: 3561.15, drawings: [] }] })])
     const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
     const merged = await PDFDocument.load(await buildMoPrintPdf(plan, fetchDrawingBytes))
     expect(merged.getPageCount()).toBe(1 + 1)
@@ -302,13 +368,13 @@ describe('buildMoPrintPdf', () => {
     // already occupies that same top-right corner on traveler pages).
   })
 
-  it('calls fetchDrawingBytes with the matching row and mark so the caller knows which file to fetch', async () => {
+  it('calls fetchDrawingBytes with the matching row, mark and sheet so the caller knows which file to fetch', async () => {
     const row = makeRow()
     const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
 
     await buildMoPrintPdf(makePlan([row]), fetchDrawingBytes)
 
-    expect(fetchDrawingBytes).toHaveBeenCalledWith(row, row.marks[0])
+    expect(fetchDrawingBytes).toHaveBeenCalledWith(row, row.marks[0], row.marks[0].drawings[0])
   })
 
   // Regression: mark/team names in this app are routinely Thai (e.g. a
@@ -321,7 +387,7 @@ describe('buildMoPrintPdf', () => {
       makeRow({
         marks: [{
           assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'เสาเหล็ก Column A1', qty: 1, weight_kg: 450,
-          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+          drawings: [{ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }],
         }],
         assignedTo: 'ทีมช่างเชื่อม',
       }),
@@ -562,17 +628,17 @@ describe('buildMoPrintPdf', () => {
   // traveler; 2026-09-22: one such page per mark, not one per WO — see the
   // multi-mark describe block below for that specifically).
   describe('Shop Drawing (dedicated page per mark)', () => {
-    it('puts the matched drawing\'s first page on its own page after the traveler — not on the traveler, and without the source drawing\'s other pages', async () => {
+    it('puts the matched drawing\'s pages on their own pages after the traveler, not on the traveler — every page of the source prints (2026-10-21)', async () => {
       const plan = makePlan([makeRow()])
 
       const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(2))
       const merged = await PDFDocument.load(bytes)
 
-      // Page 0 = manifest, 1 = traveler, 2 = drawing — the drawing
-      // source's 2nd page must not appear anywhere.
-      expect(merged.getPageCount()).toBe(1 + 2)
+      // Page 0 = manifest, 1 = traveler, 2 + 3 = both drawing pages.
+      expect(merged.getPageCount()).toBe(1 + 1 + 2)
       expect(pageHasEmbeddedForm(merged, 1)).toBe(false)
       expect(pageHasEmbeddedForm(merged, 2)).toBe(true)
+      expect(pageHasEmbeddedForm(merged, 3)).toBe(true)
     })
 
     it('labels the drawing page with text (WO code + mark) so a sheet separated from its traveler can be matched back', async () => {
@@ -624,6 +690,20 @@ describe('buildMoPrintPdf', () => {
       expect(top[0].x).toBeGreaterThan(pageWidth - 40) // bare "3 / 3"
     })
 
+    // final review: a long label on a narrow sheet shrinks to fit instead of
+    // running off the left edge
+    it('shrinks a long corner label to fit a narrow drawing page (x stays at or right of the border inset)', async () => {
+      const longMark = 'VERY-LONG-ASSEMBLY-MARK-NAME-WITH-MANY-PARTS-0001'
+      const row = makeRow({ marks: [{ ...makeRow().marks[0], assemblyMark: longMark }] })
+      const bytes = await buildMoPrintPdf(makePlan([row]), async () => fakePdfBytes(1, [300, 300]))
+      const merged = await PDFDocument.load(bytes)
+      const { height } = merged.getPage(2).getSize()
+      const corner = Array.from(decodedContentStream(merged, 2).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => ({ x: Number(m[1]), y: Number(m[2]) }))
+        .filter(p => p.y < height / 3)
+      expect(corner).toHaveLength(1)
+      expect(corner[0].x).toBeGreaterThanOrEqual(20)
+    })
+
     it('keeps a plain page number (no stamp) on the traveler page', async () => {
       const bytes = await buildMoPrintPdf(makePlan([makeRow()]), async () => fakePdfBytes(1, [1600, 1000]))
       const merged = await PDFDocument.load(bytes)
@@ -653,6 +733,33 @@ describe('buildMoPrintPdf', () => {
       expect(middleThirdYs).toHaveLength(3)
     })
 
+    // 2026-10-21 ("print every sheet and every page of the current rev"):
+    // when a mark's current rev prints more than one page, " · sheet i/n"
+    // rides inside the EXISTING corner label and watermark stamp — the
+    // run counts below must stay identical to the single-sheet case above
+    // (1 corner-label run, 3 watermark lines), proving no new text element
+    // was added just because there are multiple sheets/pages.
+    it('keeps the sheet suffix inside the existing corner label and watermark, adding no new text element, across every sheet/page', async () => {
+      const sheetA = { file_key: 'd1.pdf', file_name: 'DBN-A1-CTR1 - sheet 1 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+      const sheetB = { file_key: 'd2.pdf', file_name: 'DBN-A1-CTR1 - sheet 2 - Rev 2.pdf', rev: 2, uploaded_at: new Date('2026-09-14T00:00:00Z') }
+      const plan = makePlan([makeRow({
+        marks: [{ assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [sheetA, sheetB] }],
+      })])
+
+      const bytes = await buildMoPrintPdf(plan, async () => fakePdfBytes(1, [1600, 1000]))
+      const merged = await PDFDocument.load(bytes)
+
+      // manifest(0) + traveler(1) + drawing sheet 1/2(2) + drawing sheet 2/2(3).
+      expect(merged.getPageCount()).toBe(1 + 1 + 2)
+      for (const pageIndex of [2, 3]) {
+        const { height: pageHeight } = merged.getPage(pageIndex).getSize()
+        const corner = textOriginYs(merged, pageIndex).filter(y => y < pageHeight / 3)
+        expect(corner).toHaveLength(1)
+        const middleThirdYs = textOriginYs(merged, pageIndex).filter(y => y > pageHeight / 3 && y < (pageHeight * 2) / 3)
+        expect(middleThirdYs).toHaveLength(3)
+      }
+    })
+
     // 2026-09-22: "wo มีหลายมาก mark ทำไมถึงแสดงแค่ print แค่ 1 drawing
     // ต้อง print ทุก drawing ที่มี mark" — a multi-mark WO used to embed
     // only its primary mark's drawing once; now every mark gets its own
@@ -660,8 +767,8 @@ describe('buildMoPrintPdf', () => {
     it('embeds one drawing page per mark on a multi-mark WO, not just the primary mark, each fetched and labeled separately', async () => {
       const plan = makePlan([makeRow({
         marks: [
-          { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawing: { file_key: 'd1.pdf', file_name: 'd1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
-          { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 1, weight_kg: 220, drawing: { file_key: 'd2.pdf', file_name: 'd2.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') } },
+          { assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A1', qty: 1, weight_kg: 450, drawings: [{ file_key: 'd1.pdf', file_name: 'd1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }] },
+          { assemblyMark: 'DBN-A1-CTR2', sourceLabel: 'BOM rev 1', renamedFrom: null, name: 'Column A2', qty: 1, weight_kg: 220, drawings: [{ file_key: 'd2.pdf', file_name: 'd2.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }] },
         ],
       })])
       const fetchDrawingBytes = jest.fn(async () => fakePdfBytes(1))
@@ -672,8 +779,8 @@ describe('buildMoPrintPdf', () => {
       // manifest(0) + traveler(1) + drawing for CTR1(2) + drawing for CTR2(3).
       expect(merged.getPageCount()).toBe(1 + 1 + 2)
       expect(fetchDrawingBytes).toHaveBeenCalledTimes(2)
-      expect(fetchDrawingBytes).toHaveBeenCalledWith(plan.rows[0], plan.rows[0].marks[0])
-      expect(fetchDrawingBytes).toHaveBeenCalledWith(plan.rows[0], plan.rows[0].marks[1])
+      expect(fetchDrawingBytes).toHaveBeenCalledWith(plan.rows[0], plan.rows[0].marks[0], plan.rows[0].marks[0].drawings[0])
+      expect(fetchDrawingBytes).toHaveBeenCalledWith(plan.rows[0], plan.rows[0].marks[1], plan.rows[0].marks[1].drawings[0])
       expect(decodedContentStream(merged, 2)).toMatch(/Tj/)
       expect(decodedContentStream(merged, 3)).toMatch(/Tj/)
     })
@@ -693,7 +800,7 @@ describe('buildMoPrintPdf', () => {
     }))
     const longMarks = Array.from({ length: 30 }, (_, i) => ({
       assemblyMark: `DBN-A1-CTR${i}`, sourceLabel: 'BOM rev 1', renamedFrom: null, name: `Column ${i}`, qty: 1, weight_kg: 450,
-      drawing: { file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf`, rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+      drawings: [{ file_key: `drawings/dbn-a1-ctr${i}-rev1.pdf`, file_name: `DBN-A1-CTR${i} - - Rev 1.pdf`, rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }],
     }))
 
     it('does not throw with a normal activity list (including an unresolved one), a Thai consume list, and a full Production Time', async () => {
@@ -720,7 +827,7 @@ describe('buildMoPrintPdf', () => {
         activities: [], consume: [], assignedTo: null, planStart: null, planEnd: null,
         marks: [{
           assemblyMark: 'DBN-A1-CTR1', sourceLabel: 'BOM rev 1', renamedFrom: null, name: null, qty: null, weight_kg: null,
-          drawing: { file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') },
+          drawings: [{ file_key: 'drawings/dbn-a1-ctr1-rev1.pdf', file_name: 'DBN-A1-CTR1 - - Rev 1.pdf', rev: 1, uploaded_at: new Date('2026-09-14T00:00:00Z') }],
         }],
       })])
 
@@ -788,30 +895,6 @@ describe('buildMoPrintPdf', () => {
 
       const xs = Array.from(decodedContentStream(merged, 1).matchAll(/(-?[\d.]+) (-?[\d.]+) Tm/g), m => Number(m[1]))
       expect(xs.some(x => x > pageWidth / 2)).toBe(true)
-    })
-  })
-
-  // 2026-10-05 (print option A): a drawing uploaded after the WO was created
-  // gets a note on the traveler, in the top margin above both columns.
-  describe('drawing updated after the WO', () => {
-    const topMarginRuns = (doc: PDFDocument, pageIndex: number) => {
-      const { height } = doc.getPage(pageIndex).getSize()
-      return textOriginYs(doc, pageIndex).filter(y => y > height - 40).length
-    }
-    const updatedRow = () => makeRow({
-      marks: [{ ...makeRow().marks[0], drawing: { ...makeRow().marks[0].drawing!, rev: 3, uploaded_at: new Date('2026-10-02T03:00:00Z') } }],
-    })
-    const traveler = async (row: MoPrintWorkOrderRow) => PDFDocument.load(await buildMoPrintPdf(makePlan([row]), async () => fakePdfBytes(1)))
-
-    it('adds exactly one note in the traveler\'s top margin when a mark\'s drawing was uploaded after the WO was created', async () => {
-      const baseline = topMarginRuns(await traveler(makeRow()), 1)
-      expect(topMarginRuns(await traveler(updatedRow()), 1)).toBe(baseline + 1)
-    })
-
-    it('adds nothing when every drawing predates the WO', async () => {
-      const baseline = topMarginRuns(await traveler(makeRow()), 1)
-      const olderDrawing = makeRow({ wo: { ...makeRow().wo, created_at: new Date('2026-10-05T00:00:00Z') } })
-      expect(topMarginRuns(await traveler(olderDrawing), 1)).toBe(baseline)
     })
   })
 })

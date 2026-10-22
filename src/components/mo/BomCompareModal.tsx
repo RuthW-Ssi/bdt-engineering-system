@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { linkBom, type BomCompare, type MoDetail, type PartPair, type PreshopAssembly } from '../../api/mo'
 import { ASM_FIELDS, norm, showValue, type AsmValues } from '../../lib/asmFields'
 import { getErrorMessage } from '../../lib/getErrorMessage'
+import { prePairs } from '../../lib/moBomComparePairs'
 import { partErrors } from '../../lib/preshop'
 import { autoChoice, choiceErrors, finalAssembly, unchosen, versionDiff, type MergeChoice } from '../../lib/preshopMerge'
 import { Card, PartTable, PreshopMergeCompare } from './PreshopMergeCompare'
@@ -69,7 +70,7 @@ function PartPairing({ pairs, bomParts, onChange }: { pairs: PartPair[]; bomPart
                 </option>
               ))}
             </select>
-            {p.to && p.to !== p.from && <span style={{ fontSize: 11.5, color: '#854F0B', fontWeight: 600 }}>เปลี่ยนชื่อ</span>}
+            {(p.how === 'rename' || (p.to && p.to !== p.from)) && <span style={{ fontSize: 11.5, color: '#854F0B', fontWeight: 600 }}>เปลี่ยนชื่อ</span>}
             {!p.to && <span style={{ fontSize: 11.5, color: '#C8202A', fontWeight: 600 }}>จะเอาออก</span>}
           </div>
         ))}
@@ -83,7 +84,12 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
   const pending = data.rows.filter(r => !r.reviewed)
   const done = data.rows.filter(r => r.reviewed)
 
-  const [pairWith, setPairWith] = useState<Record<string, number | null>>({})
+  // RENAMED (2026-10-21): a mark already paired on the BOM page starts with its
+  // pair pre-filled (sent as a no-op `pair_with`, task-6-report.md "Fix round
+  // 2" #2) — but the decision itself is NOT forced to "apply": each section's
+  // normal default/buttons still apply, so the visible button state always
+  // matches what gets submitted (controller ruling, Task 10).
+  const [pairWith, setPairWith] = useState<Record<string, number | null>>(() => prePairs(data.rows).pairWith)
   const [partMaps, setPartMaps] = useState<Record<string, PartPair[]>>({})
   const [decision, setDecision] = useState<Record<string, Decision>>(() =>
     Object.fromEntries(pending.map(r => [r.assembly_mark, r.status === 'same' ? 'keep' : r.status === 'changed' && r.kind === 'preshop' ? 'apply' : 'later'])))
@@ -96,7 +102,7 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
   const poolById = new Map(data.pool.map(p => [p.assembly_id, p]))
   const targetOf = (r: Row): Target | null => r.bom ?? (pairWith[r.assembly_mark] ? poolById.get(pairWith[r.assembly_mark]!) ?? null : null)
   const pairsOf = (r: Row): PartPair[] => partMaps[r.assembly_mark] ?? (r.bom ? r.part_pairs ?? [] : r.candidates?.find(c => c.assembly_id === pairWith[r.assembly_mark])?.part_pairs ?? [])
-  const renamedParts = (r: Row) => pairsOf(r).some(p => p.how === 'spec' || (p.to && p.to !== p.from))
+  const renamedParts = (r: Row) => pairsOf(r).some(p => p.how === 'spec' || p.how === 'rename' || (p.to && p.to !== p.from))
   const pairedIds = new Set(Object.values(pairWith).filter((x): x is number => !!x))
 
   const changed = pending.filter(r => r.status === 'changed' && r.kind === 'preshop')
@@ -147,7 +153,10 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
             // parts move by the map the user saw (names, or confirmed renames)
             ...(targetOf(r) ? { part_map: pairsOf(r).map(p => ({ from: p.from, to: p.to })) } : {}),
           }
-          if (d !== 'apply') return { assembly_mark: r.assembly_mark, action: d }
+          // pair_with still goes out on a non-"apply" decision too (e.g. "ยืนยันว่าตรงกัน"
+          // on a renamed-but-now-identical mark) — it's how the backend repoints the FK
+          // without changing any values; a no-op for anything not pre-paired here.
+          if (d !== 'apply') return { assembly_mark: r.assembly_mark, action: d, ...(pairWith[r.assembly_mark] ? { pair_with: pairWith[r.assembly_mark]! } : {}) }
           const t = targetOf(r)!
           if (r.kind === 'bom') {
             return { assembly_mark: r.assembly_mark, action: 'apply', ...pairing, final: { qty: qtyOf[r.assembly_mark] ?? r.existing.qty, length_mm: t.length_mm, weight_kg: t.weight_kg, parts: [] } }
@@ -275,6 +284,7 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
                   <span style={{ flex: 1 }} />
                   <Choice label="ไว้ทีหลัง" active={decision[r.assembly_mark] === 'later'} onClick={() => setD(r, 'later')} />
                 </div>
+                {r.renamed_to && <div style={{ fontSize: 12, color: '#1E6B36', marginTop: 6 }}>{`จับคู่ไว้แล้วที่หน้า BOM: ${r.assembly_mark} → ${r.renamed_to.assembly_mark}`}</div>}
                 {renamedParts(r) && <PartPairing pairs={pairsOf(r)} bomParts={r.bom!.parts} onChange={p => setPartMaps(m => ({ ...m, [r.assembly_mark]: p }))} />}
                 {versionCards(r, r.bom!)}
               </div>
@@ -283,13 +293,16 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
 
           <Section title="ตรงกับ BOM" tone="green" count={same.length}>
             {same.map(r => (
-              <div key={r.assembly_mark} className="flex items-center" style={{ ...ROW, gap: 8 }}>
-                <CheckCircle2 size={16} className="text-green-800" />
-                <span style={MARK}>{r.assembly_mark}</span>
-                <span style={{ fontSize: 12.5, color: '#666' }}>ทุกค่าและ part ตรงกันทั้งหมด · MO {r.existing.qty} ชุด (BOM ทั้ง zone {r.bom!.qty})</span>
-                <span style={{ flex: 1 }} />
-                <Choice label="ยืนยันว่าตรงกัน" active={decision[r.assembly_mark] === 'keep'} onClick={() => setD(r, 'keep')} />
-                <Choice label="ไว้ทีหลัง" active={decision[r.assembly_mark] === 'later'} onClick={() => setD(r, 'later')} />
+              <div key={r.assembly_mark} style={ROW}>
+                <div className="flex items-center" style={{ gap: 8 }}>
+                  <CheckCircle2 size={16} className="text-green-800" />
+                  <span style={MARK}>{r.assembly_mark}</span>
+                  <span style={{ fontSize: 12.5, color: '#666' }}>ทุกค่าและ part ตรงกันทั้งหมด · MO {r.existing.qty} ชุด (BOM ทั้ง zone {r.bom!.qty})</span>
+                  <span style={{ flex: 1 }} />
+                  <Choice label="ยืนยันว่าตรงกัน" active={decision[r.assembly_mark] === 'keep'} onClick={() => setD(r, 'keep')} />
+                  <Choice label="ไว้ทีหลัง" active={decision[r.assembly_mark] === 'later'} onClick={() => setD(r, 'later')} />
+                </div>
+                {r.renamed_to && <div style={{ fontSize: 12, color: '#1E6B36', marginTop: 6 }}>{`จับคู่ไว้แล้วที่หน้า BOM: ${r.assembly_mark} → ${r.renamed_to.assembly_mark}`}</div>}
               </div>
             ))}
           </Section>

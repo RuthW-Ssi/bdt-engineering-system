@@ -8,6 +8,7 @@ import {
   useWoTransition, useWoDone, useWoCancel, useRemoveWoMark, useAcceptNewVersion, useWoCancelSiblings, useUpdateWoActuals,
   useUpdateMarkProgress,
 } from '../hooks/useWo'
+import { useMoDrawingRevStatus } from '../hooks/useMo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { WoMarksTable } from '../components/wo/WoMarksTable'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from '../components/wo/QcBreakdownFields'
@@ -17,6 +18,7 @@ import type {
   MarkDispositionInput, MarkProgressBody,
 } from '../api/wo'
 import { siblingQtyDone } from '../api/wo'
+import type { DrawingRevStatusItem } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
@@ -99,6 +101,18 @@ export function allMarksQcPassed(
   return activeMarks.every(m => m.qty_qc_passed != null && Number(m.qty_qc_passed) === Number(m.qty_planned) && m.actual_finish != null)
 }
 
+// Drawing rev banner text (Task 5, 2026-10-21) — the QR on the printed
+// traveler opens this page, so this is where the stale-printed-drawing
+// warning lives (MO print's own notice/badge cover the MO-level views).
+// {marks} is each item's mark, deduped in order; the parenthesised part
+// lists every item, one `MARK Rev a → Rev b` per item. Pure + exported for
+// unit testing, same precedent as buildCancelPayload/allMarksQcPassed.
+export function buildDrawingRevBannerText(items: DrawingRevStatusItem[]): string {
+  const marks = [...new Set(items.map(i => i.mark))].join(', ')
+  const detail = items.map(i => `${i.mark} Rev ${i.printed_rev} → Rev ${i.current_rev}`).join(', ')
+  return `Drawing ของ ${marks} มีรุ่นใหม่แล้ว (${detail}) — ใบที่พิมพ์ไว้เป็นรุ่นเก่า ให้หัวหน้างานพิมพ์ใบงานใหม่ที่หน้า MO`
+}
+
 export function WoDetail() {
   const { id } = useParams<{ id: string }>()
   const woId = Number(id)
@@ -121,6 +135,10 @@ export function WoDetail() {
   const [datesError, setDatesError] = useState<string | null>(null)
 
   const { data: wo, isLoading, refetch } = useWo(woId)
+  // Called unconditionally (rules of hooks) — `wo` isn't loaded yet on first
+  // render, so moId is undefined and the hook (see useMo.ts) just stays
+  // disabled until useWo resolves.
+  const { data: drawingRevStatus, isLoading: drawingRevLoading, isError: drawingRevError } = useMoDrawingRevStatus(wo?.mo_id, woId)
   const { data: events, isLoading: eventsLoading } = useWoEvents(woId)
   const { data: bomList } = useBomVersionStatus(woId)
   const simpleTransition = useWoTransition(woId)
@@ -268,6 +286,12 @@ export function WoDetail() {
         </div>
       )}
 
+      {!drawingRevLoading && !drawingRevError && (drawingRevStatus?.items.length ?? 0) > 0 && (
+        <div className="flex items-center gap-2 border-b border-molten-100 bg-molten-50 text-molten-600" style={{ fontSize: 13, fontWeight: 600, padding: '9px 24px', flexShrink: 0 }}>
+          <AlertTriangle size={15} /> {buildDrawingRevBannerText(drawingRevStatus!.items)}
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="bg-white border-b border-chrome-100 px-6 flex items-center gap-1" style={{ flexShrink: 0 }}>
         {TABS.map((t) => (
@@ -314,7 +338,7 @@ export function WoDetail() {
             woId={woId}
             marks={wo.marks.filter(m => !m.removed_at).map(m => {
               const d = m.snapshot_dispatch ?? m.bom_assembly.dispatch
-              return { bomAssemblyId: m.bom_assembly_id, mark: m.bom_assembly.assembly_mark, projectId: d.project_id, zoneId: d.zone?.id ?? null, subZoneId: d.sub_zone?.id ?? null }
+              return { bomAssemblyId: m.bom_assembly_id, mark: m.bom_assembly.assembly_mark, projectId: d.project_id, zoneId: d.zone?.id ?? null, subZoneId: d.sub_zone?.id ?? null, aliases: m.former_marks ?? [] }
             })}
           />
         )}

@@ -90,9 +90,18 @@ const en = {
   assemblyQty: (qty: string) => `Assembly Qty ${qty}`,
   minutes: (n: string) => `${n} min`,
   moreSeeQr: (n: number) => `+${n} more (see QR)`,
-  // Drawing rev stamp + traveler note (2026-10-05, print option A).
+  // Drawing rev stamp (2026-10-05, print option A).
   drawingStamp: (rev: string) => `Drawing ${rev}`,
-  drawingUpdatedAfterWo: (items: string) => `Drawing updated after this WO was created: ${items}`,
+  // Sheet suffix (2026-10-21) — appended to the drawing page's existing
+  // corner label and watermark stamp when a mark's current rev prints more
+  // than one page across its sheets, e.g. "Drawing Rev 2 · 02/10/26 · sheet 2/3".
+  // Never a standalone element, so it's a plain fragment, not a full label.
+  sheet: (i: number, n: number) => ` · sheet ${i}/${n}`,
+  // Renamed-mark drawing fallback (2026-10-21) — appended inside the drawing
+  // page's existing rev label when the mark has no drawing of its own and
+  // prints its former name's instead; never a standalone element (2026-10-09
+  // "keep existing print layout" rule).
+  drawingOfOldName: (mark: string) => ` · drawing of old name ${mark}`,
 }
 
 export type PrintLabels = typeof en
@@ -173,8 +182,11 @@ const th: PrintLabels = {
   minutes: (n: string) => `${n} นาที`,
   // Kept as short as the English — it's squeezed into the first column only.
   moreSeeQr: (n: number) => `+อีก ${n} (ดู QR)`,
-  drawingStamp: (rev: string) => `แบบ ${rev}`,
-  drawingUpdatedAfterWo: (items: string) => `แบบอัปเดตหลังสร้าง WO: ${items}`,
+  // Thai print copy uses "Drawing", never "แบบ" (2026-10-21 wording fix).
+  drawingStamp: (rev: string) => `Drawing ${rev}`,
+  sheet: (i: number, n: number) => ` · แผ่น ${i}/${n}`,
+  // "Drawing" never "แบบ" (2026-10-21 wording rule).
+  drawingOfOldName: (mark: string) => ` · Drawing ของชื่อเดิม ${mark}`,
 }
 
 export const PRINT_LABELS: Record<PrintLang, PrintLabels> = { en, th }
