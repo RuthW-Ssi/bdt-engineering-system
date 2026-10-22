@@ -952,4 +952,22 @@ describe('MoPrintService.drawingRevStatus', () => {
     expect(await svc.drawingRevStatus(85)).toEqual({ items: [] })
     expect(bomAssemblyFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ status: 'ACTIVE', dispatch: { project_id: 6, zone_id: 23, sub_zone_id: null } }) }))
   })
+
+  // Fix round 1 (code review of 5370f60/716f4da): the Drawing fallback (this
+  // method, resolveCurrentRevSheets, also backs the print packet's buildPlan)
+  // is the one place a pre-shop pairing IS allowed to leak in — unlike every
+  // BOM-side chain, which must keep MarkAliasService's default.
+  it('resolveCurrentRevSheets asks MarkAliasService to include PRE_SHOP-dispatch rows', async () => {
+    const mark = makeMark({ bom_assembly: { id: 2868, assembly_mark: 'DBN-A1-CTR1', name: 'Column A1', weight_kg: 450, dispatch_id: 30, dispatch: makeDispatch({ project_id: 6 }) } })
+    const prisma = makePrisma({
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85 }) },
+      work_order: { findMany: jest.fn().mockResolvedValue([makeWo({ marks: [mark] })]) },
+    })
+    const alias = { renamesFor: jest.fn().mockResolvedValue([]), activeMarksFor: jest.fn().mockResolvedValue(new Set()) }
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any, alias as any)
+
+    await svc.drawingRevStatus(85)
+
+    expect(alias.renamesFor).toHaveBeenCalledWith({ project_id: 6, zone_id: 23, sub_zone_id: null }, { includePreshop: true })
+  })
 })

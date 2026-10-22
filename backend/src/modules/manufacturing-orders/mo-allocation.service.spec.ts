@@ -294,5 +294,15 @@ describe('MoAllocationService', () => {
       const breakdown = await svc.allocationBreakdown(1)
       expect(breakdown.sort((a, b) => a.qty - b.qty)).toEqual([{ mo_code: 'MO-1', qty: 2 }, { mo_code: 'MO-1', qty: 3 }])
     })
+
+    // Fix round 1 (code review of 5370f60/716f4da): allocation must keep
+    // MarkAliasService's default (excludes PRE_SHOP) — a pre-shop rename_from
+    // pairing must never change allocation for a BOM-dispatch row of the same name.
+    it('reads the default scope (no includePreshop)', async () => {
+      const alias = { renamesFor: jest.fn().mockResolvedValue(renames) }
+      const svc = new MoAllocationService(makeFakePrisma(assemblies, mos, lines, renames) as any, alias as any)
+      await svc.allocatedFor(2)
+      expect(alias.renamesFor).toHaveBeenCalledWith(d)
+    })
   })
 })

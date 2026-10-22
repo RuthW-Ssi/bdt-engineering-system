@@ -4,6 +4,16 @@ import { scopeKey, type BomScope, type RenameRow } from './mark-alias'
 
 type RenameClient = { bom_mark_rename: PrismaService['bom_mark_rename'] }
 const SELECT = { id: true, kind: true, from_mark: true, to_mark: true, dispatch_id: true } as const
+// Fix round 1 (code review of 5370f60/716f4da, [[preshop-mark-rename-plan]]):
+// a pre-shop pairing (mergePreshop's rename_from) must never leak into a
+// BOM-side rename chain — bomCompare/linkBom, WorkOrdersService.
+// compareAssemblyToLatest/acceptNewVersion and MoAllocationService all read
+// the default (excludes PRE_SHOP-dispatch rows). Only a Drawing fallback
+// (mo-print resolveCurrentRevSheets, which also backs the stale-drawing
+// notice) and WorkOrdersService.formerMarks want the pre-shop piece's old
+// name too, so they opt in with includePreshop.
+export interface RenamesOpts { includePreshop?: boolean }
+const notPreshop = { dispatch: { source: { not: 'PRE_SHOP' } } }
 
 /** Loads confirmed mark/part pairs (2026-10-21). Leaf service: Prisma only, so
  *  BOM upload, MO, WO and print can all import it without a module cycle. */
@@ -11,16 +21,17 @@ const SELECT = { id: true, kind: true, from_mark: true, to_mark: true, dispatch_
 export class MarkAliasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async renamesFor(scope: BomScope, client: RenameClient = this.prisma): Promise<RenameRow[]> {
-    return client.bom_mark_rename.findMany({
-      where: { project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id },
+  async renamesFor(scope: BomScope, opts: RenamesOpts = {}): Promise<RenameRow[]> {
+    return this.prisma.bom_mark_rename.findMany({
+      where: { project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id, ...(opts.includePreshop ? {} : notPreshop) },
       select: SELECT,
       orderBy: [{ dispatch_id: 'asc' }, { id: 'asc' }],
     })
   }
 
-  async renamesByScope(): Promise<Map<string, RenameRow[]>> {
+  async renamesByScope(opts: RenamesOpts = {}): Promise<Map<string, RenameRow[]>> {
     const rows = await this.prisma.bom_mark_rename.findMany({
+      where: opts.includePreshop ? undefined : notPreshop,
       select: { ...SELECT, project_id: true, zone_id: true, sub_zone_id: true },
       orderBy: [{ dispatch_id: 'asc' }, { id: 'asc' }],
     })

@@ -2210,6 +2210,42 @@ describe('WorkOrdersService — mark renamed in the BOM (2026-10-21)', () => {
     expect(map.get(30)).toEqual(['B', 'A'])
   })
 
+  // Fix round 1 (code review of 5370f60/716f4da): formerMarks backs the WO
+  // Visual tab's Drawing fallback — it must see a pre-shop pairing too (the
+  // Drawing fallback is the one place pre-shop pairs ARE allowed to leak in),
+  // unlike every BOM-side chain below.
+  it('formerMarks asks MarkAliasService to include PRE_SHOP-dispatch rows', async () => {
+    const alias = renamesOf()
+    const svc = new WorkOrdersService({} as any, makeAutoCreate() as any, {} as any, alias as any)
+    const dispatch = { project_id: 1, zone_id: 1, sub_zone_id: null }
+    await svc.formerMarks([{ id: 30, assembly_mark: 'C', dispatch_id: 3, dispatch }])
+    expect(alias.renamesFor).toHaveBeenCalledWith(dispatch, { includePreshop: true })
+  })
+
+  // Fix round 1: BOM-side chains (compareAssemblyToLatest, acceptNewVersion)
+  // must keep MarkAliasService's default (excludes PRE_SHOP) — a pre-shop
+  // rename_from pairing must never change bomCompare/WO status for a
+  // BOM-dispatch row of the same name.
+  it('compareAssemblyToLatest reads the default scope (no includePreshop)', async () => {
+    const alias = renamesOf()
+    const prisma: any = { bom_dispatch: { findUnique: jest.fn().mockResolvedValue({ source: 'BOM_UPLOAD' }) }, bom_assembly: { findFirst: jest.fn().mockResolvedValue(null) } }
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any, alias as any)
+    const group = { project_id: 1, zone_id: 1, sub_zone_id: null }
+    await svc.compareAssemblyToLatest({ assembly_mark: 'A', dispatch_id: 3 } as any, group)
+    expect(alias.renamesFor).toHaveBeenCalledWith(group)
+  })
+
+  it('acceptNewVersion reads the default scope (no includePreshop)', async () => {
+    const mark = makeMark()
+    const prisma = makeAcceptPrisma(mark, [])
+    const alias = renamesOf(ASM_RENAME)
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any, alias as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc.acceptNewVersion(1, 'tao', { bom_assembly_id: 100 } as any)
+    expect(alias.renamesFor).toHaveBeenCalled()
+    expect(alias.renamesFor.mock.calls[0][1]).toBeUndefined()
+  })
+
   // final review: a former name that is ACTIVE in the scope again is another
   // piece reusing it — the WO Visual tab must not fall back to its Drawing
   it('formerMarks: skips a former name that is an ACTIVE mark in the scope now', async () => {

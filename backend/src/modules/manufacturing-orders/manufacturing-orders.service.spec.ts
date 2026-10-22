@@ -1677,6 +1677,16 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     expect((tx as any).work_order_part.update).toHaveBeenCalledWith({ where: { id: 900 }, data: { bom_assembly_part_id: 2 } })
     expect(alias.markUsed).toHaveBeenCalledWith(tx, [])
   })
+
+  // Fix round 1 (code review of 5370f60/716f4da): bomCompare must keep
+  // MarkAliasService's default (excludes PRE_SHOP) — a pre-shop rename_from
+  // pairing must never change bomCompare for a BOM-dispatch row of the same name.
+  it('bomCompare reads the default scope (no includePreshop)', async () => {
+    const alias = aliasOf()
+    const { svc } = make([LINE(1, 701, 'BUH1-3', 2, [P('C-f1')])], [BOM(3002, 'BUH1-3', 6, [P('C-f1')])], [], [], alias)
+    await svc.bomCompare(46)
+    expect(alias.renamesFor).toHaveBeenCalledWith({ project_id: 3, zone_id: 6, sub_zone_id: null })
+  })
 })
 
 // Full shop MO when its zone's BOM gets a new upload (2026-10-09, user: when a

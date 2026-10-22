@@ -220,7 +220,7 @@ export class WorkOrdersService {
     const out = new Map<number, string[]>()
     for (const a of assemblies) {
       const k = scopeKey(a.dispatch)
-      if (!byScope.has(k)) byScope.set(k, await this.alias.renamesFor(a.dispatch))
+      if (!byScope.has(k)) byScope.set(k, await this.alias.renamesFor(a.dispatch, { includePreshop: true }))
       const names = formerNames(byScope.get(k)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
       if (names.length && !activeByScope.has(k)) activeByScope.set(k, await this.alias.activeMarksFor(a.dispatch))
       out.set(a.id, usableFormerNames(names, activeByScope.get(k)))

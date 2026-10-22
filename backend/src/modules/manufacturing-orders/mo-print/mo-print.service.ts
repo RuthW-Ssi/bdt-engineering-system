@@ -618,7 +618,7 @@ export class MoPrintService {
         if (project_id != null && a.dispatch_id != null) {
           const scope = { project_id, zone_id, sub_zone_id }
           const sk = scopeKey(scope)
-          if (!renamesByScope.has(sk)) renamesByScope.set(sk, await this.alias.renamesFor(scope))
+          if (!renamesByScope.has(sk)) renamesByScope.set(sk, await this.alias.renamesFor(scope, { includePreshop: true }))
           aliases = formerNames(renamesByScope.get(sk)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
           if (aliases.length && !activeByScope.has(sk)) activeByScope.set(sk, await this.alias.activeMarksFor(scope))
           active = activeByScope.get(sk)
