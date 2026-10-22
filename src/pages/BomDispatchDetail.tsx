@@ -29,7 +29,7 @@ export function BomDispatchDetail() {
   const { data: candidates } = useRenameCandidates(dispatchId)
   const { data: renameList } = useDispatchRenames(dispatchId)
   const undo = useUndoRename(dispatchId ?? 0)
-  const canPair = usePermission('boms', 'create') && !!candidates?.latest
+  const canPair = usePermission('boms', 'update') && !!candidates?.latest
   // only rows the backend offers as disappeared get a pair button
   const pairable = { ASSEMBLY: new Set((candidates?.assemblies ?? []).map(a => a.mark)), PART: new Set((candidates?.parts ?? []).map(p => p.mark)) }
   const [pairing, setPairing] = useState<{ kind: RenameKind; mark: string } | null>(null)

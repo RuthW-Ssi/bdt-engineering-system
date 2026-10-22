@@ -7,12 +7,14 @@ import { useRenameStep } from './useRenameStep'
 
 vi.mock('../api/dispatches', () => ({ dispatchesApi: { getRenameCandidates: vi.fn() } }))
 vi.mock('sonner', () => ({ toast: { info: vi.fn() } }))
+const perm = vi.hoisted(() => ({ ok: true }))
+vi.mock('./usePermission', () => ({ usePermission: () => perm.ok }))
 const api = vi.mocked(dispatchesApi)
 const empty = { dispatch_id: 9, latest: true, assemblies: [], parts: [], new_assemblies: [], new_parts: [] }
 
 let qc: QueryClient
 const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={qc}>{children}</QueryClientProvider>
-beforeEach(() => { qc = new QueryClient() })
+beforeEach(() => { qc = new QueryClient(); perm.ok = true })
 
 describe('useRenameStep', () => {
   it('opens only when something disappeared', async () => {
@@ -41,5 +43,15 @@ describe('useRenameStep', () => {
     const { result } = renderHook(() => useRenameStep(), { wrapper })
     await act(async () => { await result.current.afterUpload(9) })
     expect(qc.getQueryData(['rename-candidates', 9])).toEqual(c)
+  })
+
+  it('without boms:update the dialog never opens (pairing overwrites progress/paint)', async () => {
+    perm.ok = false
+    api.getRenameCandidates.mockClear()
+    const { result } = renderHook(() => useRenameStep(), { wrapper })
+    let opened = true
+    await act(async () => { opened = await result.current.afterUpload(9) })
+    expect([opened, result.current.dispatchId]).toEqual([false, null])
+    expect(api.getRenameCandidates).not.toHaveBeenCalled()
   })
 })

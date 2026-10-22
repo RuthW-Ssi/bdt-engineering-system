@@ -227,14 +227,14 @@ export class BomUploadController {
   }
 
   @Post('dispatches/:id/renames')
-  @RequiresPermission('boms', 'create')
+  @RequiresPermission('boms', 'update')
   @ApiOperation({ summary: 'Confirm mark/part renames (old name = same piece as new name)' })
   saveRenames(@Param('id', ParseIntPipe) id: number, @Body() dto: SaveRenamesDto, @CurrentUser() user: JwtPayload) {
     return this.renameSvc.pair(id, dto.renames, user.sub, user.login)
   }
 
   @Delete('dispatches/:id/renames/:renameId')
-  @RequiresPermission('boms', 'create')
+  @RequiresPermission('boms', 'update')
   @ApiOperation({ summary: 'Undo a rename pair while nothing has used it (a1)' })
   undoRename(@Param('id', ParseIntPipe) id: number, @Param('renameId', ParseIntPipe) renameId: number, @CurrentUser() user: JwtPayload) {
     return this.renameSvc.undo(id, renameId, user.sub, user.login)
