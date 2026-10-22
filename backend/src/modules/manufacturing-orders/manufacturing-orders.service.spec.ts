@@ -1,6 +1,6 @@
 import { PreshopService } from './preshop/preshop.service'
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common'
-import { ManufacturingOrderService } from './manufacturing-orders.service'
+import { ManufacturingOrderService, orderPartRenames } from './manufacturing-orders.service'
 
 // Scoped to findOne()'s stale_assembly_warnings (WO BOM-Version Hold, Sprint 20 · Task 5).
 //
@@ -85,6 +85,41 @@ function makeService(mo: unknown, cmpResult: { is_outdated: boolean; delta_types
   )
   return { svc, prisma, workOrders }
 }
+
+// Fix round 1 (code review of 5370f60/716f4da, item 6): a part-rename chain
+// spanning several assemblies in one save must apply in dependency order.
+describe('orderPartRenames', () => {
+  it('a chain P1→P2 while P2→P3 (same dispatch) applies P2→P3 first, vacating P2', () => {
+    const a = { dispatchId: 1, from: 'P1', to: 'P2' }
+    const b = { dispatchId: 1, from: 'P2', to: 'P3' }
+    expect(orderPartRenames([a, b])).toEqual([b, a])
+  })
+
+  it('independent renames (no shared names) keep their given order', () => {
+    const a = { dispatchId: 1, from: 'X1', to: 'Y1' }
+    const b = { dispatchId: 1, from: 'X2', to: 'Y2' }
+    expect(orderPartRenames([a, b])).toEqual([a, b])
+  })
+
+  it('a chain in a DIFFERENT dispatch never blocks one in this dispatch', () => {
+    const a = { dispatchId: 1, from: 'P1', to: 'P2' }
+    const b = { dispatchId: 2, from: 'P2', to: 'P3' } // same names, different dispatch — unrelated
+    expect(orderPartRenames([a, b])).toEqual([a, b])
+  })
+
+  it('a genuine cycle (A→B, B→A) falls back to the given order instead of looping forever', () => {
+    const a = { dispatchId: 1, from: 'A', to: 'B' }
+    const b = { dispatchId: 1, from: 'B', to: 'A' }
+    expect(orderPartRenames([a, b])).toEqual([a, b])
+  })
+
+  it('a 3-link chain P1→P2→P3→P4 applies from the end backwards', () => {
+    const a = { dispatchId: 1, from: 'P1', to: 'P2' }
+    const b = { dispatchId: 1, from: 'P2', to: 'P3' }
+    const c = { dispatchId: 1, from: 'P3', to: 'P4' }
+    expect(orderPartRenames([a, b, c])).toEqual([c, b, a])
+  })
+})
 
 describe('ManufacturingOrderService.findOne — stale_assembly_warnings', () => {
   it('DRAFT MO with an assembly line whose mark was changed/removed in a later dispatch revision → 1 matching entry', async () => {
@@ -1071,23 +1106,33 @@ describe('ManufacturingOrderService.mergePreshop', () => {
 
   // T2: the paired save — rename_from on the uploaded row.
   describe('save — rename_from (T2)', () => {
-    function makeRenameSave(opts: { oldPart?: Record<string, unknown>; woMarks?: unknown[]; bomAssemblyFindFirst?: unknown } = {}) {
+    function makeRenameSave(opts: { oldPart?: Record<string, unknown>; woMarks?: unknown[]; bomAssemblyFindFirst?: unknown; txBomAssemblyFindFirst?: unknown; sharedOthersCount?: number } = {}) {
       const mo = { id: 36, mo_code: 'MO-26000013', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 16, zone_id: 33, sub_zone_id: null }
       let partMark = (opts.oldPart?.part_mark as string) ?? 'C-f1'
+      // tracks the assembly's live mark across the whole test (including
+      // several sequential mergePreshop calls against the same svc/tx) —
+      // fix round 1 (item 5): the in-tx fresh re-check reads this, so it
+      // reflects whatever tx.bom_assembly.update actually wrote, exactly
+      // like a real DB would on a second read in the same transaction.
+      let currentAssemblyMark = '2BUH1B-4'
       const partRow = () => ({ id: 1, part_id: 900, qty: '2', _count: { work_order_parts: (opts.oldPart as any)?.withdrawn ? 1 : 0 },
         part: { part_mark: partMark, profile: (opts.oldPart as any)?.profile ?? 'PL25x400', length_mm: '10550', grade: 'SM520', weight_kg: '828.17' } })
       const tx = {
         mo_assembly_line: { update: jest.fn(), createMany: jest.fn() },
-        bom_assembly: { update: jest.fn() },
+        bom_assembly: {
+          update: jest.fn().mockImplementation(({ data }: any) => { if (data.assembly_mark) currentAssemblyMark = data.assembly_mark; return Promise.resolve({}) }),
+          findUnique: jest.fn().mockImplementation(() => Promise.resolve({ assembly_mark: currentAssemblyMark, dispatch_id: 14, dispatch: { source: 'PRE_SHOP' } })),
+          findFirst: jest.fn().mockResolvedValue(opts.txBomAssemblyFindFirst ?? null),
+        },
         bom_assembly_part: {
           findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.part_id ? [] : [partRow()])),
-          update: jest.fn(), delete: jest.fn(), create: jest.fn(), count: jest.fn().mockResolvedValue(0),
+          update: jest.fn(), delete: jest.fn(), create: jest.fn(), count: jest.fn().mockResolvedValue(opts.sharedOthersCount ?? 0),
         },
         bom_part: {
           update: jest.fn().mockImplementation(({ data }: any) => { if (data.part_mark) partMark = data.part_mark; return Promise.resolve({ id: 900, part_mark: partMark }) }),
           delete: jest.fn(), create: jest.fn().mockResolvedValue({ id: 951 }), findFirst: jest.fn().mockResolvedValue(null),
         },
-        bom_mark_rename: { create: jest.fn() },
+        bom_mark_rename: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
         bom_mark_rename_event: { create: jest.fn() },
         mo_status_history: { create: jest.fn() },
         manufacturing_order: { update: jest.fn() },
@@ -1141,7 +1186,9 @@ describe('ManufacturingOrderService.mergePreshop', () => {
       await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A('9BUH1B-4', 2, [newPart]), rename_from: '2BUH1B-4' }] }, 1, 'tao')).resolves.toBeDefined()
       expect(tx.bom_part.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 900 }, data: expect.objectContaining({ part_mark: 'C-NEW' }) }))
       expect(tx.bom_assembly_part.delete).not.toHaveBeenCalled()
-      expect(tx.bom_mark_rename.create).toHaveBeenCalledWith({ data: expect.objectContaining({ kind: 'PART', from_mark: 'C-OLD', to_mark: 'C-NEW', from_ref_id: 900, to_ref_id: 900 }) })
+      // ref'd by the bom_assembly_part junction row (fix round 1, item 2/3) —
+      // stable even when a SHARED part's underlying bom_part row changes
+      expect(tx.bom_mark_rename.create).toHaveBeenCalledWith({ data: expect.objectContaining({ kind: 'PART', from_mark: 'C-OLD', to_mark: 'C-NEW', from_ref_id: 1, to_ref_id: 1 }) })
     })
 
     // Review Focus 3 (part 1): 1:1 — the same absent mark can't be the
@@ -1160,9 +1207,9 @@ describe('ManufacturingOrderService.mergePreshop', () => {
       const { svc: svc2, prisma: prisma2 } = makeRenameSave()
       prisma2.mo_assembly_line.findMany.mockResolvedValue([{ ...LINE(1, 700, '2BUH1B-4', 2, []), bom_assembly: { ...LINE(1, 700, '2BUH1B-4', 2, []).bom_assembly, dispatch: { source: 'BOM_UPLOAD' } } }])
       await expect(svc2.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A('9BUH1B-4', 2, P), rename_from: '2BUH1B-4' }] }, 1, 'tao'))
-        .rejects.toThrow(BadRequestException) // not a pre-shop mark
+        .rejects.toThrow('ไม่ใช่ mark จาก Pre-shop') // not a pre-shop mark — exact wording (fix round 1, item 7)
 
-      const { svc: svc3, prisma: prisma3 } = makeRenameSave({ bomAssemblyFindFirst: { id: 999 } })
+      const { svc: svc3, prisma: prisma3 } = makeRenameSave({ txBomAssemblyFindFirst: { id: 999 } })
       await expect(svc3.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A('9BUH1B-4', 2, P), rename_from: '2BUH1B-4' }] }, 1, 'tao'))
         .rejects.toThrow(BadRequestException) // target name clash in the same dispatch
       void prisma3
@@ -1174,6 +1221,257 @@ describe('ManufacturingOrderService.mergePreshop', () => {
       expect(tx.bom_assembly.update).not.toHaveBeenCalled()
       expect(tx.bom_mark_rename.create).not.toHaveBeenCalled()
       expect(prisma.$transaction).not.toHaveBeenCalled()
+    })
+
+    // Fix round 1, item 4: a bad upload (the same mark twice) can't silently
+    // half-apply — caught before any write, and the dry-run preview says so.
+    it('duplicate assembly_mark rows in the uploaded file → 400 at save; dry run flags it cheaply', async () => {
+      const { svc } = makeRenameSave()
+      await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [A('BUH9', 2), A('BUH9', 3)] }, 1, 'tao'))
+        .rejects.toThrow(BadRequestException)
+      const r: any = await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', dry_run: true, preshop_assemblies: [A('BUH9', 2), A('BUH9', 3)] }, 1, 'tao')
+      expect(r.duplicate_marks).toEqual(['BUH9'])
+    })
+
+    // Fix round 1, item 5: validation reads move inside the transaction — a
+    // change that only shows up at write time (not at the earlier read used
+    // to build byMark/renameFrom) is still a clean 400, never a raw 500.
+    it('a concurrent change only visible at write time is a clean 400, not a 500', async () => {
+      const { svc, tx } = makeRenameSave()
+      tx.bom_assembly.findUnique = jest.fn().mockResolvedValue({ assembly_mark: 'SOMEONE-ELSE-ALREADY-RENAMED-IT', dispatch_id: 14, dispatch: { source: 'PRE_SHOP' } })
+      await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A('9BUH1B-4', 2, P), rename_from: '2BUH1B-4' }] }, 1, 'tao'))
+        .rejects.toThrow(BadRequestException)
+    })
+
+    it('a target-name clash that only appears at write time (tx) is a clean 400, not a 500', async () => {
+      const { svc, tx } = makeRenameSave()
+      tx.bom_assembly.findFirst = jest.fn().mockResolvedValue({ id: 999 })
+      await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A('9BUH1B-4', 2, P), rename_from: '2BUH1B-4' }] }, 1, 'tao'))
+        .rejects.toThrow(BadRequestException)
+    })
+
+    it('a leftover unique-constraint race (P2002) surfaces as 409, never a raw 500', async () => {
+      const { svc, prisma } = makeRenameSave()
+      const { Prisma } = require('@prisma/client')
+      prisma.$transaction = jest.fn().mockRejectedValue(new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }))
+      await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A('9BUH1B-4', 2, P), rename_from: '2BUH1B-4' }] }, 1, 'tao'))
+        .rejects.toThrow(ConflictException)
+    })
+
+    // Fix round 1, item 3: at most one pre-shop rename row per ref per
+    // dispatch — "original name → current name". A→B then B→A nets to
+    // nothing; A→B again re-inserts fresh; A→B then B→C collapses to A→C,
+    // so the Drawing fallback for C still finds the ORIGINAL name A.
+    describe('bom_mark_rename upsert collapsing (one row per ref, original → current)', () => {
+      function makeStatefulRenameRows() {
+        const rows: any[] = []
+        let nextId = 1
+        return {
+          rows,
+          findFirst: jest.fn(({ where }: any) => Promise.resolve(rows.find(r => r.dispatch_id === where.dispatch_id && r.kind === where.kind && r.to_ref_id === where.to_ref_id && r.to_mark === where.to_mark) ?? null)),
+          create: jest.fn(({ data }: any) => { const row = { id: nextId++, ...data }; rows.push(row); return Promise.resolve(row) }),
+          update: jest.fn(({ where, data }: any) => { Object.assign(rows.find(r => r.id === where.id)!, data); return Promise.resolve({}) }),
+          delete: jest.fn(({ where }: any) => { const i = rows.findIndex(r => r.id === where.id); if (i >= 0) rows.splice(i, 1); return Promise.resolve({}) }),
+        }
+      }
+
+      it('A→B then B→A nets to nothing; A→B again re-inserts fresh', async () => {
+        const { svc, tx, prisma } = makeRenameSave()
+        const fake = makeStatefulRenameRows()
+        tx.bom_mark_rename = fake as any
+        const upload = (from: string, to: string) => svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A(to, 2, []), rename_from: from }] }, 1, 'tao')
+
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '2BUH1B-4', 2, AP)])
+        await upload('2BUH1B-4', '9BUH1B-4')
+        expect(fake.rows).toMatchObject([{ from_mark: '2BUH1B-4', to_mark: '9BUH1B-4' }])
+
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '9BUH1B-4', 2, AP)])
+        await upload('9BUH1B-4', '2BUH1B-4')
+        expect(fake.rows).toEqual([])
+
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '2BUH1B-4', 2, AP)])
+        await upload('2BUH1B-4', '9BUH1B-4')
+        expect(fake.rows).toMatchObject([{ from_mark: '2BUH1B-4', to_mark: '9BUH1B-4' }])
+      })
+
+      it('A→B then B→C collapses to a single row A→C', async () => {
+        const { svc, tx, prisma } = makeRenameSave()
+        const fake = makeStatefulRenameRows()
+        tx.bom_mark_rename = fake as any
+        const upload = (from: string, to: string) => svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A(to, 2, []), rename_from: from }] }, 1, 'tao')
+
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '2BUH1B-4', 2, AP)])
+        await upload('2BUH1B-4', '9BUH1B-4')
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '9BUH1B-4', 2, AP)])
+        await upload('9BUH1B-4', 'XBUH1B-4')
+
+        expect(fake.rows).toEqual([expect.objectContaining({ from_mark: '2BUH1B-4', to_mark: 'XBUH1B-4' })])
+      })
+
+      it('always writes a PAIR event, even when the row itself collapses/drops', async () => {
+        const { svc, tx, prisma } = makeRenameSave()
+        const fake = makeStatefulRenameRows()
+        tx.bom_mark_rename = fake as any
+        const upload = (from: string, to: string) => svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [{ ...A(to, 2, []), rename_from: from }] }, 1, 'tao')
+
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '2BUH1B-4', 2, AP)])
+        await upload('2BUH1B-4', '9BUH1B-4')
+        prisma.mo_assembly_line.findMany.mockResolvedValue([LINE(1, 700, '9BUH1B-4', 2, AP)])
+        await upload('9BUH1B-4', '2BUH1B-4') // pairs back — row dropped, event still written
+
+        expect(tx.bom_mark_rename_event.create).toHaveBeenCalledTimes(2)
+        expect(tx.bom_mark_rename_event.create.mock.calls[1][0].data).toMatchObject({ action: 'PAIR', from_mark: '9BUH1B-4', to_mark: '2BUH1B-4' })
+      })
+    })
+
+    // Fix round 1, item 2 (IMPORTANT): a part shared with another assembly
+    // must never be renamed in place — that would silently rename it for the
+    // other assembly too. Split this assembly off onto its own part row.
+    it('a part shared with another assembly is split onto its own row — never renamed in place; its withdrawal survives', async () => {
+      const bomParts = new Map<number, any>([[900, { id: 900, part_mark: 'C-OLD', profile: 'PL25x400', grade: 'SM520', length_mm: '10550', weight_kg: '828.17', qty: '9' }]])
+      const bomAssemblyParts = new Map<number, any>([
+        [1, { id: 1, assembly_id: 700, part_id: 900, qty: '2' }],
+        [2, { id: 2, assembly_id: 701, part_id: 900, qty: '1' }], // another assembly shares bom_part 900
+      ])
+      let nextPartId = 952
+      const mo = { id: 36, mo_code: 'MO-36', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 16, zone_id: 33, sub_zone_id: null }
+      const tx = {
+        mo_assembly_line: { update: jest.fn() },
+        bom_assembly: {
+          update: jest.fn(), findUnique: jest.fn().mockResolvedValue({ assembly_mark: '2BUH1B-4', dispatch_id: 14, dispatch: { source: 'PRE_SHOP' } }),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        bom_assembly_part: {
+          findMany: jest.fn(({ where }: any) => Promise.resolve(
+            where.part_id != null
+              ? [...bomAssemblyParts.values()].filter(r => r.part_id === where.part_id && r.assembly_id !== where.assembly_id?.not)
+              : [...bomAssemblyParts.values()].filter(r => r.assembly_id === where.assembly_id).map(r => ({ ...r, part: bomParts.get(r.part_id), _count: { work_order_parts: r.id === 1 ? 1 : 0 } })),
+          )),
+          update: jest.fn(({ where, data }: any) => { Object.assign(bomAssemblyParts.get(where.id)!, data); return Promise.resolve({}) }),
+          delete: jest.fn(), create: jest.fn(),
+          count: jest.fn(({ where }: any) => Promise.resolve([...bomAssemblyParts.values()].filter(r => r.part_id === where.part_id && r.assembly_id !== where.assembly_id?.not).length)),
+        },
+        bom_part: {
+          update: jest.fn(({ where, data }: any) => {
+            const row = bomParts.get(where.id)!
+            if (data.qty?.increment !== undefined) row.qty = String(Number(row.qty) + Number(data.qty.increment))
+            if (data.qty?.decrement !== undefined) row.qty = String(Number(row.qty) - Number(data.qty.decrement))
+            if (data.part_mark) row.part_mark = data.part_mark
+            return Promise.resolve(row)
+          }),
+          create: jest.fn(({ data }: any) => { const row = { id: nextPartId++, ...data }; bomParts.set(row.id, row); return Promise.resolve(row) }),
+          findFirst: jest.fn(({ where }: any) => Promise.resolve([...bomParts.values()].find(p => p.part_mark === where.part_mark) ?? null)),
+          delete: jest.fn(),
+        },
+        bom_mark_rename: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+        bom_mark_rename_event: { create: jest.fn() },
+        mo_status_history: { create: jest.fn() },
+        manufacturing_order: { update: jest.fn() },
+        work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+        work_order_event: { create: jest.fn() },
+      }
+      const prisma = {
+        manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
+        mo_assembly_line: { findMany: jest.fn().mockResolvedValue([{
+          id: 1, bom_assembly_id: 700, qty: '2', line_seq: 0,
+          bom_assembly: { id: 700, assembly_mark: '2BUH1B-4', dispatch_id: 14, length_mm: '10550', weight_kg: '3561.15', dispatch: { source: 'PRE_SHOP' },
+            assembly_parts: [{ id: 1, qty: '2', part_id: 900, _count: { work_order_parts: 1 }, part: { part_mark: 'C-OLD', profile: 'PL25x400', length_mm: '10550', grade: 'SM520', weight_kg: '828.17' } }] },
+        }]) },
+        work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
+        $transaction: jest.fn((cb: any) => cb(tx)),
+      }
+      const preshop = { createDispatch: jest.fn(), sizeChanges: new PreshopService().sizeChanges }
+      const woAutoCreate = { recomputeParts: jest.fn().mockResolvedValue(undefined), recomputeDuration: jest.fn().mockResolvedValue(undefined) }
+      const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, {} as any, {} as any, woAutoCreate as any, {} as any, preshop as any)
+      jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 36 } as any)
+
+      const newPart = { part_mark: 'C-NEW', profile: 'PL25x400', length_mm: 10550, grade: 'SM520', qty: 2, unit_weight_kg: 828.17 }
+      await svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [
+        { assembly_mark: '9BUH1B-4', rename_from: '2BUH1B-4', qty: 2, weight_kg: 3561.15, surface_area_m2: null, length_mm: 10550, parts: [newPart] },
+      ] } as any, 1, 'tao')
+
+      expect(bomParts.get(900)!.part_mark).toBe('C-OLD') // the SHARED part is never renamed in place
+      expect(bomAssemblyParts.get(1)!.part_id).not.toBe(900) // this assembly's own row re-points elsewhere
+      expect(bomParts.get(bomAssemblyParts.get(1)!.part_id)!.part_mark).toBe('C-NEW')
+      expect(tx.bom_assembly_part.delete).not.toHaveBeenCalled() // the withdrawal survives — never deleted
+    })
+
+    // Fix round 1, item 6: a part-rename chain spanning TWO assemblies in one
+    // save must apply in dependency order so neither clashes with the other.
+    it('a cross-assembly part-rename chain (P1→P2 while P2→P3) in one save applies safely, regardless of row order', async () => {
+      const bomParts = new Map<number, any>([
+        [900, { id: 900, part_mark: 'P1', profile: 'PL25x400', grade: 'SM520', length_mm: '300', weight_kg: '10', qty: '2' }],
+        [901, { id: 901, part_mark: 'P2', profile: 'PL12x150', grade: 'SM520', length_mm: '400', weight_kg: '5', qty: '1' }],
+      ])
+      const bomAssemblyParts = new Map<number, any>([
+        [1, { id: 1, assembly_id: 700, part_id: 900, qty: '1' }], // only assembly 700 uses P1 — not shared
+        [2, { id: 2, assembly_id: 701, part_id: 901, qty: '1' }], // only assembly 701 uses P2 — not shared
+      ])
+      const mo = { id: 36, mo_code: 'MO-36', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 16, zone_id: 33, sub_zone_id: null }
+      const assemblyMarkOf: Record<number, string> = { 700: '2AAA-1', 701: '2BBB-1' }
+      const tx = {
+        mo_assembly_line: { update: jest.fn() },
+        bom_assembly: {
+          update: jest.fn(({ where, data }: any) => { if (data.assembly_mark) assemblyMarkOf[where.id] = data.assembly_mark; return Promise.resolve({}) }),
+          findUnique: jest.fn(({ where }: any) => Promise.resolve({ assembly_mark: assemblyMarkOf[where.id], dispatch_id: 14, dispatch: { source: 'PRE_SHOP' } })),
+          findFirst: jest.fn().mockResolvedValue(null),
+        },
+        bom_assembly_part: {
+          findMany: jest.fn(({ where }: any) => Promise.resolve(
+            where.part_id != null
+              ? [...bomAssemblyParts.values()].filter(r => r.part_id === where.part_id && r.assembly_id !== where.assembly_id?.not)
+              : [...bomAssemblyParts.values()].filter(r => r.assembly_id === where.assembly_id).map(r => ({ ...r, part: bomParts.get(r.part_id), _count: { work_order_parts: r.id === 1 ? 1 : 0 } })),
+          )),
+          update: jest.fn(({ where, data }: any) => { Object.assign(bomAssemblyParts.get(where.id)!, data); return Promise.resolve({}) }),
+          delete: jest.fn(), create: jest.fn(),
+          count: jest.fn(({ where }: any) => Promise.resolve([...bomAssemblyParts.values()].filter(r => r.part_id === where.part_id && r.assembly_id !== where.assembly_id?.not).length)),
+        },
+        bom_part: {
+          update: jest.fn(({ where, data }: any) => { const row = bomParts.get(where.id)!; if (data.part_mark) row.part_mark = data.part_mark; return Promise.resolve(row) }),
+          create: jest.fn(({ data }: any) => { const row = { id: 999, ...data }; bomParts.set(row.id, row); return Promise.resolve(row) }),
+          findFirst: jest.fn(({ where }: any) => Promise.resolve([...bomParts.values()].find(p => p.part_mark === where.part_mark && p.id !== where.id?.not) ?? null)),
+          delete: jest.fn(),
+        },
+        bom_mark_rename: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
+        bom_mark_rename_event: { create: jest.fn() },
+        mo_status_history: { create: jest.fn() },
+        manufacturing_order: { update: jest.fn() },
+        work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+        work_order_event: { create: jest.fn() },
+      }
+      const prisma = {
+        manufacturing_order: { findUnique: jest.fn().mockResolvedValue(mo) },
+        mo_assembly_line: { findMany: jest.fn().mockResolvedValue([
+          { id: 1, bom_assembly_id: 700, qty: '1', line_seq: 0,
+            bom_assembly: { id: 700, assembly_mark: '2AAA-1', dispatch_id: 14, length_mm: '300', weight_kg: '10', dispatch: { source: 'PRE_SHOP' },
+              assembly_parts: [{ id: 1, qty: '1', part_id: 900, _count: { work_order_parts: 1 }, part: { part_mark: 'P1', profile: 'PL25x400', length_mm: '300', grade: 'SM520', weight_kg: '10' } }] } },
+          { id: 2, bom_assembly_id: 701, qty: '1', line_seq: 1,
+            bom_assembly: { id: 701, assembly_mark: '2BBB-1', dispatch_id: 14, length_mm: '400', weight_kg: '5', dispatch: { source: 'PRE_SHOP' },
+              assembly_parts: [{ id: 2, qty: '1', part_id: 901, _count: { work_order_parts: 0 }, part: { part_mark: 'P2', profile: 'PL12x150', length_mm: '400', grade: 'SM520', weight_kg: '5' } }] } },
+        ]) },
+        work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+        bom_assembly: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
+        $transaction: jest.fn((cb: any) => cb(tx)),
+      }
+      const preshop = { createDispatch: jest.fn(), sizeChanges: new PreshopService().sizeChanges }
+      const woAutoCreate = { recomputeParts: jest.fn().mockResolvedValue(undefined), recomputeDuration: jest.fn().mockResolvedValue(undefined) }
+      const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, {} as any, {} as any, woAutoCreate as any, {} as any, preshop as any)
+      jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 36 } as any)
+
+      const p1AsP2 = { part_mark: 'P2', profile: 'PL25x400', length_mm: 300, grade: 'SM520', qty: 1, unit_weight_kg: 10 }
+      const p2AsP3 = { part_mark: 'P3', profile: 'PL12x150', length_mm: 400, grade: 'SM520', qty: 1, unit_weight_kg: 5 }
+      await expect(svc.mergePreshop(36, { source: 'DISPATCH_NOTE', preshop_assemblies: [
+        { assembly_mark: '9AAA-1', rename_from: '2AAA-1', qty: 1, weight_kg: 10, surface_area_m2: null, length_mm: 300, parts: [p1AsP2] },
+        { assembly_mark: '9BBB-1', rename_from: '2BBB-1', qty: 1, weight_kg: 5, surface_area_m2: null, length_mm: 400, parts: [p2AsP3] },
+      ] } as any, 1, 'tao')).resolves.toBeDefined()
+
+      // both renamed successfully — if applied in file order (700 then 701)
+      // without the ordering fix, 700's P1→P2 would clash with 701's
+      // still-named-P2 part and be skipped, and the withdrawn P1 would then
+      // be blocked from removal by applyParts, throwing instead of resolving.
+      expect(bomParts.get(900)!.part_mark).toBe('P2')
+      expect(bomParts.get(901)!.part_mark).toBe('P3')
     })
   })
 })
