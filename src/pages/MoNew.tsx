@@ -15,6 +15,7 @@ import { SHOP_TYPE_LABEL, type AssemblyPickerItem, type MoShopType, type Preshop
 import { preshopErrors } from '../lib/preshop'
 import { usePermission } from '../hooks/usePermission'
 import { toDatetimeLocal } from '../lib/datetimeLocal'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 const PANEL: React.CSSProperties = { border: '1px solid #E8E8E8', borderRadius: 10, background: '#fff' }
 const PANEL_SCROLL: React.CSSProperties = { ...PANEL, flex: 1, minHeight: 0, overflowY: 'auto', padding: 14 }
@@ -280,11 +281,11 @@ export function MoNew() {
             <div style={{ ...PANEL, flexShrink: 0, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div>
                 <div style={FIELD_LABEL}>Plan Start</div>
-                <input type="datetime-local" value={planStart} onChange={e => setPlanStart(e.target.value)} style={DATE_INPUT} />
+                <input type="datetime-local" value={planStart} style={DATE_INPUT} {...dateInputGuardHandlers(setPlanStart, 'Plan Start')} />
               </div>
               <div>
                 <div style={FIELD_LABEL}>Plan Finish</div>
-                <input type="datetime-local" value={planFinish} min={planStart || undefined} onChange={e => setPlanFinish(e.target.value)} style={DATE_INPUT} />
+                <input type="datetime-local" value={planFinish} min={planStart || undefined} style={DATE_INPUT} {...dateInputGuardHandlers(setPlanFinish, 'Plan Finish')} />
               </div>
             </div>
           </div>

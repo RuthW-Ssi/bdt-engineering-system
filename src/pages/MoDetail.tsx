@@ -23,6 +23,7 @@ import { ASM_FIELDS, norm, showValue } from '../lib/asmFields'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -1086,14 +1087,14 @@ function WoMarkPickerModal({
               <div style={{ flex: 1 }}>
                 <div style={sectionLabel}>Plan Start <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
-                  type="datetime-local" value={planStart} onChange={(e) => setPlanStart(e.target.value)}
+                  type="datetime-local" value={planStart} {...dateInputGuardHandlers(setPlanStart, 'Plan Start')}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={sectionLabel}>Plan Finish <span style={{ color: '#C8202A' }}>*</span></div>
                 <input
-                  type="datetime-local" value={planFinish} onChange={(e) => setPlanFinish(e.target.value)}
+                  type="datetime-local" value={planFinish} {...dateInputGuardHandlers(setPlanFinish, 'Plan Finish')}
                   style={{ width: '100%', padding: '7px 10px', fontSize: 13, border: '1px solid #DDD', borderRadius: 6, boxSizing: 'border-box' }}
                 />
               </div>

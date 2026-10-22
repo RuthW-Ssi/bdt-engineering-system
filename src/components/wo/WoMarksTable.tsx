@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronUp, History, Pencil, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { BomVersionStatus, MarkProgressBody, MarkProgressExpected, MarkProgressValues, WoEvent, WoMark } from '../../api/wo'
 import { datetimeLocalToIso, toDatetimeLocal } from '../../lib/datetimeLocal'
+import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 import { getErrorMessage } from '../../lib/getErrorMessage'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from './QcBreakdownFields'
 import { fmtFinish, isProgressNoise, showChangeValue } from './progressChanges'
@@ -430,8 +431,8 @@ export function WoMarksTable({
                             <input
                               type="datetime-local" aria-label="Finish Date" max={toDatetimeLocal(new Date().toISOString())}
                               value={finish}
-                              onChange={e => setFinish(e.target.value)}
                               style={{ width: FINISH_W, padding: '5px 8px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, boxSizing: 'border-box' }}
+                              {...dateInputGuardHandlers(setFinish, 'Finish Date')}
                             />
                           </FieldGroup>
                         </div>

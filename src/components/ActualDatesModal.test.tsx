@@ -1,6 +1,10 @@
 import { toDatetimeLocal } from '../lib/datetimeLocal'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { toast } from 'sonner'
 import { ActualDatesModal, validateActualDatesForm } from './ActualDatesModal'
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
+afterEach(() => vi.clearAllMocks())
 
 const NOW = new Date(2026, 9, 1, 12, 0) // 01 Oct 2026, 12:00 local
 const EMPTY = { start: '', finish: '', timeliness: '' as const, delayNote: '', reason: '' }
@@ -238,5 +242,21 @@ describe('ActualDatesModal', () => {
     expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onClose).toHaveBeenCalled()
+  })
+
+  // 2026-10-22 (dateInputGuard): an absurd-but-well-formed value — a year
+  // outside 2000–2100 — isn't blocked by the browser while typing, so this
+  // only gets caught on blur. On either this or badInput, the field toasts
+  // and clears both the DOM input and the React state behind it.
+  it('a date input with an out-of-range year toasts and clears the field on blur', () => {
+    render(<ActualDatesModal title="t" onConfirm={vi.fn()} onClose={vi.fn()} />)
+    const start = screen.getByLabelText(/Actual Start/)
+
+    fireEvent.change(start, { target: { value: '2101-05-20T10:00' } })
+    expect(start).toHaveValue('2101-05-20T10:00')
+
+    fireEvent.blur(start)
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('วันที่ไม่ถูกต้อง'))
+    expect(start).toHaveValue('')
   })
 })
