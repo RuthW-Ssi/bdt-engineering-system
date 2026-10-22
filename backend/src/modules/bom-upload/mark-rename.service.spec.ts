@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { MarkRenameService } from './mark-rename.service'
+import { BomDiffService } from './bom-diff.service'
 
 // Mirrors BomDiffService's own slotAwareWhere() shape — copied verbatim from
 // bom-diff.service.spec.ts's matchesSlotAwareWhere().
@@ -292,5 +293,93 @@ describe('MarkRenameService.undo — a1', () => {
     const m = make({ groups: COMBINED, asm: [A(11, 9, '3BUH1B-18')], renames: [paired({ used_at: new Date() })] })
     const l = await m.svc.list(9)
     expect(l.pairs[0]).toMatchObject({ from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', keep: 'new', undo_blocked: expect.stringContaining('ยกเลิกคู่ไม่ได้') })
+  })
+})
+
+// ── candidates() end-to-end with the REAL BomDiffService (bug fix, 2026-10-22) ──
+//
+// Every test above stubs `diff.findPreviousRevisionGroup()` directly, so it
+// never exercises BomDiffService.resolveEffectiveGroup()'s own PRE_SHOP bug.
+// These tests wire the real BomDiffService in, reproducing the live repro:
+// project 16 / zone 33 had only two PRE_SHOP dispatches (58, 59 — per-MO
+// pre-shop data, written by PreshopService.createDispatch with
+// source='PRE_SHOP') before the zone's first real BOM_UPLOAD (60, "Start new
+// version (1)"). The pairing dialog must open empty — PRE_SHOP marks/parts
+// must never be offered as "disappeared" rename candidates.
+
+describe('MarkRenameService.candidates — end-to-end with real BomDiffService (PRE_SHOP exclusion)', () => {
+  type DRow = { id: number; project_id: number; zone_id: number; sub_zone_id: number | null; status: string; source: string; revision: number; doc_revisions: { doc_type: string }[] }
+
+  function buildRealPrisma(dispatches: DRow[], asmRows: any[], partRows: any[] = []) {
+    const prisma: any = {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: jest.fn(({ where }: any) => {
+          if (where?.id?.in) return Promise.resolve(dispatches.filter(d => where.id.in.includes(d.id)))
+          let rows = dispatches.filter(d => d.project_id === where.project_id && d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id)
+          if (where.status?.not) rows = rows.filter(d => d.status !== where.status.not)
+          if (where.revision !== undefined) rows = rows.filter(d => d.revision === where.revision)
+          if (where.id?.lte !== undefined) rows = rows.filter(d => d.id <= where.id.lte)
+          if (where.id?.lt !== undefined) rows = rows.filter(d => d.id < where.id.lt)
+          if (where.source !== undefined) rows = rows.filter(d => d.source === where.source)
+          return Promise.resolve([...rows].sort((a, b) => b.id - a.id))
+        }),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(asmRows.filter(r => where.id?.in ? where.id.in.includes(r.id) : matchesSlotAwareWhere(r, where)))),
+        count: jest.fn(({ where }: any) => Promise.resolve(asmRows.filter(r => r.dispatch_id === where.dispatch_id && r.status === 'ACTIVE').length)),
+      },
+      bom_part: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(partRows.filter(r => matchesSlotAwareWhere(r, where)))),
+        count: jest.fn(({ where }: any) => Promise.resolve(partRows.filter(r => r.dispatch_id === where.dispatch_id && r.status === 'ACTIVE').length)),
+      },
+      bom_assembly_progress: { findMany: jest.fn().mockResolvedValue([]) },
+      mbom_assembly_paint: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const diff = new BomDiffService(prisma)
+    return { svc: new MarkRenameService(prisma, diff), prisma }
+  }
+
+  it('first real BOM upload in a zone that only has PRE_SHOP dispatches → no candidates, latest=true, nothing disappeared', async () => {
+    const dispatches: DRow[] = [
+      { id: 58, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, doc_revisions: [] },
+      { id: 59, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, doc_revisions: [] },
+      { id: 60, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+    ]
+    const asmRows = [
+      A(1, 58, 'PS-A0'), A(2, 59, 'PS-A1'),
+      A(11, 60, 'A1'),
+    ]
+    const partRows = [
+      PRT(100, 58, 'p-516'), PRT(101, 59, 'p-517'),
+    ]
+    const { svc } = buildRealPrisma(dispatches, asmRows, partRows)
+
+    const c = await svc.candidates(60)
+    expect(c.latest).toBe(true)
+    expect(c.assemblies).toEqual([])
+    expect(c.parts).toEqual([])
+    expect(c.new_assemblies).toEqual([])
+    expect(c.new_parts).toEqual([])
+  })
+
+  it('a real v1 → v2 still produces rename candidates normally, with an unrelated PRE_SHOP dispatch in the mix', async () => {
+    const dispatches: DRow[] = [
+      { id: 58, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, doc_revisions: [] },
+      { id: 60, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+      { id: 70, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 2, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+    ]
+    const asmRows = [
+      A(1, 58, 'PS-A0'),
+      A(11, 60, 'BUH1B-18', 'INACTIVE'), // v1's mark, superseded by v2
+      A(12, 70, '3BUH1B-18'), // v2's renamed mark
+    ]
+    const { svc } = buildRealPrisma(dispatches, asmRows)
+
+    const c = await svc.candidates(70)
+    expect(c.latest).toBe(true)
+    expect(c.assemblies.map(a => a.mark)).toEqual(['BUH1B-18'])
+    expect(c.new_assemblies.map(a => a.mark)).toEqual(['3BUH1B-18'])
   })
 })

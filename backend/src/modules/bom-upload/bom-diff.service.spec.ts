@@ -84,6 +84,10 @@ function buildDispatchFindMany(dispatches: any[]) {
     if (where.revision !== undefined) rows = rows.filter(d => d.revision === where.revision)
     if (where.id?.lte !== undefined) rows = rows.filter(d => d.id <= where.id.lte)
     if (where.id?.lt !== undefined) rows = rows.filter(d => d.id < where.id.lt)
+    // Fixtures that don't set `source` are plain BOM_UPLOAD dispatches (the
+    // Prisma schema default) — mirrors real DB behavior so existing fixtures
+    // need no changes.
+    if (where.source !== undefined) rows = rows.filter(d => (d.source ?? 'BOM_UPLOAD') === where.source)
     return Promise.resolve([...rows].sort((a, b) => b.id - a.id))
   })
 }
@@ -584,5 +588,100 @@ describe('BomDiffService — slot-aware group loading', () => {
     const svc = new BomDiffService(prisma as any)
     const result = await svc.computeDiff(10)
     expect(result).toBeNull()
+  })
+})
+
+// ── PRE_SHOP exclusion (bug fix, 2026-10-22) ──────────────────────
+//
+// A pre-shop MO upload writes its own bom_dispatch row (source='PRE_SHOP',
+// revision=0) into the MO's project/zone so MO/WO/progress machinery works
+// unchanged (see PreshopService.createDispatch). But a PRE_SHOP dispatch is
+// per-MO pre-shop data, NOT a previous BOM version — resolveEffectiveGroup()
+// must never resolve one as the "previous" (or "current") group for a real
+// zone BOM. Repro: project 16 / zone 33 had only two PRE_SHOP dispatches (58,
+// 59) before the first real BOM_UPLOAD (60, "Start new version (1)").
+
+describe('BomDiffService — PRE_SHOP source exclusion (bug fix)', () => {
+  function buildPreshopPrisma() {
+    const dispatches = [
+      { id: 58, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, uploaded_at: new Date('2026-10-01'), doc_revisions: [] },
+      { id: 59, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, uploaded_at: new Date('2026-10-02'), doc_revisions: [] },
+      { id: 60, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 1, uploaded_at: new Date('2026-10-10'), doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+    ]
+    const assemblyRows = [
+      // PRE_SHOP marks under 58/59 — must never surface as "previous" content.
+      { dispatch_id: 58, assembly_mark: 'PS-A0' },
+      { dispatch_id: 59, assembly_mark: 'PS-A1' },
+      // The real first BOM upload's own content.
+      { dispatch_id: 60, assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5 },
+    ]
+    return {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: buildDispatchFindMany(dispatches),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(assemblyRows, where))),
+      },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+  }
+
+  it('resolveEffectiveGroup never resolves a PRE_SHOP dispatch as the active group, even as the most recent "combined"-looking row', async () => {
+    const svc = new BomDiffService(buildPreshopPrisma() as any)
+
+    // "As of id<60" — only the two PRE_SHOP dispatches (58, 59) exist. Before
+    // the fix, dispatch 59 (no doc_revisions → classifyDispatchSlot sees
+    // neither MAIN_ nor ACC_ → 'combined') was wrongly returned as the sole
+    // "previous version" contributor.
+    const group = await svc.resolveEffectiveGroup(16, 33, null, { lt: 60 })
+    expect(group).toEqual({ mainId: null, accId: null })
+  })
+
+  it('computeDiff on the first real BOM_UPLOAD returns null (no candidates / no diff) when only PRE_SHOP dispatches precede it', async () => {
+    const svc = new BomDiffService(buildPreshopPrisma() as any)
+    const result = await svc.computeDiff(60)
+    expect(result).toBeNull()
+  })
+
+  it('a real v1 → v2 still diffs correctly against the true previous BOM_UPLOAD, ignoring an unrelated PRE_SHOP dispatch in between', async () => {
+    const dispatches = [
+      { id: 58, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, uploaded_at: new Date('2026-10-01'), doc_revisions: [] },
+      { id: 60, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 1, uploaded_at: new Date('2026-10-10'), doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+      // A PRE_SHOP dispatch uploaded for another MO AFTER the real v1 — must
+      // still never be picked as "previous" for v2.
+      { id: 65, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 0, uploaded_at: new Date('2026-10-15'), doc_revisions: [] },
+      { id: 70, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 2, uploaded_at: new Date('2026-10-20'), doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+    ]
+    const assemblyRows = [
+      { dispatch_id: 58, assembly_mark: 'PS-A0' },
+      { dispatch_id: 60, assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 100, surface_area_m2: 5 },
+      { dispatch_id: 65, assembly_mark: 'PS-A9' },
+      { dispatch_id: 70, assembly_mark: 'A1', name: 'Assembly 1', qty: 1, weight_kg: 120, surface_area_m2: 5 },
+    ]
+    const prisma = {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: buildDispatchFindMany(dispatches),
+      },
+      bom_assembly: {
+        findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(assemblyRows, where))),
+      },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+
+    const svc = new BomDiffService(prisma as any)
+    const result = await svc.computeDiff(70)
+
+    expect(result).not.toBeNull()
+    expect(result!.prev_id).toBe(60)
+    expect(result!.curr_id).toBe(70)
+    const a1 = result!.assembly_diff.find(r => (r.curr ?? r.prev)!.assembly_mark === 'A1')
+    expect(a1!.status).toBe('changed')
+    expect(result!.aggregate.weight_kg.delta).toBeCloseTo(20)
   })
 })

@@ -160,7 +160,15 @@ export class BomDiffService {
     idBound: { lte: number } | { lt: number },
   ): Promise<EffectiveGroup> {
     const dispatches = await this.prisma.bom_dispatch.findMany({
-      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, status: { not: 'error' }, id: idBound },
+      // source: 'BOM_UPLOAD' only — a PRE_SHOP dispatch (per-MO pre-shop
+      // data, see PreshopService.createDispatch) or a BIM_PLACEHOLDER
+      // dispatch (project-level, lives in its own placeholder zone — never
+      // matches a real zoneId anyway) must never be resolved as a "version"
+      // of this zone's real BOM (bug fix 2026-10-22: a zone with only
+      // PRE_SHOP dispatches was wrongly treated as having a previous BOM
+      // version, since a PRE_SHOP row has no doc_revisions and so
+      // classifyDispatchSlot() misread it as a 'combined' snapshot).
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, status: { not: 'error' }, source: 'BOM_UPLOAD', id: idBound },
       select: { id: true, doc_revisions: { select: { doc_type: true } } },
       orderBy: { id: 'desc' },
     })
