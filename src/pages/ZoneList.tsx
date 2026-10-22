@@ -24,6 +24,7 @@ import { usePermission } from '../hooks/usePermission'
 import { useIsCustomer } from '../hooks/useIsCustomer'
 import type { ProjectZoneDTO } from '../api/types'
 import type { CreateZonePayload } from '../api/project-zones'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 
 // ── Sortable zone row ───────────────────────────────────────────
 function SortableZoneRow({
@@ -472,8 +473,8 @@ export function ZoneList() {
                   <input
                     type="date"
                     value={zoneForm.target_start ?? ''}
-                    onChange={e => setZoneForm(f => ({ ...f, target_start: e.target.value || undefined }))}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                    {...dateInputGuardHandlers(v => setZoneForm(f => ({ ...f, target_start: v || undefined })), 'Target Start')}
                   />
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -481,8 +482,8 @@ export function ZoneList() {
                   <input
                     type="date"
                     value={zoneForm.target_end ?? ''}
-                    onChange={e => setZoneForm(f => ({ ...f, target_end: e.target.value || undefined }))}
                     style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }}
+                    {...dateInputGuardHandlers(v => setZoneForm(f => ({ ...f, target_end: v || undefined })), 'Target End')}
                   />
                 </div>
               </div>
@@ -522,11 +523,11 @@ export function ZoneList() {
               <div style={{ display: 'flex', gap: 10 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Start Date</label>
-                  <input type="date" value={subForm.start_date} onChange={e => setSubForm(f => ({ ...f, start_date: e.target.value }))} style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} />
+                  <input type="date" value={subForm.start_date} style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} {...dateInputGuardHandlers(v => setSubForm(f => ({ ...f, start_date: v })), 'Start Date')} />
                 </div>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>Due Date</label>
-                  <input type="date" value={subForm.due_date} onChange={e => setSubForm(f => ({ ...f, due_date: e.target.value }))} style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} />
+                  <input type="date" value={subForm.due_date} style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4 }} {...dateInputGuardHandlers(v => setSubForm(f => ({ ...f, due_date: v })), 'Due Date')} />
                 </div>
               </div>
             </div>

@@ -8,7 +8,9 @@ import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
 import { useUploadBomWithPreview, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
+import { useRenameStep } from '../hooks/useRenameStep'
 import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
+import { RenamePairDialog } from '../components/bom/RenamePairDialog'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
@@ -111,6 +113,7 @@ export function BomUpload() {
   const effectiveMode = isModeLocked ? zoneMode! : uploadMode
 
   const uploadFlow = useUploadBomWithPreview()
+  const renameStep = useRenameStep()
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -158,10 +161,11 @@ export function BomUpload() {
 
   // WO BOM-Version Hold (Sprint 20, T10): surface WOs the upload put on hold,
   // mirroring UpdateBomModal.tsx's handleUploadSuccess (same condition, same copy).
-  const handleUploadSuccess = (res: DispatchDetailDto) => {
+  const handleUploadSuccess = async (res: DispatchDetailDto) => {
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
+    if (await renameStep.afterUpload(res.id)) return
     navigate(`/bom/dispatch/${res.id}/paint`)
   }
 
@@ -186,7 +190,7 @@ export function BomUpload() {
     try {
       const res = await uploadFlow.submit(formData, pct => setProgress(pct))
       if (res == null) { setProgress(null); return }
-      handleUploadSuccess(res)
+      await handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
@@ -196,7 +200,7 @@ export function BomUpload() {
     try {
       const res = await uploadFlow.confirm()
       if (res == null) return
-      handleUploadSuccess(res)
+      await handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
@@ -443,6 +447,13 @@ export function BomUpload() {
           onCancel={uploadFlow.cancel}
           onConfirm={handleConfirmUpload}
           isUploading={uploadFlow.uploadMutation.isPending}
+        />
+      )}
+
+      {renameStep.dispatchId != null && (
+        <RenamePairDialog
+          dispatchId={renameStep.dispatchId}
+          onClose={() => { const id = renameStep.dispatchId!; renameStep.close(); navigate(`/bom/dispatch/${id}/paint`) }}
         />
       )}
     </div>

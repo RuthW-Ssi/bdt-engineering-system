@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Search, X, Layers, Box } from 'lucide-react'
-import type { DiffRowDto, DiffStatus, AssemblyDiffItemDto, PartDiffItemDto, JunctionDiffItem } from '../../api/dispatches'
+import type { DiffRowDto, DiffStatus, AssemblyDiffItemDto, PartDiffItemDto, JunctionDiffItem, RenameKind, RenamePairDto } from '../../api/dispatches'
 import { DIFF_STATUS_META as STATUS_BADGE } from './diffStatusMeta'
+import { InfoTip } from './InfoTip'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,14 @@ interface Props {
   // elsewhere without a 3D panel.
   selectedMark?: string | null
   onSelectRow?: (mark: string) => void
+  // mark/part renames (2026-10-21) — BomDispatchDetail only; optional elsewhere
+  renames?: RenamePairDto[]
+  canPair?: boolean
+  // names the backend offers as disappeared (rename candidates) — a removed
+  // row outside these (e.g. MAIN rows on an ACC-only re-upload) can't be paired
+  pairable?: Record<RenameKind, ReadonlySet<string>>
+  onPair?: (kind: RenameKind, mark: string) => void
+  onUndo?: (r: RenamePairDto) => void
 }
 
 // ─── Status config ────────────────────────────────────────────────────────────
@@ -73,6 +82,23 @@ function Badge({ status }: { status: DiffStatus }) {
       {b.label}
     </span>
   )
+}
+
+// Pair / rename on the BOM version page (2026-10-21) ──────────────────────
+
+function RenameChip({ from, to, rename, onUndo }: { from: string; to: string; rename?: RenamePairDto; onUndo?: (r: RenamePairDto) => void }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 600, color: '#0C447C', background: '#E6F1FB', borderRadius: 10, padding: '1px 8px', flexShrink: 0 }}>
+      {`เปลี่ยนชื่อ ${from} → ${to}`}
+      {rename && onUndo && (rename.undo_blocked
+        ? <InfoTip label="ทำไมยกเลิกคู่ไม่ได้" text={rename.undo_blocked} />
+        : <button onClick={e => { e.stopPropagation(); onUndo(rename) }} style={{ fontSize: 11, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>ยกเลิกคู่</button>)}
+    </span>
+  )
+}
+
+function PairButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button onClick={e => { e.stopPropagation(); onClick() }} style={{ fontSize: 11.5, fontWeight: 600, color: '#0C447C', background: 'white', border: '1px solid #B5D4F4', borderRadius: 6, padding: '1px 8px', flexShrink: 0 }}>{label}</button>
 }
 
 // Circular type icons — same visual language as BomTreeView, so this diff
@@ -239,11 +265,13 @@ function PartRowContent({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, selectedMark, onSelectRow }: Props) {
+export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, selectedMark, onSelectRow, renames, canPair, pairable, onPair, onUndo }: Props) {
+  const showPair = (kind: RenameKind, mark: string) => !!canPair && !!onPair && !!pairable?.[kind].has(mark)
   const [showUnchanged, setShowUnchanged] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const term = searchTerm.trim().toLowerCase()
+  const renameById = new Map((renames ?? []).map(r => [r.id, r]))
 
   // Auto-expand all when searching
   useEffect(() => {
@@ -275,7 +303,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
       const partRow = partMap.get(partMark)
       return { junctionRow: j, partRow, effectiveStatus: combinedStatus(j.status, partRow?.status) }
     })
-    const hasChanges = asmRow.status !== 'unchanged' || parts.some(p => p.effectiveStatus !== 'unchanged')
+    const hasChanges = asmRow.status !== 'unchanged' || !!asmRow.renamed_from || parts.some(p => p.effectiveStatus !== 'unchanged' || !!p.partRow?.renamed_from)
     return { assemblyRow: asmRow, mark, parts, hasChanges }
   })
 
@@ -437,7 +465,7 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
         const isCollapsed = collapsed.has(node.mark)
         const visibleParts = showUnchanged
           ? node.parts
-          : node.parts.filter(p => p.effectiveStatus !== 'unchanged')
+          : node.parts.filter(p => p.effectiveStatus !== 'unchanged' || !!p.partRow?.renamed_from)
         const hasVisibleParts = node.parts.length > 0
 
         const asmHighlighted = term !== '' && (
@@ -467,6 +495,8 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
               </span>
               <AsmIcon />
               <Badge status={node.assemblyRow.status} />
+              {node.assemblyRow.renamed_from && <RenameChip from={node.assemblyRow.renamed_from} to={node.mark} rename={renameById.get(node.assemblyRow.rename_id!)} onUndo={onUndo} />}
+              {node.assemblyRow.status === 'removed' && showPair('ASSEMBLY', node.mark) && <PairButton label="จับคู่กับ mark ใหม่" onClick={() => onPair!('ASSEMBLY', node.mark)} />}
               {(node.assemblyRow.status === 'unchanged' || node.assemblyRow.status === 'changed') && (
                 <PartChangeSummaryChip parts={node.parts} />
               )}
@@ -494,6 +524,8 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
                 <span style={{ width: 18, flexShrink: 0 }} />
                 <PartIcon />
                 <Badge status={entry.effectiveStatus} />
+                {entry.partRow?.renamed_from && <RenameChip from={entry.partRow.renamed_from} to={pm} rename={renameById.get(entry.partRow.rename_id!)} onUndo={onUndo} />}
+                {entry.partRow?.status === 'removed' && showPair('PART', pm) && <PairButton label="จับคู่กับ part ใหม่" onClick={() => onPair!('PART', pm)} />}
                 <PartRowContent junctionRow={entry.junctionRow} partRow={entry.partRow} />
               </div>
               )
@@ -528,6 +560,8 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
             >
               <PartIcon />
               <Badge status={row.status} />
+              {row.renamed_from && <RenameChip from={row.renamed_from} to={oMark} rename={renameById.get(row.rename_id!)} onUndo={onUndo} />}
+              {row.status === 'removed' && showPair('PART', oMark) && <PairButton label="จับคู่กับ part ใหม่" onClick={() => onPair!('PART', oMark)} />}
               <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#374151', flexShrink: 0 }}>
                 {(row.curr ?? row.prev)?.part_mark}
               </span>

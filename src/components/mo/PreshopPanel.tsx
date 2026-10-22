@@ -36,13 +36,24 @@ const COLS = 4 + ASM_FIELDS.length // spans mark · sets · values · part · de
 const fmtKg = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export function PreshopPanel({
-  assemblies, onChange, uploadedFrom, onUploadedFrom, compare, needsParts, renderCompare, errors: errorsProp,
+  assemblies, onChange, uploadedFrom, onUploadedFrom, compare, needsParts, renderCompare, renderPairing, pairedMarks, staleMarks, errors: errorsProp,
   mode, onMode,
 }: {
   mode?: UploadMode // controlled by the Upload modal (it sends the mode with the save)
   onMode?: (m: UploadMode) => void
   compare?: Map<string, PreshopMergeRow> // vs the MO, from a dry run (Upload on an existing MO)
   renderCompare?: (a: PreshopAssembly, row: PreshopMergeRow) => React.ReactNode // old-vs-new chooser for a mark the MO has
+  // Pair a renamed mark (2026-10-22): a `new` row with `rename_candidates` —
+  // the "เป็นชิ้นเดียวกับ mark ไหนใน MO?" select, plus (once paired) the same
+  // compare box as `renderCompare`. Always shown when the row has candidates,
+  // whether paired or not — the select is also how a wrong pair is undone.
+  renderPairing?: (a: PreshopAssembly, row: PreshopMergeRow) => React.ReactNode
+  // `pairedMarks` must only hold marks whose pairing still RESOLVES against
+  // this render's `compare` (not raw key presence in pairing state) — a fresh
+  // dry run can drop a chosen candidate, and a mark that no longer resolves
+  // must fall back to a plain editable row, never stay stuck on "เลือกด้านล่าง".
+  pairedMarks?: Set<string> // trimmed marks currently (and validly) paired — qty picked below, not typed
+  staleMarks?: Set<string> // just-dropped pairings (reconcilePairing) — keeps the pairing block mounted so its notice can show, even with zero candidates left
   errors?: string[] // replaces the panel's own row checks (the Upload modal skips marks chosen in the compare box)
   needsParts?: Set<string> // marks that must get parts before saving (2026-10-08)
   assemblies: PreshopAssembly[]
@@ -164,8 +175,15 @@ export function PreshopPanel({
           </thead>
           <tbody>
             {assemblies.map((a, i) => {
-              const cmp = compare?.get(a.assembly_mark.trim())
-              const inMo = !!cmp && cmp.status !== 'new' && !!renderCompare
+              const mark = a.assembly_mark.trim()
+              const cmp = compare?.get(mark)
+              const existsInMo = !!cmp && cmp.status !== 'new' && !!cmp.existing
+              const stale = !!staleMarks?.has(mark)
+              // keep the pairing block mounted (so its notice can show) even
+              // once a dry run empties this row's candidates post-dropping
+              const hasCandidates = (cmp?.status === 'new' && !!cmp.rename_candidates?.length) || stale
+              const paired = !!pairedMarks?.has(mark)
+              const inMo = (existsInMo && !!renderCompare) || (paired && !!renderPairing)
               const tone = inMo ? 'bg-molten-50' : undefined
               return (
               <Fragment key={i}>
@@ -214,10 +232,16 @@ export function PreshopPanel({
                     </td>
                   </tr>
                 )}
-                {inMo && (
+                {existsInMo && renderCompare && (
                   <tr>
                     <td />
-                    <td colSpan={COLS} style={{ padding: '4px 6px 10px' }}>{renderCompare!(a, cmp!)}</td>
+                    <td colSpan={COLS} style={{ padding: '4px 6px 10px' }}>{renderCompare(a, cmp!)}</td>
+                  </tr>
+                )}
+                {hasCandidates && renderPairing && (
+                  <tr>
+                    <td />
+                    <td colSpan={COLS} style={{ padding: '4px 6px 10px' }}>{renderPairing(a, cmp ?? { assembly_mark: mark, status: 'new', existing: null })}</td>
                   </tr>
                 )}
                 {open.has(i) && !inMo && (

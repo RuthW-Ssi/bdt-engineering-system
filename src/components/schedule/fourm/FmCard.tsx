@@ -6,9 +6,9 @@ import { FM_BOX, FM_STUB } from './styles'
 export function FmCard({ card }: { card: FourMCard }) {
   return (
     <section aria-label={card.title} data-testid={`fm-${card.key}`} className={FM_BOX}>
-      <h4 className="m-0 mb-2 flex items-center gap-2 text-[13px] font-semibold text-[#1f2733]">
+      <h4 className="m-0 mb-2 flex items-center gap-2 text-[13px] font-semibold text-[#1F1F1F]">
         {card.title}
-        <span className="ml-auto font-mono text-[10px] font-normal text-[#6b7682] text-right">{card.tag}</span>
+        <span className="ml-auto font-mono text-[10px] font-normal text-[#555555] text-right">{card.tag}</span>
       </h4>
       <div className="flex flex-wrap gap-[5px] mb-2.5">
         {card.chips.map((c) => (
@@ -24,7 +24,7 @@ export function FmCard({ card }: { card: FourMCard }) {
       </div>
       {card.chart ? <FmChart days={card.chart} /> : <div className={FM_STUB}>{card.message}</div>}
       {(card.legend.length > 0 || card.legendNote !== '') && (
-        <div className="flex flex-wrap gap-2.5 mt-[7px] text-[10px] text-[#6b7682]">
+        <div className="flex flex-wrap gap-2.5 mt-[7px] text-[10px] text-[#555555]">
           {card.legend.map((l) => (
             <span key={l.label}>
               <span aria-hidden className="inline-block w-[9px] h-[9px] rounded-[2px] align-[-1px] mr-[3px]" style={{ background: l.color }} />

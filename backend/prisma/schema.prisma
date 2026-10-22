@@ -893,15 +893,61 @@ model bom_dispatch {
   write_user     res_users    @relation("dispatch_write", fields: [write_uid], references: [id])
   write_date     DateTime     @default(now()) @db.Timestamptz
 
-  doc_revisions bom_doc_revision[]
-  assemblies    bom_assembly[]
-  parts         bom_part[]
-  paint_configs mbom_assembly_paint[] @relation("DispatchPaint")
+  doc_revisions      bom_doc_revision[]
+  assemblies         bom_assembly[]
+  parts              bom_part[]
+  paint_configs      mbom_assembly_paint[]   @relation("DispatchPaint")
+  mark_renames       bom_mark_rename[]
+  mark_rename_events bom_mark_rename_event[]
 
   @@index([project_id, status])
   @@index([zone_id])
   @@index([uploaded_at])
   @@index([zone_id, sub_zone_id, revision])
+}
+
+// BOM mark/part renamed between dispatch versions (2026-10-21) — one row per
+// pair a user confirmed. Not paired = a new mark; the system never pairs on
+// its own. Keyed by names (consumers look marks up by name, and every upload
+// re-creates every row). dispatch_id = the dispatch of the NEW row.
+model bom_mark_rename {
+  id           Int          @id @default(autoincrement())
+  project_id   Int
+  zone_id      Int
+  sub_zone_id  Int?
+  dispatch_id  Int
+  dispatch     bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  kind         String       @db.VarChar(10) // ASSEMBLY | PART
+  from_mark    String       @db.VarChar(100)
+  to_mark      String       @db.VarChar(100)
+  from_ref_id  Int // old (INACTIVE) bom_assembly.id / bom_part.id at pairing — soft ref
+  to_ref_id    Int // new (ACTIVE) bom_assembly.id / bom_part.id at pairing — soft ref
+  carried      Json? // what pairing copied + what it overwrote, so undo is exact (ASSEMBLY only)
+  confirmed_by String       @db.VarChar(120)
+  confirmed_at DateTime     @default(now()) @db.Timestamptz
+  used_at      DateTime?    @db.Timestamptz // first MO/WO accept through this pair — blocks undo
+
+  @@unique([dispatch_id, kind, from_mark])
+  @@unique([dispatch_id, kind, to_mark])
+  @@index([project_id, zone_id, sub_zone_id])
+}
+
+// History of pair / undo on a BOM version (2026-10-21) — kept after an undo
+// deletes its bom_mark_rename row.
+model bom_mark_rename_event {
+  id          Int          @id @default(autoincrement())
+  dispatch_id Int
+  dispatch    bom_dispatch @relation(fields: [dispatch_id], references: [id], onDelete: Cascade)
+  kind        String       @db.VarChar(10) // ASSEMBLY | PART
+  action      String       @db.VarChar(10) // PAIR | UNDO
+  from_mark   String       @db.VarChar(100)
+  to_mark     String       @db.VarChar(100)
+  keep        String?      @db.VarChar(3) // old | new — which data set the pair kept
+  changes     Json? // [{ field, old, new }]
+  recorded_by String       @db.VarChar(120)
+  recorded_at DateTime     @default(now()) @db.Timestamptz
+
+  @@index([dispatch_id, recorded_at])
 }
 
 // ── 🟥 BOM Doc Revision (one file per doc_type per dispatch) ─────
@@ -1674,6 +1720,10 @@ model mo_print_log {
   include_manifest Boolean             @default(true)
   printed_by       String              @db.VarChar(120)
   printed_at       DateTime            @default(now()) @db.Timestamptz
+  // woId → { assemblyMark → drawing rev } for every (WO, mark) pair this
+  // print included a drawing page for (2026-10-21) — null on every log
+  // written before this column existed ("legacy", never produces a notice).
+  drawing_revs     Json?
 
   @@index([mo_id])
 }

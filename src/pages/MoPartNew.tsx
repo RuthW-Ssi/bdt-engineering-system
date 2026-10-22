@@ -18,6 +18,7 @@ import { SizeComparisonPanel } from '../components/mo/SizeComparisonPanel'
 import { duplicateGroups, rowErrors } from '../lib/moPartLines'
 import { rebuildLines } from '../lib/moPartMatch'
 import { toDatetimeLocal } from '../lib/datetimeLocal'
+import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 import { StepHead, ui } from '../components/mo/PartUi'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 
@@ -373,10 +374,10 @@ export function MoPartNew() {
               <div className="truncate rounded-md border border-chrome-100 bg-chrome-50 px-2 py-1.5 text-[13px] text-chrome-800">{shownRouting} <span className="text-[11px] text-chrome-400">(อัตโนมัติ)</span></div>
             </div>
             <label className="flex flex-col gap-1"><span className={ui.label}>เริ่ม (แผน)</span>
-              <input type="datetime-local" className={ui.select} value={planStart} onChange={e => setPlanStart(e.target.value)} />
+              <input type="datetime-local" className={ui.select} value={planStart} {...dateInputGuardHandlers(setPlanStart, 'Plan Start')} />
             </label>
             <label className="flex flex-col gap-1"><span className={ui.label}>เสร็จ (แผน)</span>
-              <input type="datetime-local" className={ui.select} value={planFinish} onChange={e => setPlanFinish(e.target.value)} />
+              <input type="datetime-local" className={ui.select} value={planFinish} {...dateInputGuardHandlers(setPlanFinish, 'Plan Finish')} />
             </label>
           </div>
           {isEdit && (

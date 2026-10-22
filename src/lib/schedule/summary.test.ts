@@ -1,7 +1,7 @@
 import { AxiosError, type AxiosResponse } from 'axios'
 import { buildOps, indexBoard } from './model'
 import { RUN_IN_PROGRESS_MESSAGE, SCHEDULER_TIMEOUT_HINT, describeScheduleError } from './runError'
-import { backlog, footSummary, headerInfo, kpis, opDetail, opTooltip, orderList } from './summary'
+import { backlog, headerInfo, hiddenOpsNote, kpis, opDetail, opTooltip, orderList } from './summary'
 import { bkk, iso, line, makeBoard, mo, op, team, version, wc, wo } from './testBoard'
 
 const NOW = bkk('2026-10-05T07:00')
@@ -48,6 +48,8 @@ describe('kpis', () => {
       ['late', '0', 'good'],
       ['backlog', '0', ''],
       ['finish', '—', ''],
+      ['ops', '0', ''],
+      ['version', expect.any(String), ''],
     ])
   })
 
@@ -110,15 +112,15 @@ describe('orderList', () => {
     const ix = indexBoard(board())
     const rows = orderList(ix, buildOps(ix))
     expect(rows.map((r) => [r.mo.mo_code, r.firstOp?.uid ?? null, r.meta.startsWith('ส่ง ') ? 'ส่ง' : r.meta])).toEqual([
-      ['MO-100', 1, 'สาย'],
+      ['MO-100', 1, 'ล่าช้า'],
       ['MO-300', null, 'รอจัด'],
       ['MO-200', 3, 'ส่ง'],
       ['MO-400', null, 'รอจัด'],
       ['MO-500', null, 'กำลังผลิต'],
     ])
     expect(rows[0].dotColor).toBe('#dc2626')
-    expect(rows[1].dotColor).toBe('#e8590c')
-    expect(rows[2].dotColor).toBe('#9aa3ad')
+    expect(rows[1].dotColor).toBe('#BA7517')
+    expect(rows[2].dotColor).toBe('#185FA5')
   })
 })
 
@@ -131,7 +133,7 @@ describe('detail / tooltip / footer / header', () => {
     const d = opDetail(o)
     expect(d.title).toBe('TC-CO1 +1')
     expect(d.subtitle).toBe('WO-1')
-    expect(d.pill).toBe('สาย (LATE)')
+    expect(d.pill).toBe('ล่าช้า (LATE)')
     const row = (label: string) => d.rows.find((r) => r.label === label)?.value
     expect(row('Assembly marks')).toBe('TC-CO1, TC-CO2')
     expect(row('Operation')).toBe('Cutting')
@@ -147,15 +149,15 @@ describe('detail / tooltip / footer / header', () => {
     expect(plain.rows.some((r) => r.label === 'น้ำหนักชิ้นงาน')).toBe(false)
   })
 
-  it('builds the tooltip and footer', () => {
+  it('builds the tooltip, the hidden-op note and the late / ops / version tiles', () => {
     expect(opTooltip(o)).toMatchObject({ title: 'TC-CO1 +1 · Cutting', late: true })
     expect(opTooltip(o).lines[0]).toBe('WC-CUT name · L1 · T-A ×2')
     expect(opTooltip(o).lines[1]).toMatch(/\(60m\)$/)
-    expect(footSummary(ops, 2, ix.version)).toEqual([
-      '⚠ 2 op อยู่บน line ที่ปิดใช้ / ไม่มี line — ไม่แสดงบน Gantt',
-      'Version: V1 · operations: 3 · assembly สาย: TC-CO1 +1, WO-2',
-      'read-only view · คลิก ▾ ที่ Work Center เพื่อย่อ/ขยาย · drag-drop edit = งานถัดไป',
-    ])
+    expect(hiddenOpsNote(2)).toBe('⚠ 2 op อยู่บน line ที่ปิดใช้ / ไม่มี line — ไม่แสดงบน Gantt')
+    expect(hiddenOpsNote(0)).toBeNull()
+    const late = kpis(ix, ops).find((k) => k.key === 'late')!
+    expect(late.items).toEqual(['TC-CO1 +1', 'WO-2'])
+    expect(kpis(ix, ops).slice(-2).map((k) => [k.key, k.value])).toEqual([['ops', '3'], ['version', 'V1']])
     expect(headerInfo(version(1, { scheduler_source: 'python-aps', description: 'EDD run' }))).toEqual({ badge: 'PYTHON-APS', sub: 'finite-capacity · EDD run' })
     expect(headerInfo(null).badge).toBe('LIVE')
   })

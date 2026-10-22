@@ -371,4 +371,28 @@ export class ManufacturingOrderController {
     res.set({ 'Content-Type': 'application/pdf' })
     res.send(Buffer.from(bytes))
   }
+
+  // Stale-drawing status (2026-10-21, Task 3) — warn-only: which (WO, mark)
+  // pairs on this MO were printed with a drawing rev that's now older than
+  // the mark's current rev. Never blocks anything; the MO/WO page reads
+  // this to show a notice icon. `wo_id` narrows to a single WO (e.g. the WO
+  // detail page); omitted means every non-cancelled WO on the MO.
+  @Get(':id/drawing-rev-status')
+  @RequiresPermission('orders', 'view')
+  @ApiOperation({ summary: 'Stale-drawing status — WO/mark pairs whose printed drawing rev is older than the current rev (warn-only)' })
+  @ApiQuery({ name: 'wo_id', required: false, description: 'Restrict to a single WO id. Omitted = every non-cancelled WO on the MO.' })
+  getDrawingRevStatus(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('wo_id') woIdRaw: string | undefined,
+  ) {
+    let woId: number | undefined
+    if (woIdRaw !== undefined) {
+      const parsed = Number(woIdRaw)
+      if (!Number.isInteger(parsed) || parsed <= 0) {
+        throw new BadRequestException(`wo_id must be a positive integer, got "${woIdRaw}"`)
+      }
+      woId = parsed
+    }
+    return this.moPrint.drawingRevStatus(id, woId)
+  }
 }

@@ -6,14 +6,16 @@ import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { BomMatchingService } from './bom-matching.service'
 import { XlsxParserService } from './xlsx-parser.service'
 import { PaintConfigService } from './paint-config.service'
+import { MarkRenameService } from './mark-rename.service'
 import { FileStorageModule } from '../file-storage/file-storage.module'
 import { ProductDerivationModule } from '../product-derivation/product-derivation.module'
 import { ProductsModule } from '../products/products.module'
+import { MarkRenameModule } from '../mark-rename/mark-rename.module'
 
 @Module({
-  imports: [FileStorageModule, ProductDerivationModule, ProductsModule],
+  imports: [FileStorageModule, ProductDerivationModule, ProductsModule, MarkRenameModule],
   controllers: [BomUploadController],
-  providers: [BomUploadService, BomDiffService, BomDiffBimMatchService, BomMatchingService, XlsxParserService, PaintConfigService],
+  providers: [BomUploadService, BomDiffService, BomDiffBimMatchService, BomMatchingService, XlsxParserService, PaintConfigService, MarkRenameService],
   exports: [BomDiffService],
 })
 export class BomUploadModule {}

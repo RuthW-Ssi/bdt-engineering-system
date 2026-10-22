@@ -91,6 +91,7 @@ const runMutate = vi.fn()
 const activateMutate = vi.fn()
 
 beforeEach(() => {
+  window.history.replaceState(null, '', '/') // the selected tab lives in ?tab=
   vi.clearAllMocks()
   boardCalls.length = 0
   fourmCalls.length = 0
@@ -101,13 +102,15 @@ beforeEach(() => {
   activateResult = { mutate: activateMutate, isPending: false, error: null, reset: vi.fn() }
 })
 
+const openTab = (name: string) => fireEvent.click(screen.getByRole('tab', { name }))
+
 describe('ProductionSchedule', () => {
   it('renders the KPI tiles per MO from the board', () => {
     render(<ProductionSchedule />)
 
     expect(screen.getByTestId('kpi-onTime')).toHaveTextContent('50%')
     expect(screen.getByTestId('kpi-onTime')).toHaveTextContent('ส่งทันกำหนด')
-    expect(screen.getByTestId('kpi-late')).toHaveTextContent('1งานสาย')
+    expect(screen.getByTestId('kpi-late')).toHaveTextContent('1งานล่าช้า')
     expect(screen.getByTestId('kpi-backlog')).toHaveTextContent('1Backlog (รอจัด)')
     expect(screen.getByTestId('kpi-finish')).toHaveTextContent('18:30')
   })
@@ -123,12 +126,12 @@ describe('ProductionSchedule', () => {
     expect(within(gantt).getByText('L2')).toBeInTheDocument()
 
     // MO-100 is late → every open op of it is flagged, not just the one that ends after the due
-    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })).toHaveAttribute('data-late', 'true')
-    expect(within(gantt).getByRole('button', { name: 'A1 · Cut · สาย' })).toHaveAttribute('data-late', 'true')
+    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })).toHaveAttribute('data-late', 'true')
+    expect(within(gantt).getByRole('button', { name: 'A1 · Cut · ล่าช้า' })).toHaveAttribute('data-late', 'true')
     expect(within(gantt).getByRole('button', { name: 'B1 +1 · Cut' })).not.toHaveAttribute('data-late')
 
     // late = inset ring (box-shadow), so the outline stays free for the focus ring
-    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })
+    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })
     expect(weld.style.boxShadow).toContain('inset')
     expect(weld.style.outline).toBe('')
 
@@ -137,40 +140,90 @@ describe('ProductionSchedule', () => {
     expect(within(gantt).getAllByText('L1')).toHaveLength(3)
   })
 
+  it('"แสดงเฉพาะ work center / line ที่มีงาน" hides rows without ops', () => {
+    render(<ProductionSchedule />)
+    const gantt = screen.getByRole('region', { name: 'Resource Gantt' })
+    expect(within(gantt).getByText('PAINT')).toBeInTheDocument() // idle WC is listed (collapsed)
+    fireEvent.click(within(gantt).getByLabelText('แสดงเฉพาะ work center / line ที่มีงาน'))
+    expect(within(gantt).queryByText('PAINT')).not.toBeInTheDocument()
+    expect(within(gantt).getAllByRole('button', { name: /·/ }).length).toBeGreaterThan(0) // bars still drawn
+  })
+
   it('keeps the other bars mounted when a WC is collapsed (stable keys)', () => {
     render(<ProductionSchedule />)
     const gantt = screen.getByRole('region', { name: 'Resource Gantt' })
-    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })
+    const weld = within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })
 
     fireEvent.click(within(gantt).getByRole('button', { name: /^▾CUT/ }))
-    expect(within(gantt).queryByRole('button', { name: 'A1 · Cut · สาย' })).not.toBeInTheDocument()
-    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · สาย' })).toBe(weld)
+    expect(within(gantt).queryByRole('button', { name: 'A1 · Cut · ล่าช้า' })).not.toBeInTheDocument()
+    expect(within(gantt).getByRole('button', { name: 'A1 · Weld · ล่าช้า' })).toBe(weld)
   })
 
-  it('shows the backlog card and the WO detail of a clicked bar', () => {
+  it('opens the WO detail beside the Gantt for a clicked bar, and closes it', () => {
     render(<ProductionSchedule />)
 
+    expect(screen.queryByTestId('op-detail')).not.toBeInTheDocument() // Gantt uses the full width
+    fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · ล่าช้า' }))
+    const detail = screen.getByTestId('op-detail')
+    expect(detail).toHaveTextContent('ล่าช้า (LATE)')
+    expect(detail).toHaveTextContent('Weld team A · internal · 3 คน')
+    expect(detail).toHaveTextContent('1,234 kg')
+    expect(detail).toHaveTextContent('WO-1002 · MO-100')
+
+    fireEvent.click(screen.getByRole('button', { name: 'ปิดรายละเอียด' }))
+    expect(screen.queryByTestId('op-detail')).not.toBeInTheDocument()
+  })
+
+  it('shows the order list and the backlog beside the Gantt, no separate tab', () => {
+    render(<ProductionSchedule />)
+    expect(screen.queryByRole('tab', { name: 'คำสั่งผลิต' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'คำสั่งผลิต' })).toBeInTheDocument()
     const card = screen.getByTestId('backlog-card')
     expect(card).toHaveTextContent('MO-300')
     expect(card).toHaveTextContent('CO · 1 ops')
     expect(card).toHaveTextContent('Σ 1.5h')
-
-    expect(screen.getByText(SCHEDULE_TEXT.detailEmpty)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · สาย' }))
-    const detail = screen.getByTestId('op-detail')
-    expect(detail).toHaveTextContent('สาย (LATE)')
-    expect(detail).toHaveTextContent('Weld team A · internal · 3 คน')
-    expect(detail).toHaveTextContent('1,234 kg')
-    expect(detail).toHaveTextContent('WO-1002 · MO-100')
   })
 
-  it('order list click selects the MO\'s first op', () => {
+  it('keeps the chosen tab in the URL and opens ?tab= directly', () => {
+    const { unmount } = render(<ProductionSchedule />)
+    expect(screen.getByRole('tab', { name: 'ตาราง Gantt' })).toHaveAttribute('aria-selected', 'true')
+    openTab('ภาระงาน')
+    expect(window.location.search).toBe('?tab=load')
+    expect(screen.getByRole('region', { name: 'Utilization Heatmap' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Resource Gantt' })).not.toBeInTheDocument()
+    unmount()
+
     render(<ProductionSchedule />)
-    const panel = screen.getByRole('region', { name: 'รายละเอียด' })
+    expect(screen.getByRole('tab', { name: 'ภาระงาน' })).toHaveAttribute('aria-selected', 'true')
+    openTab('ตาราง Gantt')
+    expect(window.location.search).toBe('')
+  })
+
+  it('order list click selects the MO\'s first op and jumps to the Gantt', () => {
+    render(<ProductionSchedule />)
+    const panel = screen.getByRole('region', { name: 'คำสั่งผลิต' })
 
     fireEvent.click(within(panel).getByRole('button', { name: /MO-200/ }))
     expect(screen.getByRole('button', { name: 'B1 +1 · Cut' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('op-detail')).toHaveTextContent('WO-2001 · MO-200')
+  })
+
+  it('hides the side panel for a full-width Gantt; picking a bar opens it again', () => {
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: 'ซ่อน ▸' }))
+    expect(screen.queryByRole('region', { name: 'คำสั่งผลิต' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Backlog' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'A1 · Weld · ล่าช้า' }))
+    expect(screen.getByTestId('op-detail')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Backlog' })).toBeInTheDocument()
+  })
+
+  it('collapses the backlog list', () => {
+    render(<ProductionSchedule />)
+    const backlog = screen.getByRole('region', { name: 'Backlog' })
+    fireEvent.click(within(backlog).getByRole('button', { expanded: true }))
+    expect(screen.queryByTestId('backlog-card')).not.toBeInTheDocument()
   })
 
   it('switches version through the board hook', () => {
@@ -262,6 +315,32 @@ describe('ProductionSchedule', () => {
     expect(runMutate).toHaveBeenCalledWith({ direction: 'backward', dispatch_rule: 'CR', activate: true }, expect.any(Object))
   })
 
+  it('runs only the picked WOs and warns when an earlier operation is left out', () => {
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
+    const form = screen.getByRole('form', { name: 'Run scheduler' })
+
+    fireEvent.click(within(form).getByLabelText('เลือกเอง'))
+    expect(within(form).getByRole('button', { name: 'Run' })).toBeDisabled() // nothing picked yet
+
+    fireEvent.click(within(form).getByRole('button', { name: 'ดู WO ของ MO-100' }))
+    fireEvent.click(within(form).getByRole('checkbox', { name: /WO-1002/ })) // Weld only, Cut left out
+    expect(within(form).getByText('ต้องรอ WO-1001')).toBeInTheDocument()
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Run' }))
+    expect(runMutate).toHaveBeenCalledWith(
+      { direction: 'event', dispatch_rule: 'EDD', activate: false, work_order_ids: [1002] },
+      expect.any(Object),
+    )
+  })
+
+  it('"ทุกงานที่จัดได้" (default) sends no work_order_ids', () => {
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
+    fireEvent.click(within(screen.getByRole('form', { name: 'Run scheduler' })).getByRole('button', { name: 'Run' }))
+    expect(runMutate.mock.calls.at(-1)?.[0]).not.toHaveProperty('work_order_ids')
+  })
+
   it('cannot close the run form while a run is in flight', () => {
     const { rerender } = render(<ProductionSchedule />)
     fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
@@ -288,6 +367,33 @@ describe('ProductionSchedule', () => {
     expect(screen.queryByRole('form', { name: 'Run scheduler' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Run scheduler/ })).toHaveFocus()
     expect(boardCalls.at(-1)).toBe(1) // switched to the new version
+  })
+
+  it('after a run, keeps the form open and lists WOs left out with their reasons', () => {
+    runMutate.mockImplementationOnce((_body, opts: { onSuccess: (r: unknown) => void }) =>
+      opts.onSuccess({ version_id: 1, version_code: 'V1', is_active: false,
+        skipped: [{ wo_id: 9, wo_code: 'WO-IN-9', reason: 'ไม่มีวันเริ่ม/วันเสร็จตามแผน' }] }),
+    )
+    render(<ProductionSchedule />)
+    fireEvent.click(screen.getByRole('button', { name: /Run scheduler/ }))
+    fireEvent.click(within(screen.getByRole('form', { name: 'Run scheduler' })).getByRole('button', { name: 'Run' }))
+
+    const form = screen.getByRole('form', { name: 'Run scheduler' })
+    expect(within(form).getByText('ไม่ถูกนำมาจัด 1 WO')).toBeInTheDocument()
+    expect(within(form).getByText('WO-IN-9 — ไม่มีวันเริ่ม/วันเสร็จตามแผน')).toBeInTheDocument()
+    expect(boardCalls.at(-1)).toBe(1) // still switched to the new version
+  })
+
+  it('warns about paused WOs with the reason typed at Pause', () => {
+    const base = fixtureBoard()
+    boardResult = { ...boardResult, data: { ...base, work_orders: [...base.work_orders,
+      wo(4001, 100, { status: 'PAUSED', wo_code: 'WO-IN-4001', work_center_id: base.work_centers[0].id,
+        pause: { reason: 'รอ shop drawing', by: 'admin', at: '2026-10-01T03:20:56.000Z' } })] } }
+    render(<ProductionSchedule />)
+    expect(screen.queryByText('⏸ หยุดชั่วคราว 1 WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '⏸ หยุดชั่วคราว 1 WO' }))
+    expect(screen.getByText('⏸ หยุดชั่วคราว 1 WO — ไม่ได้กันไลน์ไว้ ไลน์อาจไม่ว่าง')).toBeInTheDocument()
+    expect(screen.getByText(/WO-IN-4001 · .* — รอ shop drawing \(admin · 1\/10\/2026\)/)).toBeInTheDocument()
   })
 
   it('shows a 504 with the "may still finish" hint', () => {
@@ -326,6 +432,7 @@ describe('ProductionSchedule', () => {
 
     expect(screen.getByRole('button', { name: SCHEDULE_TEXT.noVersion })).toBeDisabled()
     expect(screen.getByText(SCHEDULE_TEXT.ganttEmpty)).toBeInTheDocument()
+    openTab('ภาระงาน')
     expect(screen.getByText(SCHEDULE_TEXT.heatEmpty)).toBeInTheDocument()
     expect(screen.getByTestId('kpi-onTime')).toHaveTextContent('—')
   })
@@ -355,7 +462,11 @@ describe('ProductionSchedule', () => {
 
   describe('4M + WIP analysis', () => {
     // named without its 📊, like the SchedCard sections
-    const fourmSection = () => screen.getByRole('region', { name: '4M + WIP analysis' })
+    const fourmSection = () => {
+      const tab = screen.queryByRole('tab', { name: '4M + WIP', selected: false })
+      if (tab) fireEvent.click(tab)
+      return screen.getByRole('region', { name: '4M + WIP analysis' })
+    }
 
     it('renders the five cards from the board + 4M data, below the grid', () => {
       render(<ProductionSchedule />)

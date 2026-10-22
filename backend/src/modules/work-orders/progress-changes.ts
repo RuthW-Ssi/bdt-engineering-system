@@ -22,6 +22,8 @@ export const FIELD_LABEL: Record<ProgressField, string> = {
 export interface ProgressChange { field: ProgressField; old: number | null; new: number | null }
 /** The mark's finish date rides in the same `changes` array, as ISO strings (2026-10-14). */
 export interface FinishChange { field: 'actual_finish'; old: string | null; new: string | null }
+/** A mark renamed in the BOM, taken at WO accept (2026-10-21, final review). */
+export interface MarkNameChange { field: 'assembly_mark'; old: string; new: string }
 
 export function toNum(v: { toString(): string } | number | null | undefined): number | null {
   if (v == null) return null

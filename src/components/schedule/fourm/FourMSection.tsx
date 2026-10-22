@@ -33,9 +33,9 @@ export function FourMSection({
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col">
-      <h3 className="m-0 mt-1 mb-2 text-sm font-semibold text-[#1f2733]">
+      <h3 className="m-0 mt-1 mb-2 text-sm font-semibold text-[#1F1F1F]">
         <span aria-hidden>{FOURM_TEXT.icon}</span> <span id={headingId}>{FOURM_TEXT.heading}</span>{' '}
-        <span className="text-[11px] font-normal text-[#6b7682]">{FOURM_TEXT.sub}</span>
+        <span className="text-[11px] font-normal text-[#555555]">{FOURM_TEXT.sub}</span>
       </h3>
       <div className="flex flex-col gap-2.5">
         {view.state === 'ready' ? (

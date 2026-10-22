@@ -792,3 +792,14 @@ describe('WoMarksTable — history inside the edit panel', () => {
     })
   })
 })
+
+describe('WoMarksTable — mark renamed in the BOM (2026-10-21)', () => {
+  const renamed = () => makeBom({ delta_types: ['RENAMED'] as any, delta_details: { renamed: { from: 'A1', to: '3A1', rename_ids: [7] } } })
+
+  it('says "เปลี่ยนชื่อเป็น 3A1" and still offers Accept (not treated as removed)', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [renamed()] })} />)
+    expect(screen.getByText('เปลี่ยนชื่อเป็น 3A1')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('ชื่อ mark A1 → 3A1')).toBeInTheDocument()
+  })
+})

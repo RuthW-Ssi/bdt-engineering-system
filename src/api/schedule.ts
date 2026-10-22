@@ -46,6 +46,9 @@ export interface BoardWorkOrder {
   marks: string[]
   /** Σ work_order_part.weight_kg; null when the WO has no parts. */
   weight_kg: number | null
+  work_center_id: number
+  /** PAUSED only: latest Pause reason, who, when; null otherwise. */
+  pause: { reason: string | null; by: string; at: string } | null
 }
 
 export interface BoardMo {
@@ -175,6 +178,8 @@ export interface RunScheduleInput {
   direction: ScheduleDirection
   dispatch_rule?: DispatchRule
   activate?: boolean
+  /** Limit the run to these WOs (▶ Run · เลือกเอง); omitted = every schedulable WO. */
+  work_order_ids?: number[]
 }
 
 export interface ScheduleRunKpi {
@@ -199,7 +204,14 @@ export interface ScheduleRunResult {
   direction: ScheduleDirection
   dispatch_rule: DispatchRule
   requested_by: string
+  /** WOs left out of the run and why (Thai). */
+  skipped?: ScheduleSkippedWo[]
+  /** Started WOs that kept a line busy until their plan_finish. */
+  reserved?: ScheduleReservedLine[]
 }
+
+export interface ScheduleSkippedWo { wo_id: number; wo_code: string; reason: string }
+export interface ScheduleReservedLine { wo_code: string; line_id: number; until: string }
 
 /** 201 · 409 run_in_progress · 422 { message, reasons[] } data_not_ready · 500 · 504. */
 export async function runSchedule(body: RunScheduleInput): Promise<ScheduleRunResult> {

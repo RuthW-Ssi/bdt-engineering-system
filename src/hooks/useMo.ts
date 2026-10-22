@@ -13,6 +13,7 @@ import {
   getMo,
   getMoAssemblies,
   getMoConsumeSummary,
+  getMoDrawingRevStatus,
   getMoHistory,
   getMoParts,
   getMos,
@@ -52,6 +53,24 @@ export function useMoParts(id: number) {
 
 export function useMoConsumeSummary(id: number) {
   return useQuery({ queryKey: ['mo', 'consume-summary', id], queryFn: () => getMoConsumeSummary(id), enabled: !!id })
+}
+
+// Stale-drawing status (2026-10-21, Task 4) — the MO Print button's badge
+// and the PrintSelectModal notice both read this; key is `['mo', moId,
+// 'drawing-rev-status', ...]` (moId before the resource name, woId tacked
+// on when given) so a plain invalidateQueries({ queryKey: ['mo', moId,
+// 'drawing-rev-status'] }) after a print catches every woId variant too
+// (TanStack Query v5 invalidation is prefix-matched by default).
+// `moId` is optional (Task 5, 2026-10-21) so WoDetail — which only learns
+// its MO id once `useWo` resolves — can call this hook unconditionally
+// (rules of hooks) and simply stay disabled until then; the key shape and
+// the MO print invalidation prefix are unchanged.
+export function useMoDrawingRevStatus(moId: number | undefined, woId?: number) {
+  return useQuery({
+    queryKey: woId !== undefined ? ['mo', moId, 'drawing-rev-status', woId] : ['mo', moId, 'drawing-rev-status'],
+    queryFn: () => getMoDrawingRevStatus(moId!, woId),
+    enabled: !!moId,
+  })
 }
 
 export function useCreateMo() {

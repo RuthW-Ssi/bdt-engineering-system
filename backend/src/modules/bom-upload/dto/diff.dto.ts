@@ -4,6 +4,9 @@ export interface DiffRow<T> {
   status: DiffStatus
   prev: T | null
   curr: T | null
+  // a confirmed rename (2026-10-21): prev is shown under the new name; this is the old one
+  renamed_from?: string
+  rename_id?: number
 }
 
 export interface AssemblyDiffItem {

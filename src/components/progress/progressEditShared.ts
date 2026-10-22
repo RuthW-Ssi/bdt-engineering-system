@@ -58,6 +58,20 @@ export const ERECTION_DATE_LABEL: Record<ErectionDateField, string> = {
   erection_actual_finish_date: 'Actual Finish',
 }
 
+// Section-qualified labels for the date-input guard toast — FAB_DATE_LABEL
+// and ERECTION_DATE_LABEL both say "Plan/Actual Finish" on their own (fine
+// as a column header next to its section header), which would make two
+// different fields show the same ambiguous toast. This map is guard-only;
+// it doesn't touch the on-screen FieldGroup labels above.
+export const DATE_GUARD_LABEL: Record<DateField | FabDateField | ErectionDateField, string> = {
+  plan_load_date: 'Plan Load',
+  actual_load_date: 'Actual Load',
+  fab_plan_finish_date: 'Fab Plan Finish',
+  fab_actual_finish_date: 'Fab Actual Finish',
+  erection_plan_finish_date: 'Erection Plan Finish',
+  erection_actual_finish_date: 'Erection Actual Finish',
+}
+
 const PCS_FIELDS = ['loaded_pcs', 'erected_pcs'] as const
 type PcsField = (typeof PCS_FIELDS)[number]
 export const PCS_LABEL: Record<PcsField, string> = {

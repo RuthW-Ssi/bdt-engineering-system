@@ -2,10 +2,11 @@ import type { ProgressZoneRow, UpdateAssemblyProgressPayload, PaymentStatus } fr
 import { FAB_STAGES, PAYMENT_STATUSES } from '../../api/projectProgress'
 import {
   dateInput, numInput, toInputDate, STAGE_LABEL, DATE_FIELDS, DATE_LABEL, FAB_DATE_FIELDS, FAB_DATE_LABEL,
-  ERECTION_DATE_FIELDS, ERECTION_DATE_LABEL, PCS_LABEL, EDIT_FIELDS, clampPct, clampPcs, groupHeader,
+  ERECTION_DATE_FIELDS, ERECTION_DATE_LABEL, DATE_GUARD_LABEL, PCS_LABEL, EDIT_FIELDS, clampPct, clampPcs, groupHeader,
 } from './progressEditShared'
 import { useAuth } from '../../context/AuthContext'
 import { editableGroups, lockedNotes, type ProgressGroupKey } from '../../lib/progressDepartments'
+import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 
 // Components only in this file (react-refresh/only-export-components wants
 // a components-only file for Fast Refresh — the constants/helpers these use
@@ -94,8 +95,8 @@ export function ProgressEditFields({
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
               disabled={off('fab_dates')}
-              onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
+              {...dateInputGuardHandlers(v => onChange(d => ({ ...d, [field]: v || null })), DATE_GUARD_LABEL[field])}
             />
           </FieldGroup>
         ))}
@@ -125,8 +126,8 @@ export function ProgressEditFields({
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
               disabled={off('transport_dates')}
-              onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
+              {...dateInputGuardHandlers(v => onChange(d => ({ ...d, [field]: v || null })), DATE_GUARD_LABEL[field])}
             />
           </FieldGroup>
         ))}
@@ -150,8 +151,8 @@ export function ProgressEditFields({
               type="date"
               value={toInputDate((draft[field] as string | null) ?? null)}
               disabled={off('erection_dates')}
-              onChange={e => onChange(d => ({ ...d, [field]: e.target.value || null }))}
               style={{ ...dateInput, width: '100%', color: draft[field] ? '#1A1A1A' : '#ABABAB' }}
+              {...dateInputGuardHandlers(v => onChange(d => ({ ...d, [field]: v || null })), DATE_GUARD_LABEL[field])}
             />
           </FieldGroup>
         ))}

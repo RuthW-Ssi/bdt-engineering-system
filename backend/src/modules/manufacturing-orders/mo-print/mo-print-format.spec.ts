@@ -1,5 +1,6 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, markCell, moCodeCell, renamesForRev, sourceLabelOf, drawingsUpdatedAfter, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, drawingPageStamps, drawingRevLabel, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { PRINT_LABELS } from './mo-print-labels'
 
 describe('fmt2', () => {
   it('pads a whole number to 2 decimal places', () => {
@@ -155,34 +156,11 @@ describe('formatWoCodes', () => {
 })
 
 // 2026-10-05 (print option A): the drawing's rev + upload date print on
-// the drawing page, and the traveler flags drawings uploaded after the WO.
+// the drawing page.
 describe('formatShortDate', () => {
   it('formats dd/mm/yy in shop-floor time (Asia/Bangkok), not the server\'s UTC', () => {
     expect(formatShortDate(new Date('2026-10-01T18:30:00Z'))).toBe('02/10/26')
     expect(formatShortDate('2026-09-16T01:30:00Z')).toBe('16/09/26')
-  })
-})
-
-describe('drawingsUpdatedAfter', () => {
-  const mark = (assemblyMark: string, rev: number, uploaded_at: string) =>
-    ({ assemblyMark, drawing: { rev, uploaded_at: new Date(uploaded_at) } })
-
-  it('lists only marks whose drawing was uploaded after the WO was created, as "MARK Rev 3 (02/10/26)"', () => {
-    const marks = [mark('CTR1', 1, '2026-09-20T03:00:00Z'), mark('CTR10', 3, '2026-10-02T03:00:00Z')]
-    expect(drawingsUpdatedAfter(new Date('2026-09-25T00:00:00Z'), marks)).toEqual(['CTR10 Rev 3 (02/10/26)'])
-  })
-
-  it('is empty when every drawing predates the WO', () => {
-    expect(drawingsUpdatedAfter(new Date('2026-10-05T00:00:00Z'), [mark('CTR1', 2, '2026-10-01T00:00:00Z')])).toEqual([])
-  })
-})
-
-describe('drawingsUpdatedAfter — marks without a drawing (2026-10-07)', () => {
-  it('skips a mark whose drawing is null', () => {
-    expect(drawingsUpdatedAfter('2026-10-01T00:00:00Z', [
-      { assemblyMark: 'BUH1-3', drawing: null },
-      { assemblyMark: 'CTR10', drawing: { rev: 3, uploaded_at: '2026-10-02T03:00:00Z' } },
-    ])).toEqual(['CTR10 Rev 3 (02/10/26)'])
   })
 })
 
@@ -206,5 +184,132 @@ describe('print cells for MO type / Rev / mark source', () => {
     ]
     expect(renamesForRev(reasons, 3)).toEqual(new Map([['C1-BUH1-3', 'BUH1-3']]))
     expect(renamesForRev(reasons, 4)).toEqual(new Map())
+  })
+})
+
+// Per-page drawing stamp text (2026-10-21 fix round 1) — the brief's own
+// worked example: a mark with 2 sheets, one a 2-page PDF ([2, 1]) → 3
+// printed pages stamped แผ่น 1/3, 2/3, 3/3 (n = total pages, never the
+// sheet count; i keeps counting across the sheet boundary, never resets).
+describe('drawingPageStamps', () => {
+  it('numbers every page across every sheet 1..n (n = total pages, not sheet count), continuing i across sheets', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.th)
+
+    expect(stamps).toHaveLength(3)
+    for (const s of stamps) expect(s.startsWith('Drawing Rev 2 · 02/10/26')).toBe(true)
+    expect(stamps[0].endsWith(' · แผ่น 1/3')).toBe(true)
+    expect(stamps[1].endsWith(' · แผ่น 2/3')).toBe(true)
+    expect(stamps[2].endsWith(' · แผ่น 3/3')).toBe(true)
+  })
+
+  // A wrong implementation that sets n to the sheet count (2, not 3) would
+  // print ".../2" on 3 pages — this pins the real total.
+  it('would fail if n were the sheet count instead of the total page count', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.th)
+    expect(stamps.some(s => s.endsWith('/2'))).toBe(false)
+  })
+
+  // A wrong implementation that resets i per sheet would repeat "1/3" at
+  // the start of the second sheet instead of continuing to "3/3".
+  it('would fail if the page index reset per sheet', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.th)
+    expect(stamps[2].endsWith(' · แผ่น 1/3')).toBe(false)
+  })
+
+  it('drops the suffix entirely for a single sheet with a single page (nothing to disambiguate)', () => {
+    const stamps = drawingPageStamps('Rev 1 · 14/09/26', [1], PRINT_LABELS.th)
+    expect(stamps).toEqual(['Drawing Rev 1 · 14/09/26'])
+  })
+
+  it('gives the same stamps in English, with the English sheet word', () => {
+    const stamps = drawingPageStamps('Rev 2 · 02/10/26', [2, 1], PRINT_LABELS.en)
+    expect(stamps).toEqual([
+      'Drawing Rev 2 · 02/10/26 · sheet 1/3',
+      'Drawing Rev 2 · 02/10/26 · sheet 2/3',
+      'Drawing Rev 2 · 02/10/26 · sheet 3/3',
+    ])
+  })
+
+  // A 0-page sheet (2026-10-21 fix round 1, point 3) contributes no stamps
+  // and must not crash or skew the numbering of the other sheets' pages.
+  it('skips a 0-page sheet without crashing, and does not count it toward n', () => {
+    const stamps = drawingPageStamps('Rev 1 · 14/09/26', [0, 2], PRINT_LABELS.th)
+    expect(stamps).toEqual([
+      'Drawing Rev 1 · 14/09/26 · แผ่น 1/2',
+      'Drawing Rev 1 · 14/09/26 · แผ่น 2/2',
+    ])
+  })
+
+  it('returns [] for an all-zero pageCounts (no drawing pages at all)', () => {
+    expect(drawingPageStamps('Rev 1 · 14/09/26', [0], PRINT_LABELS.th)).toEqual([])
+    expect(drawingPageStamps('Rev 1 · 14/09/26', [], PRINT_LABELS.th)).toEqual([])
+  })
+})
+
+// mo_print_log.drawing_revs (2026-10-21) — what each printed (WO, mark)
+// pair's drawing rev was at print time, so a later-uploaded rev can be
+// compared against it (warn-only notice, never a block).
+describe('printedDrawingRevs', () => {
+  it('maps woId (as a string key) → { assemblyMark → rev }, skipping marks with no drawing', () => {
+    const plan = {
+      rows: [
+        {
+          wo: { id: 1398 },
+          marks: [
+            { assemblyMark: 'DBN-A1-CTR1', drawings: [{ rev: 2 }] },
+            { assemblyMark: 'DBN-A1-CTR2', drawings: [] },
+          ],
+        },
+        {
+          wo: { id: 1399 },
+          marks: [
+            { assemblyMark: 'DBN-A1-STR1', drawings: [{ rev: 1 }] },
+          ],
+        },
+      ],
+    }
+
+    expect(printedDrawingRevs(plan)).toEqual({
+      '1398': { 'DBN-A1-CTR1': 2 },
+      '1399': { 'DBN-A1-STR1': 1 },
+    })
+  })
+
+  // Every sheet of a mark shares its current rev (2026-10-21) — the first
+  // one read is representative of them all.
+  it('reads the rev from the first of several sheets on one mark', () => {
+    const plan = {
+      rows: [
+        {
+          wo: { id: 1398 },
+          marks: [{ assemblyMark: 'DBN-A1-CTR1', drawings: [{ rev: 2 }, { rev: 2 }] }],
+        },
+      ],
+    }
+
+    expect(printedDrawingRevs(plan)).toEqual({ '1398': { 'DBN-A1-CTR1': 2 } })
+  })
+
+  it('omits a WO entirely when none of its marks has a drawing', () => {
+    const plan = {
+      rows: [
+        { wo: { id: 1398 }, marks: [{ assemblyMark: 'DBN-A1-CTR1', drawings: [] }] },
+      ],
+    }
+
+    expect(printedDrawingRevs(plan)).toEqual({})
+  })
+
+  it('returns {} for a plan with no rows', () => {
+    expect(printedDrawingRevs({ rows: [] })).toEqual({})
+  })
+})
+
+describe('drawingRevLabel', () => {
+  it('adds "Drawing ของชื่อเดิม X" inside the existing label only when the drawing came from an old name', () => {
+    const d = new Date('2026-10-02T05:00:00Z')
+    expect(drawingRevLabel(2, d, null, PRINT_LABELS.th)).toBe(`Rev 2 · ${formatShortDate(d)}`)
+    expect(drawingRevLabel(2, d, 'BUH1B-18', PRINT_LABELS.th)).toBe(`Rev 2 · ${formatShortDate(d)} · Drawing ของชื่อเดิม BUH1B-18`)
+    expect(drawingRevLabel(2, d, 'BUH1B-18', PRINT_LABELS.en)).toBe(`Rev 2 · ${formatShortDate(d)} · drawing of old name BUH1B-18`)
   })
 })

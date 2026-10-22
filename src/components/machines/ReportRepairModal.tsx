@@ -3,6 +3,7 @@ import { useOpenRepairTicket, useChangeStatus } from '../../hooks/useMachines'
 import { PhotoUploadField } from './PhotoUploadField'
 import { MachineStatusPill } from './MachineStatusPill'
 import type { RepairSeverity, EquipmentStatus, SuggestedStatusChange } from '../../api/machines'
+import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 
 interface Props {
   machineId: number
@@ -92,7 +93,7 @@ export function ReportRepairModal({ machineId, onClose }: Props) {
             <input required value={form.reported_by} onChange={e => set('reported_by', e.target.value)} style={inputStyle} />
           </Field>
           <Field label="Report date *">
-            <input required type="datetime-local" value={form.reported_at} onChange={e => set('reported_at', e.target.value)} style={inputStyle} />
+            <input required type="datetime-local" value={form.reported_at} style={inputStyle} {...dateInputGuardHandlers(v => set('reported_at', v), 'Report date')} />
           </Field>
           <Field label="Severity *">
             <div style={{ display: 'flex', gap: 8 }}>

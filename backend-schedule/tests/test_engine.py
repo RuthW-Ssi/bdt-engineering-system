@@ -57,7 +57,7 @@ def test_persisting_run_locks_first_and_returns_contract_fields(setup):
     out = engine.run("event", "SPT", now=now, persist=True, requested_by="somchai")
     assert conn.log[0] == (LOCK_SQL, (engine.LOCK_KEY,))
     assert set(out) == {"direction", "dispatch_rule", "kpi", "line_load_min", "version_id",
-                        "version_code", "is_active", "requested_by"}
+                        "version_code", "is_active", "requested_by", "skipped", "reserved"}
     assert out["direction"] == "event" and out["dispatch_rule"] == "SPT"
     assert (out["version_id"], out["version_code"], out["is_active"]) == (77, "EVENTBASED-V1", True)
     assert out["requested_by"] == "somchai"
@@ -88,7 +88,7 @@ def test_zero_schedulable_work_orders_is_data_not_ready(setup):
     conn = setup([], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
     with pytest.raises(DataNotReady) as e:
         engine.run("backward", persist=True)
-    assert len(e.value.reasons) == 1 and "no schedulable work orders" in e.value.reasons[0]
+    assert len(e.value.reasons) == 1 and e.value.reasons[0].startswith("ไม่มีงานที่จัดได้")
     assert _writes(conn) == [] and conn.commits == 0 and conn.closed
 
 
@@ -99,8 +99,8 @@ def test_work_centers_without_active_lines_are_named_with_counts(setup):
                   ("from mrp_workcenter where id = any", [(2, "WELD"), (3, "PAINT")])])
     with pytest.raises(DataNotReady) as e:
         engine.run("event", persist=True)
-    assert e.value.reasons == ["work center WELD has no active line (2 work orders)",
-                               "work center PAINT has no active line (1 work orders)"]
+    assert e.value.reasons == ["WELD ไม่มีไลน์ผลิต (2 WO) — แจ้งแอดมินเพิ่มไลน์ หรือเอา WO ออกจากการจัด",
+                               "PAINT ไม่มีไลน์ผลิต (1 WO) — แจ้งแอดมินเพิ่มไลน์ หรือเอา WO ออกจากการจัด"]
     codes_query = next(p for s, p in conn.log if "from mrp_workcenter" in s)
     assert sorted(codes_query[0]) == [2, 3]
     assert _writes(conn) == [] and conn.commits == 0
@@ -122,3 +122,63 @@ def test_aware_now_is_converted_to_bangkok_local(setup):
     setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")])
     out = engine.run("event", now=datetime(2026, 10, 3, 1, 30, tzinfo=timezone.utc), persist=False)
     assert out["kpi"]["span_start"] == "2026-10-03T08:30:00"
+
+
+def test_picked_work_orders_reach_the_loader_and_the_version_description(setup, monkeypatch):
+    conn = setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")],
+                 [("pg_try_advisory_xact_lock", [(True,)]), ("for update", [(77, False)])])
+    seen = {}
+    monkeypatch.setattr(loader, "load_work_orders", lambda c, ids=None: seen.update(ids=ids) or [_wo(1, 1)])
+    engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=True, work_order_ids=[1])
+    assert seen["ids"] == [1]
+    desc = next(p for s, p in conn.log if s.startswith("update prod_schedule_version set description"))[0]
+    assert desc == "event EDD · 1 WO selected"
+
+
+def test_without_picked_work_orders_the_loader_is_called_as_before(setup, monkeypatch):
+    setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
+    calls = []
+    monkeypatch.setattr(loader, "load_work_orders", lambda *a: calls.append(a) or [_wo(1, 1)])
+    engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+    assert len(calls[0]) == 1   # (conn,) only
+
+
+def test_skipped_wos_come_back_with_the_result_and_explain_an_empty_run(setup, monkeypatch):
+    skipped = [{"wo_id": 5, "wo_code": "WO-5", "reason": "ไม่มีวันเริ่ม/วันเสร็จตามแผน"}]
+    monkeypatch.setattr(loader, "load_skipped", lambda c, ids=None: skipped)
+    monkeypatch.setattr(loader, "load_reservations", lambda c: [])
+    setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
+    out = engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+    assert out["skipped"] == skipped
+    setup([], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
+    with pytest.raises(DataNotReady) as e:
+        engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+    assert e.value.reasons[1:] == ["WO-5 — ไม่มีวันเริ่ม/วันเสร็จตามแผน"]
+
+
+def _res(remaining, plan_finish, code="WO-RUN", wc=1):
+    return {"wc_id": wc, "wo_code": code, "plan_finish": plan_finish, "remaining_min": remaining}
+
+
+def _run_with(setup, monkeypatch, reservations):
+    monkeypatch.setattr(loader, "load_skipped", lambda c, ids=None: [])
+    monkeypatch.setattr(loader, "load_reservations", lambda c: reservations)
+    setup([_wo(1, 1)], [Line(11, 1, 1, 2, "internal")], [("pg_try_advisory_xact_lock", [(True,)])])
+    return engine.run("event", "EDD", now=datetime(2026, 10, 19, 8, 30), persist=False)
+
+
+def test_a_started_wo_holds_its_line_for_the_work_still_left(setup, monkeypatch):
+    # overdue (plan_finish 15 Oct) but 120 min of marks still open → busy 08:30–10:30 today
+    out = _run_with(setup, monkeypatch, [_res(120, datetime(2026, 10, 15, 17))])
+    assert out["kpi"]["span_start"] == "2026-10-19T10:30:00"
+    assert out["reserved"] == [{"wo_code": "WO-RUN", "line_id": 11, "until": "2026-10-19T10:30:00"}]
+
+
+def test_not_yet_due_started_wo_holds_its_line_until_plan_finish_if_that_is_later(setup, monkeypatch):
+    out = _run_with(setup, monkeypatch, [_res(30, datetime(2026, 10, 19, 14, 0))])
+    assert out["kpi"]["span_start"] == "2026-10-19T14:00:00"
+
+
+def test_a_started_wo_with_every_mark_done_frees_its_line(setup, monkeypatch):
+    out = _run_with(setup, monkeypatch, [_res(0, datetime(2026, 10, 15, 17))])
+    assert out["kpi"]["span_start"] == "2026-10-19T08:30:00" and out["reserved"] == []
