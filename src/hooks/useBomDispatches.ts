@@ -161,8 +161,16 @@ export function useUploadBomWithPreview() {
     for (const [k, v] of p.formData.entries()) fd.append(k, v)
     fd.append('revs', JSON.stringify(revs))
     fd.append('base_dispatch_id', p.review.base_dispatch_id == null ? 'null' : String(p.review.base_dispatch_id))
-    const res = await uploadMutation.mutateAsync({ formData: fd, onProgress: p.onProgress })
-    clear() // after success only — a failed save keeps the review open to retry or cancel
+    let res
+    try {
+      res = await uploadMutation.mutateAsync({ formData: fd, onProgress: p.onProgress })
+    } catch (err) {
+      // 409 = someone uploaded this zone meanwhile: the review is stale and a retry
+      // would 409 again — close it so the user re-uploads, as the message says.
+      if ((err as { response?: { status?: number } } | null)?.response?.status === 409) clear()
+      throw err
+    }
+    clear() // after success; any other failed save keeps the review open to retry or cancel
     return res
   }
 

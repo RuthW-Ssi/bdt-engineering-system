@@ -142,6 +142,26 @@ describe('useUploadBomWithPreview', () => {
     expect(result.current.pendingReview).toBeNull()
   })
 
+  // final review fix 4: a stale-preview 409 must not leave the review open (retrying would 409 forever)
+  it('a 409 (someone uploaded meanwhile) on save clears the pending review so the user re-uploads', async () => {
+    mockedApi.previewUpload.mockResolvedValue(reviewResult)
+    mockedApi.upload.mockRejectedValue({ response: { status: 409, data: { message: 'stale' } } })
+    const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
+    await act(async () => { await result.current.submit(new FormData()) })
+    expect(result.current.pendingReview).toEqual(reviewResult.review)
+    await act(async () => { await expect(result.current.confirmReview([{ mark: 'B1', rev: 3 }])).rejects.toBeTruthy() })
+    expect(result.current.pendingReview).toBeNull()
+  })
+
+  it('any other failed save keeps the review open to retry or cancel', async () => {
+    mockedApi.previewUpload.mockResolvedValue(reviewResult)
+    mockedApi.upload.mockRejectedValue({ response: { status: 500 } })
+    const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
+    await act(async () => { await result.current.submit(new FormData()) })
+    await act(async () => { await expect(result.current.confirmReview([{ mark: 'B1', rev: 3 }])).rejects.toBeTruthy() })
+    expect(result.current.pendingReview).toEqual(reviewResult.review)
+  })
+
   it('the preview gets the NC files and the zone (it compares with the zone\'s current BOM)', async () => {
     mockedApi.previewUpload.mockResolvedValue(cleanResult)
     mockedApi.upload.mockResolvedValue({} as never)
