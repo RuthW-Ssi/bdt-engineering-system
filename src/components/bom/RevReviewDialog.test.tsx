@@ -18,6 +18,19 @@ const review = (over: Partial<RevReviewDto> = {}): RevReviewDto => ({
 })
 
 describe('RevReviewDialog', () => {
+  // final review fix 3: no closing the dialog mid-save
+  it('while saving, ✕ and ยกเลิก are disabled and do not cancel', () => {
+    const onCancel = vi.fn()
+    render(<RevReviewDialog review={review()} isUploading onCancel={onCancel} onConfirm={vi.fn()} />)
+    const close = screen.getByRole('button', { name: 'ปิด' })
+    const cancel = screen.getByRole('button', { name: 'ยกเลิก' })
+    expect(close).toBeDisabled()
+    expect(cancel).toBeDisabled()
+    fireEvent.click(close)
+    fireEvent.click(cancel)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
   it('one row per mark: result, Rev old → new, what changed, DN STATUS; only ⚠/changed rows are editable', () => {
     render(<RevReviewDialog review={review()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
     expect(screen.getByText('⚠ ข้อมูลเปลี่ยน แต่ไม่มีใน Dispatch Note — ตรวจ rev ใหม่')).toBeInTheDocument()

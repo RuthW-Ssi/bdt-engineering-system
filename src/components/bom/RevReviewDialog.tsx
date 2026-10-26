@@ -27,7 +27,7 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
             <span style={{ fontSize: 16, fontWeight: 700 }}>ตรวจ Rev ก่อนบันทึก</span>
             <InfoTip label="Rev ขึ้นเมื่อไร" text="Rev ของ mark ขึ้นเมื่อข้อมูล BOM ของ mark นั้นเปลี่ยนเท่านั้น. แถวที่มี ⚠ คือ Dispatch Note กับไฟล์ BOM ไม่ตรงกัน ให้ตรวจแล้วแก้ Rev เอง." />
           </div>
-          <button onClick={onCancel} aria-label="ปิด" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8E8E8E', display: 'flex' }}><X size={16} /></button>
+          <button onClick={onCancel} disabled={isUploading} aria-label="ปิด" className="disabled:opacity-40" style={{ background: 'none', border: 'none', cursor: isUploading ? 'default' : 'pointer', color: '#8E8E8E', display: 'flex' }}><X size={16} /></button>
         </div>
 
         <div style={{ padding: '12px 20px', fontSize: 13, color: '#555' }}>
@@ -73,7 +73,7 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
         </div>
 
         <div className="flex items-center justify-end" style={{ gap: 8, padding: '14px 20px', borderTop: '1px solid #EEE' }}>
-          <button onClick={onCancel} style={{ fontSize: 13, padding: '6px 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }}>ยกเลิก</button>
+          <button onClick={onCancel} disabled={isUploading} className="disabled:opacity-40" style={{ fontSize: 13, padding: '6px 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }}>ยกเลิก</button>
           <button onClick={() => onConfirm(editable.map(r => ({ mark: r.mark, rev: Number(values[r.mark]) })))} disabled={blocked}
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40" style={{ height: 34, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}>
             {isUploading && <Loader2 size={13} className="animate-spin" />}บันทึก
