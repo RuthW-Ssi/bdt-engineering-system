@@ -88,6 +88,8 @@ export function findMismatchedJunctions(
   return mismatches
 }
 
+const STALE_PREVIEW_MESSAGE = 'มีคนอัปโหลด BOM ของ zone นี้ไปแล้วระหว่างที่ตรวจ — กดอัปโหลดใหม่อีกครั้ง'
+
 @Injectable()
 export class BomUploadService {
   private readonly logger = new Logger(BomUploadService.name)
@@ -120,7 +122,7 @@ export class BomUploadService {
     //    stale preview, then validate the user's edits — never trust the client.
     const { decision, baseDispatchId } = await this.decide(prep, uploadMode, { projectId, zoneId, subZoneId })
     if (opts.baseDispatchId !== undefined && opts.baseDispatchId !== baseDispatchId) {
-      throw new ConflictException('มีคนอัปโหลด BOM ของ zone นี้ไปแล้วระหว่างที่ตรวจ — กดอัปโหลดใหม่อีกครั้ง')
+      throw new ConflictException(STALE_PREVIEW_MESSAGE)
     }
     const finalRevs = finalizeRevs(decision, opts.revs ?? [])
 
@@ -163,6 +165,16 @@ export class BomUploadService {
       const asmPartList = parsed.get('ASSEMBLY_PART_LIST')
 
       const { dispatchId, assemblyIdByMark, partIdByMark } = await this.prisma.$transaction(async tx => {
+        // Stale check again inside the transaction (the first one runs before the
+        // file I/O): an upload that landed meanwhile makes the reviewed revs stale.
+        if (opts.baseDispatchId !== undefined) {
+          const head = await tx.bom_dispatch.findFirst({
+            where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'BOM_UPLOAD' },
+            orderBy: { id: 'desc' },
+            select: { id: true },
+          })
+          if ((head?.id ?? null) !== opts.baseDispatchId) throw new ConflictException(STALE_PREVIEW_MESSAGE)
+        }
         const latest = await tx.bom_dispatch.findFirst({
           where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
           orderBy: { revision: 'desc' },

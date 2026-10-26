@@ -876,6 +876,17 @@ describe('BomUploadService.upload() — per-mark revs (2026-10-26)', () => {
     expect(inner.bom_dispatch.create).not.toHaveBeenCalled()
   })
 
+  // final review fix 5: the stale check is repeated inside the transaction
+  it('stale check inside the transaction: an upload landing after the first check → 409, nothing written, stored files removed', async () => {
+    const { svc, inner, storage } = revPrisma([activeB1(1)], { id: 7, revision: 1 })
+    // the outer read still sees dispatch 7; inside the transaction dispatch 8 has landed
+    inner.bom_dispatch.findFirst = jest.fn().mockResolvedValue({ id: 8, revision: 2 })
+    await expect(svc.upload(files, [], 1, 2, null, 1, 'combined', { revs: [{ mark: 'B1', rev: 2 }], baseDispatchId: 7 }))
+      .rejects.toThrow(new ConflictException('มีคนอัปโหลด BOM ของ zone นี้ไปแล้วระหว่างที่ตรวจ — กดอัปโหลดใหม่อีกครั้ง'))
+    expect(inner.bom_dispatch.create).not.toHaveBeenCalled()
+    expect(storage.delete).toHaveBeenCalled()
+  })
+
   it('a rev below the current one → 400 before anything is stored (Review Focus 5)', async () => {
     const { svc, storage } = revPrisma([activeB1(2)], { id: 7, revision: 1 })
     await expect(svc.upload(files, [], 1, 2, null, 1, 'combined', { revs: [{ mark: 'B1', rev: 1 }], baseDispatchId: 7 }))
