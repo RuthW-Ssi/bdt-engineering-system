@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
-import { useUploadBomWithPreview, useLatestRevision } from '../../hooks/useBomDispatches'
+import { useUploadBomWithPreview } from '../../hooks/useBomDispatches'
 import { useRenameStep } from '../../hooks/useRenameStep'
-import type { DispatchDetailDto } from '../../api/dispatches'
+import type { DispatchDetailDto, RevEdit } from '../../api/dispatches'
 import { JunctionMismatchModal } from './JunctionMismatchModal'
 import { RenamePairDialog } from './RenamePairDialog'
+import { RevReviewDialog } from './RevReviewDialog'
+import { DispatchNoteSlot } from './DispatchNoteSlot'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
@@ -89,13 +91,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
-  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
-
-  const { data: latestRevision } = useLatestRevision(projectId, zoneId, subZoneId)
-
-  useEffect(() => {
-    setRevisionChoice('continue')
-  }, [dispatchId, zoneId, subZoneId])
+  const [dnFile, setDnFile] = useState<File | null>(null)
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -136,7 +132,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     formData.append('project_id', String(projectId))
     formData.append('zone_id', String(zoneId))
     formData.append('upload_mode', uploadMode)
-    formData.append('revision_choice', latestRevision != null ? revisionChoice : 'new')
     if (subZoneId != null) formData.append('sub_zone_id', String(subZoneId))
 
     const allValid = uploadMode === 'combined' ? validCombined : [...validMain, ...validAcc]
@@ -144,6 +139,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
       formData.append('bom_files', e.file)
       formData.append('doc_types', e.detectedType!)
     })
+    if (dnFile) {
+      formData.append('bom_files', dnFile)
+      formData.append('doc_types', 'DISPATCH_NOTE')
+    }
     ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
@@ -165,6 +164,16 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     }
   }
 
+  const handleConfirmReview = async (revs: RevEdit[]) => {
+    try {
+      const res = await uploadFlow.confirmReview(revs)
+      if (res == null) return
+      await handleUploadSuccess(res)
+    } catch (err: unknown) {
+      handleUploadError(err)
+    }
+  }
+
   const modeLabel = uploadMode === 'separate' ? 'Separate Main + ACC' : 'Combined'
 
   return (
@@ -179,22 +188,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             <X size={14} />
           </button>
         </div>
-
-        {latestRevision != null && (
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Version</label>
-            <div style={{ display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
-                Continue version {latestRevision}
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
-                Start new version ({latestRevision + 1})
-              </label>
-            </div>
-          </div>
-        )}
 
         {/* Mode badge */}
         <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -243,6 +236,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             />
           </>
         )}
+
+        <DispatchNoteSlot file={dnFile} onChange={setDnFile} />
 
         {/* NC Files */}
         <div>
@@ -305,6 +300,15 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           onCancel={uploadFlow.cancel}
           onConfirm={handleConfirmUpload}
           isUploading={uploadFlow.uploadMutation.isPending}
+        />
+      )}
+
+      {uploadFlow.pendingReview && (
+        <RevReviewDialog
+          review={uploadFlow.pendingReview}
+          isUploading={uploadFlow.uploadMutation.isPending}
+          onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
+          onConfirm={handleConfirmReview}
         />
       )}
 

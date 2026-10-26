@@ -7,14 +7,16 @@ import { FilePreviewItem } from '../components/bom/FilePreviewItem'
 import { useProjectSelection } from '../hooks/useProjectSelection'
 import { useProjectZones } from '../hooks/useProjectZones'
 import { useSubZones } from '../hooks/useSubZones'
-import { useUploadBomWithPreview, useZoneUploadMode, useLatestRevision } from '../hooks/useBomDispatches'
+import { useUploadBomWithPreview, useZoneUploadMode } from '../hooks/useBomDispatches'
 import { useRenameStep } from '../hooks/useRenameStep'
 import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { RenamePairDialog } from '../components/bom/RenamePairDialog'
+import { RevReviewDialog } from '../components/bom/RevReviewDialog'
+import { DispatchNoteSlot } from '../components/bom/DispatchNoteSlot'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
-import type { DispatchDetailDto } from '../api/dispatches'
+import type { DispatchDetailDto, RevEdit } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
 
 const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
@@ -91,7 +93,7 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
-  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
+  const [dnFile, setDnFile] = useState<File | null>(null)
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -101,12 +103,6 @@ export function BomUpload() {
   const { data: zoneMode, isLoading: zoneModeLoading } = useZoneUploadMode(
     activeProject?.id ?? null,
     zoneId ? parseInt(zoneId) : null,
-  )
-
-  const { data: latestRevision } = useLatestRevision(
-    activeProject?.id,
-    zoneId ? parseInt(zoneId) : undefined,
-    subZoneId ? parseInt(subZoneId) : null,
   )
 
   const isModeLocked = !!zoneMode
@@ -126,7 +122,7 @@ export function BomUpload() {
     setMainFiles([])
     setAccFiles([])
     setNcFiles([])
-    setRevisionChoice('continue')
+    setDnFile(null)
   }
 
   // Clear zone-scoped state only when the project actually *changes* — see
@@ -177,7 +173,6 @@ export function BomUpload() {
     formData.append('project_id', String(activeProject.id))
     formData.append('zone_id', zoneId)
     formData.append('upload_mode', effectiveMode)
-    formData.append('revision_choice', zoneId && latestRevision != null ? revisionChoice : 'new')
     if (subZoneId) formData.append('sub_zone_id', subZoneId)
 
     const allValid = effectiveMode === 'combined' ? validCombined : [...validMain, ...validAcc]
@@ -185,6 +180,10 @@ export function BomUpload() {
       formData.append('bom_files', e.file)
       formData.append('doc_types', e.detectedType!)
     })
+    if (dnFile) {
+      formData.append('bom_files', dnFile)
+      formData.append('doc_types', 'DISPATCH_NOTE')
+    }
     ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
@@ -199,6 +198,16 @@ export function BomUpload() {
   const handleConfirmUpload = async () => {
     try {
       const res = await uploadFlow.confirm()
+      if (res == null) return
+      await handleUploadSuccess(res)
+    } catch (err: unknown) {
+      handleUploadError(err)
+    }
+  }
+
+  const handleConfirmReview = async (revs: RevEdit[]) => {
+    try {
+      const res = await uploadFlow.confirmReview(revs)
       if (res == null) return
       await handleUploadSuccess(res)
     } catch (err: unknown) {
@@ -278,23 +287,6 @@ export function BomUpload() {
           </select>
         </div>
 
-        {/* Version Choice */}
-        {zoneId && latestRevision != null && (
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Version</label>
-            <div style={{ display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
-                Continue version {latestRevision}
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
-                Start new version ({latestRevision + 1})
-              </label>
-            </div>
-          </div>
-        )}
-
         {/* Upload Mode Radio */}
         {zoneId && !zoneModeLoading && (
           <div>
@@ -329,6 +321,7 @@ export function BomUpload() {
                       setFiles([])
                       setMainFiles([])
                       setAccFiles([])
+                      setDnFile(null)
                     }}
                     style={{ accentColor: '#C8202A' }}
                   />
@@ -378,6 +371,8 @@ export function BomUpload() {
             />
           </>
         )}
+
+        <DispatchNoteSlot file={dnFile} onChange={setDnFile} />
 
         {/* NC Files */}
         <div>
@@ -447,6 +442,15 @@ export function BomUpload() {
           onCancel={uploadFlow.cancel}
           onConfirm={handleConfirmUpload}
           isUploading={uploadFlow.uploadMutation.isPending}
+        />
+      )}
+
+      {uploadFlow.pendingReview && (
+        <RevReviewDialog
+          review={uploadFlow.pendingReview}
+          isUploading={uploadFlow.uploadMutation.isPending}
+          onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
+          onConfirm={handleConfirmReview}
         />
       )}
 

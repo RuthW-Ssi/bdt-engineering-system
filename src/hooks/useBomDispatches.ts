@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dispatchesApi } from '../api/dispatches'
-import type { PreviewJunctionsResult, RenamePairInput } from '../api/dispatches'
+import type { RevEdit, RevReviewDto, UploadPreviewDto, RenamePairInput } from '../api/dispatches'
 
 export function useDispatches(params?: Parameters<typeof dispatchesApi.list>[0]) {
   return useQuery({
@@ -48,14 +48,6 @@ export function useZoneUploadMode(projectId: number | null, zoneId: number | nul
     queryFn: () => dispatchesApi.getZoneUploadMode(projectId!, zoneId!),
     enabled: !!projectId && !!zoneId,
     staleTime: 30_000,
-  })
-}
-
-export function useLatestRevision(projectId: number | undefined, zoneId: number | undefined, subZoneId: number | null | undefined) {
-  return useQuery({
-    queryKey: ['latest-revision', projectId, zoneId, subZoneId],
-    queryFn: () => dispatchesApi.getLatestRevision(projectId!, zoneId!, subZoneId ?? null),
-    enabled: !!projectId && !!zoneId,
   })
 }
 
@@ -123,7 +115,7 @@ function useUploadBom() {
   })
 }
 
-function usePreviewBomJunctions() {
+function usePreviewBomUpload() {
   return useMutation({
     mutationFn: (formData: FormData) => dispatchesApi.previewUpload(formData),
   })
@@ -131,55 +123,71 @@ function usePreviewBomJunctions() {
 
 function buildPreviewFormData(formData: FormData): FormData {
   const preview = new FormData()
-  for (const file of formData.getAll('bom_files')) preview.append('bom_files', file)
-  for (const docType of formData.getAll('doc_types')) preview.append('doc_types', docType)
-  const uploadMode = formData.get('upload_mode')
-  if (uploadMode != null) preview.append('upload_mode', uploadMode)
+  // the review compares with the zone's current BOM, using NC-merged parts (2026-10-26)
+  for (const k of ['project_id', 'zone_id', 'sub_zone_id', 'upload_mode']) {
+    const v = formData.get(k)
+    if (v != null) preview.append(k, v)
+  }
+  for (const k of ['bom_files', 'doc_types', 'nc_files']) for (const v of formData.getAll(k)) preview.append(k, v)
   return preview
 }
 
+/** preview → (junction mismatch?) → (Rev review?) → upload with the confirmed revs. */
 export function useUploadBomWithPreview() {
   const uploadMutation = useUploadBom()
-  const previewMutation = usePreviewBomJunctions()
-  const [pendingMismatch, setPendingMismatch] = useState<PreviewJunctionsResult | null>(null)
-  const pendingFormDataRef = useRef<FormData | null>(null)
-  const pendingOnProgressRef = useRef<((pct: number) => void) | undefined>(undefined)
+  const previewMutation = usePreviewBomUpload()
+  const [pendingMismatch, setPendingMismatch] = useState<UploadPreviewDto | null>(null)
+  const [pendingReview, setPendingReview] = useState<RevReviewDto | null>(null)
+  const pending = useRef<{ formData: FormData; onProgress?: (pct: number) => void; review: RevReviewDto } | null>(null)
+
+  function clear() {
+    pending.current = null
+    setPendingMismatch(null)
+    setPendingReview(null)
+  }
+
+  async function save(revs: RevEdit[]) {
+    const p = pending.current!
+    const fd = new FormData()
+    for (const [k, v] of p.formData.entries()) fd.append(k, v)
+    fd.append('revs', JSON.stringify(revs))
+    fd.append('base_dispatch_id', p.review.base_dispatch_id == null ? 'null' : String(p.review.base_dispatch_id))
+    const res = await uploadMutation.mutateAsync({ formData: fd, onProgress: p.onProgress })
+    clear() // after success only — a failed save keeps the review open to retry or cancel
+    return res
+  }
+
+  function next() {
+    const review = pending.current!.review
+    if (review.rows.length > 0 || review.dn_only_marks.length > 0) {
+      setPendingReview(review)
+      return null
+    }
+    return save([])
+  }
 
   async function submit(formData: FormData, onProgress?: (pct: number) => void) {
     const result = await previewMutation.mutateAsync(buildPreviewFormData(formData))
-    const hasMismatch = result.unmatchedAssemblyMarks.length + result.unmatchedPartMarks.length > 0
-    if (hasMismatch) {
-      pendingFormDataRef.current = formData
-      pendingOnProgressRef.current = onProgress
+    pending.current = { formData, onProgress, review: result.review }
+    setPendingReview(null)
+    if (result.unmatchedAssemblyMarks.length + result.unmatchedPartMarks.length > 0) {
       setPendingMismatch(result)
       return null
     }
     setPendingMismatch(null)
-    return uploadMutation.mutateAsync({ formData, onProgress })
+    return next()
   }
 
   async function confirm() {
-    const formData = pendingFormDataRef.current
-    if (!formData) return null
-    const onProgress = pendingOnProgressRef.current
+    if (!pending.current) return null
     setPendingMismatch(null)
-    pendingFormDataRef.current = null
-    pendingOnProgressRef.current = undefined
-    return uploadMutation.mutateAsync({ formData, onProgress })
+    return next()
   }
 
-  function cancel() {
-    setPendingMismatch(null)
-    pendingFormDataRef.current = null
-    pendingOnProgressRef.current = undefined
+  async function confirmReview(revs: RevEdit[]) {
+    if (!pending.current) return null
+    return save(revs)
   }
 
-  return {
-    submit,
-    confirm,
-    cancel,
-    pendingMismatch,
-    isPreviewing: previewMutation.isPending,
-    uploadMutation,
-  }
+  return { submit, confirm, confirmReview, cancel: clear, pendingMismatch, pendingReview, isPreviewing: previewMutation.isPending, uploadMutation }
 }

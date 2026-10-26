@@ -8,6 +8,7 @@ export type DocType =
   | 'ACC_ASSEMBLY_LIST'
   | 'ACC_ASSEMBLY_PART_LIST'
   | 'ACC_PART_LIST'
+  | 'DISPATCH_NOTE'
 
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
   ASSEMBLY_LIST: 'Assembly List',
@@ -19,6 +20,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   ACC_ASSEMBLY_LIST: 'ACC Assembly List',
   ACC_ASSEMBLY_PART_LIST: 'ACC Assembly Part List',
   ACC_PART_LIST: 'ACC Part List',
+  DISPATCH_NOTE: 'Dispatch Note',
 }
 
 export const REQUIRED_MAIN_TYPES: DocType[] = ['MAIN_ASSEMBLY_LIST', 'MAIN_ASSEMBLY_PART_LIST', 'MAIN_PART_LIST']
