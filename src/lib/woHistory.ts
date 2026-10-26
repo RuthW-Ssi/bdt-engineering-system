@@ -35,5 +35,10 @@ export function woHistoryView(e: WoEvent, marks: { id: number; mark: string }[])
     return { kind: followsMo ? 'mo' : 'edit', title: v.title, groups: v.groups.filter(g => g.values.length || g.parts.length), lines: v.lines, warnings: v.warnings }
   }
   const title = STATUS_TITLE[e.event_type] ?? e.event_type
-  return { kind: 'status', title: markOf ? `${title} · ${markOf}` : title, groups: [], lines: notes ? [notes] : [], warnings: [] }
+  // an accept carries field-level changes (BOM Rev, Quantity, Mark — 2026-10-26): show them like a progress card
+  const values = e.event_type === 'ACCEPT_VERSION'
+    ? (e.changes ?? []).filter(c => !isProgressNoise(c)).map(c => ({ field: PROGRESS_FIELD_LABEL[c.field] ?? c.field, from: showChangeValue(c.field, c.old), to: showChangeValue(c.field, c.new) }))
+    : []
+  const groups = values.length ? [{ mark: markOf ?? 'mark', isNew: false, values, parts: [] }] : []
+  return { kind: 'status', title: markOf ? `${title} · ${markOf}` : title, groups, lines: notes ? [notes] : [], warnings: [] }
 }

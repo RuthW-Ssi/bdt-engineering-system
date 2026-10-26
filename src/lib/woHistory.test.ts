@@ -32,6 +32,12 @@ describe('woHistoryView', () => {
       parts: [{ action: 'change', part_mark: 'C-wx58', changes: [{ field: 'L', from: '10550', to: '10600' }] }] }])
   })
 
+  it('a BOM version accept shows the mark with BOM Rev old → new (2026-10-26)', () => {
+    const v = woHistoryView(ev('ACCEPT_VERSION', { work_order_mark_id: 5, notes: 'Accepted BOM version → dispatch 64 (SPEC_CHANGED, REV_UP)', changes: [{ field: 'bom_rev', old: 3, new: 4 }] }), [{ id: 5, mark: 'BR1' }])
+    expect(v).toMatchObject({ kind: 'status', title: 'รับ BOM version ใหม่ · BR1' })
+    expect(v.groups).toEqual([{ mark: 'BR1', isNew: false, parts: [], values: [{ field: 'BOM Rev', from: '3', to: '4' }] }])
+  })
+
   it('own edits (dates, consume, part withdrawal) and creation keep their text as lines / title', () => {
     expect(woHistoryView(ev('EDIT', { notes: 'แก้ยอดเบิก part: C-f1 2 → 4' }), [])).toMatchObject({ kind: 'edit', title: 'แก้ยอดเบิก part', lines: ['C-f1 2 → 4'], groups: [] })
     expect(woHistoryView(ev('CREATED', { notes: 'สร้าง WO · 1 mark: BUH1-3 ×2' }), [])).toMatchObject({ kind: 'create', title: 'สร้าง WO · 1 mark: BUH1-3 ×2', lines: [] })
