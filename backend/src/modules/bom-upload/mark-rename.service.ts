@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { BomDiffService, slotAwareWhere } from './bom-diff.service'
 import { ProgressChangeLogService } from '../projects/progress-change-log.service'
 import { splitDisappeared, suggestAssemblies, suggestParts, type AsmRow, type PartRow } from '../mark-rename/rename-candidates'
-import { dataSetOf, paintSetEqual, PROGRESS_DEFAULTS, restoreProgress, snapshotProgress, undoBlockReason, type Carried, type PaintSnap, type RenameDataSet, type Snapshot } from '../mark-rename/rename-carry'
+import { dataSetOf, paintSetEqual, PROGRESS_DEFAULTS, restoreProgress, revCarryOf, snapshotProgress, undoBlockReason, type Carried, type PaintSnap, type RenameDataSet, type Snapshot } from '../mark-rename/rename-carry'
 import type { RenameKind } from '../mark-rename/mark-alias'
 
 // Either the top-level client or an in-progress transaction — blockReason()
@@ -26,9 +26,9 @@ export interface RenameEvent { id: number; kind: RenameKind; action: 'PAIR' | 'U
 export interface RenameList { pairs: RenamePair[]; history: RenameEvent[] }
 
 const num = (v: unknown) => (v == null ? null : Number(v))
-type AsmR = AsmRow & { dispatch_id: number }
+type AsmR = AsmRow & { dispatch_id: number; rev: number; rev_source: string | null }
 type PartR = PartRow & { dispatch_id: number }
-const ASM_SELECT = { id: true, dispatch_id: true, status: true, assembly_mark: true, length_mm: true, weight_kg: true,
+const ASM_SELECT = { id: true, dispatch_id: true, status: true, assembly_mark: true, length_mm: true, weight_kg: true, rev: true, rev_source: true,
   assembly_parts: { select: { qty: true, part: { select: { part_mark: true, profile: true, length_mm: true, grade: true, weight_kg: true } } } } } as const
 const PART_SELECT = { id: true, dispatch_id: true, status: true, part_mark: true, profile: true, grade: true, length_mm: true, weight_kg: true } as const
 const paintText = (p: { material?: { name: string } | null; layers: number } | undefined) => (p ? `${p.material?.name ?? '—'} ×${p.layers}` : null)
@@ -60,7 +60,7 @@ export class MarkRenameService {
     ])
     const paired = await this.prisma.bom_mark_rename.findMany({ where: { dispatch_id: { in: this.diff.renameDispatchIds(groups) } }, select: { kind: true, from_mark: true, to_mark: true } })
     const setOf = (k: string, f: 'from_mark' | 'to_mark') => new Set(paired.filter(p => p.kind === k).map(p => p[f]))
-    const toAsm = (a: (typeof pa)[number]): AsmR => ({ id: a.id, dispatch_id: a.dispatch_id, mark: a.assembly_mark, length_mm: num(a.length_mm), weight_kg: num(a.weight_kg),
+    const toAsm = (a: (typeof pa)[number]): AsmR => ({ id: a.id, dispatch_id: a.dispatch_id, rev: a.rev, rev_source: a.rev_source, mark: a.assembly_mark, length_mm: num(a.length_mm), weight_kg: num(a.weight_kg),
       parts: a.assembly_parts.map(ap => ({ part_mark: ap.part.part_mark, profile: ap.part.profile ?? '', length_mm: num(ap.part.length_mm) ?? 0, grade: ap.part.grade ?? '', qty: Number(ap.qty), unit_weight_kg: num(ap.part.weight_kg) ?? 0 })) })
     const toPart = (p: (typeof pp)[number]): PartR => ({ id: p.id, dispatch_id: p.dispatch_id, mark: p.part_mark, profile: p.profile, grade: p.grade, length_mm: num(p.length_mm), weight_kg: num(p.weight_kg) })
     // only ACTIVE rows can take a new name (pairing works on the latest version only)
@@ -156,15 +156,19 @@ export class MarkRenameService {
 
           const label = p.kind === 'ASSEMBLY' ? 'ชื่อ mark' : 'ชื่อ part'
           const carry = p.kind === 'ASSEMBLY' ? await this.carry(tx, p.from.id, p.to.id, p.to.dispatch_id, p.keep as 'old' | 'new', uid, pre) : null
+          const revMove = p.kind === 'ASSEMBLY' ? revCarryOf(p.from as AsmR, p.to as AsmR) : null
+          if (revMove) await tx.bom_assembly.update({ where: { id: p.to.id }, data: { rev: revMove.after, rev_source: 'CARRIED' } })
+          const carried = carry ? { ...carry.carried, ...(revMove ? { rev: revMove } : {}) } : null
+          const revChange = revMove ? [{ field: 'BOM Rev', old: revMove.before, new: revMove.after }] : []
           await tx.bom_mark_rename.create({ data: {
             project_id: s.d.project_id, zone_id: s.d.zone_id, sub_zone_id: s.d.sub_zone_id, dispatch_id: p.to.dispatch_id,
             kind: p.kind, from_mark: p.from_mark, to_mark: p.to_mark, from_ref_id: p.from.id, to_ref_id: p.to.id,
-            ...(carry ? { carried: carry.carried as unknown as Prisma.InputJsonValue } : {}), confirmed_by: userName,
+            ...(carried ? { carried: carried as unknown as Prisma.InputJsonValue } : {}), confirmed_by: userName,
           } })
           await tx.bom_mark_rename_event.create({ data: {
             dispatch_id: p.to.dispatch_id, kind: p.kind, action: 'PAIR', from_mark: p.from_mark, to_mark: p.to_mark,
             keep: carry?.carried.keep ?? null, recorded_by: userName,
-            changes: [{ field: label, old: p.from_mark, new: p.to_mark }, ...(carry?.changes ?? [])] as unknown as Prisma.InputJsonValue,
+            changes: [{ field: label, old: p.from_mark, new: p.to_mark }, ...(carry?.changes ?? []), ...revChange] as unknown as Prisma.InputJsonValue,
           } })
         }
       })
@@ -286,6 +290,10 @@ export class MarkRenameService {
         const was = paintText(cur.find(p => p.paint_type === t)), now = paintText(before.find(p => p.paint_type === t))
         if (was !== now) changes.push({ field: `สี ${t}`, old: was, new: now })
       }
+    }
+    if (c?.rev) {
+      await tx.bom_assembly.update({ where: { id: newId }, data: { rev: c.rev.before, rev_source: c.rev.before_source } })
+      changes.push({ field: 'BOM Rev', old: c.rev.after, new: c.rev.before })
     }
     return changes
   }

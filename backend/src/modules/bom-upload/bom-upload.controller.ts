@@ -13,6 +13,7 @@ import { BomDiffService } from './bom-diff.service'
 import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { MarkRenameService } from './mark-rename.service'
+import { MarkRevHistoryService } from './mark-rev-history.service'
 import { parseBaseField, parseRevsField } from './upload-body'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
@@ -44,6 +45,7 @@ export class BomUploadController {
     private readonly diffBimMatchSvc: BomDiffBimMatchService,
     private readonly paintSvc: PaintConfigService,
     private readonly renameSvc: MarkRenameService,
+    private readonly revHistorySvc: MarkRevHistoryService,
   ) {}
 
   @Post('bom/upload')
@@ -247,6 +249,13 @@ export class BomUploadController {
   @ApiOperation({ summary: 'Undo a rename pair while nothing has used it (a1)' })
   undoRename(@Param('id', ParseIntPipe) id: number, @Param('renameId', ParseIntPipe) renameId: number, @CurrentUser() user: JwtPayload) {
     return this.renameSvc.undo(id, renameId, user.sub, user.login)
+  }
+
+  @Get('bom/assemblies/:id/rev-history')
+  @RequiresPermission('boms', 'view')
+  @ApiOperation({ summary: "A mark's BOM Rev history — field old→new, parts, renames, who/when (2026-10-26)" })
+  getRevHistory(@Param('id', ParseIntPipe) id: number) {
+    return this.revHistorySvc.history(id)
   }
 
   @Get('dispatches/:id/mapping')

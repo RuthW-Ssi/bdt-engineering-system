@@ -8,7 +8,7 @@ export interface PaintSnap { paint_type: string; material_id: number | null; lay
 // side's set, or empty if the old side had none) — compared against the
 // CURRENT rows at undo time to detect an edit made after pairing (fix round
 // 1, ruling 4).
-export interface Carried { keep: 'old' | 'new'; progress?: { created: boolean; before: Snapshot | null }; paint?: { created_ids: number[]; before: PaintSnap[]; after: PaintSnap[] } }
+export interface Carried { keep: 'old' | 'new'; progress?: { created: boolean; before: Snapshot | null }; paint?: { created_ids: number[]; before: PaintSnap[]; after: PaintSnap[] }; rev?: { before: number; before_source: string | null; after: number } }
 export interface RenameDataSet { progress: { field: string; value: string | number }[]; paint: { paint_type: string; material: string | null; layers: number }[] }
 
 const DATE_FIELDS = new Set(['fab_plan_finish_date', 'fab_actual_finish_date', 'plan_load_date', 'actual_load_date', 'erection_plan_finish_date', 'erection_actual_finish_date'])
@@ -61,4 +61,12 @@ export function paintSetEqual(a: PaintSnap[], b: PaintSnap[]): boolean {
   if (as.size !== a.length || bs.size !== b.length || as.size !== bs.size) return false
   for (const k of as) if (!bs.has(k)) return false
   return true
+}
+
+/** A rename pair never makes the BOM Rev go down (2026-10-26): a new name that
+ *  got rev 0 only because it was "new" (not from the Dispatch Note, not typed)
+ *  takes the old name's rev. Undo puts `before` back. */
+export function revCarryOf(from?: { rev: number; rev_source: string | null }, to?: { rev: number; rev_source: string | null }) {
+  if (!from || !to || to.rev_source !== 'NEW' || from.rev <= to.rev) return null
+  return { before: to.rev, before_source: to.rev_source, after: from.rev }
 }

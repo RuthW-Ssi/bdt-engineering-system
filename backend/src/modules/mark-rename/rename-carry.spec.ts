@@ -1,4 +1,4 @@
-import { dataSetOf, paintSetEqual, restoreProgress, snapshotProgress, undoBlockReason } from './rename-carry'
+import { dataSetOf, paintSetEqual, restoreProgress, revCarryOf, snapshotProgress, undoBlockReason } from './rename-carry'
 
 describe('rename-carry', () => {
   it('snapshot → restore round-trips dates and numbers exactly', () => {
@@ -38,5 +38,17 @@ describe('rename-carry', () => {
     expect(paintSetEqual(a, [])).toBe(false)
     expect(paintSetEqual(a, [{ paint_type: 'primer', material_id: 1, layers: 3 }, { paint_type: 'topcoat', material_id: 1, layers: 1 }])).toBe(false)
     expect(paintSetEqual([], [])).toBe(true)
+  })
+})
+
+describe('revCarryOf — a rename pair never makes the Rev go down', () => {
+  it('new name not from the DN (NEW) with a lower rev → takes the old rev', () => {
+    expect(revCarryOf({ rev: 2, rev_source: 'MANUAL' }, { rev: 0, rev_source: 'NEW' })).toEqual({ before: 0, before_source: 'NEW', after: 2 })
+  })
+  it('a rev from the Dispatch Note, a typed rev, or an equal/higher rev is kept', () => {
+    expect(revCarryOf({ rev: 2, rev_source: 'CARRIED' }, { rev: 1, rev_source: 'DISPATCH_NOTE' })).toBeNull()
+    expect(revCarryOf({ rev: 2, rev_source: 'CARRIED' }, { rev: 1, rev_source: 'MANUAL' })).toBeNull()
+    expect(revCarryOf({ rev: 0, rev_source: null }, { rev: 0, rev_source: 'NEW' })).toBeNull()
+    expect(revCarryOf(undefined, { rev: 0, rev_source: 'NEW' })).toBeNull()
   })
 })
