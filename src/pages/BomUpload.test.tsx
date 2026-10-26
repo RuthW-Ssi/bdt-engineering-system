@@ -53,6 +53,10 @@ function selectZone() {
   fireEvent.change(screen.getByDisplayValue('Select Zone...'), { target: { value: '1' } })
 }
 
+function selectSeparateMode() {
+  fireEvent.click(screen.getByRole('radio', { name: 'Separate Main + ACC' }))
+}
+
 // The combined "BOM Files" dropzone is the first file input on the page;
 // NC Files is the second. No DispatchNoteSlot input remains (removed 2026-10-26).
 function fileInputs() {
@@ -123,5 +127,36 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     const row = screen.getByText('Dispatch Note.xlsx').closest('div')!.parentElement!.parentElement!
     fireEvent.click(row.querySelector('button')!)
     expect(screen.queryByText('Dispatch Note.xlsx')).toBeNull()
+  })
+
+  it('separate mode: a DN named for the other slot gets an inline wrong-box error', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const [mainInput] = fileInputs()
+    fireEvent.change(mainInput, { target: { files: [makeFile('ACC Dispatch Note.xlsx')] } })
+    expect(screen.getByText('ไฟล์นี้เป็น Dispatch Note ของ Acc — ใส่ในช่อง Acc')).toBeInTheDocument()
+    expect(screen.queryByText('Dispatch Note (Main) (ไม่ใส่ก็ได้)')).toBeNull()
+  })
+
+  it('separate mode: a DN with no matching lists in its slot blocks submit', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const [mainInput, accInput, ncInput] = fileInputs()
+    fireEvent.change(mainInput, {
+      target: {
+        files: [
+          makeFile('MAIN Assembly List.xlsx'),
+          makeFile('MAIN Assembly Part List.xlsx'),
+          makeFile('MAIN Part List.xlsx'),
+        ],
+      },
+    })
+    fireEvent.change(accInput, { target: { files: [makeFile('ACC Dispatch Note.xlsx')] } })
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1')] } })
+
+    expect(screen.getByText('ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeDisabled()
   })
 })

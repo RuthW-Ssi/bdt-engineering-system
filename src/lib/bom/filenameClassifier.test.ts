@@ -7,7 +7,13 @@ describe('classifyFilename', () => {
     expect(classifyFilename('DISPATCH-NOTE.xlsx')).toBe('DISPATCH_NOTE')
     expect(classifyFilename('dispatchnote.xlsx')).toBe('DISPATCH_NOTE')
     // even if the name also happens to contain "list" wording, DN wins
-    expect(classifyFilename('MAIN Dispatch Note Part List.xlsx')).toBe('DISPATCH_NOTE')
+    expect(classifyFilename('MAIN Dispatch Note Part List.xlsx')).toBe('MAIN_DISPATCH_NOTE')
+  })
+
+  it('a Dispatch Note gets the same MAIN/ACC prefix branch as the Tekla lists (mirrors backend)', () => {
+    expect(classifyFilename('MAIN Dispatch Note.xlsx')).toBe('MAIN_DISPATCH_NOTE')
+    expect(classifyFilename('ACC Dispatch Note.xlsx')).toBe('ACC_DISPATCH_NOTE')
+    expect(classifyFilename('Dispatch Note.xlsx')).toBe('DISPATCH_NOTE')
   })
 
   it('still classifies the Tekla lists when there is no Dispatch Note wording', () => {

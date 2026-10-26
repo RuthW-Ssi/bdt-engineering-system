@@ -122,4 +122,43 @@ describe('UpdateBomModal — Dispatch Note in the same picker', () => {
     expect(toast.error).toHaveBeenCalledWith('ใส่ Dispatch Note ได้ไฟล์เดียว')
     expect(screen.queryByText('Dispatch Note 2.xlsx')).toBeNull()
   })
+
+  it('an ACC-named DN dropped in the MAIN box gets an inline wrong-box error, not reclassified', () => {
+    renderModal('separate')
+    const [mainInput] = fileInputs()
+    fireEvent.change(mainInput, { target: { files: [makeFile('ACC Dispatch Note.xlsx')] } })
+    expect(screen.getByText('ไฟล์นี้เป็น Dispatch Note ของ Acc — ใส่ในช่อง Acc')).toBeInTheDocument()
+    // not accepted as this slot's DN
+    expect(screen.queryByText('Dispatch Note (Main) (ไม่ใส่ก็ได้)')).toBeNull()
+  })
+
+  it('a MAIN-named DN dropped in the ACC box gets an inline wrong-box error', () => {
+    renderModal('separate')
+    const [, accInput] = fileInputs()
+    fireEvent.change(accInput, { target: { files: [makeFile('MAIN Dispatch Note.xlsx')] } })
+    expect(screen.getByText('ไฟล์นี้เป็น Dispatch Note ของ Main — ใส่ในช่อง Main')).toBeInTheDocument()
+  })
+
+  it('a slot with only a DN and no lists blocks submit and shows the orphan message', () => {
+    renderModal('separate')
+    const [mainInput, accInput, ncInput] = fileInputs()
+    // Main complete, Acc gets only a Dispatch Note (no Acc lists) — a likely mistake.
+    fireEvent.change(mainInput, {
+      target: {
+        files: [
+          makeFile('MAIN Assembly List.xlsx'),
+          makeFile('MAIN Assembly Part List.xlsx'),
+          makeFile('MAIN Part List.xlsx'),
+        ],
+      },
+    })
+    fireEvent.change(accInput, { target: { files: [makeFile('ACC Dispatch Note.xlsx')] } })
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1')] } })
+
+    expect(screen.getByText('ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: /Upload/ }))
+    expect(submit).not.toHaveBeenCalled()
+  })
 })

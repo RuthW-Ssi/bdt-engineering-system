@@ -35,7 +35,11 @@ export function classifyFilename(filename: string): DocType | null {
   const isMain = lower.startsWith('main')
   const isAcc = lower.startsWith('acc')
 
-  if (/dispatch[\s_-]?note/.test(lower)) return 'DISPATCH_NOTE'
+  if (/dispatch[\s_-]?note/.test(lower)) {
+    if (isMain) return 'MAIN_DISPATCH_NOTE'
+    if (isAcc) return 'ACC_DISPATCH_NOTE'
+    return 'DISPATCH_NOTE'
+  }
   if (/assembly[\s_-]?part[\s_-]?list/.test(lower)) {
     if (isMain) return 'MAIN_ASSEMBLY_PART_LIST'
     if (isAcc) return 'ACC_ASSEMBLY_PART_LIST'
