@@ -117,7 +117,9 @@ export function decideRevs(input: { current: MarkSnapshot[]; previous: PrevMark[
     const d = dnBy.get(p.mark)
     rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, editable: false, diff: null })
   }
-  return { rows, dn_only_marks: (input.dn ?? []).map(d => d.mark).filter(m => !currMarks.has(m)), has_dn: input.dn != null }
+  // A removed mark listed in the DN already has its row — don't report it twice.
+  const removedMarks = new Set(rows.filter(r => r.kind === 'removed').map(r => r.mark))
+  return { rows, dn_only_marks: (input.dn ?? []).map(d => d.mark).filter(m => !currMarks.has(m) && !removedMarks.has(m)), has_dn: input.dn != null }
 }
 
 /** Review table rows: new, changed, removed, or listed in the Dispatch Note. */

@@ -98,6 +98,12 @@ describe('decideRevs — spec decision 3', () => {
     expect(d.dn_only_marks).toEqual(['X9'])
     expect(d.has_dn).toBe(true)
   })
+
+  it('a removed mark still listed in the DN appears once — as the removed row, not again in dn_only_marks', () => {
+    const d = decideRevs({ current: [S('A')], previous: [PREV('A', 1), PREV('GONE', 4), PREV('MAIN1', 0, { slot: 'MAIN' })], removable: p => p.slot !== 'MAIN', dn: [DN('GONE', 4), DN('MAIN1', 0)] })
+    expect(d.rows.filter(r => r.kind === 'removed').map(r => [r.mark, r.in_dn])).toEqual([['GONE', true]])
+    expect(d.dn_only_marks).toEqual(['MAIN1']) // kept (not removable) → no row, so still reported
+  })
 })
 
 describe('finalizeRevs — server re-check (Review Focus 5)', () => {

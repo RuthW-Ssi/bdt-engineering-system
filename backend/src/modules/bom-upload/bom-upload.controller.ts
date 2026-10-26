@@ -66,7 +66,7 @@ export class BomUploadController {
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 1500 }],
+    [{ name: 'bom_files', maxCount: 7 }, { name: 'nc_files', maxCount: 1500 }],
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async upload(
@@ -107,35 +107,42 @@ export class BomUploadController {
 
   @Post('bom/upload/preview')
   @RequiresPermission('boms', 'create')
-  @ApiOperation({ summary: 'Dry-run: check which Assembly Part List rows would fail to match an assembly/part — no DB writes' })
+  @ApiOperation({ summary: 'Dry-run: junction check + per-mark Rev review (optional Dispatch Note) — no DB writes' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['bom_files', 'doc_types'],
+      required: ['project_id', 'zone_id', 'bom_files', 'doc_types', 'nc_files'],
       properties: {
+        project_id: { type: 'integer' },
+        zone_id: { type: 'integer' },
+        sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
         bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         doc_types: { type: 'array', items: { type: 'string' } },
       },
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 6 }],
+    [{ name: 'bom_files', maxCount: 7 }, { name: 'nc_files', maxCount: 1500 }],
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async previewUpload(
-    @UploadedFiles() uploadedFiles: { bom_files?: MulterFile[] },
+    @UploadedFiles() uploadedFiles: { bom_files?: MulterFile[]; nc_files?: MulterFile[] },
     @Body() body: Record<string, string | string[]>,
   ) {
     const bomFiles = uploadedFiles?.bom_files ?? []
     if (!bomFiles.length) throw new BadRequestException('No BOM files uploaded')
-
+    const projectId = parseInt(String(body['project_id']), 10)
+    const zoneId = parseInt(String(body['zone_id']), 10)
+    if (isNaN(projectId) || isNaN(zoneId)) throw new BadRequestException('project_id and zone_id must be valid integers')
+    const subZoneId = body['sub_zone_id'] ? parseInt(String(body['sub_zone_id']), 10) : null
     const rawDocTypes = Array.isArray(body['doc_types']) ? body['doc_types'] : [body['doc_types']]
     const fileInputs = this.buildFileInputs(bomFiles, rawDocTypes)
+    const ncInputs: NcFileInput[] = (uploadedFiles?.nc_files ?? []).map(f => ({ buffer: f.buffer, originalname: f.originalname }))
     const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
-
-    return this.svc.previewJunctions(fileInputs, uploadMode)
+    return this.svc.preview(fileInputs, ncInputs, uploadMode, { projectId, zoneId, subZoneId })
   }
 
   private buildFileInputs(bomFiles: MulterFile[], rawDocTypes: (string | undefined)[]): FileInput[] {

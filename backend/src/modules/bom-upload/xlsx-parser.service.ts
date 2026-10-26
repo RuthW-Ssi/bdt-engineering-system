@@ -180,6 +180,8 @@ export class XlsxParserService {
   }
 
   parse(buffer: Buffer, docType: BomDocType, contractNoOverride?: string): ParsedBomFile {
+    // The DN is read by dispatch-note-parser; without this it would fall through to the APL parser.
+    if (docType === 'DISPATCH_NOTE') throw new BadRequestException('Dispatch Note is not a Tekla BOM list — it is read separately')
     const workbook = XLSX.read(buffer, { type: 'buffer' })
     if (!workbook.SheetNames.length) {
       throw new BadRequestException('File has no sheets')
