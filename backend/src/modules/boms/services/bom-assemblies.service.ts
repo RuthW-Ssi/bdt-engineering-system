@@ -16,7 +16,7 @@ export interface AssemblyPickerItem {
   project_due_date: string | null    // project.target_handover as YYYY-MM-DD
   zone_end_date: string | null       // project_zone.target_end as YYYY-MM-DD
   sub_zone_due_date: string | null  // sub_zone.due_date as YYYY-MM-DD
-  bom_version: string // "revision.minor" label from BomDiffService.computeVersionLabels()
+  bom_version: string | null // upload number ("อัปโหลดครั้งที่ n") from BomDiffService.computeVersionLabels()
   total: number
   allocated: number
   remaining: number
@@ -82,7 +82,7 @@ export class BomAssembliesService {
         project_due_date: a.dispatch.project?.target_handover?.toISOString().slice(0, 10) ?? null,
         zone_end_date: a.dispatch.zone?.target_end?.toISOString().slice(0, 10) ?? null,
         sub_zone_due_date: a.dispatch.sub_zone?.due_date?.toISOString().slice(0, 10) ?? null,
-        bom_version: versionLabelById.get(a.dispatch_id) ?? '1.0',
+        bom_version: versionLabelById.get(a.dispatch_id) ?? null,
         total,
         allocated,
         remaining,

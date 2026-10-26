@@ -8,6 +8,7 @@ import { FileStorageService } from '../file-storage/file-storage.service'
 import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
 import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
+import { uploadNumbersOf } from './upload-number'
 import { SEPARATE_DOC_TYPES } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcDetail } from './nc-parser'
@@ -535,6 +536,8 @@ export class BomUploadService {
     const assemblyTotal = items.reduce((s, d) => s + (d.assembly_total ?? 0), 0)
     const partTotal = items.reduce((s, d) => s + (d.part_total ?? 0), 0)
 
+    const nos = await uploadNumbersOf(this.prisma, items.map(d => d.id))
+
     return {
       total,
       page,
@@ -542,7 +545,7 @@ export class BomUploadService {
       pages: Math.ceil(total / limit),
       assembly_total: assemblyTotal,
       part_total: partTotal,
-      items: items.map(d => this.toSummaryDto(d)),
+      items: items.map(d => this.toSummaryDto(d, nos.get(d.id) ?? null)),
     }
   }
 
@@ -577,6 +580,7 @@ export class BomUploadService {
     const markWhere = slotAwareWhere(effectiveGroup)
 
     const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
+    const nos = await uploadNumbersOf(this.prisma, [id])
 
     const [docRevisions, assemblies, orphans, partCount] = await Promise.all([
       // Doc revisions are dispatch-level, not mark-level — each one belongs
@@ -622,7 +626,7 @@ export class BomUploadService {
     ])
 
     return {
-      ...this.toSummaryDto(d),
+      ...this.toSummaryDto(d, nos.get(id) ?? null),
       assembly_count: assemblies.length,
       part_count: partCount,
       doc_revisions: docRevisions.map(r => ({
@@ -790,7 +794,7 @@ export class BomUploadService {
     sub_zone: { id: number; name: string; code: string | null } | null
     create_user: { id: number; name: string }
     doc_revisions?: { doc_type: string }[]
-  }) {
+  }, uploadNo: number | null) {
     return {
       id: d.id,
       project_id: d.project_id,
@@ -799,6 +803,7 @@ export class BomUploadService {
       status: d.status,
       upload_mode: d.upload_mode,
       revision: d.revision,
+      upload_no: uploadNo,
       doc_count: d.doc_revisions?.length ?? 0,
       uploaded_at: d.uploaded_at.toISOString(),
       zone: d.zone,
