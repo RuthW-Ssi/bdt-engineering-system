@@ -172,8 +172,8 @@ describe('print cells for MO type / Rev / mark source', () => {
     expect(moCodeCell('MO-26000001', 0)).toBe('MO-26000001 · Rev.0')
   })
   it('a mark says where its data comes from, and its old name for one Rev after a rename', () => {
-    expect(sourceLabelOf({ source: 'PRE_SHOP', revision: 0 })).toBe('Pre-shop')
-    expect(sourceLabelOf({ source: 'BOM_UPLOAD', revision: 2 })).toBe('BOM rev 2')
+    expect(sourceLabelOf({ source: 'PRE_SHOP' }, 0)).toBe('Pre-shop')
+    expect(sourceLabelOf({ source: 'BOM_UPLOAD' }, 3)).toBe('BOM rev 3') // the mark's own BOM rev (2026-10-26), not the zone upload
     expect(markCell('BUH1A-14', 'BOM rev 1', null, 'เดิม')).toBe('BUH1A-14 · BOM rev 1')
     expect(markCell('C1-BUH1-3', 'BOM rev 1', 'BUH1-3', 'เดิม')).toBe('C1-BUH1-3 (เดิม BUH1-3) · BOM rev 1')
   })

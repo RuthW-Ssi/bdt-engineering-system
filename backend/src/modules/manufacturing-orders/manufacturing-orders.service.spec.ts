@@ -1739,7 +1739,8 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 46, mo_code: 'MO-23', status: 'DRAFT', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 3, zone_id: 6, sub_zone_id: null }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue(lines) },
-      bom_dispatch: { findFirst: jest.fn().mockResolvedValue(bom.length ? { id: 28, revision: 1, uploaded_at: new Date('2026-10-08T10:57:00Z') } : null) },
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue(bom.length ? { id: 28, revision: 1, uploaded_at: new Date('2026-10-08T10:57:00Z') } : null),
+        count: jest.fn().mockResolvedValue(1), findMany: jest.fn().mockResolvedValue([{ id: 28, project_id: 3, zone_id: 6, sub_zone_id: null }]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue(bom) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue(planned) },
       bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
@@ -2001,6 +2002,22 @@ describe('ManufacturingOrderService — compare with the real BOM', () => {
     await svc.bomCompare(46)
     expect(alias.renamesFor).toHaveBeenCalledWith({ project_id: 3, zone_id: 6, sub_zone_id: null })
   })
+
+  // per-mark BOM rev (2026-10-26): a Full shop line on a mark whose rev went up must be looked at
+  it('a Full shop line whose BOM rev went up is "changed" with rev 1 → 2, even when every value is the same', async () => {
+    const line = { ...LINE(1, 701, 'BUH1-3', 2, [P('C-f1')]), bom_assembly: { ...LINE(1, 701, 'BUH1-3', 2, [P('C-f1')]).bom_assembly, dispatch: { source: 'BOM_UPLOAD' }, rev: 1 } }
+    const { svc } = make([line], [{ ...BOM(3002, 'BUH1-3', 6, [P('C-f1')]), rev: 2 }])
+    const r = await svc.bomCompare(46)
+    expect(r.rows[0]).toMatchObject({ status: 'changed', rev: { from: 1, to: 2 }, rev_only: true })
+    expect(r.bom).toMatchObject({ dispatch_id: 28, upload_no: 1 })
+  })
+
+  it('same rev → rev null, status unchanged by this rule', async () => {
+    const line = { ...LINE(1, 701, 'BUH1-3', 2, [P('C-f1')]), bom_assembly: { ...LINE(1, 701, 'BUH1-3', 2, [P('C-f1')]).bom_assembly, dispatch: { source: 'BOM_UPLOAD' }, rev: 2 } }
+    const { svc } = make([line], [{ ...BOM(3002, 'BUH1-3', 6, [P('C-f1')]), rev: 2 }])
+    const r = await svc.bomCompare(46)
+    expect(r.rows[0]).toMatchObject({ status: 'same', rev: null, rev_only: false })
+  })
 })
 
 // Full shop MO when its zone's BOM gets a new upload (2026-10-09, user: when a
@@ -2032,7 +2049,7 @@ describe('ManufacturingOrderService — Full shop MO vs a new BOM version', () =
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 50, mo_code: 'MO-50', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'FULL_SHOP', project_id: 3, zone_id: 5, sub_zone_id: null }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue(lines) },
-      bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 30, revision: 2, uploaded_at: new Date('2026-10-09T03:00:00Z') }) },
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 30, revision: 2, uploaded_at: new Date('2026-10-09T03:00:00Z') }), findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.status === 'ACTIVE' ? latest : oldMarks.map(m => ({ assembly_mark: m })))) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
       bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
@@ -2120,7 +2137,7 @@ describe('ManufacturingOrderService — Full shop mark confirmed as matching the
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 50, mo_code: 'MO-50', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'FULL_SHOP', project_id: 3, zone_id: 5, sub_zone_id: null }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([line]) },
-      bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 30, revision: 2, uploaded_at: new Date() }) },
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 30, revision: 2, uploaded_at: new Date() }), findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.status === 'ACTIVE' ? [latest] : [{ assembly_mark: 'B' }])) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
       bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
@@ -2215,7 +2232,7 @@ describe('ManufacturingOrderService — marks renamed in the real BOM', () => {
     const prisma = {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 46, mo_code: 'MO-P2600023', status: 'IN_PROGRESS', kind: 'ASSEMBLY', shop_type: 'PRE_SHOP', project_id: 3, zone_id: 6, sub_zone_id: null, revision: 1 }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([line]) },
-      bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 28, revision: 1, uploaded_at: new Date() }) },
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue({ id: 28, revision: 1, uploaded_at: new Date() }), findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue(bomRows) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
       bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
