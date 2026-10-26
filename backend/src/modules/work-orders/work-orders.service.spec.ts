@@ -161,6 +161,72 @@ describe('WorkOrdersService — a newer BOM row differing only in name', () => {
     expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, name: 'BUILT-UP H' }).delta_types).toEqual(['SPEC_CHANGED'])
     expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11 }).delta_types).toEqual([])
   })
+
+  it('a higher BOM rev is REV_UP, even with every value the same (2026-10-26)', () => {
+    const svc = new WorkOrdersService({} as any, {} as any, {} as any)
+    const row = { id: 1, dispatch_id: 10, assembly_mark: 'A', qty: 1, name: 'WEB', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, attributes: {}, rev: 1 }
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, rev: 2 })
+    expect(cmp.delta_types).toEqual(['REV_UP'])
+    expect(cmp.delta_details).toEqual({ rev: { from: 1, to: 2 } })
+    expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, rev: 1 }).delta_types).toEqual([])
+  })
+})
+
+// Ruling (Tao, 2026-10-26): a WO alerts ONLY on REV_UP, RENAMED or REMOVED.
+// Legacy exception: the latest ACTIVE row's rev_source is null → today's rule.
+describe('WorkOrdersService — WO alerts only on REV_UP / RENAMED / REMOVED (ruling 2026-10-26)', () => {
+  const svc = new WorkOrdersService({} as any, {} as any, {} as any)
+  const row = { id: 1, dispatch_id: 10, assembly_mark: 'A', qty: 3, name: 'WEB', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, attributes: {}, rev: 1, rev_source: 'NEW' }
+
+  it('a newer row with the same rev and a changed qty (MANUAL) does not alert', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, qty: 2, rev: 1, rev_source: 'MANUAL' })
+    expect(cmp.delta_types).toEqual(['QTY_CHANGED'])
+    expect(cmp.is_outdated).toBe(false)
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('a newer row with the same rev and no change (CARRIED) does not alert', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, rev_source: 'CARRIED' })
+    expect(cmp.is_outdated).toBe(false)
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('a same-rev SPEC_CHANGED does not alert either', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, name: 'BUILT-UP H', rev_source: 'MANUAL' })
+    expect(cmp.delta_types).toEqual(['SPEC_CHANGED'])
+    expect(cmp.is_outdated).toBe(false)
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('a rev rise alerts, together with any data change', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, qty: 4, rev: 2, rev_source: 'DISPATCH_NOTE' })
+    expect(cmp.delta_types).toEqual(['QTY_CHANGED', 'REV_UP'])
+    expect(cmp.is_outdated).toBe(true)
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+  })
+
+  it('REMOVED still alerts', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, null)
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: ['REMOVED'] })
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+  })
+
+  it('legacy: the latest row has rev_source null → today\'s rule (SPEC_CHANGED alerts)', () => {
+    const old = { ...row, rev: 0, rev_source: null }
+    const cmp = (svc as any).classifyAssemblyDelta(old, { ...old, id: 2, dispatch_id: 11, name: 'BUILT-UP H' })
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: ['SPEC_CHANGED'], legacy: true })
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+    // legacy qty increase stays informational, as today
+    const up = (svc as any).classifyAssemblyDelta(old, { ...old, id: 2, dispatch_id: 11, qty: 5 })
+    expect(up.is_outdated).toBe(true)
+    expect(svc.isSignificantDelta(up)).toBe(false)
+  })
+
+  it('isSignificantDelta: legacy=false → QTY decrease / SPEC_CHANGED alone are not significant; RENAMED is', () => {
+    expect(svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 3, to: 2 } }, legacy: false })).toBe(false)
+    expect(svc.isSignificantDelta({ delta_types: ['SPEC_CHANGED'], delta_details: null, legacy: false })).toBe(false)
+    expect(svc.isSignificantDelta({ delta_types: ['RENAMED'], delta_details: null, legacy: false })).toBe(true)
+  })
 })
 
 describe('WorkOrdersService.isSignificantDelta', () => {
@@ -184,6 +250,10 @@ describe('WorkOrdersService.isSignificantDelta', () => {
     expect(
       svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 1, to: 2 } } }),
     ).toBe(false)
+  })
+
+  it('returns true for REV_UP — the alert fires on every Rev rise', () => {
+    expect(svc.isSignificantDelta({ delta_types: ['REV_UP'], delta_details: { rev: { from: 1, to: 2 } } })).toBe(true)
   })
 
   it('returns false when delta_types is empty (byte-identical re-upload)', () => {
@@ -313,6 +383,14 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
     const result = await svc.findAll({})
 
     expect(result.find((w: any) => w.id === 1)?.is_outdated).toBe(false)
+  })
+
+  it('ruling 2026-10-26: a same-rev qty decrease on a non-legacy row does NOT flag; a rev rise does', async () => {
+    const base = { assembly_mark: 'WH-MA-001', weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const svc1 = new WorkOrdersService(makePrisma([makeRow()], [{ ...base, id: 200, dispatch_id: 20, qty: 1, rev: 0, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
+    expect((await svc1.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(false)
+    const svc2 = new WorkOrdersService(makePrisma([makeRow()], [{ ...base, id: 200, dispatch_id: 20, qty: 2, rev: 1, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
+    expect((await svc2.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(true)
   })
 
   it('issues exactly one batched bom_assembly query regardless of WO/mark count (no N+1)', async () => {
@@ -602,6 +680,24 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
 
     expect(prisma.work_order_mark.findMany).not.toHaveBeenCalled()
+  })
+
+  it('records the BOM rev move in the accept History (field old → new)', async () => {
+    const mark = makeMark()
+    ;(mark.bom_assembly as any).rev = 1
+    const prisma = makePrisma(mark, { ...mark.bom_assembly, id: 200, dispatch_id: 20, rev: 2 })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toContainEqual({ field: 'bom_rev', old: 1, new: 2 })
+  })
+
+  it('ruling 2026-10-26: a newer non-legacy row with the same rev is not offered for accept (409)', async () => {
+    const mark = makeMark()
+    ;(mark.bom_assembly as any).rev = 1
+    const prisma = makePrisma(mark, { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 1, rev: 1, rev_source: 'MANUAL' })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toBeInstanceOf(ConflictException)
   })
 })
 

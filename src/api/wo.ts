@@ -275,7 +275,7 @@ export interface BomVersionStatus {
   bom_assembly_id: number
   assembly_mark: string
   is_outdated: boolean
-  delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED' | 'RENAMED')[]
+  delta_types: ('REMOVED' | 'QTY_CHANGED' | 'SPEC_CHANGED' | 'RENAMED' | 'REV_UP')[]
   delta_details: Record<string, unknown> | null
   snapshot_dispatch_id: number
   latest_dispatch_id: number

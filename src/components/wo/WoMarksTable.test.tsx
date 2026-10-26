@@ -803,3 +803,30 @@ describe('WoMarksTable — mark renamed in the BOM (2026-10-21)', () => {
     expect(screen.getByText('ชื่อ mark A1 → 3A1')).toBeInTheDocument()
   })
 })
+
+describe('WoMarksTable — BOM Rev went up (2026-10-26)', () => {
+  const revOnly = () => makeBom({ delta_types: ['REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } } })
+
+  it('the badge says "BOM Rev 1 → 2"; Accept says the data did not change', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [revOnly()] })} />)
+    expect(screen.getByText('BOM Rev 1 → 2')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2 · ข้อมูล BOM ไม่เปลี่ยน')).toBeInTheDocument()
+  })
+
+  it('Rev up together with a spec change shows just the move', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom({ delta_types: ['SPEC_CHANGED', 'REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } } })] })} />)
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2')).toBeInTheDocument()
+  })
+})
+
+describe('WoMarksTable — the accepted BOM Rev move shows in the mark history (2026-10-26)', () => {
+  it('the ACCEPT_VERSION note carries "BOM Rev 1 → 2"', async () => {
+    const events = [makeEvent({ id: 1, work_order_mark_id: 1, recorded_at: '2026-10-26T08:00:00Z', recorded_by: 'tao', event_type: 'ACCEPT_VERSION', notes: 'Accepted BOM version → dispatch 2', changes: [{ field: 'qty_planned', old: 10, new: 8 }, { field: 'bom_rev', old: 1, new: 2 }] })]
+    render(<WoMarksTable {...baseProps({ events })} />)
+    await openEditor(0)
+    fireEvent.click(screen.getByRole('button', { name: /show history/i }))
+    expect(within(screen.getByRole('region', { name: 'History' })).getByText('BOM version accepted · Quantity 10 → 8 · BOM Rev 1 → 2')).toBeInTheDocument()
+  })
+})

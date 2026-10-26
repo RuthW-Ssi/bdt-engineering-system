@@ -54,15 +54,18 @@ function makeMo(status: string, lines: ReturnType<typeof makeLine>[]) {
 }
 
 // Mirrors WorkOrdersService.isSignificantDelta() — a newer dispatch existing for
-// the group (is_outdated: true) is not by itself grounds to warn; only a REMOVED,
-// SPEC_CHANGED, or qty-decrease delta is "significant". Computed from delta_types
-// so individual tests don't need to hard-code the expected significance.
-function computeSignificant(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null }) {
-  const isRemoved = cmp.delta_types.includes('REMOVED')
-  const isSpecChanged = cmp.delta_types.includes('SPEC_CHANGED')
+// the group (is_outdated: true) is not by itself grounds to warn. Ruling
+// 2026-10-26: REV_UP / RENAMED / REMOVED always count; QTY/SPEC alone only on a
+// legacy latest row (rev_source null — a missing flag counts as legacy):
+// SPEC_CHANGED or a qty decrease. Computed from delta_types so individual tests
+// don't need to hard-code the expected significance.
+function computeSignificant(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null; legacy?: boolean }) {
+  const t = cmp.delta_types
+  if (t.includes('REV_UP') || t.includes('RENAMED') || t.includes('REMOVED')) return true
+  if (cmp.legacy === false) return false
   const qtyDelta = cmp.delta_details?.qty as { from: number; to: number } | undefined
-  const isQtyDecrease = cmp.delta_types.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
-  return isRemoved || isSpecChanged || isQtyDecrease
+  const isQtyDecrease = t.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
+  return t.includes('SPEC_CHANGED') || isQtyDecrease
 }
 
 function makeService(mo: unknown, cmpResult: { is_outdated: boolean; delta_types: string[] }) {
