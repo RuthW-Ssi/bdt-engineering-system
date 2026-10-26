@@ -441,7 +441,7 @@ export function WoMarksTable({
                       )}
                       {outdated && (
                         <div style={{ marginTop: 10, fontSize: 11.5, color: '#8A2A0D' }}>
-                          Dispatch #{bom!.latest_dispatch_id} changed this mark: {bom!.delta_types.join(' · ') || 'unspecified change'}{ru && ` · ${revMoveText(ru, bom!.delta_types.length === 1)}`}.
+                          Dispatch #{bom!.latest_dispatch_id} changed this mark: {bom!.delta_types.join(' · ') || 'unspecified change'}{ru && ` · ${revMoveText(ru, bom!.data_same === true)}`}.
                           {removedIrreversibly && ' The assembly was removed from the latest BOM version — remove this mark (or cancel the whole WO) instead of accepting.'}
                           {rn && ` ชื่อใหม่ใน BOM: ${rn.to} — กด Accept เพื่อย้ายไปชื่อใหม่ (ยอดเบิก part ย้ายตามไปด้วย)`}
                         </div>
@@ -769,7 +769,7 @@ function AcceptVersionModal({
           Adopts dispatch #{bom.latest_dispatch_id} ({bom.delta_types.join(' · ') || 'change'}) for this mark only, unless applied below.
         </p>
         {renamedTo(bom) && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>{`ชื่อ mark ${renamedTo(bom)!.from} → ${renamedTo(bom)!.to}`}</div>}
-        {revUpOf(bom) && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>{revMoveText(revUpOf(bom), bom.delta_types.length === 1)}</div>}
+        {revUpOf(bom) && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>{revMoveText(revUpOf(bom), bom.data_same === true)}</div>}
         <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Note</label>
         <textarea
           value={note} onChange={e => setNote(e.target.value)} autoFocus rows={2} placeholder="Optional note…"

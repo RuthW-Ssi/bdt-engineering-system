@@ -142,6 +142,40 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
     expect(result[0]).toMatchObject({ is_outdated: true, delta_types: ['REMOVED'] })
   })
 
+  // Final review fix 2: "ข้อมูล BOM ไม่เปลี่ยน" needs the parts too — delta_types cover qty/spec only.
+  describe('data_same (mark-rev markDiff incl. parts)', () => {
+    const part = (part_mark: string, profile = 'PL10') => ({ qty: 2, part: { part_mark, description: null, profile, grade: 'SS400', length_mm: 100, weight_kg: 1.5 } })
+    function setup(ownParts: any[], latestParts: any[]) {
+      const mark = makeMark({ bom_assembly: makeBomAssembly({ rev: 1, rev_source: 'NEW' }) })
+      const latest = makeBomAssembly({ id: 200, dispatch_id: 20, rev: 2, rev_source: 'MANUAL' })
+      const prisma: any = {
+        work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, marks: [mark] }) },
+        bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
+        bom_assembly: {
+          findFirst: jest.fn().mockResolvedValue(latest),
+          findMany: jest.fn().mockResolvedValue([
+            { ...mark.bom_assembly, name: null, assembly_parts: ownParts },
+            { ...latest, name: null, assembly_parts: latestParts },
+          ]),
+        },
+        bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+      }
+      return new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    }
+
+    it('a rev rise caused only by a part change → data_same false', async () => {
+      const [st] = await setup([part('p1')], [part('p1', 'PL12')]).bomVersionStatus(1)
+      expect(st.delta_types).toEqual(['REV_UP'])
+      expect(st.data_same).toBe(false)
+    })
+
+    it('a hand-raised rev with no change at all → data_same true', async () => {
+      const [st] = await setup([part('p1')], [part('p1')]).bomVersionStatus(1)
+      expect(st.delta_types).toEqual(['REV_UP'])
+      expect(st.data_same).toBe(true)
+    })
+  })
+
   it('throws NotFoundException when the WO does not exist', async () => {
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(null) } }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
@@ -2240,10 +2274,18 @@ describe('WorkOrdersService — mark renamed in the BOM (2026-10-21)', () => {
     const prisma: any = {
       work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, marks: [mark] }) },
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
-      bom_assembly: { findFirst: jest.fn(({ where }: any) => Promise.resolve(where.assembly_mark === '3WH-CO-001' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: '3WH-CO-001' } : null)) },
+      bom_assembly: {
+        findFirst: jest.fn(({ where }: any) => Promise.resolve(where.assembly_mark === '3WH-CO-001' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: '3WH-CO-001' } : null)),
+        findMany: jest.fn().mockResolvedValue([
+          { ...mark.bom_assembly, name: null, assembly_parts: [] },
+          { ...mark.bom_assembly, id: 200, assembly_mark: '3WH-CO-001', name: null, assembly_parts: [] },
+        ]),
+      },
     }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any, renamesOf(ASM_RENAME) as any)
     const [s] = await svc.bomVersionStatus(1)
+    // final review fix 2: a rename alone is not a data change — the note survives RENAMED
+    expect(s.data_same).toBe(true)
     expect(s).toMatchObject({ is_outdated: true, delta_types: ['RENAMED'], latest_dispatch_id: 20, latest_assembly_id: 200,
       delta_details: { renamed: { from: 'WH-CO-001', to: '3WH-CO-001', rename_ids: [7] } } })
     expect(svc.isSignificantDelta(s)).toBe(true)
@@ -2426,7 +2468,7 @@ describe('WorkOrdersService — mark renamed in the BOM, fix round 1', () => {
         where.assembly_mark === 'B' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: 'B' }
         : where.assembly_mark === 'A' ? { ...mark.bom_assembly, id: 300, dispatch_id: 30, assembly_mark: 'A', weight_kg: 999 } // unrelated new A — must never be picked
         : null,
-      )) },
+      )), findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any,
       renamesOf({ id: 9, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 20 }) as any)

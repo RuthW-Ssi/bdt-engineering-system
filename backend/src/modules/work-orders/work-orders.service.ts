@@ -7,6 +7,7 @@ import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 import { MarkAliasService } from '../mark-rename/mark-alias.service'
 import { followRenames, formerNames, partRenameChain, scopeKey, usableFormerNames, type BomScope, type RenameRow } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
+import { isUnchanged, markDiff, partLine, snapshot } from '../bom-upload/mark-rev'
 import { AcceptVersionDto } from './dto/accept-version.dto'
 import { CancelWoDto, WoActualsDto, WoDoneDto } from './dto/wo-transition.dto'
 import { RemoveMarkDto } from './dto/remove-mark.dto'
@@ -1481,7 +1482,39 @@ export class WorkOrdersService {
       include: { marks: { where: { removed_at: null }, include: { bom_assembly: true } } },
     })
     if (!wo) throw new NotFoundException(`WO ${id} not found`)
-    return Promise.all(wo.marks.map((m) => this.markVersionStatus(m)))
+    const statuses = await Promise.all(wo.marks.map((m) => this.markVersionStatus(m)))
+    const same = await this.dataSameByPair(statuses)
+    return statuses.map((st) => ({ ...st, data_same: same(st) }))
+  }
+
+  /**
+   * `data_same` (final review fix 2): the mark's BOM data — assembly fields AND
+   * parts, the mark-rev `markDiff` set — is identical between the WO's own row and
+   * the latest row. delta_types cover assembly qty/spec only, so a rev rise caused
+   * by a part change alone would otherwise read as "ข้อมูล BOM ไม่เปลี่ยน".
+   * One batched query for the rows that need comparing.
+   */
+  private async dataSameByPair(statuses: { bom_assembly_id: number; latest_assembly_id: number | null }[]) {
+    const pairs = statuses.filter((s) => s.latest_assembly_id != null && s.latest_assembly_id !== s.bom_assembly_id)
+    const ids = [...new Set(pairs.flatMap((s) => [s.bom_assembly_id, s.latest_assembly_id!]))]
+    const rows = ids.length
+      ? await this.prisma.bom_assembly.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true, assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true,
+            assembly_parts: { select: { qty: true, part: { select: { part_mark: true, description: true, profile: true, grade: true, length_mm: true, weight_kg: true } } } },
+          },
+        })
+      : []
+    // the mark name is not BOM data (a rename is its own delta) — compare under one name
+    const snap = new Map(rows.map((r) => [r.id, snapshot({ ...r, assembly_mark: '' }, r.assembly_parts.map((ap) => partLine(ap.part, ap.qty)))]))
+    return (s: { bom_assembly_id: number; latest_assembly_id: number | null }): boolean => {
+      if (s.latest_assembly_id == null) return false // REMOVED
+      if (s.latest_assembly_id === s.bom_assembly_id) return true
+      const a = snap.get(s.bom_assembly_id)
+      const b = snap.get(s.latest_assembly_id)
+      return !!a && !!b && isUnchanged(markDiff(a, b))
+    }
   }
 
   /**

@@ -281,6 +281,9 @@ export interface BomVersionStatus {
   latest_dispatch_id: number
   // RENAMED (2026-10-21): the mark's current (renamed) assembly id in the latest BOM, when known.
   latest_assembly_id?: number | null
+  // The mark's BOM data (assembly values AND parts) is the same in the latest row —
+  // drives "ข้อมูล BOM ไม่เปลี่ยน" (delta_types cover assembly qty/spec only).
+  data_same?: boolean
 }
 
 export interface WoScheduleGroup {

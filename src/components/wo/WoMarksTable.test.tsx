@@ -805,11 +805,25 @@ describe('WoMarksTable — mark renamed in the BOM (2026-10-21)', () => {
 })
 
 describe('WoMarksTable — BOM Rev went up (2026-10-26)', () => {
-  const revOnly = () => makeBom({ delta_types: ['REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } } })
+  const revOnly = () => makeBom({ delta_types: ['REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } }, data_same: true })
 
   it('the badge says "BOM Rev 1 → 2"; Accept says the data did not change', () => {
     render(<WoMarksTable {...baseProps({ bomVersionStatus: [revOnly()] })} />)
     expect(screen.getByText('BOM Rev 1 → 2')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2 · ข้อมูล BOM ไม่เปลี่ยน')).toBeInTheDocument()
+  })
+
+  // final review fix 2: the backend's data_same covers parts; delta_types do not
+  it('Rev up caused only by a part change (data_same false) shows just the move', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom({ delta_types: ['REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } }, data_same: false })] })} />)
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2')).toBeInTheDocument()
+    expect(screen.queryByText(/ข้อมูล BOM ไม่เปลี่ยน/)).toBeNull()
+  })
+
+  it('RENAMED + REV_UP with data_same true keeps the note', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom({ delta_types: ['RENAMED', 'REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 }, renamed: { from: 'A1', to: '3A1', rename_ids: [7] } }, data_same: true })] })} />)
     fireEvent.click(screen.getByTitle('Accept new BOM version'))
     expect(screen.getByText('Rev 1 → 2 · ข้อมูล BOM ไม่เปลี่ยน')).toBeInTheDocument()
   })
