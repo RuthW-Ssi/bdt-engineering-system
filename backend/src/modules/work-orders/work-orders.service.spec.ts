@@ -222,6 +222,28 @@ describe('WorkOrdersService — WO alerts only on REV_UP / RENAMED / REMOVED (ru
     expect(svc.isSignificantDelta(up)).toBe(false)
   })
 
+  // Final review fix 1: legacy is decided from the WO mark's OWN row, not the latest row.
+  it('legacy own row: A(legacy) → B(legacy, qty/spec changed) → C(CARRIED rev 0, unchanged from B) still alerts', () => {
+    const a = { ...row, id: 1, dispatch_id: 10, qty: 3, rev: 0, rev_source: null }
+    const c = { ...row, id: 3, dispatch_id: 12, qty: 2, name: 'BUILT-UP H', rev: 0, rev_source: 'CARRIED' }
+    const cmp = (svc as any).classifyAssemblyDelta(a, c)
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: ['QTY_CHANGED', 'SPEC_CHANGED'], legacy: true })
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+  })
+
+  it('legacy own row vs a byte-identical newer CARRIED row: today\'s rule — offered (is_outdated) but no alert', () => {
+    const a = { ...row, rev: 0, rev_source: null }
+    const cmp = (svc as any).classifyAssemblyDelta(a, { ...a, id: 2, dispatch_id: 11, rev_source: 'CARRIED' })
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: [], legacy: true })
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('non-legacy own row vs a newer row: only REV_UP alerts, whatever the latest row\'s rev_source', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, qty: 1, rev_source: null })
+    expect(cmp).toMatchObject({ is_outdated: false, legacy: false })
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
   it('isSignificantDelta: legacy=false → QTY decrease / SPEC_CHANGED alone are not significant; RENAMED is', () => {
     expect(svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 3, to: 2 } }, legacy: false })).toBe(false)
     expect(svc.isSignificantDelta({ delta_types: ['SPEC_CHANGED'], delta_details: null, legacy: false })).toBe(false)
@@ -387,10 +409,19 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
 
   it('ruling 2026-10-26: a same-rev qty decrease on a non-legacy row does NOT flag; a rev rise does', async () => {
     const base = { assembly_mark: 'WH-MA-001', weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
-    const svc1 = new WorkOrdersService(makePrisma([makeRow()], [{ ...base, id: 200, dispatch_id: 20, qty: 1, rev: 0, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
+    // the WO's own row is non-legacy (it carries a rev_source) — legacy is decided from it
+    const own = () => makeRow({ marks: [markRow({ bom_assembly: { ...markRow().bom_assembly, rev: 0, rev_source: 'NEW' } })] })
+    const svc1 = new WorkOrdersService(makePrisma([own()], [{ ...base, id: 200, dispatch_id: 20, qty: 1, rev: 0, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
     expect((await svc1.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(false)
-    const svc2 = new WorkOrdersService(makePrisma([makeRow()], [{ ...base, id: 200, dispatch_id: 20, qty: 2, rev: 1, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
+    const svc2 = new WorkOrdersService(makePrisma([own()], [{ ...base, id: 200, dispatch_id: 20, qty: 2, rev: 1, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
     expect((await svc2.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(true)
+  })
+
+  it('final review fix 1: a legacy own row stays flagged after an unchanged upload writes CARRIED rev 0 rows', async () => {
+    // A (own, legacy) → B (legacy, qty 2 → 1) → C (CARRIED rev 0, same as B)
+    const c = { id: 300, dispatch_id: 30, assembly_mark: 'WH-MA-001', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, rev: 0, rev_source: 'CARRIED', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const svc = new WorkOrdersService(makePrisma([makeRow()], [c]) as any, makeAutoCreate() as any, {} as any)
+    expect((await svc.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(true)
   })
 
   it('issues exactly one batched bom_assembly query regardless of WO/mark count (no N+1)', async () => {
@@ -695,6 +726,7 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
   it('ruling 2026-10-26: a newer non-legacy row with the same rev is not offered for accept (409)', async () => {
     const mark = makeMark()
     ;(mark.bom_assembly as any).rev = 1
+    ;(mark.bom_assembly as any).rev_source = 'NEW' // own row non-legacy
     const prisma = makePrisma(mark, { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 1, rev: 1, rev_source: 'MANUAL' })
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
     await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toBeInstanceOf(ConflictException)

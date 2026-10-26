@@ -1697,8 +1697,8 @@ export class WorkOrdersService {
    *
    * Ruling (Tao, 2026-10-26): only REV_UP, RENAMED or REMOVED is "significant" —
    * a QTY/SPEC change without a rev rise no longer alerts. Legacy exception: when
-   * the latest ACTIVE row predates per-mark revs (`legacy`, rev_source null — a
-   * missing flag counts as legacy), the old rule stands: RENAMED / REMOVED /
+   * the mark's OWN snapshotted row predates per-mark revs (`legacy`, rev_source
+   * null — a missing flag counts as legacy), the old rule stands: RENAMED / REMOVED /
    * SPEC_CHANGED / qty decrease (a qty increase alone is informational). Shared by
    * `computeOutdatedWoIds()`'s list-badge loop and
    * `ManufacturingOrdersService.findOne()`'s stale-line-warning check.
@@ -1802,7 +1802,7 @@ export class WorkOrdersService {
         delta_details: null,
         latest_dispatch_id: latestAsm.dispatch_id,
         latest_assembly_id: latestAsm.id,
-        legacy: latestAsm.rev_source == null,
+        legacy: assembly.rev_source == null,
       }
     }
 
@@ -1831,9 +1831,13 @@ export class WorkOrdersService {
 
     // Ruling (Tao, 2026-10-26): a newer row alerts only when its rev went up
     // (RENAMED is added by compareAssemblyToLatest, REMOVED above). Legacy
-    // exception: the latest ACTIVE row predates per-mark revs (rev_source null)
-    // → today's rule, any different ACTIVE row is "outdated".
-    const legacy = latestAsm.rev_source == null
+    // exception, decided from the mark's OWN snapshotted row (rev_source null =
+    // it predates per-mark revs): today's rule — any different ACTIVE row is
+    // "outdated" (accept can re-point parts-only changes) and isSignificantDelta()
+    // keeps the old alert rule. Deciding it from the latest row would drop the
+    // alert of a WO on a legacy row the moment an unchanged upload writes
+    // CARRIED rev 0 rows.
+    const legacy = assembly.rev_source == null
     return {
       is_outdated: legacy || delta_types.includes('REV_UP'),
       delta_types,

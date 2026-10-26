@@ -56,7 +56,7 @@ function makeMo(status: string, lines: ReturnType<typeof makeLine>[]) {
 // Mirrors WorkOrdersService.isSignificantDelta() — a newer dispatch existing for
 // the group (is_outdated: true) is not by itself grounds to warn. Ruling
 // 2026-10-26: REV_UP / RENAMED / REMOVED always count; QTY/SPEC alone only on a
-// legacy latest row (rev_source null — a missing flag counts as legacy):
+// legacy own row (the line's own rev_source null — a missing flag counts as legacy):
 // SPEC_CHANGED or a qty decrease. Computed from delta_types so individual tests
 // don't need to hard-code the expected significance.
 function computeSignificant(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null; legacy?: boolean }) {
