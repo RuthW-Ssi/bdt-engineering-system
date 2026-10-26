@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common'
-import { parseBaseField, parseRevsField } from './upload-body'
+import { parseBaseField, parseRevsField, UPLOAD_FILE_FIELDS } from './upload-body'
+import { SEPARATE_DOC_TYPES } from './filename-classifier'
 
 describe('upload body fields', () => {
   it('revs: absent/empty → [], JSON list → edits, anything else → 400 in Thai', () => {
@@ -15,5 +16,8 @@ describe('upload body fields', () => {
     expect(parseBaseField('')).toBeNull()
     expect(parseBaseField('42')).toBe(42)
     expect(() => parseBaseField('x')).toThrow(new BadRequestException('base_dispatch_id: ต้องเป็นตัวเลข'))
+  })
+  it('bom_files fits the biggest upload: 6 separate-mode lists + Main and Acc Dispatch Notes', () => {
+    expect(UPLOAD_FILE_FIELDS.find(f => f.name === 'bom_files')!.maxCount).toBe(SEPARATE_DOC_TYPES.length + 2)
   })
 })

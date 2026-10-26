@@ -904,6 +904,23 @@ describe('BomUploadService.upload() — per-mark revs (2026-10-26)', () => {
     expect(inner.bom_assembly.createManyAndReturn.mock.calls[0][0].data[0]).toMatchObject({ rev: 2, rev_source: 'DISPATCH_NOTE' })
   })
 
+  it('separate mode stores each slot\'s Dispatch Note as its own doc row', async () => {
+    const { svc, inner } = revPrisma([], null)
+    const book = () => {
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['MarkNo.', 'Set', 'Rev', 'WeightKg.'], ['B1', 1, 2, 5]]), 'D')
+      return XLSX.write(wb, { type: 'buffer', bookType: 'xls' }) as Buffer
+    }
+    const sep = [
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' }),
+      makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc assembly list.xlsx' }),
+      makeFileInput({ docType: 'MAIN_DISPATCH_NOTE', originalname: 'MAIN DN.xls', mimetype: 'application/vnd.ms-excel', buffer: book() }),
+      makeFileInput({ docType: 'ACC_DISPATCH_NOTE', originalname: 'ACC DN.xls', mimetype: 'application/vnd.ms-excel', buffer: book() }),
+    ]
+    await svc.upload(sep, [], 1, 2, null, 1, 'separate')
+    expect(inner.bom_doc_revision.create.mock.calls.map((c: any) => c[0].data.doc_type)).toEqual(['MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST', 'MAIN_DISPATCH_NOTE', 'ACC_DISPATCH_NOTE'])
+  })
+
   it('save deactivates exactly what preview called "removed" (ACC-only separate upload keeps MAIN)', async () => {
     const active = [
       { ...activeB1(1), assembly_mark: 'MAIN1', slot: 'MAIN' },
@@ -1788,7 +1805,7 @@ describe('BomUploadService.preview() — rev review', () => {
   })
 
   it('a Dispatch Note does not count as "mixing combined and separate"', async () => {
-    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+    const dn = makeFileInput({ docType: 'MAIN_DISPATCH_NOTE', originalname: 'MAIN DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
     const parser = parserBy({ MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }] as any } })
     const { svc } = svcWith(parser, [])
     await expect(svc.preview([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'MAIN AL.xlsx' }), dn], [], 'separate', scope)).resolves.toBeDefined()
@@ -1800,6 +1817,62 @@ describe('BomUploadService.preview() — rev review', () => {
     const { svc } = svcWith(parser, [])
     await svc.preview(combinedFiles([dn]), [], 'combined', scope)
     expect(parser.parse.mock.calls.map(c => c[1])).toEqual(['ASSEMBLY_LIST', 'PART_LIST', 'ASSEMBLY_PART_LIST'])
+  })
+
+  describe('separate mode — one Dispatch Note per slot (2026-10-26)', () => {
+    const sdn = (slot: 'MAIN' | 'ACC', rows: unknown[][]) =>
+      makeFileInput({ docType: `${slot}_DISPATCH_NOTE` as any, originalname: `${slot} DN.xls`, mimetype: 'application/vnd.ms-excel', buffer: dnBook(rows) })
+    const mainAl = makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'MAIN AL.xlsx' })
+    const accAl = makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'ACC AL.xlsx' })
+    const parser = () => parserBy({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }, { assembly_mark: 'X' }] as any },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1' }] as any },
+    })
+
+    it('each mark takes its own slot\'s DN rev; a mark in both DNs → Thai warning; dn_only per slot', async () => {
+      const p = parser()
+      const { svc } = svcWith(p, [], null)
+      const main = sdn('MAIN', [[1, 'M1', 1, 0, 1, 2, 20, ''], [2, 'X', 1, 0, 1, 1, 20, ''], [3, 'A1', 1, 0, 1, 9, 20, '']])
+      const acc = sdn('ACC', [[1, 'A1', 1, 0, 1, 3, 20, ''], [2, 'X', 1, 0, 1, 7, 20, '']])
+      const r = await svc.preview([mainAl, accAl, main, acc], [], 'separate', scope)
+      expect(r.review.has_dn).toBe(true)
+      expect(r.review.rows.map(x => [x.mark, x.suggested_rev])).toEqual([['M1', 2], ['X', 1], ['A1', 3]])
+      expect(r.review.dn_only_marks).toEqual(['A1', 'X']) // A1 in the Main DN but not the Main lists; X likewise for Acc
+      expect(r.review.dn_warnings).toEqual(['A1, X: อยู่ใน Dispatch Note ทั้ง Main และ Acc — ใช้ rev จาก Dispatch Note ของช่องที่ mark นั้นอยู่'])
+      expect(p.parse.mock.calls.map(c => c[1])).toEqual(['MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST'])
+    })
+
+    it('only the Main DN sent → has_dn, Acc marks get no DN rev', async () => {
+      const { svc } = svcWith(parser(), [], null)
+      const r = await svc.preview([mainAl, accAl, sdn('MAIN', [[1, 'M1', 1, 0, 1, 2, 20, '']])], [], 'separate', scope)
+      expect(r.review.has_dn).toBe(true)
+      expect(r.review.rows.map(x => [x.mark, x.suggested_rev, x.in_dn])).toEqual([['M1', 2, true], ['X', 0, false], ['A1', 0, false]])
+    })
+
+    it('refuses a plain Dispatch Note in separate mode', async () => {
+      const { svc } = svcWith(parser(), [])
+      const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+      await expect(svc.preview([mainAl, dn], [], 'separate', scope)).rejects.toThrow(new BadRequestException('โหมดแยก Main/Acc: ใส่ Dispatch Note ในช่อง Main หรือ Acc'))
+    })
+
+    it('refuses a Main DN without Main lists, and an Acc DN without Acc lists', async () => {
+      const { svc } = svcWith(parser(), [])
+      await expect(svc.preview([accAl, sdn('MAIN', [])], [], 'separate', scope)).rejects.toThrow(new BadRequestException('ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main'))
+      await expect(svc.preview([mainAl, sdn('ACC', [])], [], 'separate', scope)).rejects.toThrow(new BadRequestException('ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc'))
+      await expect(svc.preview(combinedFiles([sdn('MAIN', [])]), [], 'combined', scope)).rejects.toThrow(new BadRequestException('ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main'))
+    })
+
+    it('refuses Dispatch Notes without any BOM list', async () => {
+      const { svc } = svcWith(parser(), [])
+      await expect(svc.preview([sdn('MAIN', []), sdn('ACC', [])], [], 'separate', scope)).rejects.toThrow(new BadRequestException('ต้องมีไฟล์ BOM อย่างน้อย 1 ไฟล์ — อัปโหลด Dispatch Note อย่างเดียวไม่ได้'))
+    })
+
+    it('refuses two Dispatch Notes of the same slot (combined: two DISPATCH_NOTE)', async () => {
+      const { svc } = svcWith(parser(), [])
+      await expect(svc.preview([mainAl, sdn('MAIN', []), sdn('MAIN', [])], [], 'separate', scope)).rejects.toThrow(BadRequestException)
+      const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+      await expect(svc.preview(combinedFiles([dn, dn]), [], 'combined', scope)).rejects.toThrow(BadRequestException)
+    })
   })
 
   it('a removed mark still listed in the Dispatch Note shows once (removed row), not again in dn_only_marks', async () => {

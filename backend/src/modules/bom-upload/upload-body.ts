@@ -1,6 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
 import type { RevEdit } from './mark-rev'
 
+/** Multipart fields of preview + upload. bom_files: separate mode's 6 lists + a Main and an Acc Dispatch Note. */
+export const UPLOAD_FILE_FIELDS = [{ name: 'bom_files', maxCount: 8 }, { name: 'nc_files', maxCount: 1500 }]
+
 /** `revs` multipart field: the review table's confirmed revs as JSON text. */
 export function parseRevsField(raw: unknown): RevEdit[] {
   if (raw == null || raw === '') return []

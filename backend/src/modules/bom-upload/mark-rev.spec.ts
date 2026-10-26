@@ -5,6 +5,8 @@ const P = (m: string, over: object = {}) => partLine({ part_mark: m, profile: 'L
 const S = (mark: string, over: Partial<MarkSnapshot> = {}): MarkSnapshot => ({ ...snapshot({ assembly_mark: mark, name: 'BRACE', qty: 18, weight_kg: 104.44, length_mm: 650 }, [P('p1')]), ...over })
 const PREV = (mark: string, rev: number, over: Partial<PrevMark> = {}): PrevMark => ({ ...S(mark), rev, slot: null, ...over })
 const DN = (mark: string, rev: number | null, status: string | null = null): DnRev => ({ mark, rev, status })
+const SDN = (mark: string, rev: number | null, slot: 'MAIN' | 'ACC'): DnRev => ({ mark, rev, status: null, slot })
+const SS = (mark: string, slot: 'MAIN' | 'ACC') => ({ ...S(mark), slot })
 const all = () => true
 
 describe('round / snapshots', () => {
@@ -114,6 +116,34 @@ describe('decideRevs — spec decision 3', () => {
     })
     expect(d.rows.filter(r => r.kind === 'removed').map(r => r.mark)).toEqual(['ACC-OLD'])
     expect(d.dn_only_marks).toEqual(['X9'])
+  })
+})
+
+describe('decideRevs — separate mode, one Dispatch Note per slot (2026-10-26)', () => {
+  it('a mark takes the DN rev of its own slot only', () => {
+    const d = decideRevs({ current: [SS('M1', 'MAIN'), SS('A1', 'ACC')], previous: [], removable: all, dn: [SDN('M1', 2, 'MAIN'), SDN('A1', 5, 'MAIN')] })
+    expect(d.rows.map(r => [r.mark, r.suggested_rev, r.in_dn])).toEqual([['M1', 2, true], ['A1', 0, false]])
+  })
+
+  it('a mark in both DNs uses the row of its own slot', () => {
+    const d = decideRevs({ current: [SS('X', 'ACC')], previous: [], removable: all, dn: [SDN('X', 1, 'MAIN'), SDN('X', 4, 'ACC')] })
+    expect(d.rows[0]).toMatchObject({ suggested_rev: 4, dn_rev: 4 })
+  })
+
+  it('dn_only_marks is per slot: a MAIN DN mark only in the Acc lists is flagged; zone marks are not', () => {
+    const d = decideRevs({
+      current: [SS('M1', 'MAIN'), SS('A1', 'ACC')],
+      previous: [PREV('OLD', 1, { slot: 'MAIN' })],
+      removable: () => false,
+      dn: [SDN('M1', 0, 'MAIN'), SDN('A1', 0, 'MAIN'), SDN('OLD', 1, 'MAIN'), SDN('A1', 0, 'ACC'), SDN('Q', 0, 'ACC'), SDN('Q', 0, 'MAIN')],
+    })
+    expect(d.dn_only_marks).toEqual(['A1', 'Q'])
+    expect(d.has_dn).toBe(true)
+  })
+
+  it('a removed mark reads the DN of its own slot', () => {
+    const d = decideRevs({ current: [], previous: [PREV('G', 2, { slot: 'ACC' })], removable: all, dn: [SDN('G', 3, 'MAIN')] })
+    expect(d.rows[0]).toMatchObject({ kind: 'removed', in_dn: false, dn_rev: null })
   })
 })
 

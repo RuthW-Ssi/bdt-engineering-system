@@ -13,7 +13,9 @@ export interface PartLine { part_mark: string; qty: number | null; description: 
 export interface MarkSnapshot { mark: string; qty: number | null; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null; parts: PartLine[] }
 export interface PrevMark extends MarkSnapshot { rev: number; slot: string | null }
 export interface MarkDiff { fields: Change[]; parts_added: PartLine[]; parts_removed: PartLine[]; parts_changed: { part_mark: string; changes: Change[] }[] }
-export interface DnRev { mark: string; rev: number | null; status: string | null }
+export type Slot = 'MAIN' | 'ACC'
+/** slot = which Dispatch Note the row came from (separate mode); null/absent = the combined DN. */
+export interface DnRev { mark: string; rev: number | null; status: string | null; slot?: Slot | null }
 export interface RevRow {
   mark: string
   kind: 'added' | 'changed' | 'unchanged' | 'removed'
@@ -91,13 +93,18 @@ export function markDiff(prev: MarkSnapshot, curr: MarkSnapshot): MarkDiff {
 export const isUnchanged = (d: MarkDiff) => !d.fields.length && !d.parts_added.length && !d.parts_removed.length && !d.parts_changed.length
 
 /** Spec decision 3 — the suggested rev of every mark of the upload, plus removed marks. */
-export function decideRevs(input: { current: MarkSnapshot[]; previous: PrevMark[]; removable: (p: PrevMark) => boolean; dn: DnRev[] | null }): RevDecision {
+export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | null })[]; previous: PrevMark[]; removable: (p: PrevMark) => boolean; dn: DnRev[] | null }): RevDecision {
   const prevBy = new Map(input.previous.map(p => [p.mark, p]))
-  const dnBy = new Map((input.dn ?? []).map(d => [d.mark, d]))
+  const dnRows = input.dn ?? []
+  // A mark reads the DN of its own slot. The combined DN (no slot) and a mark
+  // with no slot (combined upload) match on the mark alone; first row wins.
+  const dnOf = (mark: string, slot: string | null | undefined) =>
+    dnRows.find(d => d.mark === mark && (d.slot == null || slot == null || d.slot === slot))
   const currMarks = new Set(input.current.map(c => c.mark))
+  const inSlot = (mark: string, slot: Slot | null | undefined) => input.current.some(c => c.mark === mark && (slot == null || c.slot == null || c.slot === slot))
   const rows: RevRow[] = input.current.map((c): RevRow => {
     const p = prevBy.get(c.mark)
-    const d = dnBy.get(c.mark)
+    const d = dnOf(c.mark, c.slot)
     const dnRev = d?.rev ?? null
     const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d }
     if (!p) return { ...base, kind: 'added', prev_rev: null, suggested_rev: dnRev ?? 0, suggested_source: dnRev != null ? 'DISPATCH_NOTE' : 'NEW', warning: null, editable: false, diff: null }
@@ -114,13 +121,15 @@ export function decideRevs(input: { current: MarkSnapshot[]; previous: PrevMark[
   })
   for (const p of input.previous) {
     if (currMarks.has(p.mark) || !input.removable(p)) continue
-    const d = dnBy.get(p.mark)
+    const d = dnOf(p.mark, p.slot)
     rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, editable: false, diff: null })
   }
   // DN-only = marks the zone has never had. A removed mark already has its row;
   // a kept mark (slot not uploaded, e.g. MAIN on an ACC-only upload with a
   // whole-zone DN) isn't missing from the files — neither raises the ⚠.
-  return { rows, dn_only_marks: (input.dn ?? []).map(d => d.mark).filter(m => !currMarks.has(m) && !prevBy.has(m)), has_dn: input.dn != null }
+  // Separate mode: per slot — a Main-DN mark missing from the Main lists counts.
+  const dnOnly = dnRows.filter(d => !inSlot(d.mark, d.slot) && !prevBy.has(d.mark)).map(d => d.mark)
+  return { rows, dn_only_marks: [...new Set(dnOnly)], has_dn: input.dn != null }
 }
 
 /** Review table rows: new, changed, removed, or listed in the Dispatch Note. */

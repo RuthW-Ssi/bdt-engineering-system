@@ -9,9 +9,9 @@ import { XlsxParserService, ParsedBomFile, ParsedAssemblyPart, ParsedPart } from
 import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
 import { uploadNumbersOf } from './upload-number'
-import { parseDispatchNoteRevs, type DnRevRow } from '../manufacturing-orders/mo-part/dispatch-note-parser'
-import { decideRevs, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFromUpload, type PrevMark, type RevDecision, type RevEdit, type RevRow } from './mark-rev'
-import { SEPARATE_DOC_TYPES } from './filename-classifier'
+import { parseDispatchNoteRevs } from '../manufacturing-orders/mo-part/dispatch-note-parser'
+import { decideRevs, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFromUpload, type DnRev, type PrevMark, type RevDecision, type RevEdit, type RevRow } from './mark-rev'
+import { SEPARATE_DOC_TYPES, dnSlotOf, isDispatchNote } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcDetail } from './nc-parser'
 import type { NcDetail } from './nc-parser'
@@ -49,7 +49,7 @@ export interface JunctionMismatch {
 export interface UploadScope { projectId: number; zoneId: number; subZoneId: number | null }
 export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreview { unmatchedAssemblyMarks: string[]; unmatchedPartMarks: string[]; review: RevReview }
-interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; dn: { marks: DnRevRow[]; warnings: string[] } | null }
+interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; dn: { marks: DnRev[]; warnings: string[] } | null }
 
 /** Slots an upload supersedes — null = all (combined). Same rule as the save's deactivation. */
 export function slotsTouchedOf(rows: { slot?: 'MAIN' | 'ACC' | null }[], uploadMode: 'combined' | 'separate'): ('MAIN' | 'ACC')[] | null {
@@ -409,7 +409,7 @@ export class BomUploadService {
   // each file re-extract it independently is unreliable — see xlsx-parser
   // .service.ts's peekContractNo/extractContractNo.
   private parseAllFiles(files: FileInput[]): Map<BomDocType, ParsedBomFile> {
-    files = files.filter(f => f.docType !== 'DISPATCH_NOTE') // read by prepare(), never by the Tekla list parser
+    files = files.filter(f => !isDispatchNote(f.docType)) // read by prepare(), never by the Tekla list parser
     const groupOf = (docType: BomDocType): 'MAIN' | 'ACC' | 'COMBINED' =>
       docType.startsWith('MAIN_') ? 'MAIN' : docType.startsWith('ACC_') ? 'ACC' : 'COMBINED'
     const assemblyListTypeOf = (group: 'MAIN' | 'ACC' | 'COMBINED'): BomDocType =>
@@ -480,8 +480,25 @@ export class BomUploadService {
       if (missing.length > 0) throw new BadRequestException(`Missing NC files for part marks: ${missing.join(', ')}`)
     }
     const dedupedParts = this.buildDedupedParts(rawPartList?.parts ?? [], ncMap)
-    const dnFile = files.find(f => f.docType === 'DISPATCH_NOTE')
-    return { parsed, dedupedParts, dn: dnFile ? parseDispatchNoteRevs(dnFile.buffer) : null }
+    return { parsed, dedupedParts, dn: this.readDispatchNotes(files) }
+  }
+
+  /** Every Dispatch Note of the upload, merged; each row keeps its slot (MAIN / ACC / null = combined). */
+  private readDispatchNotes(files: FileInput[]): Prepared['dn'] {
+    const dnFiles = files.filter(f => isDispatchNote(f.docType))
+    if (!dnFiles.length) return null
+    const marks: DnRev[] = []
+    const warnings: string[] = []
+    for (const f of dnFiles) {
+      const slot = dnSlotOf(f.docType)
+      const r = parseDispatchNoteRevs(f.buffer)
+      marks.push(...r.marks.map(m => ({ ...m, slot })))
+      warnings.push(...(slot ? r.warnings.map(w => `Dispatch Note ${slot === 'MAIN' ? 'Main' : 'Acc'}: ${w}`) : r.warnings))
+    }
+    const inMain = new Set(marks.filter(m => m.slot === 'MAIN').map(m => m.mark))
+    const both = marks.filter(m => m.slot === 'ACC' && inMain.has(m.mark)).map(m => m.mark)
+    if (both.length) warnings.push(`${both.join(', ')}: อยู่ใน Dispatch Note ทั้ง Main และ Acc — ใช้ rev จาก Dispatch Note ของช่องที่ mark นั้นอยู่`)
+    return { marks, warnings }
   }
 
   private junctionMismatchOf(parsed: Map<BomDocType, ParsedBomFile>) {
@@ -518,7 +535,9 @@ export class BomUploadService {
     const assemblies = prep.parsed.get('ASSEMBLY_LIST')?.assemblies ?? []
     const junctions = prep.parsed.get('ASSEMBLY_PART_LIST')
     const base = await this.loadRevBase(scope, slotsTouchedOf(assemblies, uploadMode), assemblies.length > 0)
-    let current = snapshotsFromUpload(assemblies, junctions?.assemblyParts ?? [], prep.dedupedParts)
+    // Separate mode: each mark keeps its slot so it reads its own slot's Dispatch Note.
+    const slotOf = new Map(assemblies.map(a => [a.assembly_mark, a.slot ?? null]))
+    let current = snapshotsFromUpload(assemblies, junctions?.assemblyParts ?? [], prep.dedupedParts).map(c => ({ ...c, slot: slotOf.get(c.mark) ?? null }))
     let previous = base.previous
     // No Assembly Part List, or no Part List to build the part lines from, in this
     // upload → parts can't be compared; compare assemblies only.
@@ -959,14 +978,19 @@ export class BomUploadService {
     if (new Set(docTypes).size !== docTypes.length) {
       throw new BadRequestException('Duplicate doc_type — each type may only appear once per dispatch')
     }
-    // The Dispatch Note (optional 4th file, 2026-10-26) belongs to neither slot.
-    const bomTypes = docTypes.filter(t => t !== 'DISPATCH_NOTE')
+    // The optional Dispatch Note (2026-10-26): one DISPATCH_NOTE in combined
+    // mode, or one MAIN_ / ACC_DISPATCH_NOTE per slot in separate mode. The
+    // duplicate check above already caps each type at one.
+    const bomTypes = docTypes.filter(t => !isDispatchNote(t))
     if (!bomTypes.length) throw new BadRequestException('ต้องมีไฟล์ BOM อย่างน้อย 1 ไฟล์ — อัปโหลด Dispatch Note อย่างเดียวไม่ได้')
     const isSeparate = bomTypes.some(t => SEPARATE_DOC_TYPES.includes(t))
     const isCombined = bomTypes.some(t => !SEPARATE_DOC_TYPES.includes(t))
     if (isSeparate && isCombined) {
       throw new BadRequestException('Cannot mix combined and separate doc types in the same upload')
     }
+    if (isSeparate && docTypes.includes('DISPATCH_NOTE')) throw new BadRequestException('โหมดแยก Main/Acc: ใส่ Dispatch Note ในช่อง Main หรือ Acc')
+    if (docTypes.includes('MAIN_DISPATCH_NOTE') && !bomTypes.some(t => t.startsWith('MAIN_'))) throw new BadRequestException('ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main')
+    if (docTypes.includes('ACC_DISPATCH_NOTE') && !bomTypes.some(t => t.startsWith('ACC_'))) throw new BadRequestException('ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc')
   }
 
   // ─── Paint carry-forward ──────────────────────────────────────

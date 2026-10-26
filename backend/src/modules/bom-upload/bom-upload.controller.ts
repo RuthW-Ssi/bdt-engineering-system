@@ -14,7 +14,7 @@ import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { MarkRenameService } from './mark-rename.service'
 import { MarkRevHistoryService } from './mark-rev-history.service'
-import { parseBaseField, parseRevsField } from './upload-body'
+import { parseBaseField, parseRevsField, UPLOAD_FILE_FIELDS } from './upload-body'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
@@ -50,7 +50,7 @@ export class BomUploadController {
 
   @Post('bom/upload')
   @RequiresPermission('boms', 'create')
-  @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List) + NC files' })
+  @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List; optional Dispatch Note — one in combined mode, a Main and an Acc one in separate mode) + NC files' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -63,14 +63,14 @@ export class BomUploadController {
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
         revs: { type: 'string', description: 'JSON [{mark, rev}] from the review table' },
         base_dispatch_id: { type: 'string' },
-        bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        bom_files: { type: 'array', maxItems: 8, items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
-        doc_types: { type: 'array', items: { type: 'string' } },
+        doc_types: { type: 'array', items: { type: 'string' }, description: 'One per bom_files entry: ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST | DISPATCH_NOTE (combined), or MAIN_*/ACC_* incl. MAIN_DISPATCH_NOTE / ACC_DISPATCH_NOTE (separate). Max 8 files.' },
       },
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 7 }, { name: 'nc_files', maxCount: 1500 }],
+    UPLOAD_FILE_FIELDS,
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async upload(
@@ -111,7 +111,7 @@ export class BomUploadController {
 
   @Post('bom/upload/preview')
   @RequiresPermission('boms', 'create')
-  @ApiOperation({ summary: 'Dry-run: junction check + per-mark Rev review (optional Dispatch Note) — no DB writes' })
+  @ApiOperation({ summary: 'Dry-run: junction check + per-mark Rev review (optional Dispatch Note; separate mode: one per Main/Acc slot) — no DB writes' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -122,14 +122,14 @@ export class BomUploadController {
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
-        bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        bom_files: { type: 'array', maxItems: 8, items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
-        doc_types: { type: 'array', items: { type: 'string' } },
+        doc_types: { type: 'array', items: { type: 'string' }, description: 'One per bom_files entry: ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST | DISPATCH_NOTE (combined), or MAIN_*/ACC_* incl. MAIN_DISPATCH_NOTE / ACC_DISPATCH_NOTE (separate). Max 8 files.' },
       },
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 7 }, { name: 'nc_files', maxCount: 1500 }],
+    UPLOAD_FILE_FIELDS,
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async previewUpload(

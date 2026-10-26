@@ -495,4 +495,11 @@ describe('XlsxParserService — DISPATCH_NOTE guard', () => {
     const buf = makeBuffer(['No.', 'MarkNo.', 'Set', 'Rev'], [[1, 'B1', 1, 0]])
     expect(() => svc.parse(buf, 'DISPATCH_NOTE')).toThrow(new BadRequestException('Dispatch Note is not a Tekla BOM list — it is read separately'))
   })
+
+  it('refuses the Main / Acc Dispatch Notes too', () => {
+    const buf = makeBuffer(['No.', 'MarkNo.', 'Set', 'Rev'], [[1, 'B1', 1, 0]])
+    for (const t of ['MAIN_DISPATCH_NOTE', 'ACC_DISPATCH_NOTE'] as const) {
+      expect(() => svc.parse(buf, t)).toThrow(new BadRequestException('Dispatch Note is not a Tekla BOM list — it is read separately'))
+    }
+  })
 })
