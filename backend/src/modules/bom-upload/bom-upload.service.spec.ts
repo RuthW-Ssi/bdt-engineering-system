@@ -1730,6 +1730,15 @@ describe('BomUploadService.preview() — rev review', () => {
     expect(r.unmatchedAssemblyMarks).toEqual([])
   })
 
+  // final review fix 6: junctions without a Part List can't build part lines → don't compare parts
+  it('Assembly List + Assembly Part List with no Part List: parts are left out of the compare (no false "changed")', async () => {
+    const parsed = combinedParsed([fileAsm('B1')]) as any
+    delete parsed.PART_LIST
+    const { svc } = svcWith(parserBy(parsed), [active('B1', 2)])
+    const r = await svc.preview([makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' })], [], 'combined', scope)
+    expect(r.review.rows).toEqual([])
+  })
+
   it('reads the zone\'s ACTIVE real-upload rows as the previous state', async () => {
     const { svc, prisma } = svcWith(parserBy(combinedParsed([fileAsm('B1')])), [active('B1', 2)])
     await svc.preview(combinedFiles(), [], 'combined', scope)

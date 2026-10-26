@@ -520,8 +520,9 @@ export class BomUploadService {
     const base = await this.loadRevBase(scope, slotsTouchedOf(assemblies, uploadMode), assemblies.length > 0)
     let current = snapshotsFromUpload(assemblies, junctions?.assemblyParts ?? [], prep.dedupedParts)
     let previous = base.previous
-    // No Assembly Part List in this upload → parts can't be compared; compare assemblies only.
-    if (!junctions) {
+    // No Assembly Part List, or no Part List to build the part lines from, in this
+    // upload → parts can't be compared; compare assemblies only.
+    if (!junctions || !prep.parsed.get('PART_LIST')) {
       current = current.map(c => ({ ...c, parts: [] }))
       previous = previous.map(p => ({ ...p, parts: [] }))
     }
