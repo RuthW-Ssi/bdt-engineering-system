@@ -32,7 +32,6 @@ export interface AssemblyPartDto {
   part_qty: number
   unit_weight_kg: number | null
   match_status: string | null
-  version_label: string | null
 }
 
 interface AssemblyProductDto {
@@ -55,7 +54,6 @@ export interface AssemblyDto {
   parts: AssemblyPartDto[]
   match_status: string | null
   product: AssemblyProductDto | null
-  version_label: string | null
   rev: number
   rev_source: RevSource | null
 }
@@ -185,6 +183,12 @@ export interface RevReviewRowDto {
 export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreviewDto extends PreviewJunctionsResult { review: RevReviewDto }
 export interface RevEdit { mark: string; rev: number }
+export interface MarkRevEntryDto {
+  rev: number; mark: string; renamed_from: string | null; rev_source: RevSource | null; dn_status: string | null
+  upload_no: number | null; dispatch_id: number; uploaded_at: string; uploaded_by: string
+  first: boolean; values: MarkSnapshotDto | null; diff: MarkDiffDto | null
+}
+export interface MarkRevHistoryDto { assembly_id: number; mark: string; current_rev: number; entries: MarkRevEntryDto[] }
 
 // ── BOM Diff 3D model comparison ────────────────────────────────
 interface DiffBimModelMatch {
@@ -285,6 +289,10 @@ export const dispatchesApi = {
 
   get(id: number): Promise<DispatchDetailDto> {
     return apiClient.get(`/dispatches/${id}`).then(r => r.data)
+  },
+
+  getMarkRevHistory(assemblyId: number): Promise<MarkRevHistoryDto> {
+    return apiClient.get(`/bom/assemblies/${assemblyId}/rev-history`).then(r => r.data)
   },
 
   getDiff(id: number): Promise<DispatchDiffDto | null> {

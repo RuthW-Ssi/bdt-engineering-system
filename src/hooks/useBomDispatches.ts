@@ -51,6 +51,14 @@ export function useZoneUploadMode(projectId: number | null, zoneId: number | nul
   })
 }
 
+export function useMarkRevHistory(assemblyId: number | undefined) {
+  return useQuery({
+    queryKey: ['mark-rev-history', assemblyId],
+    queryFn: () => dispatchesApi.getMarkRevHistory(assemblyId!),
+    enabled: !!assemblyId,
+  })
+}
+
 // ── BOM mark/part rename pairing ────────────────────────────────
 export function useRenameCandidates(id: number | undefined) {
   return useQuery({
@@ -78,8 +86,9 @@ function useRenameInvalidate(id: number) {
     }
     // a pair / undo also changes what other pages show (final review): MO BOM
     // compare + drawing notice ('mo'), WO version status / Visual ('wo'),
-    // carried paint ('paint-config', 'mbom') and progress ('project-progress')
-    for (const k of ['mo', 'wo', 'paint-config', 'mbom', 'project-progress']) {
+    // carried paint ('paint-config', 'mbom'), progress ('project-progress') and
+    // a mark's Rev history ('mark-rev-history' — a pair / undo can move a rev)
+    for (const k of ['mo', 'wo', 'paint-config', 'mbom', 'project-progress', 'mark-rev-history']) {
       qc.invalidateQueries({ queryKey: [k] })
     }
   }

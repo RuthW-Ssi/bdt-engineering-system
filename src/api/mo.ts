@@ -279,7 +279,7 @@ export interface AssemblyPickerItem {
   project_due_date: string | null
   zone_end_date: string | null
   sub_zone_due_date: string | null
-  bom_version: string
+  bom_version: string | null
   total: number
   allocated: number
   remaining: number

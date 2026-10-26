@@ -178,7 +178,7 @@ export function AssemblyPicker({
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{seg.value}</span>
                   {g.bom_version != null && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: '#0C447C', background: '#E3EEF8', borderRadius: 999, padding: '1px 8px' }}>
-                      BOM v{g.bom_version}
+                      BOM อัปโหลดครั้งที่ {g.bom_version}
                     </span>
                   )}
                   {selectedInGroup > 0 && (

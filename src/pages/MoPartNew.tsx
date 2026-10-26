@@ -324,7 +324,7 @@ export function MoPartNew() {
                 <div className="mb-1.5 font-semibold text-chrome-900">Part List (BOM) ในระบบ</div>
                 <select className={`${ui.select} mb-1 text-xs`} value={dispatchId ?? ''} onChange={e => setDispatchId(e.target.value ? Number(e.target.value) : null)}>
                   <option value="">— เลือก BOM —</option>
-                  {dispatches?.items.map(d => <option key={d.id} value={d.id}>{d.zone.label}{d.sub_zone ? ` / ${d.sub_zone.name}` : ''} · rev {d.revision}</option>)}
+                  {dispatches?.items.map(d => <option key={d.id} value={d.id}>{d.zone.label}{d.sub_zone ? ` / ${d.sub_zone.name}` : ''} · อัปโหลดครั้งที่ {d.upload_no ?? '—'}</option>)}
                 </select>
                 <div className="flex gap-1">
                   <select className={`${ui.select} text-xs`} value={slot} onChange={e => setSlot(e.target.value as '' | 'MAIN' | 'ACC')}>

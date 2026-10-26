@@ -518,7 +518,7 @@ export function ProjectProgress() {
           {activeBimMatch?.bom_version != null && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#F5F5F5', borderRadius: 999, padding: '5px 12px', fontSize: 12, color: '#8E8E8E' }}>
               <Layers size={12} />
-              BOM <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, color: '#1A1A1A' }}>v{activeBimMatch.bom_version}</b>
+              BOM <b style={{ fontFamily: 'IBM Plex Mono, ui-monospace, monospace', fontSize: 12.5, color: '#1A1A1A' }}>อัปโหลดครั้งที่ {activeBimMatch.bom_version}</b>
             </span>
           )}
           {/* Redundant with the Overview tab's own "Overall Progress" stat
