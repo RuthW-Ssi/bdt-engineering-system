@@ -102,7 +102,18 @@ describe('decideRevs — spec decision 3', () => {
   it('a removed mark still listed in the DN appears once — as the removed row, not again in dn_only_marks', () => {
     const d = decideRevs({ current: [S('A')], previous: [PREV('A', 1), PREV('GONE', 4), PREV('MAIN1', 0, { slot: 'MAIN' })], removable: p => p.slot !== 'MAIN', dn: [DN('GONE', 4), DN('MAIN1', 0)] })
     expect(d.rows.filter(r => r.kind === 'removed').map(r => [r.mark, r.in_dn])).toEqual([['GONE', true]])
-    expect(d.dn_only_marks).toEqual(['MAIN1']) // kept (not removable) → no row, so still reported
+    expect(d.dn_only_marks).toEqual([]) // MAIN1 is kept (slot not uploaded) — not "missing from the files"
+  })
+
+  it('ACC-only separate upload + whole-zone DN: the kept MAIN marks raise no ⚠ (only truly unknown marks do)', () => {
+    const d = decideRevs({
+      current: [S('ACC1')],
+      previous: [PREV('ACC1', 1, { slot: 'ACC' }), PREV('ACC-OLD', 1, { slot: 'ACC' }), PREV('MAIN1', 2, { slot: 'MAIN' }), PREV('MAIN2', 0, { slot: 'MAIN' })],
+      removable: p => p.slot === 'ACC',
+      dn: [DN('ACC1', 1), DN('MAIN1', 2), DN('MAIN2', 0), DN('X9', 1)],
+    })
+    expect(d.rows.filter(r => r.kind === 'removed').map(r => r.mark)).toEqual(['ACC-OLD'])
+    expect(d.dn_only_marks).toEqual(['X9'])
   })
 })
 

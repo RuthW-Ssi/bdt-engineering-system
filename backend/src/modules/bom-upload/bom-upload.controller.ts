@@ -13,6 +13,7 @@ import { BomDiffService } from './bom-diff.service'
 import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { MarkRenameService } from './mark-rename.service'
+import { parseBaseField, parseRevsField } from './upload-body'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
@@ -58,7 +59,8 @@ export class BomUploadController {
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
-        revision_choice: { type: 'string', enum: ['continue', 'new'] },
+        revs: { type: 'string', description: 'JSON [{mark, rev}] from the review table' },
+        base_dispatch_id: { type: 'string' },
         bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
         doc_types: { type: 'array', items: { type: 'string' } },
@@ -100,9 +102,9 @@ export class BomUploadController {
     }))
 
     const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
-    const revisionChoice = (body['revision_choice'] === 'continue' ? 'continue' : 'new') as 'continue' | 'new'
-
-    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode, revisionChoice)
+    const revs = parseRevsField(body['revs'])
+    const baseDispatchId = parseBaseField(body['base_dispatch_id'])
+    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode, { revs, baseDispatchId })
   }
 
   @Post('bom/upload/preview')
