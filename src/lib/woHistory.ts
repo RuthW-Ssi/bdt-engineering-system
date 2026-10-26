@@ -15,12 +15,16 @@ const STATUS_TITLE: Record<string, string> = {
   HOLD: 'พักไว้ (Hold)', UNHOLD: 'ปลด Hold', ACCEPT_VERSION: 'รับ BOM version ใหม่',
 }
 
+/** An event's field changes as card values (label, old → new), blank→0 noise dropped. */
+const changeValues = (e: WoEvent) =>
+  (e.changes ?? []).filter(c => !isProgressNoise(c)).map(c => ({ field: PROGRESS_FIELD_LABEL[c.field] ?? c.field, from: showChangeValue(c.field, c.old), to: showChangeValue(c.field, c.new) }))
+
 export function woHistoryView(e: WoEvent, marks: { id: number; mark: string }[]): WoHistoryView {
   const markOf = e.work_order_mark_id != null ? marks.find(m => m.id === e.work_order_mark_id)?.mark : undefined
   const notes = e.notes?.trim() ?? ''
 
   if (e.event_type === 'PROGRESS_UPDATE') {
-    const values = (e.changes ?? []).filter(c => !isProgressNoise(c)).map(c => ({ field: PROGRESS_FIELD_LABEL[c.field] ?? c.field, from: showChangeValue(c.field, c.old), to: showChangeValue(c.field, c.new) }))
+    const values = changeValues(e)
     return { kind: 'progress', title: 'อัปเดตความคืบหน้า', groups: values.length ? [{ mark: markOf ?? 'mark', isNew: false, values, parts: [] }] : [], lines: notes ? [notes] : [], warnings: [] }
   }
   if (e.event_type === 'CREATED') return { kind: 'create', title: notes || 'สร้าง WO', groups: [], lines: [], warnings: [] }
@@ -37,7 +41,7 @@ export function woHistoryView(e: WoEvent, marks: { id: number; mark: string }[])
   const title = STATUS_TITLE[e.event_type] ?? e.event_type
   // an accept carries field-level changes (BOM Rev, Quantity, Mark — 2026-10-26): show them like a progress card
   const values = e.event_type === 'ACCEPT_VERSION'
-    ? (e.changes ?? []).filter(c => !isProgressNoise(c)).map(c => ({ field: PROGRESS_FIELD_LABEL[c.field] ?? c.field, from: showChangeValue(c.field, c.old), to: showChangeValue(c.field, c.new) }))
+    ? changeValues(e)
     : []
   const groups = values.length ? [{ mark: markOf ?? 'mark', isNew: false, values, parts: [] }] : []
   return { kind: 'status', title: markOf ? `${title} · ${markOf}` : title, groups, lines: notes ? [notes] : [], warnings: [] }
