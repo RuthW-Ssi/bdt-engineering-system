@@ -40,16 +40,28 @@ describe('MarkRevHistoryService.history', () => {
     const alias: any = { renamesFor: jest.fn().mockResolvedValue(renames) }
     return { svc: new MarkRevHistoryService(prisma, alias), prisma, alias }
   }
-  const row = (mark: string, dispatch_id: number, rev: number) => ({
+  const row = (mark: string, dispatch_id: number, rev: number, over: object = {}) => ({
     assembly_mark: mark, dispatch_id, rev, rev_source: 'NEW', dn_status: null, name: null, qty: '2.000', length_mm: '650.00', width_mm: null, height_mm: null, weight_kg: null, surface_area_m2: null,
-    assembly_parts: [], dispatch: { uploaded_at: at('11'), create_user: { name: 'tao' } },
+    assembly_parts: [], dispatch: { uploaded_at: at('11'), create_user: { name: 'tao' } }, ...over,
   })
 
   it('walks the mark through its rename aliases within the zone, real uploads only, up to this row', async () => {
-    const { svc, prisma } = make([row('B1', 1, 0), row('3B1', 4, 0)], [{ id: 7, kind: 'ASSEMBLY', from_mark: 'B1', to_mark: '3B1', dispatch_id: 4 }])
+    // the own row (3B1, dispatch 4) is at rev 1 — consistent with findUnique; renamed AND its length changed
+    const { svc, prisma } = make(
+      [row('B1', 1, 0), row('3B1', 4, 1, { rev_source: 'MANUAL', length_mm: '700.00' })],
+      [{ id: 7, kind: 'ASSEMBLY', from_mark: 'B1', to_mark: '3B1', dispatch_id: 4 }],
+    )
     const h = await svc.history(30)
     expect(h).toMatchObject({ assembly_id: 30, mark: '3B1', current_rev: 1 })
-    expect(h.entries.map(e => [e.mark, e.upload_no, e.uploaded_by])).toEqual([['3B1', 2, 'tao'], ['B1', 1, 'tao']])
+    expect(h.entries[0].rev).toBe(h.current_rev)
+    expect(h.entries.map(e => [e.mark, e.rev, e.upload_no, e.uploaded_by, e.first, e.renamed_from, e.rev_source])).toEqual([
+      ['3B1', 1, 2, 'tao', false, 'B1', 'MANUAL'],
+      ['B1', 0, 1, 'tao', true, null, 'NEW'],
+    ])
+    expect(h.entries[0].diff).toEqual({ fields: [{ field: 'length_mm', old: 650, new: 700 }], parts_added: [], parts_removed: [], parts_changed: [] })
+    expect(h.entries[0].values).toBeNull()
+    expect(h.entries[1].values).toMatchObject({ mark: 'B1', qty: 2, length_mm: 650 })
+    expect(h.entries[1].diff).toBeNull()
     const where = prisma.bom_assembly.findMany.mock.calls[0][0].where
     expect(where.AND).toContainEqual({ dispatch: { project_id: 1, zone_id: 2, sub_zone_id: null, source: 'BOM_UPLOAD' } })
     expect(where.AND).toContainEqual({ dispatch_id: { lte: 4 } })

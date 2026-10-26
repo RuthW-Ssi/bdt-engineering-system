@@ -397,10 +397,33 @@ describe('MarkRenameService — BOM Rev follows a rename pair (2026-10-26)', () 
     expect(events[1].changes).toContainEqual({ field: 'BOM Rev', old: 2, new: 0 })
   })
 
-  it('a new name whose rev came from the Dispatch Note keeps it', async () => {
+  it('a lower Dispatch Note rev on the new name is raised too (no rev goes down); undo restores DISPATCH_NOTE', async () => {
     const asm = [A(1, 5, 'BUH1B-18', 'INACTIVE', null, { rev: 2, rev_source: 'MANUAL' }), A(11, 9, '3BUH1B-18', 'ACTIVE', null, { rev: 1, rev_source: 'DISPATCH_NOTE' })]
-    const { svc, prisma } = make({ groups: COMBINED, asm })
+    const { svc, events, renames } = make({ groups: COMBINED, asm })
+    await svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 1, 'tao')
+    expect(asm[1]).toMatchObject({ rev: 2, rev_source: 'CARRIED' })
+    expect(events[0].changes).toContainEqual({ field: 'BOM Rev', old: 1, new: 2 })
+    await svc.undo(9, renames[0].id, 1, 'tao')
+    expect(asm[1]).toMatchObject({ rev: 1, rev_source: 'DISPATCH_NOTE' })
+  })
+
+  it('a new name with an equal or higher rev is left alone', async () => {
+    const asm = [A(1, 5, 'BUH1B-18', 'INACTIVE', null, { rev: 1, rev_source: 'NEW' }), A(11, 9, '3BUH1B-18', 'ACTIVE', null, { rev: 3, rev_source: 'MANUAL' })]
+    const { svc, prisma, renames } = make({ groups: COMBINED, asm })
     await svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18' }], 1, 'tao')
     expect(prisma.bom_assembly.update).not.toHaveBeenCalled()
+    expect(renames[0].carried).toEqual({ keep: 'new' })
+  })
+
+  it("keep 'new' still stores carried.rev, and undo restores it", async () => {
+    const asm = [A(1, 5, 'BUH1B-18', 'INACTIVE', null, { rev: 2, rev_source: 'MANUAL' }), A(11, 9, '3BUH1B-18', 'ACTIVE', null, { rev: 0, rev_source: 'NEW' })]
+    const { svc, events, renames } = make({ groups: COMBINED, asm })
+    await svc.pair(9, [{ kind: 'ASSEMBLY', from_mark: 'BUH1B-18', to_mark: '3BUH1B-18', keep: 'new' }], 1, 'tao')
+    expect(renames[0].carried).toEqual({ keep: 'new', rev: { before: 0, before_source: 'NEW', after: 2 } })
+    expect(asm[1]).toMatchObject({ rev: 2, rev_source: 'CARRIED' })
+    await svc.undo(9, renames[0].id, 1, 'tao')
+    expect(asm[1]).toMatchObject({ rev: 0, rev_source: 'NEW' })
+    expect(events[1]).toMatchObject({ action: 'UNDO', keep: 'new' })
+    expect(events[1].changes).toContainEqual({ field: 'BOM Rev', old: 2, new: 0 })
   })
 })

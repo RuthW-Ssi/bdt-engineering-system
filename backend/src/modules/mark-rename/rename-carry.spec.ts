@@ -42,13 +42,14 @@ describe('rename-carry', () => {
 })
 
 describe('revCarryOf — a rename pair never makes the Rev go down', () => {
-  it('new name not from the DN (NEW) with a lower rev → takes the old rev', () => {
+  it('new name with a lower rev → takes the old rev, whatever its source (NEW / DISPATCH_NOTE / MANUAL)', () => {
     expect(revCarryOf({ rev: 2, rev_source: 'MANUAL' }, { rev: 0, rev_source: 'NEW' })).toEqual({ before: 0, before_source: 'NEW', after: 2 })
+    expect(revCarryOf({ rev: 2, rev_source: 'CARRIED' }, { rev: 1, rev_source: 'DISPATCH_NOTE' })).toEqual({ before: 1, before_source: 'DISPATCH_NOTE', after: 2 })
+    expect(revCarryOf({ rev: 2, rev_source: 'CARRIED' }, { rev: 1, rev_source: 'MANUAL' })).toEqual({ before: 1, before_source: 'MANUAL', after: 2 })
   })
-  it('a rev from the Dispatch Note, a typed rev, or an equal/higher rev is kept', () => {
-    expect(revCarryOf({ rev: 2, rev_source: 'CARRIED' }, { rev: 1, rev_source: 'DISPATCH_NOTE' })).toBeNull()
-    expect(revCarryOf({ rev: 2, rev_source: 'CARRIED' }, { rev: 1, rev_source: 'MANUAL' })).toBeNull()
+  it('an equal or higher new rev is kept; nothing to carry from a missing side', () => {
     expect(revCarryOf({ rev: 0, rev_source: null }, { rev: 0, rev_source: 'NEW' })).toBeNull()
+    expect(revCarryOf({ rev: 1, rev_source: 'NEW' }, { rev: 3, rev_source: 'DISPATCH_NOTE' })).toBeNull()
     expect(revCarryOf(undefined, { rev: 0, rev_source: 'NEW' })).toBeNull()
   })
 })

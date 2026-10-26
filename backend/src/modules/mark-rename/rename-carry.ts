@@ -63,10 +63,11 @@ export function paintSetEqual(a: PaintSnap[], b: PaintSnap[]): boolean {
   return true
 }
 
-/** A rename pair never makes the BOM Rev go down (2026-10-26): a new name that
- *  got rev 0 only because it was "new" (not from the Dispatch Note, not typed)
- *  takes the old name's rev. Undo puts `before` back. */
+/** A rename pair never makes the BOM Rev go down (2026-10-26, fix round 1 —
+ *  "No rev may go below the mark's current rev"): the new name takes
+ *  max(old rev, new rev), whatever the new rev's source (NEW, Dispatch Note or
+ *  typed). Undo puts `before` / `before_source` back exactly. */
 export function revCarryOf(from?: { rev: number; rev_source: string | null }, to?: { rev: number; rev_source: string | null }) {
-  if (!from || !to || to.rev_source !== 'NEW' || from.rev <= to.rev) return null
+  if (!from || !to || !(from.rev > to.rev)) return null
   return { before: to.rev, before_source: to.rev_source, after: from.rev }
 }
