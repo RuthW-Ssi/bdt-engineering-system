@@ -12,7 +12,7 @@ import { useRenameStep } from '../hooks/useRenameStep'
 import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { RenamePairDialog } from '../components/bom/RenamePairDialog'
 import { RevReviewDialog } from '../components/bom/RevReviewDialog'
-import { DispatchNoteSlot } from '../components/bom/DispatchNoteSlot'
+import { InfoTip } from '../components/bom/InfoTip'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
@@ -32,13 +32,20 @@ const MAIN_TYPE_MAP: Partial<Record<DocType, DocType>> = {
   ASSEMBLY_LIST: 'MAIN_ASSEMBLY_LIST',
   ASSEMBLY_PART_LIST: 'MAIN_ASSEMBLY_PART_LIST',
   PART_LIST: 'MAIN_PART_LIST',
+  DISPATCH_NOTE: 'MAIN_DISPATCH_NOTE',
 }
 
 const ACC_TYPE_MAP: Partial<Record<DocType, DocType>> = {
   ASSEMBLY_LIST: 'ACC_ASSEMBLY_LIST',
   ASSEMBLY_PART_LIST: 'ACC_ASSEMBLY_PART_LIST',
   PART_LIST: 'ACC_PART_LIST',
+  DISPATCH_NOTE: 'ACC_DISPATCH_NOTE',
 }
+
+// A Dispatch Note is optional and goes in through the same picker as the
+// Tekla lists (2026-10-26) — one per dropzone, at most. A duplicate is
+// rejected with a toast instead of the usual inline "already exists" row.
+const DISPATCH_NOTE_TYPES: DocType[] = ['DISPATCH_NOTE', 'MAIN_DISPATCH_NOTE', 'ACC_DISPATCH_NOTE']
 
 function makeFileHandlers(
   files: FileEntry[],
@@ -48,19 +55,26 @@ function makeFileHandlers(
 ) {
   const onFilesAdded = (accepted: File[], rejected: FileRejection[]) => {
     const newEntries: FileEntry[] = []
+    const typesSoFar = files.filter(e => !e.error).map(e => e.detectedType)
     accepted.forEach(file => {
-      if (requiredKeyword && !file.name.toUpperCase().includes(requiredKeyword.toUpperCase())) {
+      const raw = classifyFilename(file.name)
+      // Which dropzone (MAIN / ACC) it landed in already says which zone a
+      // Dispatch Note belongs to — don't also require the MAIN/ACC keyword.
+      if (raw !== 'DISPATCH_NOTE' && requiredKeyword && !file.name.toUpperCase().includes(requiredKeyword.toUpperCase())) {
         newEntries.push({ file, detectedType: null, error: `Filename must contain "${requiredKeyword}"` })
         return
       }
-      const raw = classifyFilename(file.name)
       const detectedType = raw && typeMap ? (typeMap[raw] ?? raw) : raw
-      const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
-      if (detectedType && existingTypes.includes(detectedType)) {
+      if (detectedType && typesSoFar.includes(detectedType)) {
+        if (DISPATCH_NOTE_TYPES.includes(detectedType)) {
+          toast.error('ใส่ Dispatch Note ได้ไฟล์เดียว')
+          return
+        }
         newEntries.push({ file, detectedType, error: `A file of type "${detectedType}" already exists` })
-      } else {
-        newEntries.push({ file, detectedType })
+        return
       }
+      if (detectedType) typesSoFar.push(detectedType)
+      newEntries.push({ file, detectedType })
     })
     const rejectedEntries: FileEntry[] = rejected.map(r => ({ file: r.file, detectedType: null, error: r.reason }))
     setFiles(prev => [...prev, ...newEntries, ...rejectedEntries])
@@ -93,7 +107,6 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
-  const [dnFile, setDnFile] = useState<File | null>(null)
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -122,7 +135,6 @@ export function BomUpload() {
     setMainFiles([])
     setAccFiles([])
     setNcFiles([])
-    setDnFile(null)
   }
 
   // Clear zone-scoped state only when the project actually *changes* — see
@@ -180,10 +192,6 @@ export function BomUpload() {
       formData.append('bom_files', e.file)
       formData.append('doc_types', e.detectedType!)
     })
-    if (dnFile) {
-      formData.append('bom_files', dnFile)
-      formData.append('doc_types', 'DISPATCH_NOTE')
-    }
     ncFiles.forEach(f => formData.append('nc_files', f))
 
     try {
@@ -321,7 +329,6 @@ export function BomUpload() {
                       setFiles([])
                       setMainFiles([])
                       setAccFiles([])
-                      setDnFile(null)
                     }}
                     style={{ accentColor: '#C8202A' }}
                   />
@@ -371,8 +378,6 @@ export function BomUpload() {
             />
           </>
         )}
-
-        <DispatchNoteSlot file={dnFile} onChange={setDnFile} />
 
         {/* NC Files */}
         <div>
@@ -477,17 +482,20 @@ interface BomFileSectionProps {
 
 function BomFileSection({ label, hint, maxFiles, files, allowedTypes, onFilesAdded, onRemove, onTypeChange }: BomFileSectionProps) {
   const validCount = files.filter(e => !e.error).length
+  // +1 slot: a Dispatch Note can be picked here too, on top of the required files — optional.
+  const capacity = maxFiles + 1
   return (
     <div>
       <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
         {label} <span style={{ color: '#C8202A' }}>*</span>
-        <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>{hint}</span>
+        <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>{hint}</span>{' '}
+        <InfoTip label="Dispatch Note ใช้ทำอะไร" text="ใส่ไฟล์ Dispatch Note ปนมากับไฟล์พวกนี้ได้เลย ไม่บังคับ ใช้ดู Rev ของแต่ละ mark ถ้าไม่มีไฟล์นี้ ระบบจะเทียบกับ BOM ครั้งก่อนให้" />
       </label>
       <FileDropzone
-        maxFiles={maxFiles}
+        maxFiles={capacity}
         currentCount={validCount}
         onFilesAdded={onFilesAdded}
-        disabled={validCount >= maxFiles}
+        disabled={validCount >= capacity}
       />
       {files.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
