@@ -1467,7 +1467,9 @@ export class WorkOrdersService {
       }
     }
 
-    const cmp = await this.compareAssemblyToLatest(mark.bom_assembly, snap)
+    // `legacy` is internal (an isSignificantDelta input) — not part of the API
+    // response (bomVersionStatus / findOne marks[].bom_version_status).
+    const { legacy: _legacy, ...cmp } = await this.compareAssemblyToLatest(mark.bom_assembly, snap)
     return { ...cmp, ...base }
   }
 

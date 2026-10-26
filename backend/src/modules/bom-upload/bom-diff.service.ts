@@ -195,11 +195,12 @@ export class BomDiffService {
     const current = await this.prisma.bom_dispatch.findUnique({ where: { id } })
     if (!current) throw new NotFoundException(`Dispatch ${id} not found`)
 
-    // Dispatches sharing this exact revision number are a deliberate group
-    // (the user's own continue/new choice at upload time is the sync
-    // signal) — bound both cutoffs by the group's full id range, not just
-    // this one dispatch's id, so a same-revision sibling with a lower id
-    // is never mistaken for "previous."
+    // Dispatches sharing this exact revision number are a group — legacy only:
+    // uploads from before 2026-10-26 (the old continue/new choice) could share
+    // a revision; every upload since gets its own (latest + 1). Bound both
+    // cutoffs by the group's full id range, not just this one dispatch's id,
+    // so a same-revision sibling with a lower id is never mistaken for
+    // "previous."
     const sameRevision = await this.prisma.bom_dispatch.findMany({
       where: {
         project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,

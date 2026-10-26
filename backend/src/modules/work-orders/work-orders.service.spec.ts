@@ -85,6 +85,8 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
       where: { id: 1 },
       include: { marks: { where: { removed_at: null }, include: { bom_assembly: true } } },
     })
+    // final review fix 7: the internal legacy flag is not part of the API response
+    expect(result[0]).not.toHaveProperty('legacy')
     expect(result).toEqual([
       expect.objectContaining({
         work_order_mark_id: 1,
