@@ -8,12 +8,14 @@ export type BomDocType =
   | 'ACC_ASSEMBLY_LIST'
   | 'ACC_ASSEMBLY_PART_LIST'
   | 'ACC_PART_LIST'
+  | 'DISPATCH_NOTE'
 
 export function classifyFilename(filename: string): BomDocType | null {
   const lower = filename.toLowerCase()
   const isMain = lower.startsWith('main')
   const isAcc = lower.startsWith('acc')
 
+  if (/dispatch[\s_-]?note/.test(lower)) return 'DISPATCH_NOTE'
   if (/assembly[\s_-]?part[\s_-]?list/.test(lower)) {
     if (isMain) return 'MAIN_ASSEMBLY_PART_LIST'
     if (isAcc) return 'ACC_ASSEMBLY_PART_LIST'

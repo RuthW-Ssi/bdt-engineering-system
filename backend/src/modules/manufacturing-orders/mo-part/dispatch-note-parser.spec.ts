@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { BadRequestException } from '@nestjs/common'
-import { parseDispatchNote } from './dispatch-note-parser'
+import { parseDispatchNote, parseDispatchNoteRevs } from './dispatch-note-parser'
 
 function book(sheets: Record<string, unknown[][]>): Buffer {
   const wb = XLSX.utils.book_new()
@@ -44,5 +44,60 @@ describe('parseDispatchNote', () => {
   it('rejects a file with no Mark No. column', () => {
     expect(() => parseDispatchNote(book({ S: [['Profile', 'Grade', 'Qty'], ['PL25x400', 'SM520', 4]] })))
       .toThrow(new BadRequestException('Dispatch Note: cannot find Mark No. column'))
+  })
+})
+
+describe('parseDispatchNoteRevs', () => {
+  // Bangna layout (2026-10-26, real file "ZONE 1 Dispatch Note Rev.2.xls"):
+  // Rev header at col 5, sub-columns 0..5 in cols 5–10, STATUS at col 17.
+  const BANGNA_HEAD = ['No.', 'MarkNo.', 'Name', 'DrawingNumber', 'Set', 'Rev', '', '', '', '', '', 'WeightKg.', 'Paint', 'LENGTH', 'WIDTH', 'HIGTH', 'TYPEPAINT', 'STATUS']
+  const IDX = ['', '', '', '', '', 0, 1, 2, 3, 4, 5, '', 'Area', '', '', '', '', '']
+  const row = (no: number, mark: string, revs: unknown[], status = '') =>
+    [no, mark, 'BRACE', mark, 1, ...revs, ...Array(6 - revs.length).fill(''), 21.2, 0.85, 2008, 114, 150, '', status]
+  const BANGNA = book({ Dispatch: [
+    ['DRIVING RANGE BANGNA ZONE 1 (NP) Dispatch Note Rev.2'], [],
+    BANGNA_HEAD, IDX,
+    row(1, 'DBN-B1-BR1', [0, 1, 2]),
+    row(2, 'DBN-B1-BR3', [0, 1, 2, 3]),
+    row(3, 'DBN-B1-CTR1', [0, 1]),
+    row(4, 'DBN-B5-CTR10', [0, 1], 'changed'),
+    row(5, 'DBN-X', ['', 'A', '']),
+    [],
+    ['', '', '', '', '', '', '', '', '', '', '', 244517],
+  ] })
+
+  it('takes the HIGHEST number across every Rev sub-column (not the first one, which is always 0)', () => {
+    const r = parseDispatchNoteRevs(BANGNA)
+    const rev = Object.fromEntries(r.marks.map(m => [m.mark, m.rev]))
+    expect(rev['DBN-B1-BR1']).toBe(2)
+    expect(rev['DBN-B1-BR3']).toBe(3)
+    expect(rev['DBN-B1-CTR1']).toBe(1)
+  })
+
+  it('reads STATUS as plain text (info only) and null when empty', () => {
+    const r = parseDispatchNoteRevs(BANGNA)
+    expect(r.marks.find(m => m.mark === 'DBN-B5-CTR10')!.status).toBe('changed')
+    expect(r.marks.find(m => m.mark === 'DBN-B1-BR1')!.status).toBeNull()
+  })
+
+  it('a mark with no number in its Rev cells gets rev null; index and total rows are skipped', () => {
+    const r = parseDispatchNoteRevs(BANGNA)
+    expect(r.marks.find(m => m.mark === 'DBN-X')!.rev).toBeNull()
+    expect(r.marks.map(m => m.mark)).toEqual(['DBN-B1-BR1', 'DBN-B1-BR3', 'DBN-B1-CTR1', 'DBN-B5-CTR10', 'DBN-X'])
+  })
+
+  it('a single Rev column right before WeightKg. (Celestica layout) reads just that column', () => {
+    const head = ['No.', 'Mark No.', 'Name', 'Drawing Number', 'Set', 'Rev', 'WeightKg.', 'Paint', 'LENGTH', 'WIDTH', 'HIGTH']
+    const r = parseDispatchNoteRevs(book({ D: [head, [1, 'BUH1-3', 'WEB', 'BUH1-3', 2, 4, 7122.3, 85.4, 10550, 400, 1200]] }))
+    expect(r.marks).toEqual([{ mark: 'BUH1-3', rev: 4, status: null }])
+  })
+
+  it('no Rev column → every rev null + a warning; a duplicated mark keeps the first row + a warning', () => {
+    const r = parseDispatchNoteRevs(book({ D: [['Mark No.', 'Set'], ['A1', 1], ['A1', 2]] }))
+    expect(r.marks).toEqual([{ mark: 'A1', rev: null, status: null }])
+    expect(r.warnings).toEqual([
+      'A1: อยู่ใน Dispatch Note มากกว่า 1 แถว — ใช้แถวแรก',
+      'Dispatch Note: ไม่พบคอลัมน์ Rev — อ่าน rev ไม่ได้',
+    ])
   })
 })
