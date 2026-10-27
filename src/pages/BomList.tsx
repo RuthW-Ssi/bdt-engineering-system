@@ -10,6 +10,7 @@ import { useProjectSelection } from '../hooks/useProjectSelection'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
 import { MarkRevHistoryDialog } from '../components/bom/MarkRevHistoryDialog'
+import { formerMarksText } from '../lib/bom/markRev'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
 
@@ -180,7 +181,10 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
           {assemblies.map((asm, i) => (
             <tr key={asm.id} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
               <td style={{ ...TD, color: '#AAA', width: 32 }}>{i + 1}</td>
-              <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{asm.assembly_mark}</td>
+              <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                {asm.assembly_mark}
+                {formerMarksText(asm.former_marks) && <div style={{ fontSize: 10.5, fontWeight: 400, color: '#0C447C' }}>{formerMarksText(asm.former_marks)}</div>}
+              </td>
               <td style={TD}>
                 <button aria-label={`ประวัติ Rev ของ ${asm.assembly_mark}`} onClick={() => setRevOf({ id: asm.id, mark: asm.assembly_mark })}
                   style={{ fontSize: 12, fontWeight: 600, color: '#185FA5', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'none' }}>

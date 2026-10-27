@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
 import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
+import { formerMarksText } from '../../lib/bom/markRev'
 
 interface Props {
   assemblies: AssemblyDto[]
@@ -77,6 +78,9 @@ function AssemblyRow({
       <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', minWidth: 110, flexShrink: 0 }}>
         {asm.assembly_mark}
       </span>
+      {formerMarksText(asm.former_marks) && (
+        <span className="font-mono" style={{ fontSize: 11, color: '#0C447C', flexShrink: 0 }}>{formerMarksText(asm.former_marks)}</span>
+      )}
 
       <RevisionBadge rev={asm.rev} />
 

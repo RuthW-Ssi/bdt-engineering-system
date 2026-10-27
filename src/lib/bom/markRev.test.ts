@@ -1,4 +1,4 @@
-import { diffLines, revError, revMoveText, revUpOf, rowResult } from './markRev'
+import { cancelledNote, diffLines, formerMarksText, orderReviewRows, renameNote, revError, revMoveText, revUpOf, rowResult } from './markRev'
 import type { RevReviewRowDto } from '../../api/dispatches'
 
 describe('revMoveText / revUpOf', () => {
@@ -16,7 +16,7 @@ describe('revMoveText / revUpOf', () => {
 
 const row = (over: Partial<RevReviewRowDto> = {}): RevReviewRowDto => ({
   mark: 'B1', kind: 'changed', prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL', dn_rev: null, dn_status: null,
-  in_dn: false, warning: 'CHANGED_NO_REV_UP', editable: true, diff: null, ...over,
+  in_dn: false, warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null, ...over,
 })
 
 describe('review helpers', () => {
@@ -40,6 +40,29 @@ describe('review helpers', () => {
     expect(rowResult(row({ kind: 'removed', warning: null }), true)).toBe('ถูกลบออกจาก BOM')
     expect(rowResult(row({ kind: 'changed', warning: null }), true)).toBe('ข้อมูลเปลี่ยน')
     expect(rowResult(row({ kind: 'unchanged', warning: null }), true)).toBe('ไม่เปลี่ยน')
+  })
+
+  it('cancelledNote: DN STATUS cancelled but still in the Tekla lists → a plain ⚠ line, else nothing', () => {
+    expect(cancelledNote(row({ dn_cancelled_in_files: true, dn_status: 'cancelled' }))).toBe('⚠ Dispatch Note บอกว่ายกเลิก แต่ยังมีในไฟล์ Tekla — ถ้ายกเลิกจริง ให้ลบใน Tekla แล้วอัปโหลดใหม่')
+    expect(cancelledNote(row())).toBeNull()
+  })
+
+  it('renameNote: new mark → "อาจเปลี่ยนชื่อจาก …", removed → "อาจเปลี่ยนชื่อเป็น …", else nothing', () => {
+    expect(renameNote(row({ kind: 'added', rename_hint: 'DBN-B1-BR10' }))).toBe('อาจเปลี่ยนชื่อจาก DBN-B1-BR10 — จับคู่ชื่อได้หลังบันทึก')
+    expect(renameNote(row({ kind: 'removed', rename_hint: '3DBN-B1-BR10' }))).toBe('อาจเปลี่ยนชื่อเป็น 3DBN-B1-BR10')
+    expect(renameNote(row())).toBeNull()
+  })
+
+  it('orderReviewRows: a hinted removed row sits right under its new mark; other order kept', () => {
+    const rows = [row({ mark: 'A' }), row({ mark: 'N', kind: 'added', rename_hint: 'G' }), row({ mark: 'B' }), row({ mark: 'X', kind: 'removed' }), row({ mark: 'G', kind: 'removed', rename_hint: 'N' })]
+    expect(orderReviewRows(rows).map(r => r.mark)).toEqual(['A', 'N', 'G', 'B', 'X'])
+  })
+
+  it('formerMarksText: "เดิม X" (nearest first, joined by ←), nothing when never renamed', () => {
+    expect(formerMarksText(['DBN-B1-BR10'])).toBe('เดิม DBN-B1-BR10')
+    expect(formerMarksText(['2BR10', 'BR10'])).toBe('เดิม 2BR10 ← BR10')
+    expect(formerMarksText([])).toBeNull()
+    expect(formerMarksText(undefined)).toBeNull()
   })
 
   it('revError: whole number, ≤ 999, never below the current rev', () => {

@@ -59,6 +59,7 @@ function buildPrisma() {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
+    bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     ...zoneMocks(),
   }
 }
@@ -324,6 +325,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -367,6 +369,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -393,6 +396,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
     const parser = {
@@ -465,6 +469,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -526,6 +531,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -586,6 +592,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -691,6 +698,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -783,6 +791,19 @@ describe('BomUploadService.findOne()', () => {
     expect(result.doc_revisions).toHaveLength(1)
     expect(result.doc_revisions[0]).toHaveProperty('doc_type', 'ASSEMBLY_LIST')
     expect(result.doc_revisions[0]).toHaveProperty('uploader')
+  })
+
+  it('each assembly carries its former marks (confirmed BOM renames, nearest first) — 2026-10-27', async () => {
+    const asm = (id: number, mark: string) => ({ id, dispatch_id: 2, assembly_mark: mark, name: null, qty: 1, weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, match_status: null, rev: 1, rev_source: null, product: null, assembly_parts: [] })
+    const renames = jest.fn().mockResolvedValue([
+      { id: 1, kind: 'ASSEMBLY', from_mark: 'BR10', to_mark: '2BR10', dispatch_id: 1 },
+      { id: 2, kind: 'ASSEMBLY', from_mark: '2BR10', to_mark: '3BR10', dispatch_id: 2 },
+      { id: 3, kind: 'PART', from_mark: 'p1', to_mark: 'BR7', dispatch_id: 1 },
+    ])
+    const svc = makeSvc({ bom_assembly: { findMany: jest.fn().mockResolvedValue([asm(5, '3BR10'), asm(6, 'BR7')]) }, bom_mark_rename: { findMany: renames } })
+    const r = await svc.findOne(1)
+    expect(r.assemblies!.map(a => [a.assembly_mark, a.former_marks])).toEqual([['3BR10', ['2BR10', 'BR10']], ['BR7', []]])
+    expect(renames.mock.calls[0][0].where).toMatchObject({ project_id: 1, zone_id: 2, sub_zone_id: null, kind: 'ASSEMBLY', dispatch: { source: { not: 'PRE_SHOP' } } })
   })
 
   it('throws NotFoundException when dispatch not found', async () => {
@@ -1201,6 +1222,7 @@ function makePersistentPrisma() {
     bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
     bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
     bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     ...zoneMocks(),
   }
 

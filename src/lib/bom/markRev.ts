@@ -45,6 +45,34 @@ export function rowResult(r: RevReviewRowDto, hasDn: boolean): string {
   return r.kind === 'changed' ? 'ข้อมูลเปลี่ยน' : 'ไม่เปลี่ยน'
 }
 
+/** Second ⚠ line: DN STATUS cancelled while the mark is still in the Tekla lists. The lists win —
+ *  a real cancel is fixed in Tekla, never by deleting here (Tao 2026-10-27). */
+export const cancelledNote = (r: RevReviewRowDto): string | null =>
+  r.dn_cancelled_in_files ? '⚠ Dispatch Note บอกว่ายกเลิก แต่ยังมีในไฟล์ Tekla — ถ้ายกเลิกจริง ให้ลบใน Tekla แล้วอัปโหลดใหม่' : null
+
+/** Rename hint line (server pairs a new and a removed mark that look like one piece). Pairing itself stays after save. */
+export function renameNote(r: RevReviewRowDto): string | null {
+  if (!r.rename_hint) return null
+  if (r.kind === 'added') return `อาจเปลี่ยนชื่อจาก ${r.rename_hint} — จับคู่ชื่อได้หลังบันทึก`
+  return r.kind === 'removed' ? `อาจเปลี่ยนชื่อเป็น ${r.rename_hint}` : null
+}
+
+/** Review order: a hinted removed row moves right under its new mark; everything else keeps its order. */
+export function orderReviewRows<T extends Pick<RevReviewRowDto, 'mark' | 'kind' | 'rename_hint'>>(rows: T[]): T[] {
+  const moved = new Map(rows.filter(r => r.kind === 'removed' && r.rename_hint).map(r => [r.rename_hint!, r]))
+  const out: T[] = []
+  for (const r of rows) {
+    if (r.kind === 'removed' && r.rename_hint && rows.some(a => a.kind === 'added' && a.mark === r.rename_hint)) continue
+    out.push(r)
+    const m = r.kind === 'added' ? moved.get(r.mark) : undefined
+    if (m && m.rename_hint === r.mark) out.push(m)
+  }
+  return out
+}
+
+/** "เดิม 2BR10 ← BR10" under a renamed mark (BOM page); null when it was never renamed. */
+export const formerMarksText = (marks: string[] | undefined): string | null => (marks?.length ? `เดิม ${marks.join(' ← ')}` : null)
+
 /** Same rules as the server (backend mark-rev.ts finalizeRevs). */
 export function revError(r: RevReviewRowDto, text: string): string | null {
   const t = text.trim()

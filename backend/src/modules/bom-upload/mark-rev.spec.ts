@@ -107,6 +107,30 @@ describe('decideRevs — spec decision 3', () => {
     expect(d.dn_only_marks).toEqual([]) // MAIN1 is kept (slot not uploaded) — not "missing from the files"
   })
 
+  it('a DN row with STATUS cancelled for a mark the zone never had is a deliberate removal — not in dn_only_marks', () => {
+    const d = decideRevs({ current: [S('A')], previous: [], removable: all, dn: [DN('A', 0), DN('OLD1', 1, 'cancelled'), DN('OLD2', 0, ' Canceled '), DN('OLD3', 2, 'CANCEL'), DN('X9', 1, 'added')] })
+    expect(d.dn_only_marks).toEqual(['X9'])
+  })
+
+  it('a removed mark with STATUS cancelled is the plain removed row (no extra ⚠)', () => {
+    const d = decideRevs({ current: [S('A')], previous: [PREV('A', 1), PREV('GONE', 3)], removable: all, dn: [DN('GONE', 3, 'cancelled')] })
+    expect(d.rows.find(r => r.mark === 'GONE')).toMatchObject({ kind: 'removed', dn_status: 'cancelled', dn_cancelled_in_files: false })
+  })
+
+  it('STATUS cancelled but the mark is still in the Tekla lists → dn_cancelled_in_files ⚠; the lists still decide the rev', () => {
+    const d = decideRevs({ current: [S('A'), S('B', { qty: 20 }), S('NEW')], previous: [PREV('A', 1), PREV('B', 1)], removable: all, dn: [DN('A', 1, 'cancelled'), DN('B', 1, 'Cancelled'), DN('NEW', 0, 'cancelled')] })
+    const by = (m: string) => d.rows.find(r => r.mark === m)!
+    expect(by('A')).toMatchObject({ kind: 'unchanged', suggested_rev: 1, dn_cancelled_in_files: true })
+    expect(by('B')).toMatchObject({ kind: 'changed', warning: 'CHANGED_NO_REV_UP', suggested_rev: 2, dn_cancelled_in_files: true })
+    expect(by('NEW')).toMatchObject({ kind: 'added', suggested_rev: 0, dn_cancelled_in_files: true })
+    expect(reviewRows(d).map(r => r.mark)).toEqual(['A', 'B', 'NEW'])
+  })
+
+  it('other STATUS values never raise dn_cancelled_in_files', () => {
+    const d = decideRevs({ current: [S('A'), S('B')], previous: [PREV('A', 1)], removable: all, dn: [DN('A', 1, 'changed'), DN('B', 0, null)] })
+    expect(d.rows.every(r => r.dn_cancelled_in_files === false)).toBe(true)
+  })
+
   it('ACC-only separate upload + whole-zone DN: the kept MAIN marks raise no ⚠ (only truly unknown marks do)', () => {
     const d = decideRevs({
       current: [S('ACC1')],
@@ -116,6 +140,34 @@ describe('decideRevs — spec decision 3', () => {
     })
     expect(d.rows.filter(r => r.kind === 'removed').map(r => r.mark)).toEqual(['ACC-OLD'])
     expect(d.dn_only_marks).toEqual(['X9'])
+  })
+})
+
+describe('decideRevs — rename hint (2026-10-27)', () => {
+  const BR = (mark: string, p: string, L: number, kg: number) => S(mark, { length_mm: L, weight_kg: kg, parts: [P(p, { length_mm: L - 40 })] })
+  const hint = (d: ReturnType<typeof decideRevs>, m: string) => d.rows.find(r => r.mark === m)!.rename_hint
+
+  it('a new mark and a removed mark that look like the same piece point at each other (same scorer as the pairing dialog)', () => {
+    const d = decideRevs({ current: [BR('3BR10', 'm59', 1888, 20.39)], previous: [{ ...BR('BR10', 'm59', 1888, 20.39), rev: 1, slot: null }], removable: all, dn: null })
+    expect(hint(d, '3BR10')).toBe('BR10')
+    expect(hint(d, 'BR10')).toBe('3BR10')
+  })
+
+  it('one-to-one, best score first; below the suggestion minimum → no hint; kept marks never get one', () => {
+    const d = decideRevs({
+      current: [BR('A', 'p1', 650, 104), BR('3BR10', 'm59', 1888, 20.39), BR('BR30', 'm41', 1988, 21.05)],
+      previous: [{ ...BR('A', 'p1', 650, 104), rev: 1, slot: null }, { ...BR('BR10', 'm59', 1888, 20.39), rev: 1, slot: null }, { ...BR('BR24', 'm138', 2100, 23), rev: 3, slot: null }],
+      removable: all, dn: null,
+    })
+    expect(hint(d, '3BR10')).toBe('BR10')
+    expect(hint(d, 'BR30')).toBeNull()
+    expect(hint(d, 'BR24')).toBeNull()
+    expect(hint(d, 'A')).toBeNull()
+  })
+
+  it('separate mode: never across slots', () => {
+    const d = decideRevs({ current: [{ ...BR('3BR10', 'm59', 1888, 20.39), slot: 'ACC' as const }], previous: [{ ...BR('BR10', 'm59', 1888, 20.39), rev: 1, slot: 'MAIN' }], removable: all, dn: null })
+    expect(hint(d, '3BR10')).toBeNull()
   })
 })
 

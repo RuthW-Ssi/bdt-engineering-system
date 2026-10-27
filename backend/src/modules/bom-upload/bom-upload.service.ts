@@ -14,6 +14,7 @@ import { decideRevs, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFrom
 import { SEPARATE_DOC_TYPES, dnSlotOf, isDispatchNote } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcDetail } from './nc-parser'
+import { aliasesOf } from '../mark-rename/mark-alias'
 import type { NcDetail } from './nc-parser'
 import type { QueryDispatchDto } from './dto/dispatch.dto'
 import type { DispatchMappingDto } from './dto/mapping.dto'
@@ -654,7 +655,7 @@ export class BomUploadService {
     const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
     const nos = await uploadNumbersOf(this.prisma, [id])
 
-    const [docRevisions, assemblies, orphans, partCount] = await Promise.all([
+    const [docRevisions, assemblies, orphans, partCount, renames] = await Promise.all([
       // Doc revisions are dispatch-level, not mark-level — each one belongs
       // to exactly one dispatch, nothing to supersede — blind IN is correct.
       this.prisma.bom_doc_revision.findMany({
@@ -695,6 +696,12 @@ export class BomUploadService {
         select: { id: true, dispatch_id: true, part_mark: true, description: true, profile: true, grade: true, length_mm: true, qty: true, weight_kg: true, match_status: true },
       }),
       markWhere == null ? Promise.resolve(0) : this.prisma.bom_part.count({ where: markWhere }),
+      // Confirmed BOM renames (not pre-shop, same rule as MarkAliasService) → each mark's former names
+      this.prisma.bom_mark_rename.findMany({
+        where: { project_id: d.project_id, zone_id: d.zone_id, sub_zone_id: d.sub_zone_id, kind: 'ASSEMBLY', dispatch: { source: { not: 'PRE_SHOP' } } },
+        select: { id: true, kind: true, from_mark: true, to_mark: true, dispatch_id: true },
+        orderBy: [{ dispatch_id: 'asc' }, { id: 'asc' }],
+      }),
     ])
 
     return {
@@ -722,6 +729,8 @@ export class BomUploadService {
         match_status: a.match_status ?? null,
         rev: a.rev,
         rev_source: a.rev_source ?? null,
+        // Tao 2026-10-27: a renamed mark shows its old name too
+        former_marks: aliasesOf(renames, 'ASSEMBLY', a.assembly_mark, a.dispatch_id).slice(1).map(x => x.mark),
         product: a.product ?? null,
         version_label: versionLabelById.get(a.dispatch_id) ?? null,
         parts: a.assembly_parts.map(ap => ({

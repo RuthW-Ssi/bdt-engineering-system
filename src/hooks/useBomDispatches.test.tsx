@@ -18,7 +18,7 @@ const mockedApi = vi.mocked(dispatchesApi)
 const emptyReview: RevReviewDto = { base_dispatch_id: 7, has_dn: false, rows: [], dn_only_marks: [], dn_warnings: [] }
 const cleanResult: UploadPreviewDto = { unmatchedAssemblyMarks: [], unmatchedPartMarks: [], review: emptyReview }
 const mismatchResult: UploadPreviewDto = { unmatchedAssemblyMarks: ['A9'], unmatchedPartMarks: [], review: emptyReview }
-const reviewRow = { mark: 'B1', kind: 'changed' as const, prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL' as const, dn_rev: null, dn_status: null, in_dn: false, warning: 'CHANGED_NO_REV_UP' as const, editable: true, diff: null }
+const reviewRow = { mark: 'B1', kind: 'changed' as const, prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL' as const, dn_rev: null, dn_status: null, in_dn: false, warning: 'CHANGED_NO_REV_UP' as const, dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null }
 const reviewResult: UploadPreviewDto = { ...cleanResult, review: { ...emptyReview, rows: [reviewRow] } }
 
 function wrapper({ children }: { children: ReactNode }) {

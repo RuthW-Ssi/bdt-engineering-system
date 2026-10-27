@@ -56,6 +56,8 @@ export interface AssemblyDto {
   product: AssemblyProductDto | null
   rev: number
   rev_source: RevSource | null
+  /** Earlier names from confirmed BOM renames, nearest first (2026-10-27). */
+  former_marks?: string[]
 }
 
 export interface DispatchDetailDto extends DispatchSummaryDto {
@@ -177,6 +179,8 @@ export interface RevReviewRowDto {
   dn_status: string | null
   in_dn: boolean
   warning: RevWarning | null
+  dn_cancelled_in_files: boolean
+  rename_hint: string | null
   editable: boolean
   diff: MarkDiffDto | null
 }

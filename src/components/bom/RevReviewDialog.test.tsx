@@ -5,7 +5,7 @@ import type { RevReviewDto, RevReviewRowDto } from '../../api/dispatches'
 
 const R = (over: Partial<RevReviewRowDto>): RevReviewRowDto => ({
   mark: 'B1', kind: 'changed', prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL', dn_rev: null, dn_status: null, in_dn: false,
-  warning: 'CHANGED_NO_REV_UP', editable: true, diff: { fields: [{ field: 'length_mm', old: 650, new: 700 }], parts_added: [], parts_removed: [], parts_changed: [] }, ...over,
+  warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: { fields: [{ field: 'length_mm', old: 650, new: 700 }], parts_added: [], parts_removed: [], parts_changed: [] }, ...over,
 })
 const review = (over: Partial<RevReviewDto> = {}): RevReviewDto => ({
   base_dispatch_id: 7, has_dn: true, dn_only_marks: [], dn_warnings: [],
@@ -62,6 +62,40 @@ describe('RevReviewDialog', () => {
     fireEvent.change(screen.getByLabelText('Rev ใหม่ของ B1'), { target: { value: '4' } })
     fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
     expect(onConfirm).toHaveBeenCalledWith([{ mark: 'B1', rev: 4 }])
+  })
+
+  it('DN says cancelled but the mark is still in the Tekla lists → the row shows the ⚠ and counts as a ⚠ row', () => {
+    const rows = [R({ mark: 'C1', kind: 'unchanged', warning: null, editable: false, diff: null, in_dn: true, dn_status: 'cancelled', dn_cancelled_in_files: true })]
+    render(<RevReviewDialog review={review({ rows })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    expect(screen.getByText('⚠ Dispatch Note บอกว่ายกเลิก แต่ยังมีในไฟล์ Tekla — ถ้ายกเลิกจริง ให้ลบใน Tekla แล้วอัปโหลดใหม่')).toBeInTheDocument()
+    expect(screen.getByText(/ตรวจแถวที่มี ⚠ \(1 แถว\)/)).toBeInTheDocument()
+  })
+
+  it('row colours: new mark light green, removed light red, ⚠ amber wins over both', () => {
+    const rows = [
+      R({ mark: 'N1', kind: 'added', prev_rev: null, suggested_rev: 0, warning: null, editable: false, diff: null }),
+      R({ mark: 'G1', kind: 'removed', suggested_rev: null, warning: null, editable: false, diff: null }),
+      R({ mark: 'N2', kind: 'added', prev_rev: null, suggested_rev: 0, warning: null, editable: false, diff: null, in_dn: true, dn_status: 'cancelled', dn_cancelled_in_files: true }),
+      R({ mark: 'U1', kind: 'unchanged', warning: null, editable: false, diff: null, in_dn: true }),
+    ]
+    render(<RevReviewDialog review={review({ rows })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const bg = (m: string) => (screen.getByText(m).closest('tr') as HTMLElement).style.background
+    expect(bg('N1')).toBe('rgb(240, 253, 244)')
+    expect(bg('G1')).toBe('rgb(254, 242, 242)')
+    expect(bg('N2')).toBe('rgb(255, 251, 235)')
+    expect(bg('U1')).toBe('')
+  })
+
+  it('rename hint: shown on both rows, the removed row moved under the new one', () => {
+    const rows = [
+      R({ mark: 'N1', kind: 'added', prev_rev: null, suggested_rev: 1, warning: null, editable: false, diff: null, rename_hint: 'G1' }),
+      R({ mark: 'U1', kind: 'unchanged', warning: null, editable: false, diff: null, in_dn: true }),
+      R({ mark: 'G1', kind: 'removed', suggested_rev: null, warning: null, editable: false, diff: null, rename_hint: 'N1' }),
+    ]
+    render(<RevReviewDialog review={review({ rows })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    expect(screen.getByText('อาจเปลี่ยนชื่อจาก G1 — จับคู่ชื่อได้หลังบันทึก')).toBeInTheDocument()
+    expect(screen.getByText('อาจเปลี่ยนชื่อเป็น N1')).toBeInTheDocument()
+    expect(screen.getAllByRole('row').slice(1).map(tr => tr.querySelector('td')!.textContent)).toEqual(['N1', 'G1', 'U1'])
   })
 
   it('marks in the Dispatch Note but not in the BOM files → a file-level ⚠', () => {

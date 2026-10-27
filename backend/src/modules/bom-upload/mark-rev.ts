@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common'
 import type { ParsedAssembly, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
+import { suggestAssemblies, type AsmRow } from '../mark-rename/rename-candidates'
 
 // Per-mark BOM revision (2026-10-26, wiki features/bom-mark-revision-plan.md).
 // Pure: preview and save both run this, so the server never trusts the
@@ -26,6 +27,10 @@ export interface RevRow {
   dn_status: string | null
   in_dn: boolean
   warning: RevWarning | null
+  /** DN STATUS says cancelled but the mark is still in the Tekla lists — a ⚠ only; the lists decide. */
+  dn_cancelled_in_files: boolean
+  /** added ↔ removed mark that looks like the same piece renamed (hint only — pairing stays after save). */
+  rename_hint: string | null
   editable: boolean
   diff: MarkDiff | null
 }
@@ -46,6 +51,8 @@ export function round(v: unknown, scale: number): number | null {
   return Number.isFinite(n) ? Number(n.toFixed(scale)) : null
 }
 const text = (v: unknown) => (v == null ? null : String(v).trim() || null)
+// Tao 2026-10-27: a removed mark is either dropped from the DN or kept with STATUS cancelled.
+export const isCancelledStatus = (s: string | null | undefined) => /^cancel/i.test((s ?? '').trim())
 
 export function partLine(p: { part_mark: string; description?: unknown; profile?: unknown; grade?: unknown; length_mm?: unknown; weight_kg?: unknown }, qty: unknown): PartLine {
   return {
@@ -106,7 +113,7 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
     const p = prevBy.get(c.mark)
     const d = dnOf(c.mark, c.slot)
     const dnRev = d?.rev ?? null
-    const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d }
+    const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d, dn_cancelled_in_files: isCancelledStatus(d?.status), rename_hint: null }
     if (!p) return { ...base, kind: 'added', prev_rev: null, suggested_rev: dnRev ?? 0, suggested_source: dnRev != null ? 'DISPATCH_NOTE' : 'NEW', warning: null, editable: false, diff: null }
     const diff = markDiff(p, c)
     if (!isUnchanged(diff)) {
@@ -122,14 +129,39 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
   for (const p of input.previous) {
     if (currMarks.has(p.mark) || !input.removable(p)) continue
     const d = dnOf(p.mark, p.slot)
-    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, editable: false, diff: null })
+    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null })
   }
   // DN-only = marks the zone has never had. A removed mark already has its row;
   // a kept mark (slot not uploaded, e.g. MAIN on an ACC-only upload with a
   // whole-zone DN) isn't missing from the files — neither raises the ⚠.
   // Separate mode: per slot — a Main-DN mark missing from the Main lists counts.
-  const dnOnly = dnRows.filter(d => !inSlot(d.mark, d.slot) && !prevBy.has(d.mark)).map(d => d.mark)
+  // A cancelled row is a deliberate removal, never "files missing".
+  const dnOnly = dnRows.filter(d => !inSlot(d.mark, d.slot) && !prevBy.has(d.mark) && !isCancelledStatus(d.status)).map(d => d.mark)
+  hintRenames(rows, input.current, input.previous)
   return { rows, dn_only_marks: [...new Set(dnOnly)], has_dn: input.dn != null }
+}
+
+const asmRow = (s: MarkSnapshot, i: number): AsmRow => ({
+  id: i, mark: s.mark, length_mm: s.length_mm, weight_kg: s.weight_kg,
+  parts: s.parts.map(p => ({ part_mark: p.part_mark, profile: p.profile ?? '', length_mm: p.length_mm ?? 0, grade: p.grade ?? '', qty: p.qty ?? 0, unit_weight_kg: p.weight_kg ?? 0 })),
+})
+
+/** Same scorer + minimum as the after-save pairing dialog (rename-candidates), matched one-to-one, best score first, same slot only. */
+function hintRenames(rows: RevRow[], current: (MarkSnapshot & { slot?: Slot | null })[], previous: PrevMark[]) {
+  const added = new Map(rows.filter(r => r.kind === 'added').map(r => [r.mark, r]))
+  const removed = new Map(rows.filter(r => r.kind === 'removed').map(r => [r.mark, r]))
+  const fresh = current.filter(c => added.has(c.mark))
+  const sameSlot = (a: string | null | undefined, b: string | null | undefined) => a == null || b == null || a === b
+  const pairs = previous.filter(p => removed.has(p.mark)).flatMap(p => {
+    const cand = fresh.filter(c => sameSlot(c.slot, p.slot))
+    return suggestAssemblies(asmRow(p, 0), cand.map(asmRow)).map(s => ({ from: p.mark, to: s.mark, score: s.score }))
+  }).sort((a, b) => b.score - a.score)
+  for (const x of pairs) {
+    const a = added.get(x.to)!, r = removed.get(x.from)!
+    if (a.rename_hint || r.rename_hint) continue
+    a.rename_hint = x.from
+    r.rename_hint = x.to
+  }
 }
 
 /** Review table rows: new, changed, removed, or listed in the Dispatch Note. */
