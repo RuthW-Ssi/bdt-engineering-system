@@ -24,6 +24,7 @@ import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 import { dateInputGuardHandlers } from '../lib/dateInputGuard'
+import { uploadLabel } from '../lib/bom/markRev'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -240,7 +241,7 @@ export function MoDetail() {
           ? (
             <div className="flex items-center gap-2 border-b border-steel-100 bg-steel-50 text-steel-800" style={{ fontSize: 13, fontWeight: 600, padding: '8px 24px', flexShrink: 0 }}>
               <Info size={15} />
-              <span>{mo.shop_type === 'PRE_SHOP' ? 'มี BOM จริงของ zone นี้แล้ว' : 'BOM ของ zone นี้มี version ใหม่'} (อัปโหลดครั้งที่ {bomCmp.bom.upload_no ?? '—'}) — ยังไม่ได้เทียบ {bomCmp.pending} mark{bomCmp.bom_only.length > 0 && ` · มีใน BOM แต่ยังไม่มีใน MO ${bomCmp.bom_only.length} mark`}{bomCmp.rows.some(r => r.rev) && ` · rev ขึ้น ${bomCmp.rows.filter(r => r.rev).length} mark`}</span>
+              <span>{mo.shop_type === 'PRE_SHOP' ? 'มี BOM จริงของ zone นี้แล้ว' : 'BOM ของ zone นี้มี version ใหม่'} ({uploadLabel(bomCmp.bom.upload_no)}) — ยังไม่ได้เทียบ {bomCmp.pending} mark{bomCmp.bom_only.length > 0 && ` · มีใน BOM แต่ยังไม่มีใน MO ${bomCmp.bom_only.length} mark`}{bomCmp.rows.some(r => r.rev) && ` · rev ขึ้น ${bomCmp.rows.filter(r => r.rev).length} mark`}</span>
               {canWrite && (
                 <button type="button" onClick={() => setBomOpen(true)}
                   style={{ marginLeft: 'auto', height: 28, padding: '0 12px', fontSize: 12.5, fontWeight: 700, borderRadius: 6, border: 'none', background: '#185FA5', color: '#fff', cursor: 'pointer' }}>
@@ -253,7 +254,7 @@ export function MoDetail() {
             // the "done" strip is for a pre-shop MO; a Full shop MO on the latest BOM shows nothing
             mo.shop_type === 'PRE_SHOP' ? (
               <div className="flex items-center gap-2 border-b border-green-200 bg-green-50 text-green-800" style={{ fontSize: 12.5, fontWeight: 600, padding: '6px 24px', flexShrink: 0 }}>
-                <CheckCircle2 size={14} /> เทียบกับ BOM จริง อัปโหลดครั้งที่ {bomCmp.bom.upload_no ?? '—'} ครบแล้ว
+                <CheckCircle2 size={14} /> เทียบกับ BOM จริง {uploadLabel(bomCmp.bom.upload_no)} ครบแล้ว
               </div>
             ) : null
           )

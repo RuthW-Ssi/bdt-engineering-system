@@ -8,6 +8,8 @@ import { InfoTip } from './InfoTip'
 // of DrawingUploadModal's review table. ⚠ rows are where the Dispatch Note and
 // the BOM compare disagree; the user settles each one.
 const th: CSSProperties = { textAlign: 'left', padding: '8px 10px', fontSize: 11, fontWeight: 600, color: '#8E8E8E', background: '#FAFAFA', verticalAlign: 'bottom', position: 'sticky', top: 0, zIndex: 1 }
+// One style for every ⚠ box above the table (row count + file-level), so they read as the same kind of message.
+const warnBox: CSSProperties = { margin: '0 20px 8px', padding: '8px 12px', background: '#FFF7E6', color: '#8A5A00', borderRadius: 6, fontSize: 13 }
 const td: CSSProperties = { padding: '6px 10px', verticalAlign: 'top', fontSize: 13, borderTop: '1px solid #F0F0F0' }
 
 // Row tint: ⚠ amber wins; else new = light green, removed = light red (lighter tints of the
@@ -36,11 +38,12 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
           <button onClick={onCancel} disabled={isUploading} aria-label="ปิด" className="disabled:opacity-40" style={{ background: 'none', border: 'none', cursor: isUploading ? 'default' : 'pointer', color: '#8E8E8E', display: 'flex' }}><X size={16} /></button>
         </div>
 
-        <div style={{ padding: '12px 20px', fontSize: 13, color: '#555' }}>
-          {warnCount > 0 ? `ตรวจแถวที่มี ⚠ (${warnCount} แถว). แก้ Rev ได้ในช่องสีขาว. แล้วกด บันทึก` : 'ดูรายการ แล้วกด บันทึก'}
-        </div>
+        <div style={{ height: 12 }} />
+        {warnCount > 0
+          ? <div style={warnBox}>{`⚠ มี ${warnCount} แถวที่ต้องตรวจ (แถวสีเหลือง) — แก้ Rev ในช่องสีขาว แล้วกด บันทึก`}</div>
+          : <div style={{ padding: '0 20px 12px', fontSize: 13, color: '#555' }}>ดูรายการ แล้วกด บันทึก</div>}
         {review.dn_only_marks.length > 0 && (
-          <div style={{ margin: '0 20px 8px', padding: '8px 12px', background: '#FFF7E6', color: '#8A5A00', borderRadius: 6, fontSize: 13 }}>
+          <div style={warnBox}>
             {`⚠ มี mark ใน Dispatch Note แต่ไม่มีในไฟล์ BOM: ${review.dn_only_marks.join(', ')} — ส่งไฟล์ไม่ครบ หรือผิดชุด?`}
           </div>
         )}
@@ -57,7 +60,7 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
             </colgroup>
             <thead><tr>
               <th style={th}>Mark</th><th style={th}>ผล</th><th style={th}>Rev เดิม → ใหม่</th><th style={th}>อะไรเปลี่ยน</th>
-              {review.has_dn && <th style={th}>STATUS ใน Dispatch Note</th>}
+              {review.has_dn && <th style={th}>Status (DN)</th>}
             </tr></thead>
             <tbody>
               {orderReviewRows(review.rows).map(r => (

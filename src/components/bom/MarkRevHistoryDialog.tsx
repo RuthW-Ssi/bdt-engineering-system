@@ -1,7 +1,7 @@
 import { X } from 'lucide-react'
 import { useMarkRevHistory } from '../../hooks/useBomDispatches'
 import type { MarkRevEntryDto, PartLineDto } from '../../api/dispatches'
-import { MARK_FIELD_LABEL, PART_FIELD_LABEL, REV_SOURCE_LABEL, showValue } from '../../lib/bom/markRev'
+import { MARK_FIELD_LABEL, PART_FIELD_LABEL, REV_SOURCE_LABEL, showValue, uploadLabel } from '../../lib/bom/markRev'
 
 // A mark's BOM Rev history (2026-10-26, spec decision 7) — History standard
 // (wiki tech/frontend/history-design.md): newest first, one card per rev,
@@ -24,7 +24,7 @@ function Entry({ e }: { e: MarkRevEntryDto }) {
         <span data-testid="rev-badge" style={{ fontSize: 12, fontWeight: 700, padding: '2px 9px', borderRadius: 10, background: '#E3EEF8', color: '#0C447C' }}>{`Rev ${e.rev}`}</span>
         {e.first && <Badge text="ใหม่" bg="#D1F2E0" fg="#065F46" />}
         {e.rev_source === 'MANUAL' && <Badge text={REV_SOURCE_LABEL.MANUAL} bg="#FEF3C7" fg="#92400E" />}
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#8E8E8E' }}>{`อัปโหลดครั้งที่ ${e.upload_no ?? '—'} · ${e.uploaded_by} · ${when(e.uploaded_at)}`}</span>
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: '#8E8E8E' }}>{`${uploadLabel(e.upload_no)} · ${e.uploaded_by} · ${when(e.uploaded_at)}`}</span>
       </div>
       {e.renamed_from && <div style={{ fontSize: 12.5, color: '#0C447C', marginTop: 6 }}>{`เปลี่ยนชื่อ ${e.renamed_from} → ${e.mark}`}</div>}
       {e.dn_status && <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{`STATUS ใน Dispatch Note: ${e.dn_status}`}</div>}

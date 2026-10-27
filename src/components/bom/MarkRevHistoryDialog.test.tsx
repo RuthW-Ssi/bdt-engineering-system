@@ -25,7 +25,7 @@ describe('MarkRevHistoryDialog', () => {
     render(<MarkRevHistoryDialog assemblyId={30} mark="3B1" onClose={vi.fn()} />)
     const revs = screen.getAllByTestId('rev-badge').map(e => e.textContent)
     expect(revs).toEqual(['Rev 2', 'Rev 1', 'Rev 0'])
-    expect(screen.getByText(/อัปโหลดครั้งที่ 3 · tao/)).toBeInTheDocument()
+    expect(screen.getByText(/v\.3 · tao/)).toBeInTheDocument()
     expect(screen.getByText('เปลี่ยนชื่อ B1 → 3B1')).toBeInTheDocument()
     expect(screen.getByText('กำหนด rev เอง')).toBeInTheDocument()
     expect(screen.getByText('650')).toBeInTheDocument() // struck-through old value

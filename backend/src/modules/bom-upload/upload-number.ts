@@ -1,6 +1,6 @@
 import type { PrismaService } from '../../prisma/prisma.service'
 
-// "อัปโหลดครั้งที่ n" (2026-10-26, wiki features/bom-mark-revision-plan.md) —
+// Upload number, shown as "v.n" (2026-10-27; was "อัปโหลดครั้งที่ n", 2026-10-26, wiki features/bom-mark-revision-plan.md) —
 // replaces the user-picked revision / "major.minor" label. Upload order within
 // the zone/sub-zone, real uploads only (not PRE_SHOP / BIM_PLACEHOLDER).
 export async function uploadNumbersOf(db: Pick<PrismaService, 'bom_dispatch'>, dispatchIds: number[]): Promise<Map<number, number>> {

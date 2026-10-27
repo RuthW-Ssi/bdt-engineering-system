@@ -1,4 +1,4 @@
-import { cancelledNote, diffLines, formerMarksText, orderReviewRows, renameNote, revError, revMoveText, revUpOf, rowResult } from './markRev'
+import { cancelledNote, diffLines, formerMarksText, uploadLabel, orderReviewRows, renameNote, revError, revMoveText, revUpOf, rowResult } from './markRev'
 import type { RevReviewRowDto } from '../../api/dispatches'
 
 describe('revMoveText / revUpOf', () => {
@@ -63,6 +63,13 @@ describe('review helpers', () => {
     expect(formerMarksText(['2BR10', 'BR10'])).toBe('เดิม 2BR10 ← BR10')
     expect(formerMarksText([])).toBeNull()
     expect(formerMarksText(undefined)).toBeNull()
+  })
+
+  it('uploadLabel: "v.n" (Tao 2026-10-27, was "อัปโหลดครั้งที่ n"), "v.—" when unknown', () => {
+    expect(uploadLabel(2)).toBe('v.2')
+    expect(uploadLabel('3')).toBe('v.3')
+    expect(uploadLabel(null)).toBe('v.—')
+    expect(uploadLabel(undefined)).toBe('v.—')
   })
 
   it('revError: whole number, ≤ 999, never below the current rev', () => {

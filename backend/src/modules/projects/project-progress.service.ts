@@ -471,7 +471,7 @@ export class ProjectProgressService {
   }
 
   // Zone-level BOM indicator (2026-10-26): the highest upload number among
-  // the zone's ACTIVE dispatches ("BOM อัปโหลดครั้งที่ n"). Per-mark revs live
+  // the zone's ACTIVE dispatches ("BOM v.n"). Per-mark revs live
   // on the BOM page; this only says which upload is current.
   private async computeBomVersion(
     _projectId: number,

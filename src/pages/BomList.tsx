@@ -10,7 +10,7 @@ import { useProjectSelection } from '../hooks/useProjectSelection'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
 import { MarkRevHistoryDialog } from '../components/bom/MarkRevHistoryDialog'
-import { formerMarksText } from '../lib/bom/markRev'
+import { formerMarksText, uploadLabel } from '../lib/bom/markRev'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
 
@@ -393,7 +393,7 @@ function VersionNode({
           fontSize: 13, fontWeight: 700, marginBottom: 5,
           color: selected ? '#185FA5' : isLatest ? '#1F1F1F' : '#555',
         }}>
-          {`อัปโหลดครั้งที่ ${uploadNo ?? '—'}`}
+          {uploadLabel(uploadNo)}
         </div>
 
         <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>

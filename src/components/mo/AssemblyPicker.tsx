@@ -4,6 +4,7 @@ import { useAssembliesByPrefix } from '../../hooks/useMo'
 import type { AssemblyPickerGroup, AssemblyPickerItem } from '../../api/mo'
 import type { AssemblyFilter } from './AssemblyFilterBar'
 import { daysUntil } from '../../lib/dateMath'
+import { uploadLabel } from '../../lib/bom/markRev'
 
 const DIM_LABEL: Record<string, string> = { project: 'Project', zone: 'Zone', subzone: 'Sub Zone' }
 
@@ -178,7 +179,7 @@ export function AssemblyPicker({
                   <span style={{ fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{seg.value}</span>
                   {g.bom_version != null && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: '#0C447C', background: '#E3EEF8', borderRadius: 999, padding: '1px 8px' }}>
-                      BOM อัปโหลดครั้งที่ {g.bom_version}
+                      BOM {uploadLabel(g.bom_version)}
                     </span>
                   )}
                   {selectedInGroup > 0 && (

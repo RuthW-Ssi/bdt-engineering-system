@@ -68,7 +68,7 @@ describe('RevReviewDialog', () => {
     const rows = [R({ mark: 'C1', kind: 'unchanged', warning: null, editable: false, diff: null, in_dn: true, dn_status: 'cancelled', dn_cancelled_in_files: true })]
     render(<RevReviewDialog review={review({ rows })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
     expect(screen.getByText('⚠ Dispatch Note บอกว่ายกเลิก แต่ยังมีในไฟล์ Tekla — ถ้ายกเลิกจริง ให้ลบใน Tekla แล้วอัปโหลดใหม่')).toBeInTheDocument()
-    expect(screen.getByText(/ตรวจแถวที่มี ⚠ \(1 แถว\)/)).toBeInTheDocument()
+    expect(screen.getByText('⚠ มี 1 แถวที่ต้องตรวจ (แถวสีเหลือง) — แก้ Rev ในช่องสีขาว แล้วกด บันทึก')).toBeInTheDocument()
   })
 
   it('row colours: new mark light green, removed light red, ⚠ amber wins over both', () => {
@@ -96,6 +96,19 @@ describe('RevReviewDialog', () => {
     expect(screen.getByText('อาจเปลี่ยนชื่อจาก G1 — จับคู่ชื่อได้หลังบันทึก')).toBeInTheDocument()
     expect(screen.getByText('อาจเปลี่ยนชื่อเป็น N1')).toBeInTheDocument()
     expect(screen.getAllByRole('row').slice(1).map(tr => tr.querySelector('td')!.textContent)).toEqual(['N1', 'G1', 'U1'])
+  })
+
+  it('the ⚠ row count is a warning box styled like the file-level ⚠; no ⚠ rows → plain hint; header says Status (DN)', () => {
+    render(<RevReviewDialog review={review({ dn_only_marks: ['X9'] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const rowWarn = screen.getByText('⚠ มี 1 แถวที่ต้องตรวจ (แถวสีเหลือง) — แก้ Rev ในช่องสีขาว แล้วกด บันทึก')
+    const fileWarn = screen.getByText(/มี mark ใน Dispatch Note แต่ไม่มีในไฟล์ BOM/)
+    expect(rowWarn.getAttribute('style')).toBe(fileWarn.getAttribute('style'))
+    expect(screen.getByRole('columnheader', { name: 'Status (DN)' })).toBeInTheDocument()
+  })
+
+  it('no ⚠ rows → a plain grey hint, not a warning box', () => {
+    render(<RevReviewDialog review={review({ rows: [R({ kind: 'added', warning: null, editable: false, prev_rev: null, suggested_rev: 0, diff: null })] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    expect(screen.getByText('ดูรายการ แล้วกด บันทึก')).toBeInTheDocument()
   })
 
   it('marks in the Dispatch Note but not in the BOM files → a file-level ⚠', () => {

@@ -16,7 +16,7 @@ export interface AssemblyPickerItem {
   project_due_date: string | null    // project.target_handover as YYYY-MM-DD
   zone_end_date: string | null       // project_zone.target_end as YYYY-MM-DD
   sub_zone_due_date: string | null  // sub_zone.due_date as YYYY-MM-DD
-  bom_version: string | null // upload number ("อัปโหลดครั้งที่ n") from BomDiffService.computeVersionLabels()
+  bom_version: string | null // upload number ("v.n", was "อัปโหลดครั้งที่ n") from BomDiffService.computeVersionLabels()
   total: number
   allocated: number
   remaining: number

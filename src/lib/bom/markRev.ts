@@ -73,6 +73,9 @@ export function orderReviewRows<T extends Pick<RevReviewRowDto, 'mark' | 'kind' 
 /** "เดิม 2BR10 ← BR10" under a renamed mark (BOM page); null when it was never renamed. */
 export const formerMarksText = (marks: string[] | undefined): string | null => (marks?.length ? `เดิม ${marks.join(' ← ')}` : null)
 
+/** A BOM upload's name everywhere in the UI: "v.2" (Tao 2026-10-27; was "อัปโหลดครั้งที่ n"). */
+export const uploadLabel = (n: number | string | null | undefined): string => `v.${n ?? '—'}`
+
 /** Same rules as the server (backend mark-rev.ts finalizeRevs). */
 export function revError(r: RevReviewRowDto, text: string): string | null {
   const t = text.trim()

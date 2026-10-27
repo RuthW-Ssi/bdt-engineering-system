@@ -179,7 +179,7 @@ export interface ProgressPositions {
 export interface BimMatchResult {
   model_id: number | null
   model_version: string | null
-  // highest upload number ("อัปโหลดครั้งที่ n") among the zone's ACTIVE dispatches (2026-10-26)
+  // highest upload number ("v.n", was "อัปโหลดครั้งที่ n") among the zone's ACTIVE dispatches (2026-10-26)
   bom_version?: string | null
   matches: { assembly_id: number; mark: string; global_ids: string[] }[]
 }
