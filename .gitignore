@@ -35,3 +35,6 @@ backend/.env
 # Claude Code brainstorming visual-companion sessions
 .superpowers/
 SPRINT_4_2_EXECUTIVE_PRESENTATION.html
+
+# plate-weight backfill backups (old → new values), keep out of git
+backend/plate-weight-backfill-*.csv

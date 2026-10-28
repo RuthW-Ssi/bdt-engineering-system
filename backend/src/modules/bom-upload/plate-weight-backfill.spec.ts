@@ -1,4 +1,4 @@
-import { planPlateWeightFixes } from './plate-weight-backfill'
+import { fixesCsv, planPlateWeightFixes } from './plate-weight-backfill'
 
 describe('planPlateWeightFixes', () => {
   const parts = [
@@ -21,5 +21,14 @@ describe('planPlateWeightFixes', () => {
       { id: 5, part_mark: 'B-p1', reason: 'no stored Part List for dispatch 9' },
     ])
     expect(r.unchanged).toBe(1)
+  })
+})
+
+describe('fixesCsv (2026-10-28 — staging backup before --apply)', () => {
+  it('one header + one row per fix with the old value, quoting marks that hold a comma or quote', () => {
+    expect(fixesCsv([
+      { id: 1, dispatch_id: 7, part_mark: 'A-p1', from: 78.5, to: 7.02 },
+      { id: 2, dispatch_id: 7, part_mark: 'B,"x"', from: null, to: 1 },
+    ])).toBe('id,dispatch_id,part_mark,old_weight_kg,new_weight_kg\n1,7,A-p1,78.5,7.02\n2,7,"B,""x""",,1\n')
   })
 })
