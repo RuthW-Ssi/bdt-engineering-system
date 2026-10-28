@@ -85,6 +85,8 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
       where: { id: 1 },
       include: { marks: { where: { removed_at: null }, include: { bom_assembly: true } } },
     })
+    // final review fix 7: the internal legacy flag is not part of the API response
+    expect(result[0]).not.toHaveProperty('legacy')
     expect(result).toEqual([
       expect.objectContaining({
         work_order_mark_id: 1,
@@ -142,6 +144,40 @@ describe('WorkOrdersService.bomVersionStatus (per-mark)', () => {
     expect(result[0]).toMatchObject({ is_outdated: true, delta_types: ['REMOVED'] })
   })
 
+  // Final review fix 2: "ข้อมูล BOM ไม่เปลี่ยน" needs the parts too — delta_types cover qty/spec only.
+  describe('data_same (mark-rev markDiff incl. parts)', () => {
+    const part = (part_mark: string, profile = 'PL10') => ({ qty: 2, part: { part_mark, description: null, profile, grade: 'SS400', length_mm: 100, weight_kg: 1.5 } })
+    function setup(ownParts: any[], latestParts: any[]) {
+      const mark = makeMark({ bom_assembly: makeBomAssembly({ rev: 1, rev_source: 'NEW' }) })
+      const latest = makeBomAssembly({ id: 200, dispatch_id: 20, rev: 2, rev_source: 'MANUAL' })
+      const prisma: any = {
+        work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, marks: [mark] }) },
+        bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
+        bom_assembly: {
+          findFirst: jest.fn().mockResolvedValue(latest),
+          findMany: jest.fn().mockResolvedValue([
+            { ...mark.bom_assembly, name: null, assembly_parts: ownParts },
+            { ...latest, name: null, assembly_parts: latestParts },
+          ]),
+        },
+        bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+      }
+      return new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    }
+
+    it('a rev rise caused only by a part change → data_same false', async () => {
+      const [st] = await setup([part('p1')], [part('p1', 'PL12')]).bomVersionStatus(1)
+      expect(st.delta_types).toEqual(['REV_UP'])
+      expect(st.data_same).toBe(false)
+    })
+
+    it('a hand-raised rev with no change at all → data_same true', async () => {
+      const [st] = await setup([part('p1')], [part('p1')]).bomVersionStatus(1)
+      expect(st.delta_types).toEqual(['REV_UP'])
+      expect(st.data_same).toBe(true)
+    })
+  })
+
   it('throws NotFoundException when the WO does not exist', async () => {
     const prisma: any = { work_order: { findUnique: jest.fn().mockResolvedValue(null) } }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
@@ -160,6 +196,94 @@ describe('WorkOrdersService — a newer BOM row differing only in name', () => {
     const row = { id: 1, dispatch_id: 10, assembly_mark: 'A', qty: 1, name: 'WEB', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, attributes: {} }
     expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, name: 'BUILT-UP H' }).delta_types).toEqual(['SPEC_CHANGED'])
     expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11 }).delta_types).toEqual([])
+  })
+
+  it('a higher BOM rev is REV_UP, even with every value the same (2026-10-26)', () => {
+    const svc = new WorkOrdersService({} as any, {} as any, {} as any)
+    const row = { id: 1, dispatch_id: 10, assembly_mark: 'A', qty: 1, name: 'WEB', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, attributes: {}, rev: 1 }
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, rev: 2 })
+    expect(cmp.delta_types).toEqual(['REV_UP'])
+    expect(cmp.delta_details).toEqual({ rev: { from: 1, to: 2 } })
+    expect((svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, rev: 1 }).delta_types).toEqual([])
+  })
+})
+
+// Ruling (Tao, 2026-10-26): a WO alerts ONLY on REV_UP, RENAMED or REMOVED.
+// Legacy exception: the latest ACTIVE row's rev_source is null → today's rule.
+describe('WorkOrdersService — WO alerts only on REV_UP / RENAMED / REMOVED (ruling 2026-10-26)', () => {
+  const svc = new WorkOrdersService({} as any, {} as any, {} as any)
+  const row = { id: 1, dispatch_id: 10, assembly_mark: 'A', qty: 3, name: 'WEB', weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, attributes: {}, rev: 1, rev_source: 'NEW' }
+
+  it('a newer row with the same rev and a changed qty (MANUAL) does not alert', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, qty: 2, rev: 1, rev_source: 'MANUAL' })
+    expect(cmp.delta_types).toEqual(['QTY_CHANGED'])
+    expect(cmp.is_outdated).toBe(false)
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('a newer row with the same rev and no change (CARRIED) does not alert', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, rev_source: 'CARRIED' })
+    expect(cmp.is_outdated).toBe(false)
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('a same-rev SPEC_CHANGED does not alert either', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, name: 'BUILT-UP H', rev_source: 'MANUAL' })
+    expect(cmp.delta_types).toEqual(['SPEC_CHANGED'])
+    expect(cmp.is_outdated).toBe(false)
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('a rev rise alerts, together with any data change', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, qty: 4, rev: 2, rev_source: 'DISPATCH_NOTE' })
+    expect(cmp.delta_types).toEqual(['QTY_CHANGED', 'REV_UP'])
+    expect(cmp.is_outdated).toBe(true)
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+  })
+
+  it('REMOVED still alerts', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, null)
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: ['REMOVED'] })
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+  })
+
+  it('legacy: the latest row has rev_source null → today\'s rule (SPEC_CHANGED alerts)', () => {
+    const old = { ...row, rev: 0, rev_source: null }
+    const cmp = (svc as any).classifyAssemblyDelta(old, { ...old, id: 2, dispatch_id: 11, name: 'BUILT-UP H' })
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: ['SPEC_CHANGED'], legacy: true })
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+    // legacy qty increase stays informational, as today
+    const up = (svc as any).classifyAssemblyDelta(old, { ...old, id: 2, dispatch_id: 11, qty: 5 })
+    expect(up.is_outdated).toBe(true)
+    expect(svc.isSignificantDelta(up)).toBe(false)
+  })
+
+  // Final review fix 1: legacy is decided from the WO mark's OWN row, not the latest row.
+  it('legacy own row: A(legacy) → B(legacy, qty/spec changed) → C(CARRIED rev 0, unchanged from B) still alerts', () => {
+    const a = { ...row, id: 1, dispatch_id: 10, qty: 3, rev: 0, rev_source: null }
+    const c = { ...row, id: 3, dispatch_id: 12, qty: 2, name: 'BUILT-UP H', rev: 0, rev_source: 'CARRIED' }
+    const cmp = (svc as any).classifyAssemblyDelta(a, c)
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: ['QTY_CHANGED', 'SPEC_CHANGED'], legacy: true })
+    expect(svc.isSignificantDelta(cmp)).toBe(true)
+  })
+
+  it('legacy own row vs a byte-identical newer CARRIED row: today\'s rule — offered (is_outdated) but no alert', () => {
+    const a = { ...row, rev: 0, rev_source: null }
+    const cmp = (svc as any).classifyAssemblyDelta(a, { ...a, id: 2, dispatch_id: 11, rev_source: 'CARRIED' })
+    expect(cmp).toMatchObject({ is_outdated: true, delta_types: [], legacy: true })
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('non-legacy own row vs a newer row: only REV_UP alerts, whatever the latest row\'s rev_source', () => {
+    const cmp = (svc as any).classifyAssemblyDelta(row, { ...row, id: 2, dispatch_id: 11, qty: 1, rev_source: null })
+    expect(cmp).toMatchObject({ is_outdated: false, legacy: false })
+    expect(svc.isSignificantDelta(cmp)).toBe(false)
+  })
+
+  it('isSignificantDelta: legacy=false → QTY decrease / SPEC_CHANGED alone are not significant; RENAMED is', () => {
+    expect(svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 3, to: 2 } }, legacy: false })).toBe(false)
+    expect(svc.isSignificantDelta({ delta_types: ['SPEC_CHANGED'], delta_details: null, legacy: false })).toBe(false)
+    expect(svc.isSignificantDelta({ delta_types: ['RENAMED'], delta_details: null, legacy: false })).toBe(true)
   })
 })
 
@@ -184,6 +308,10 @@ describe('WorkOrdersService.isSignificantDelta', () => {
     expect(
       svc.isSignificantDelta({ delta_types: ['QTY_CHANGED'], delta_details: { qty: { from: 1, to: 2 } } }),
     ).toBe(false)
+  })
+
+  it('returns true for REV_UP — the alert fires on every Rev rise', () => {
+    expect(svc.isSignificantDelta({ delta_types: ['REV_UP'], delta_details: { rev: { from: 1, to: 2 } } })).toBe(true)
   })
 
   it('returns false when delta_types is empty (byte-identical re-upload)', () => {
@@ -313,6 +441,23 @@ describe('WorkOrdersService.findAll — is_outdated badge (batched, multi-mark)'
     const result = await svc.findAll({})
 
     expect(result.find((w: any) => w.id === 1)?.is_outdated).toBe(false)
+  })
+
+  it('ruling 2026-10-26: a same-rev qty decrease on a non-legacy row does NOT flag; a rev rise does', async () => {
+    const base = { assembly_mark: 'WH-MA-001', weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    // the WO's own row is non-legacy (it carries a rev_source) — legacy is decided from it
+    const own = () => makeRow({ marks: [markRow({ bom_assembly: { ...markRow().bom_assembly, rev: 0, rev_source: 'NEW' } })] })
+    const svc1 = new WorkOrdersService(makePrisma([own()], [{ ...base, id: 200, dispatch_id: 20, qty: 1, rev: 0, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
+    expect((await svc1.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(false)
+    const svc2 = new WorkOrdersService(makePrisma([own()], [{ ...base, id: 200, dispatch_id: 20, qty: 2, rev: 1, rev_source: 'MANUAL' }]) as any, makeAutoCreate() as any, {} as any)
+    expect((await svc2.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(true)
+  })
+
+  it('final review fix 1: a legacy own row stays flagged after an unchanged upload writes CARRIED rev 0 rows', async () => {
+    // A (own, legacy) → B (legacy, qty 2 → 1) → C (CARRIED rev 0, same as B)
+    const c = { id: 300, dispatch_id: 30, assembly_mark: 'WH-MA-001', qty: 1, weight_kg: 100, surface_area_m2: 5, length_mm: 1000, width_mm: 200, height_mm: 50, attributes: {}, rev: 0, rev_source: 'CARRIED', dispatch: { project_id: 1, zone_id: 1, sub_zone_id: null } }
+    const svc = new WorkOrdersService(makePrisma([makeRow()], [c]) as any, makeAutoCreate() as any, {} as any)
+    expect((await svc.findAll({})).find((w: any) => w.id === 1)?.is_outdated).toBe(true)
   })
 
   it('issues exactly one batched bom_assembly query regardless of WO/mark count (no N+1)', async () => {
@@ -602,6 +747,25 @@ describe('WorkOrdersService.acceptNewVersion (per-mark)', () => {
     await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
 
     expect(prisma.work_order_mark.findMany).not.toHaveBeenCalled()
+  })
+
+  it('records the BOM rev move in the accept History (field old → new)', async () => {
+    const mark = makeMark()
+    ;(mark.bom_assembly as any).rev = 1
+    const prisma = makePrisma(mark, { ...mark.bom_assembly, id: 200, dispatch_id: 20, rev: 2 })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 1 } as any)
+    await svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)
+    expect(prisma.work_order_event.create.mock.calls[0][0].data.changes).toContainEqual({ field: 'bom_rev', old: 1, new: 2 })
+  })
+
+  it('ruling 2026-10-26: a newer non-legacy row with the same rev is not offered for accept (409)', async () => {
+    const mark = makeMark()
+    ;(mark.bom_assembly as any).rev = 1
+    ;(mark.bom_assembly as any).rev_source = 'NEW' // own row non-legacy
+    const prisma = makePrisma(mark, { ...mark.bom_assembly, id: 200, dispatch_id: 20, qty: 1, rev: 1, rev_source: 'MANUAL' })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+    await expect(svc.acceptNewVersion(1, 'tester', { bom_assembly_id: 100 } as any)).rejects.toBeInstanceOf(ConflictException)
   })
 })
 
@@ -2112,10 +2276,18 @@ describe('WorkOrdersService — mark renamed in the BOM (2026-10-21)', () => {
     const prisma: any = {
       work_order: { findUnique: jest.fn().mockResolvedValue({ id: 1, marks: [mark] }) },
       bom_dispatch: { findUnique: jest.fn().mockResolvedValue(makeDispatch(10, new Date())) },
-      bom_assembly: { findFirst: jest.fn(({ where }: any) => Promise.resolve(where.assembly_mark === '3WH-CO-001' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: '3WH-CO-001' } : null)) },
+      bom_assembly: {
+        findFirst: jest.fn(({ where }: any) => Promise.resolve(where.assembly_mark === '3WH-CO-001' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: '3WH-CO-001' } : null)),
+        findMany: jest.fn().mockResolvedValue([
+          { ...mark.bom_assembly, name: null, assembly_parts: [] },
+          { ...mark.bom_assembly, id: 200, assembly_mark: '3WH-CO-001', name: null, assembly_parts: [] },
+        ]),
+      },
     }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any, renamesOf(ASM_RENAME) as any)
     const [s] = await svc.bomVersionStatus(1)
+    // final review fix 2: a rename alone is not a data change — the note survives RENAMED
+    expect(s.data_same).toBe(true)
     expect(s).toMatchObject({ is_outdated: true, delta_types: ['RENAMED'], latest_dispatch_id: 20, latest_assembly_id: 200,
       delta_details: { renamed: { from: 'WH-CO-001', to: '3WH-CO-001', rename_ids: [7] } } })
     expect(svc.isSignificantDelta(s)).toBe(true)
@@ -2298,7 +2470,7 @@ describe('WorkOrdersService — mark renamed in the BOM, fix round 1', () => {
         where.assembly_mark === 'B' ? { ...mark.bom_assembly, id: 200, dispatch_id: 20, assembly_mark: 'B' }
         : where.assembly_mark === 'A' ? { ...mark.bom_assembly, id: 300, dispatch_id: 30, assembly_mark: 'A', weight_kg: 999 } // unrelated new A — must never be picked
         : null,
-      )) },
+      )), findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any,
       renamesOf({ id: 9, kind: 'ASSEMBLY', from_mark: 'A', to_mark: 'B', dispatch_id: 20 }) as any)

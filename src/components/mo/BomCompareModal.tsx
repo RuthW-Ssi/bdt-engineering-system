@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, X } from 'lucide-reac
 import { toast } from 'sonner'
 import { linkBom, type BomCompare, type MoDetail, type PartPair, type PreshopAssembly } from '../../api/mo'
 import { ASM_FIELDS, norm, showValue, type AsmValues } from '../../lib/asmFields'
+import { revMoveText, uploadLabel } from '../../lib/bom/markRev'
 import { getErrorMessage } from '../../lib/getErrorMessage'
 import { prePairs } from '../../lib/moBomComparePairs'
 import { partErrors } from '../../lib/preshop'
@@ -246,7 +247,7 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: '#1A1A1A' }}>เทียบกับ BOM จริง · {mo.mo_code}</div>
             <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
-              BOM rev {data.bom!.revision} · อัปโหลด {fmt(data.bom!.uploaded_at)} — ดูว่าอะไรต่าง แล้วเลือกเองทุกค่า · BOM จริงไม่ถูกแก้จากหน้านี้
+              BOM {uploadLabel(data.bom!.upload_no)} · อัปโหลด {fmt(data.bom!.uploaded_at)} — ดูว่าอะไรต่าง แล้วเลือกเองทุกค่า · BOM จริงไม่ถูกแก้จากหน้านี้
             </div>
           </div>
           <button onClick={onClose} aria-label="ปิด" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888', display: 'flex' }}><X size={18} /></button>
@@ -285,6 +286,7 @@ export function BomCompareModal({ mo, data, onClose }: { mo: MoDetail; data: Bom
                   <Choice label="ไว้ทีหลัง" active={decision[r.assembly_mark] === 'later'} onClick={() => setD(r, 'later')} />
                 </div>
                 {r.renamed_to && <div style={{ fontSize: 12, color: '#1E6B36', marginTop: 6 }}>{`จับคู่ไว้แล้วที่หน้า BOM: ${r.assembly_mark} → ${r.renamed_to.assembly_mark}`}</div>}
+                {r.rev && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginTop: 6 }}>{revMoveText(r.rev, !!r.rev_only)}</div>}
                 {renamedParts(r) && <PartPairing pairs={pairsOf(r)} bomParts={r.bom!.parts} onChange={p => setPartMaps(m => ({ ...m, [r.assembly_mark]: p }))} />}
                 {versionCards(r, r.bom!)}
               </div>

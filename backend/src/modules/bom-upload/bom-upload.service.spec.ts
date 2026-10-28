@@ -1,6 +1,7 @@
-import { BadRequestException, NotFoundException, Logger } from '@nestjs/common'
+import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common'
 import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions, requiresNcFile } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
+import * as XLSX from 'xlsx'
 import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -58,6 +59,7 @@ function buildPrisma() {
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
     },
+    bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     ...zoneMocks(),
   }
 }
@@ -323,6 +325,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -366,6 +369,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -392,6 +396,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
     const parser = {
@@ -464,6 +469,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -525,6 +531,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -585,6 +592,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -628,6 +636,7 @@ describe('BomUploadService.upload()', () => {
     const prisma = {
       $transaction: jest.fn().mockRejectedValue(new Error('DB down')),
       bom_dispatch: { findFirst: jest.fn().mockResolvedValue(null) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
     const storage = makeStorage()
@@ -689,6 +698,7 @@ describe('BomUploadService.upload()', () => {
       bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
       bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
       bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
       ...zoneMocks(),
     }
 
@@ -783,6 +793,19 @@ describe('BomUploadService.findOne()', () => {
     expect(result.doc_revisions[0]).toHaveProperty('uploader')
   })
 
+  it('each assembly carries its former marks (confirmed BOM renames, nearest first) — 2026-10-27', async () => {
+    const asm = (id: number, mark: string) => ({ id, dispatch_id: 2, assembly_mark: mark, name: null, qty: 1, weight_kg: null, surface_area_m2: null, length_mm: null, width_mm: null, height_mm: null, match_status: null, rev: 1, rev_source: null, product: null, assembly_parts: [] })
+    const renames = jest.fn().mockResolvedValue([
+      { id: 1, kind: 'ASSEMBLY', from_mark: 'BR10', to_mark: '2BR10', dispatch_id: 1 },
+      { id: 2, kind: 'ASSEMBLY', from_mark: '2BR10', to_mark: '3BR10', dispatch_id: 2 },
+      { id: 3, kind: 'PART', from_mark: 'p1', to_mark: 'BR7', dispatch_id: 1 },
+    ])
+    const svc = makeSvc({ bom_assembly: { findMany: jest.fn().mockResolvedValue([asm(5, '3BR10'), asm(6, 'BR7')]) }, bom_mark_rename: { findMany: renames } })
+    const r = await svc.findOne(1)
+    expect(r.assemblies!.map(a => [a.assembly_mark, a.former_marks])).toEqual([['3BR10', ['2BR10', 'BR10']], ['BR7', []]])
+    expect(renames.mock.calls[0][0].where).toMatchObject({ project_id: 1, zone_id: 2, sub_zone_id: null, kind: 'ASSEMBLY', dispatch: { source: { not: 'PRE_SHOP' } } })
+  })
+
   it('throws NotFoundException when dispatch not found', async () => {
     const prisma = makePrisma({
       bom_dispatch: { ...makePrisma().bom_dispatch, findUnique: jest.fn().mockResolvedValue(null) },
@@ -819,76 +842,124 @@ describe('BomUploadService.getRevisions()', () => {
   })
 })
 
-describe('BomUploadService — revision resolution', () => {
-  function buildRevisionPrisma(latestRevision: number | null) {
-    const dispatch = { id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), assembly_total: null, part_total: null }
-    const innerCreateSpy = jest.fn().mockResolvedValue({ ...dispatch, id: 100 })
-    const prisma = {
-      $transaction: jest.fn(async (cb: (tx: any) => Promise<any>) => cb({
-        bom_dispatch: {
-          findFirst: jest.fn().mockResolvedValue(latestRevision == null ? null : { revision: latestRevision }),
-          create: innerCreateSpy,
-          update: jest.fn(({ data }: any) => Promise.resolve({ ...dispatch, ...data })),
-        },
-        bom_doc_revision: { create: jest.fn().mockResolvedValue({ id: 1 }) },
-        bom_assembly: {
-          createManyAndReturn: jest.fn().mockResolvedValue([]),
-          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-        },
-        bom_part: {
-          createManyAndReturn: jest.fn().mockResolvedValue([]),
-          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
-        },
-        bom_assembly_part: { createMany: jest.fn().mockResolvedValue({ count: 0 }) },
-      })),
-      bom_dispatch: {
-        count: jest.fn().mockResolvedValue(1),
-        findUnique: jest.fn().mockResolvedValue(makeDetailRow()),
-        // Same value the inner-transaction mock above resolves to — this
-        // is the pre-read used only for the GCS key's `-rev<n>` segment
-        // (see bom-upload.service.ts), mirroring (not replacing) the
-        // transaction's own authoritative revision computation.
-        findFirst: jest.fn().mockResolvedValue(latestRevision == null ? null : { revision: latestRevision }),
-        findMany: jest.fn(({ select }: any = {}) =>
-          select?.revision
-            ? Promise.resolve([{ id: 1, revision: 1 }])
-            : Promise.resolve([{ id: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }]),
-        ),
-      },
-      bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
-      bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
-      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
-      ...zoneMocks(),
+describe('BomUploadService.upload() — per-mark revs (2026-10-26)', () => {
+  const activeB1 = (rev: number) => ({
+    assembly_mark: 'B1', name: 'Col A', qty: '1.000', weight_kg: '500.000', surface_area_m2: '5.0000', length_mm: null, width_mm: null, height_mm: null,
+    rev, slot: null, assembly_parts: [],
+  })
+  function revPrisma(active: any[], latest: { id: number; revision: number } | null, assemblies: any[] = [{ assembly_mark: 'B1', name: 'Col A', qty: 1, weight_kg: 600, surface_area_m2: 5 }]) {
+    const inner: any = {
+      bom_dispatch: { findFirst: jest.fn().mockResolvedValue(latest), create: jest.fn().mockResolvedValue({ id: 50 }), update: jest.fn() },
+      bom_doc_revision: { create: jest.fn() },
+      bom_assembly: { updateMany: jest.fn(), createManyAndReturn: jest.fn(({ data }: any) => Promise.resolve(data.map((d: any, i: number) => ({ id: 500 + i, ...d })))) },
+      bom_part: { updateMany: jest.fn(), createManyAndReturn: jest.fn(({ data }: any) => Promise.resolve(data.map((d: any, i: number) => ({ id: 600 + i, ...d })))) },
+      bom_assembly_part: { createMany: jest.fn() },
     }
-    return { prisma, innerCreateSpy }
+    const base = buildPrisma()
+    const prisma = makePrisma({
+      $transaction: jest.fn(async (cb: any) => cb(inner)),
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(active) } as any,
+      // carry-forward lookups (id: { not }) and the BIM placeholder find nothing
+      bom_dispatch: { ...base.bom_dispatch, findFirst: jest.fn(({ where }: any) => Promise.resolve(where?.id?.not !== undefined || where?.source === 'BIM_PLACEHOLDER' ? null : latest)) },
+    })
+    const storage = makeStorage()
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser({ assemblies }) as any, makeMatching() as any, makeDiffService(prisma) as any)
+    return { svc, inner, storage }
   }
+  const files = [makeFileInput()]
 
-  const minimalFiles: FileInput[] = [
-    { buffer: Buffer.from('x'), originalname: 'assembly list.xlsx', mimetype: 'application/vnd.ms-excel', size: 1, docType: 'ASSEMBLY_LIST' },
-    { buffer: Buffer.from('x'), originalname: 'assembly part list.xlsx', mimetype: 'application/vnd.ms-excel', size: 1, docType: 'ASSEMBLY_PART_LIST' },
-    { buffer: Buffer.from('x'), originalname: 'part list.xlsx', mimetype: 'application/vnd.ms-excel', size: 1, docType: 'PART_LIST' },
-  ]
-  const noNcFiles: NcFileInput[] = []
-
-  it('forces revision 1 when no prior dispatch exists for the zone/sub-zone, regardless of choice', async () => {
-    const { prisma, innerCreateSpy } = buildRevisionPrisma(null)
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
-    await svc.upload(minimalFiles, noNcFiles, 1, 2, null, 1, 'combined', 'new')
-    expect(innerCreateSpy).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revision: 1 }) }))
+  it('revision is always the latest + 1 (1 for a first upload) — no continue/new any more', async () => {
+    const first = revPrisma([], null)
+    await first.svc.upload(files, [], 1, 2, null, 1)
+    expect(first.inner.bom_dispatch.create.mock.calls[0][0].data.revision).toBe(1)
+    const next = revPrisma([activeB1(0)], { id: 7, revision: 3 })
+    await next.svc.upload(files, [], 1, 2, null, 1)
+    expect(next.inner.bom_dispatch.create.mock.calls[0][0].data.revision).toBe(4)
   })
 
-  it('reuses the latest revision when revisionChoice is "continue"', async () => {
-    const { prisma, innerCreateSpy } = buildRevisionPrisma(3)
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
-    await svc.upload(minimalFiles, noNcFiles, 1, 2, null, 1, 'combined', 'continue')
-    expect(innerCreateSpy).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revision: 3 }) }))
+  it('writes the confirmed rev on the new row — a ⚠ changed mark is "กำหนด rev เอง" (MANUAL)', async () => {
+    const { svc, inner } = revPrisma([activeB1(1)], { id: 7, revision: 1 })
+    await svc.upload(files, [], 1, 2, null, 1, 'combined', { revs: [{ mark: 'B1', rev: 3 }], baseDispatchId: 7 })
+    expect(inner.bom_assembly.createManyAndReturn.mock.calls[0][0].data[0]).toMatchObject({ assembly_mark: 'B1', rev: 3, rev_source: 'MANUAL', dn_status: null })
   })
 
-  it('increments to latest+1 when revisionChoice is "new" and a prior dispatch exists', async () => {
-    const { prisma, innerCreateSpy } = buildRevisionPrisma(3)
-    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
-    await svc.upload(minimalFiles, noNcFiles, 1, 2, null, 1, 'combined', 'new')
-    expect(innerCreateSpy).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ revision: 4 }) }))
+  it('no revs sent → the suggestions (unchanged → carried; new → 0)', async () => {
+    const { svc, inner } = revPrisma([], null)
+    await svc.upload(files, [], 1, 2, null, 1)
+    expect(inner.bom_assembly.createManyAndReturn.mock.calls[0][0].data[0]).toMatchObject({ rev: 0, rev_source: 'NEW' })
+  })
+
+  it('stale preview: another upload landed since → 409, no file stored, nothing written (Review Focus 3)', async () => {
+    const { svc, inner, storage } = revPrisma([activeB1(1)], { id: 8, revision: 2 })
+    await expect(svc.upload(files, [], 1, 2, null, 1, 'combined', { revs: [], baseDispatchId: 7 }))
+      .rejects.toThrow(new ConflictException('มีคนอัปโหลด BOM ของ zone นี้ไปแล้วระหว่างที่ตรวจ — กดอัปโหลดใหม่อีกครั้ง'))
+    expect(storage.putObject).not.toHaveBeenCalled()
+    expect(inner.bom_dispatch.create).not.toHaveBeenCalled()
+  })
+
+  // final review fix 5: the stale check is repeated inside the transaction
+  it('stale check inside the transaction: an upload landing after the first check → 409, nothing written, stored files removed', async () => {
+    const { svc, inner, storage } = revPrisma([activeB1(1)], { id: 7, revision: 1 })
+    // the outer read still sees dispatch 7; inside the transaction dispatch 8 has landed
+    inner.bom_dispatch.findFirst = jest.fn().mockResolvedValue({ id: 8, revision: 2 })
+    await expect(svc.upload(files, [], 1, 2, null, 1, 'combined', { revs: [{ mark: 'B1', rev: 2 }], baseDispatchId: 7 }))
+      .rejects.toThrow(new ConflictException('มีคนอัปโหลด BOM ของ zone นี้ไปแล้วระหว่างที่ตรวจ — กดอัปโหลดใหม่อีกครั้ง'))
+    expect(inner.bom_dispatch.create).not.toHaveBeenCalled()
+    expect(storage.delete).toHaveBeenCalled()
+  })
+
+  it('a rev below the current one → 400 before anything is stored (Review Focus 5)', async () => {
+    const { svc, storage } = revPrisma([activeB1(2)], { id: 7, revision: 1 })
+    await expect(svc.upload(files, [], 1, 2, null, 1, 'combined', { revs: [{ mark: 'B1', rev: 1 }], baseDispatchId: 7 }))
+      .rejects.toThrow(new BadRequestException('B1: rev ต่ำกว่า rev ปัจจุบัน (2) ไม่ได้'))
+    expect(storage.putObject).not.toHaveBeenCalled()
+  })
+
+  it('stores the Dispatch Note as a DISPATCH_NOTE doc row and never feeds it to the list parser', async () => {
+    const { svc, inner } = revPrisma([], null)
+    const wb = XLSX.utils.book_new() // XLSX imported at the top of the spec since Task 5
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['MarkNo.', 'Set', 'Rev', 'WeightKg.'], ['B1', 1, 2, 5]]), 'D')
+    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: XLSX.write(wb, { type: 'buffer', bookType: 'xls' }) as Buffer })
+    await svc.upload([...files, dn], [], 1, 2, null, 1)
+    expect(inner.bom_doc_revision.create.mock.calls.map((c: any) => c[0].data.doc_type)).toEqual(['ASSEMBLY_LIST', 'DISPATCH_NOTE'])
+    expect(inner.bom_assembly.createManyAndReturn.mock.calls[0][0].data[0]).toMatchObject({ rev: 2, rev_source: 'DISPATCH_NOTE' })
+  })
+
+  it('separate mode stores each slot\'s Dispatch Note as its own doc row', async () => {
+    const { svc, inner } = revPrisma([], null)
+    const book = () => {
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['MarkNo.', 'Set', 'Rev', 'WeightKg.'], ['B1', 1, 2, 5]]), 'D')
+      return XLSX.write(wb, { type: 'buffer', bookType: 'xls' }) as Buffer
+    }
+    const sep = [
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' }),
+      makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc assembly list.xlsx' }),
+      makeFileInput({ docType: 'MAIN_DISPATCH_NOTE', originalname: 'MAIN DN.xls', mimetype: 'application/vnd.ms-excel', buffer: book() }),
+      makeFileInput({ docType: 'ACC_DISPATCH_NOTE', originalname: 'ACC DN.xls', mimetype: 'application/vnd.ms-excel', buffer: book() }),
+    ]
+    await svc.upload(sep, [], 1, 2, null, 1, 'separate')
+    expect(inner.bom_doc_revision.create.mock.calls.map((c: any) => c[0].data.doc_type)).toEqual(['MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST', 'MAIN_DISPATCH_NOTE', 'ACC_DISPATCH_NOTE'])
+  })
+
+  it('save deactivates exactly what preview called "removed" (ACC-only separate upload keeps MAIN)', async () => {
+    const active = [
+      { ...activeB1(1), assembly_mark: 'MAIN1', slot: 'MAIN' },
+      { ...activeB1(1), assembly_mark: 'ACC1', slot: 'ACC' },
+    ]
+    const { svc, inner } = revPrisma(active, { id: 7, revision: 1 }, [{ assembly_mark: 'ACC2', name: 'Brace', qty: 1, weight_kg: 10, surface_area_m2: 1 }])
+    const accOnly = [makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc assembly list.xlsx' })]
+
+    const preview = await svc.preview(accOnly, [], 'separate', { projectId: 1, zoneId: 2, subZoneId: null })
+    const previewRemoved = preview.review.rows.filter(r => r.kind === 'removed').map(r => r.mark)
+    expect(previewRemoved).toEqual(['ACC1'])
+
+    await svc.upload(accOnly, [], 1, 2, null, 1, 'separate', { revs: [], baseDispatchId: 7 })
+    const where = inner.bom_assembly.updateMany.mock.calls[0][0].where
+    expect(where.slot).toEqual({ in: ['ACC'] })
+    // the save's deactivation filter, applied to the zone's ACTIVE rows, hits exactly the preview's removed marks
+    const deactivated = active.filter(a => where.slot.in.includes(a.slot)).map(a => a.assembly_mark)
+    expect(deactivated).toEqual(previewRemoved)
   })
 })
 
@@ -1151,6 +1222,7 @@ function makePersistentPrisma() {
     bom_doc_revision: { findMany: jest.fn().mockResolvedValue([]) },
     bom_assembly: { findMany: jest.fn().mockResolvedValue([]) },
     bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+    bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     ...zoneMocks(),
   }
 
@@ -1649,5 +1721,187 @@ describe('BomUploadService.buildDedupedParts — plate weight', () => {
   it('non-PL part is unchanged: NC weight wins', () => {
     const [p] = build([{ part_mark: 'A-r1', profile: 'PIPE113.5X2.4', qty: 1, weight_kg: 22 }], { 'A-r1': ncOf({ profileBase: 'PIPE113.5X2.4', weightKg: 21.94, pieceWeightKg: 21.94 }) })
     expect(p.weight_kg).toBe(21.94)
+  })
+})
+
+describe('BomUploadService.preview() — rev review', () => {
+  const dnBook = (rows: unknown[][]) => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['No.', 'MarkNo.', 'Set', 'Rev', '', '', 'WeightKg.', 'STATUS'], ...rows]), 'D')
+    return XLSX.write(wb, { type: 'buffer', bookType: 'xls' }) as Buffer
+  }
+  const parserBy = (byType: Record<string, Partial<ParsedBomFile>>) => ({
+    peekContractNo: jest.fn().mockReturnValue(''),
+    parse: jest.fn((_b: Buffer, docType: string) => ({ docType, assemblies: [], parts: [], assemblyParts: [], ...(byType[docType] ?? {}) })),
+  })
+  // ACTIVE row as Prisma returns it (Decimals as strings)
+  const active = (mark: string, rev: number, over: object = {}) => ({
+    assembly_mark: mark, name: 'BRACE', qty: '18.000', weight_kg: '104.445', surface_area_m2: '3.2761', length_mm: '650.00', width_mm: null, height_mm: null,
+    rev, slot: null, assembly_parts: [{ qty: '1.000', part: { part_mark: 'p1', description: null, profile: 'L50x50', grade: 'SS400', length_mm: '650.00', weight_kg: '5.800' } }],
+    ...over,
+  })
+  const fileAsm = (mark: string, over: object = {}) => ({ assembly_mark: mark, name: 'BRACE', qty: 18, weight_kg: 104.4449, surface_area_m2: 3.27612, length_mm: 650.004, ...over })
+  const combinedParsed = (asms: object[]) => ({
+    ASSEMBLY_LIST: { assemblies: asms as any },
+    PART_LIST: { parts: [{ part_mark: 'p1', profile: 'L50x50', grade: 'SS400', qty: 18, length_mm: 650, weight_kg: 5.8 }] },
+    ASSEMBLY_PART_LIST: { assemblyParts: (asms as any[]).map(a => ({ assembly_mark: a.assembly_mark, part_mark: 'p1', qty: 1 })) },
+  })
+  const combinedFiles = (extra: FileInput[] = []) => [
+    makeFileInput({ docType: 'ASSEMBLY_LIST' }),
+    makeFileInput({ docType: 'PART_LIST', originalname: 'part_list.xlsx' }),
+    makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' }),
+    ...extra,
+  ]
+  const svcWith = (parser: any, activeRows: any[], latestId: number | null = 7) => {
+    const base = buildPrisma()
+    const prisma = makePrisma({
+      bom_assembly: { findMany: jest.fn().mockResolvedValue(activeRows) } as any,
+      bom_dispatch: { ...base.bom_dispatch, findFirst: jest.fn().mockResolvedValue(latestId == null ? null : { id: latestId }) },
+    })
+    return { svc: new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any), prisma }
+  }
+  const scope = { projectId: 1, zoneId: 2, subZoneId: null }
+
+  it('identical re-upload (file decimals vs stored scale) → no review rows (Review Focus 1)', async () => {
+    const { svc } = svcWith(parserBy(combinedParsed([fileAsm('B1')])), [active('B1', 2)])
+    const r = await svc.preview(combinedFiles(), [], 'combined', scope)
+    expect(r.review).toEqual({ base_dispatch_id: 7, has_dn: false, rows: [], dn_only_marks: [], dn_warnings: [] })
+    expect(r.unmatchedAssemblyMarks).toEqual([])
+  })
+
+  // final review fix 6: junctions without a Part List can't build part lines → don't compare parts
+  it('Assembly List + Assembly Part List with no Part List: parts are left out of the compare (no false "changed")', async () => {
+    const parsed = combinedParsed([fileAsm('B1')]) as any
+    delete parsed.PART_LIST
+    const { svc } = svcWith(parserBy(parsed), [active('B1', 2)])
+    const r = await svc.preview([makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' })], [], 'combined', scope)
+    expect(r.review.rows).toEqual([])
+  })
+
+  it('reads the zone\'s ACTIVE real-upload rows as the previous state', async () => {
+    const { svc, prisma } = svcWith(parserBy(combinedParsed([fileAsm('B1')])), [active('B1', 2)])
+    await svc.preview(combinedFiles(), [], 'combined', scope)
+    expect(prisma.bom_assembly.findMany.mock.calls[0][0].where).toEqual({ status: 'ACTIVE', dispatch: { project_id: 1, zone_id: 2, sub_zone_id: null, source: 'BOM_UPLOAD' } })
+  })
+
+  it('Dispatch Note: changed + DN rev up → DN rev; a mark only in the DN → dn_only_marks (Review Focus 4)', async () => {
+    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'Z1 Dispatch Note Rev.2.xls', mimetype: 'application/vnd.ms-excel',
+      buffer: dnBook([[1, 'B2', 1, 0, 1, 2, 20, 'changed'], [2, 'X9', 1, 0, 1, '', 5, '']]) })
+    const { svc } = svcWith(parserBy(combinedParsed([fileAsm('B1'), fileAsm('B2', { length_mm: 700 })])), [active('B1', 1), active('B2', 1)])
+    const r = await svc.preview(combinedFiles([dn]), [], 'combined', scope)
+    expect(r.review.has_dn).toBe(true)
+    expect(r.review.rows.map(x => [x.mark, x.kind, x.suggested_rev, x.suggested_source, x.dn_status])).toEqual([['B2', 'changed', 2, 'DISPATCH_NOTE', 'changed']])
+    expect(r.review.dn_only_marks).toEqual(['X9'])
+  })
+
+  it('separate mode, ACC-only upload: MAIN marks are never "removed"; a moved mark keeps its rev (Review Focus 2)', async () => {
+    const parser = parserBy({
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1', weight_kg: 9 }, { assembly_mark: 'M2' }] as any },
+      ACC_PART_LIST: { parts: [] }, ACC_ASSEMBLY_PART_LIST: { assemblyParts: [] },
+    })
+    const rows = [
+      active('M1', 1, { slot: 'MAIN', assembly_parts: [] }), active('M2', 3, { slot: 'MAIN', name: null, qty: null, weight_kg: null, surface_area_m2: null, length_mm: null, assembly_parts: [] }),
+      active('A1', 0, { slot: 'ACC', name: null, qty: null, weight_kg: '8.000', surface_area_m2: null, length_mm: null, assembly_parts: [] }),
+      active('A2', 0, { slot: 'ACC', assembly_parts: [] }),
+    ]
+    const { svc } = svcWith(parser, rows)
+    const files = ['ACC_ASSEMBLY_LIST', 'ACC_PART_LIST', 'ACC_ASSEMBLY_PART_LIST'].map(t => makeFileInput({ docType: t as any, originalname: `ACC ${t}.xlsx` }))
+    const r = await svc.preview(files, [], 'separate', scope)
+    expect(r.review.rows.filter(x => x.kind === 'removed').map(x => x.mark)).toEqual(['A2'])
+    expect(r.review.rows.find(x => x.mark === 'A1')).toMatchObject({ kind: 'changed', prev_rev: 0, suggested_rev: 1, warning: 'CHANGED_NO_REV_UP' })
+    expect(r.review.rows.find(x => x.mark === 'M2')).toBeUndefined() // unchanged, carried at rev 3
+  })
+
+  it('first upload of a zone: every mark is new — rev 0, or the DN rev', async () => {
+    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([[1, 'B1', 1, 0, 1, 2, 20, '']]) })
+    const { svc } = svcWith(parserBy(combinedParsed([fileAsm('B1'), fileAsm('B2')])), [], null)
+    const r = await svc.preview(combinedFiles([dn]), [], 'combined', scope)
+    expect(r.review.base_dispatch_id).toBeNull()
+    expect(r.review.rows.map(x => [x.mark, x.suggested_rev])).toEqual([['B1', 2], ['B2', 0]])
+  })
+
+  it('refuses a Dispatch Note without any BOM list', async () => {
+    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+    const { svc } = svcWith(parserBy({}), [])
+    await expect(svc.preview([dn], [], 'combined', scope)).rejects.toThrow(new BadRequestException('ต้องมีไฟล์ BOM อย่างน้อย 1 ไฟล์ — อัปโหลด Dispatch Note อย่างเดียวไม่ได้'))
+  })
+
+  it('a Dispatch Note does not count as "mixing combined and separate"', async () => {
+    const dn = makeFileInput({ docType: 'MAIN_DISPATCH_NOTE', originalname: 'MAIN DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+    const parser = parserBy({ MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }] as any } })
+    const { svc } = svcWith(parser, [])
+    await expect(svc.preview([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'MAIN AL.xlsx' }), dn], [], 'separate', scope)).resolves.toBeDefined()
+  })
+
+  it('the Dispatch Note never reaches the Tekla list parser', async () => {
+    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([[1, 'B1', 1, 0, 1, 2, 20, '']]) })
+    const parser = parserBy(combinedParsed([fileAsm('B1')]))
+    const { svc } = svcWith(parser, [])
+    await svc.preview(combinedFiles([dn]), [], 'combined', scope)
+    expect(parser.parse.mock.calls.map(c => c[1])).toEqual(['ASSEMBLY_LIST', 'PART_LIST', 'ASSEMBLY_PART_LIST'])
+  })
+
+  describe('separate mode — one Dispatch Note per slot (2026-10-26)', () => {
+    const sdn = (slot: 'MAIN' | 'ACC', rows: unknown[][]) =>
+      makeFileInput({ docType: `${slot}_DISPATCH_NOTE` as any, originalname: `${slot} DN.xls`, mimetype: 'application/vnd.ms-excel', buffer: dnBook(rows) })
+    const mainAl = makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'MAIN AL.xlsx' })
+    const accAl = makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'ACC AL.xlsx' })
+    const parser = () => parserBy({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }, { assembly_mark: 'X' }] as any },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1' }] as any },
+    })
+
+    it('each mark takes its own slot\'s DN rev; a mark in both DNs → Thai warning; dn_only per slot', async () => {
+      const p = parser()
+      const { svc } = svcWith(p, [], null)
+      const main = sdn('MAIN', [[1, 'M1', 1, 0, 1, 2, 20, ''], [2, 'X', 1, 0, 1, 1, 20, ''], [3, 'A1', 1, 0, 1, 9, 20, '']])
+      const acc = sdn('ACC', [[1, 'A1', 1, 0, 1, 3, 20, ''], [2, 'X', 1, 0, 1, 7, 20, '']])
+      const r = await svc.preview([mainAl, accAl, main, acc], [], 'separate', scope)
+      expect(r.review.has_dn).toBe(true)
+      expect(r.review.rows.map(x => [x.mark, x.suggested_rev])).toEqual([['M1', 2], ['X', 1], ['A1', 3]])
+      expect(r.review.dn_only_marks).toEqual(['A1', 'X']) // A1 in the Main DN but not the Main lists; X likewise for Acc
+      expect(r.review.dn_warnings).toEqual(['A1, X: อยู่ใน Dispatch Note ทั้ง Main และ Acc — ใช้ rev จาก Dispatch Note ของช่องที่ mark นั้นอยู่'])
+      expect(p.parse.mock.calls.map(c => c[1])).toEqual(['MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST'])
+    })
+
+    it('only the Main DN sent → has_dn, Acc marks get no DN rev', async () => {
+      const { svc } = svcWith(parser(), [], null)
+      const r = await svc.preview([mainAl, accAl, sdn('MAIN', [[1, 'M1', 1, 0, 1, 2, 20, '']])], [], 'separate', scope)
+      expect(r.review.has_dn).toBe(true)
+      expect(r.review.rows.map(x => [x.mark, x.suggested_rev, x.in_dn])).toEqual([['M1', 2, true], ['X', 0, false], ['A1', 0, false]])
+    })
+
+    it('refuses a plain Dispatch Note in separate mode', async () => {
+      const { svc } = svcWith(parser(), [])
+      const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+      await expect(svc.preview([mainAl, dn], [], 'separate', scope)).rejects.toThrow(new BadRequestException('โหมดแยก Main/Acc: ใส่ Dispatch Note ในช่อง Main หรือ Acc'))
+    })
+
+    it('refuses a Main DN without Main lists, and an Acc DN without Acc lists', async () => {
+      const { svc } = svcWith(parser(), [])
+      await expect(svc.preview([accAl, sdn('MAIN', [])], [], 'separate', scope)).rejects.toThrow(new BadRequestException('ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main'))
+      await expect(svc.preview([mainAl, sdn('ACC', [])], [], 'separate', scope)).rejects.toThrow(new BadRequestException('ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc'))
+      await expect(svc.preview(combinedFiles([sdn('MAIN', [])]), [], 'combined', scope)).rejects.toThrow(new BadRequestException('ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main'))
+    })
+
+    it('refuses Dispatch Notes without any BOM list', async () => {
+      const { svc } = svcWith(parser(), [])
+      await expect(svc.preview([sdn('MAIN', []), sdn('ACC', [])], [], 'separate', scope)).rejects.toThrow(new BadRequestException('ต้องมีไฟล์ BOM อย่างน้อย 1 ไฟล์ — อัปโหลด Dispatch Note อย่างเดียวไม่ได้'))
+    })
+
+    it('refuses two Dispatch Notes of the same slot (combined: two DISPATCH_NOTE)', async () => {
+      const { svc } = svcWith(parser(), [])
+      await expect(svc.preview([mainAl, sdn('MAIN', []), sdn('MAIN', [])], [], 'separate', scope)).rejects.toThrow(BadRequestException)
+      const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([]) })
+      await expect(svc.preview(combinedFiles([dn, dn]), [], 'combined', scope)).rejects.toThrow(BadRequestException)
+    })
+  })
+
+  it('a removed mark still listed in the Dispatch Note shows once (removed row), not again in dn_only_marks', async () => {
+    const dn = makeFileInput({ docType: 'DISPATCH_NOTE', originalname: 'DN.xls', mimetype: 'application/vnd.ms-excel', buffer: dnBook([[1, 'B2', 1, 0, 1, '', 20, '']]) })
+    const { svc } = svcWith(parserBy(combinedParsed([fileAsm('B1')])), [active('B1', 0), active('B2', 0)])
+    const r = await svc.preview(combinedFiles([dn]), [], 'combined', scope)
+    expect(r.review.rows.map(x => [x.mark, x.kind, x.in_dn])).toEqual([['B2', 'removed', true]])
+    expect(r.review.dn_only_marks).toEqual([])
   })
 })

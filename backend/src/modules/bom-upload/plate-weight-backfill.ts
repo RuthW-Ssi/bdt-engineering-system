@@ -23,3 +23,15 @@ export function planPlateWeightFixes(rows: PlatePartRow[], weightsByDispatch: Ma
   }
   return { fixes, skipped, unchanged }
 }
+
+const csvCell = (v: string | number | null) => {
+  // A text cell starting with = + - @ would run as a formula in Excel; numbers are left as they are.
+  const s = v == null ? '' : typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v)
+  return /[",\n']/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+/** Old → new value of every fix, written before --apply so a staging run can be reverted (2026-10-28). */
+export function fixesCsv(fixes: PlateFix[]): string {
+  const rows = fixes.map(f => [f.id, f.dispatch_id, f.part_mark, f.from, f.to].map(csvCell).join(','))
+  return ['id,dispatch_id,part_mark,old_weight_kg,new_weight_kg', ...rows].join('\n') + '\n'
+}

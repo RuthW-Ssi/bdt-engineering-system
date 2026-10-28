@@ -19,6 +19,7 @@ export interface DispatchSummaryDto {
   assembly_count: number | null
   part_count: number | null
   total_weight_kg: number | null
+  upload_no: number | null
 }
 
 export interface AssemblyPartDto {
@@ -31,7 +32,6 @@ export interface AssemblyPartDto {
   part_qty: number
   unit_weight_kg: number | null
   match_status: string | null
-  version_label: string | null
 }
 
 interface AssemblyProductDto {
@@ -54,7 +54,10 @@ export interface AssemblyDto {
   parts: AssemblyPartDto[]
   match_status: string | null
   product: AssemblyProductDto | null
-  version_label: string | null
+  rev: number
+  rev_source: RevSource | null
+  /** Earlier names from confirmed BOM renames, nearest first (2026-10-27). */
+  former_marks?: string[]
 }
 
 export interface DispatchDetailDto extends DispatchSummaryDto {
@@ -159,6 +162,38 @@ export interface PreviewJunctionsResult {
   unmatchedPartMarks: string[]
 }
 
+// ── Per-mark BOM rev (2026-10-26) ────────────────────────────────
+export type RevSource = 'DISPATCH_NOTE' | 'CARRIED' | 'NEW' | 'MANUAL'
+export type RevWarning = 'CHANGED_NO_REV_UP' | 'REV_UP_NO_CHANGE' | 'DN_REV_LOWER'
+export interface RevChangeDto { field: string; old: string | number | null; new: string | number | null }
+export interface PartLineDto { part_mark: string; qty: number | null; description: string | null; profile: string | null; grade: string | null; length_mm: number | null; weight_kg: number | null }
+export interface MarkSnapshotDto { mark: string; qty: number | null; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null; parts: PartLineDto[] }
+export interface MarkDiffDto { fields: RevChangeDto[]; parts_added: PartLineDto[]; parts_removed: PartLineDto[]; parts_changed: { part_mark: string; changes: RevChangeDto[] }[] }
+export interface RevReviewRowDto {
+  mark: string
+  kind: 'added' | 'changed' | 'unchanged' | 'removed'
+  prev_rev: number | null
+  suggested_rev: number | null
+  suggested_source: RevSource | null
+  dn_rev: number | null
+  dn_status: string | null
+  in_dn: boolean
+  warning: RevWarning | null
+  dn_cancelled_in_files: boolean
+  rename_hint: string | null
+  editable: boolean
+  diff: MarkDiffDto | null
+}
+export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; dn_only_marks: string[]; dn_warnings: string[] }
+export interface UploadPreviewDto extends PreviewJunctionsResult { review: RevReviewDto }
+export interface RevEdit { mark: string; rev: number }
+export interface MarkRevEntryDto {
+  rev: number; mark: string; renamed_from: string | null; rev_source: RevSource | null; dn_status: string | null
+  upload_no: number | null; dispatch_id: number; uploaded_at: string; uploaded_by: string
+  first: boolean; values: MarkSnapshotDto | null; diff: MarkDiffDto | null
+}
+export interface MarkRevHistoryDto { assembly_id: number; mark: string; current_rev: number; entries: MarkRevEntryDto[] }
+
 // ── BOM Diff 3D model comparison ────────────────────────────────
 interface DiffBimModelMatch {
   model_id: number
@@ -260,6 +295,10 @@ export const dispatchesApi = {
     return apiClient.get(`/dispatches/${id}`).then(r => r.data)
   },
 
+  getMarkRevHistory(assemblyId: number): Promise<MarkRevHistoryDto> {
+    return apiClient.get(`/bom/assemblies/${assemblyId}/rev-history`).then(r => r.data)
+  },
+
   getDiff(id: number): Promise<DispatchDiffDto | null> {
     return apiClient
       .get(`/dispatches/${id}/diff`, { validateStatus: s => s === 200 || s === 204 })
@@ -289,7 +328,7 @@ export const dispatchesApi = {
       .then(r => r.data)
   },
 
-  previewUpload(formData: FormData): Promise<PreviewJunctionsResult> {
+  previewUpload(formData: FormData): Promise<UploadPreviewDto> {
     return apiClient
       .post('/bom/upload/preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
       .then(r => r.data)
@@ -302,12 +341,6 @@ export const dispatchesApi = {
         const items: DispatchSummaryDto[] = r.data.items ?? []
         return items.length > 0 ? items[0].upload_mode : null
       })
-  },
-
-  getLatestRevision(projectId: number, zoneId: number, subZoneId: number | null): Promise<number | null> {
-    return apiClient
-      .get('/dispatches/latest-revision', { params: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId ?? undefined } })
-      .then(r => r.data.revision)
   },
 
   getRenameCandidates(id: number): Promise<RenameCandidatesDto> {
