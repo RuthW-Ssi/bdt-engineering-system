@@ -115,8 +115,9 @@ export function BomUpload() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { activeProject, projects, selectProject } = useProjectSelection(searchParams, setSearchParams)
 
-  const [zoneId, setZoneId] = useState('')
-  const [subZoneId, setSubZoneId] = useState('')
+  // The BOM page passes its project/zone so the upload opens on the same zone (2026-10-28).
+  const [zoneId, setZoneId] = useState(() => searchParams.get('zone_id') ?? '')
+  const [subZoneId, setSubZoneId] = useState(() => searchParams.get('sub_zone_id') ?? '')
   const [uploadMode, setUploadMode] = useState<'combined' | 'separate'>('combined')
   const [files, setFiles] = useState<FileEntry[]>([])
   const [mainFiles, setMainFiles] = useState<FileEntry[]>([])
@@ -156,12 +157,20 @@ export function BomUpload() {
   // Clear zone-scoped state only when the project actually *changes* — see
   // BomList.tsx's identical guard for why a value-comparison ref (not a
   // boolean) is required under React StrictMode's dev-only double-invoke.
-  const lastProjectIdRef = useRef(activeProject?.id)
+  // Baselined on the URL's project so the zone passed in survives the project
+  // still loading (activeProject is undefined until the projects list arrives).
+  const lastProjectIdRef = useRef(activeProject?.id ?? (Number(searchParams.get('project_id')) || undefined))
   useEffect(() => {
     const id = activeProject?.id
-    if (lastProjectIdRef.current === id) return
+    if (id === undefined || lastProjectIdRef.current === id) return
     lastProjectIdRef.current = id
     handleZoneChange('')
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev)
+      p.delete('zone_id')
+      p.delete('sub_zone_id')
+      return p
+    }, { replace: true })
   }, [activeProject?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Validation
