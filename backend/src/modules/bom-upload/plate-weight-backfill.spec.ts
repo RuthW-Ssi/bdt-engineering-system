@@ -32,3 +32,10 @@ describe('fixesCsv (2026-10-28 — staging backup before --apply)', () => {
     ])).toBe('id,dispatch_id,part_mark,old_weight_kg,new_weight_kg\n1,7,A-p1,78.5,7.02\n2,7,"B,""x""",,1\n')
   })
 })
+
+describe('fixesCsv — spreadsheet formula guard (2026-10-28)', () => {
+  it('a part mark starting with = + - @ is written as text, not a formula; numbers stay numbers', () => {
+    expect(fixesCsv([{ id: 3, dispatch_id: 7, part_mark: '=HYPERLINK("x")', from: -1, to: 2 }]))
+      .toBe('id,dispatch_id,part_mark,old_weight_kg,new_weight_kg\n3,7,"\'=HYPERLINK(""x"")",-1,2\n')
+  })
+})

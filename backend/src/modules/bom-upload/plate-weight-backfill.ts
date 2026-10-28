@@ -25,8 +25,9 @@ export function planPlateWeightFixes(rows: PlatePartRow[], weightsByDispatch: Ma
 }
 
 const csvCell = (v: string | number | null) => {
-  const s = v == null ? '' : String(v)
-  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  // A text cell starting with = + - @ would run as a formula in Excel; numbers are left as they are.
+  const s = v == null ? '' : typeof v === 'string' && /^[=+\-@\t\r]/.test(v) ? `'${v}` : String(v)
+  return /[",\n']/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 /** Old → new value of every fix, written before --apply so a staging run can be reverted (2026-10-28). */
