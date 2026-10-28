@@ -118,6 +118,7 @@ export class BomUploadService {
     // 1–2. Validate + parse everything (fail fast before any I/O) — same path as preview
     const prep = this.prepare(files, ncFiles, uploadMode)
     const { parsed, dedupedParts } = prep
+    const { zone, subZone } = await this.scopeOf({ projectId, zoneId, subZoneId })
 
     // 3. Per-mark revs (2026-10-26): recompute the review server-side, refuse a
     //    stale preview, then validate the user's edits — never trust the client.
@@ -132,13 +133,6 @@ export class BomUploadService {
     //    with n = the revision this upload will get (latest + 1). Read
     //    non-transactionally on purpose (keep the transaction short); a race
     //    can only make the filename disagree with bom_dispatch.revision.
-    const zone = await this.prisma.project_zone.findUniqueOrThrow({
-      where: { id: zoneId },
-      select: { code: true, project: { select: { project_code: true } } },
-    })
-    const subZone = subZoneId
-      ? await this.prisma.sub_zone.findUniqueOrThrow({ where: { id: subZoneId }, select: { code: true } })
-      : null
     const latestForKey = await this.prisma.bom_dispatch.findFirst({
       where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
       orderBy: { revision: 'desc' },
@@ -550,9 +544,24 @@ export class BomUploadService {
     return { decision, baseDispatchId: base.baseDispatchId }
   }
 
+  /** The zone must belong to the project and the sub-zone to the zone — the client's pairing is never trusted (2026-10-28). */
+  private async scopeOf({ projectId, zoneId, subZoneId }: UploadScope) {
+    const zone = await this.prisma.project_zone.findUnique({
+      where: { id: zoneId },
+      select: { code: true, project_id: true, project: { select: { project_code: true } } },
+    })
+    if (!zone || zone.project_id !== projectId) throw new BadRequestException('zone นี้ไม่ได้อยู่ใน project ที่เลือก')
+    const subZone = subZoneId
+      ? await this.prisma.sub_zone.findUnique({ where: { id: subZoneId }, select: { code: true, zone_id: true } })
+      : null
+    if (subZoneId && (!subZone || subZone.zone_id !== zoneId)) throw new BadRequestException('sub-zone นี้ไม่ได้อยู่ใน zone ที่เลือก')
+    return { zone, subZone }
+  }
+
   /** Dry run (2026-10-26): junction check + the per-mark Rev review table. No DB writes. */
   async preview(files: FileInput[], ncFiles: NcFileInput[], uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<UploadPreview> {
     const prep = this.prepare(files, ncFiles, uploadMode)
+    await this.scopeOf(scope)
     const { decision, baseDispatchId } = await this.decide(prep, uploadMode, scope)
     return {
       ...this.junctionMismatchOf(prep.parsed),
