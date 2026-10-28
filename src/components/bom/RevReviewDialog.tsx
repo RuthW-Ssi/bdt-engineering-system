@@ -78,7 +78,7 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
                         <input aria-label={`Rev ใหม่ของ ${r.mark}`} inputMode="numeric" value={values[r.mark] ?? ''}
                           onChange={e => setValues(v => ({ ...v, [r.mark]: e.target.value }))}
                           style={{ width: 56, padding: '3px 6px', margin: '-4px 0', fontSize: 13, lineHeight: '18px', verticalAlign: 'baseline', border: `1px solid ${errors[r.mark] ? '#C8202A' : '#C2C2C2'}`, borderRadius: 4 }} />
-                        {errors[r.mark] && <div style={{ fontSize: 11.5, color: '#C8202A', marginTop: 2 }}>{errors[r.mark]}</div>}
+                        {errors[r.mark] && <div style={{ fontSize: 11.5, color: '#C8202A', marginTop: 2, whiteSpace: 'normal', lineHeight: 1.35 }}>{errors[r.mark]}</div>}
                       </>
                     ) : <b>{r.suggested_rev ?? '—'}</b>}
                   </td>

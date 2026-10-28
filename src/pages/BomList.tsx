@@ -527,6 +527,12 @@ export function BomList() {
   }, [activeProject?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const hasProject = !!activeProject
+  // Upload opens on the project/zone shown here (2026-10-28).
+  const uploadPath = `/bom/upload?${new URLSearchParams({
+    ...(activeProject && { project_id: String(activeProject.id) }),
+    ...(zoneFilter && { zone_id: zoneFilter }),
+    ...(subZoneFilter && { sub_zone_id: subZoneFilter }),
+  })}`
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -693,7 +699,7 @@ export function BomList() {
             </button>
           ) : (
             <button
-              onClick={() => navigate('/bom/upload')}
+              onClick={() => navigate(uploadPath)}
               className="flex items-center gap-1.5 rounded-md text-white"
               style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A' }}
             >
@@ -809,7 +815,7 @@ export function BomList() {
           <div style={{ fontSize: 14, fontWeight: 500 }}>No BOM dispatches yet</div>
           {canWrite && (
             <button
-              onClick={() => navigate('/bom/upload')}
+              onClick={() => navigate(uploadPath)}
               className="flex items-center gap-1.5 rounded-md text-white"
               style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', marginTop: 8 }}
             >

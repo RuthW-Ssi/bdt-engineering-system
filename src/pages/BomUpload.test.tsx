@@ -160,3 +160,11 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     expect(screen.getByRole('button', { name: /Upload/ })).toBeDisabled()
   })
 })
+
+describe('BomUpload — opened from the BOM page (2026-10-28)', () => {
+  it('preselects the zone passed in the URL', () => {
+    render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1']}><BomUpload /></MemoryRouter>)
+    expect(screen.getByDisplayValue('Z1 — Zone 1')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Select Zone...')).toBeNull()
+  })
+})
