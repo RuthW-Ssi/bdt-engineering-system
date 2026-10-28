@@ -6,6 +6,7 @@ import type { BomVersionStatus, MarkProgressBody, MarkProgressExpected, MarkProg
 import { datetimeLocalToIso, toDatetimeLocal } from '../../lib/datetimeLocal'
 import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 import { getErrorMessage } from '../../lib/getErrorMessage'
+import { revMoveText, revUpOf } from '../../lib/bom/markRev'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from './QcBreakdownFields'
 import { fmtFinish, isProgressNoise, showChangeValue } from './progressChanges'
 
@@ -308,6 +309,7 @@ export function WoMarksTable({
             const outdated = !!bom?.is_outdated
             const removedIrreversibly = bom?.delta_types.includes('REMOVED')
             const rn = renamedTo(bom)
+            const ru = revUpOf(bom)
             const expanded = expandedId === m.id
             const historyRows = expanded ? markHistoryRows(events, m.id) : []
             const dispatchText = dispatchLabel(m.snapshot_dispatch ?? { id: 0, project_id: m.bom_assembly.dispatch.project_id, project: m.bom_assembly.dispatch.project, zone: m.bom_assembly.dispatch.zone, sub_zone: m.bom_assembly.dispatch.sub_zone })
@@ -319,7 +321,7 @@ export function WoMarksTable({
                     {m.bom_assembly.name && <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>{m.bom_assembly.name}</span>}
                     {outdated && (
                       <span title={`Newer BOM version: ${bom!.delta_types.join(' · ') || 'change'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#C62828' }}>
-                        <AlertTriangle size={11} /> {rn ? `เปลี่ยนชื่อเป็น ${rn.to}` : 'outdated'}
+                        <AlertTriangle size={11} /> {rn ? `เปลี่ยนชื่อเป็น ${rn.to}` : ru ? `BOM Rev ${ru.from} → ${ru.to}` : 'outdated'}
                       </span>
                     )}
                     {dispatchText && <div style={{ fontSize: 10.5, color: '#ABABAB', marginTop: 1 }}>{dispatchText}</div>}
@@ -439,7 +441,7 @@ export function WoMarksTable({
                       )}
                       {outdated && (
                         <div style={{ marginTop: 10, fontSize: 11.5, color: '#8A2A0D' }}>
-                          Dispatch #{bom!.latest_dispatch_id} changed this mark: {bom!.delta_types.join(' · ') || 'unspecified change'}.
+                          Dispatch #{bom!.latest_dispatch_id} changed this mark: {bom!.delta_types.join(' · ') || 'unspecified change'}{ru && ` · ${revMoveText(ru, bom!.data_same === true)}`}.
                           {removedIrreversibly && ' The assembly was removed from the latest BOM version — remove this mark (or cancel the whole WO) instead of accepting.'}
                           {rn && ` ชื่อใหม่ใน BOM: ${rn.to} — กด Accept เพื่อย้ายไปชื่อใหม่ (ยอดเบิก part ย้ายตามไปด้วย)`}
                         </div>
@@ -572,7 +574,8 @@ const chipValue = (field: string, v: number | string | null) => (v == null ? '�
 function historyNote(e: WoEvent): string {
   const label = e.event_type === 'PROGRESS_UPDATE' ? e.notes ?? '' : MARK_EVENT_LABEL[e.event_type] ?? e.event_type
   const planned = e.changes?.find(c => c.field === 'qty_planned')
-  return [label, planned && `Quantity ${fmtQty(planned.old)} → ${fmtQty(planned.new)}`].filter(Boolean).join(' · ')
+  const rev = e.changes?.find(c => c.field === 'bom_rev') // taken at accept (2026-10-26)
+  return [label, planned && `Quantity ${fmtQty(planned.old)} → ${fmtQty(planned.new)}`, rev && `BOM Rev ${rev.old} → ${rev.new}`].filter(Boolean).join(' · ')
 }
 
 // Note tag tone by what happened: the app's red tint for take-backs (cancel,
@@ -766,6 +769,7 @@ function AcceptVersionModal({
           Adopts dispatch #{bom.latest_dispatch_id} ({bom.delta_types.join(' · ') || 'change'}) for this mark only, unless applied below.
         </p>
         {renamedTo(bom) && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>{`ชื่อ mark ${renamedTo(bom)!.from} → ${renamedTo(bom)!.to}`}</div>}
+        {revUpOf(bom) && <div style={{ fontSize: 12.5, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>{revMoveText(revUpOf(bom), bom.data_same === true)}</div>}
         <label style={{ fontSize: 12, color: '#666', display: 'block', marginBottom: 4 }}>Note</label>
         <textarea
           value={note} onChange={e => setNote(e.target.value)} autoFocus rows={2} placeholder="Optional note…"

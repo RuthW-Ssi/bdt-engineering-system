@@ -44,4 +44,16 @@ describe('classifyFilename', () => {
     // "assembly_part_list" contains "assembly_list" as substring — must pick the more specific one
     expect(classifyFilename('assembly_part_list.xlsx')).toBe('ASSEMBLY_PART_LIST')
   })
+
+  it('classifies a Dispatch Note (optional 4th BOM file, 2026-10-26)', () => {
+    expect(classifyFilename('1. DRIVING RANGE BANGNA ZONE 1 Dispatch Note Rev.2.xls')).toBe('DISPATCH_NOTE')
+    expect(classifyFilename('dispatch_note.xlsx')).toBe('DISPATCH_NOTE')
+  })
+
+  it('a Dispatch Note with a MAIN/ACC prefix goes to that slot (separate mode, 2026-10-26)', () => {
+    expect(classifyFilename('MAIN Z1 Dispatch Note.xls')).toBe('MAIN_DISPATCH_NOTE')
+    expect(classifyFilename('main_dispatch_note.xlsx')).toBe('MAIN_DISPATCH_NOTE')
+    expect(classifyFilename('ACC Z1 Dispatch-Note Rev.1.xls')).toBe('ACC_DISPATCH_NOTE')
+    expect(classifyFilename('acc_dispatch_note.xlsx')).toBe('ACC_DISPATCH_NOTE')
+  })
 })

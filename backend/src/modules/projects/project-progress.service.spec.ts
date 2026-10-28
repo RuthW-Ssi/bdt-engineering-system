@@ -878,19 +878,16 @@ describe('getZoneBimMatch', () => {
 
     expect(result.model_id).toBe(7)
     expect(result.model_version).toBe('2.1')
-    // Only dispatch in its (zone, sub_zone, revision) group → minor index 0.
-    expect(result.bom_version).toBe('3.0')
+    expect(result.bom_version).toBe('1')
     expect(result.matches).toEqual([
       { assembly_id: 1, mark: 'TC-FB1', global_ids: ['g1', 'g2'] },
       { assembly_id: 2, mark: 'TC-RF2', global_ids: ['g3'] },
     ])
   })
 
-  it('ranks "continue revision" dispatches chronologically as X.0, X.1… (mirrors BomList.tsx exactly)', async () => {
+  it('numbers uploads by order — two uploads read as 2', async () => {
     // Zone re-uploaded twice under the same revision (1) via "Continue
     // revision" — id 50 (first upload) then id 51 (second, now active).
-    // The BomUploadService worked example for this exact scenario is
-    // documented as v1.0 → v1.1 in BomList.tsx; this must agree.
     const prisma = makePrisma({
       bom_assembly: {
         findMany: jest.fn().mockResolvedValue([
@@ -907,10 +904,10 @@ describe('getZoneBimMatch', () => {
     })
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getZoneBimMatch('0X220', 10)
-    expect(result.bom_version).toBe('1.1')
+    expect(result.bom_version).toBe('2')
   })
 
-  it('jumps the major number on "start new revision" — no minor suffix confusion with continue', async () => {
+  it('a later upload reads as 2 whatever its revision number', async () => {
     const prisma = makePrisma({
       bom_assembly: {
         findMany: jest.fn().mockResolvedValue([
@@ -921,18 +918,16 @@ describe('getZoneBimMatch', () => {
       bom_dispatch: {
         findMany: jest.fn().mockResolvedValue([
           { id: 50, revision: 1, zone_id: 10, sub_zone_id: null },
-          { id: 60, revision: 2, zone_id: 10, sub_zone_id: null }, // "Start new revision" → major jumps to 2
+          { id: 60, revision: 2, zone_id: 10, sub_zone_id: null },
         ]),
       },
     })
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getZoneBimMatch('0X220', 10)
-    expect(result.bom_version).toBe('2.0')
+    expect(result.bom_version).toBe('2')
   })
 
-  it('reports only the highest version when a partial "continue" upload leaves some marks ACTIVE on an older dispatch', async () => {
-    // Real-world case that motivated this: dispatch 1 (v1.0) re-uploaded via
-    // "Continue revision" touching only some marks → dispatch 2 (v1.1).
+  it('reports the highest upload number when ACTIVE marks span two uploads', async () => {
     // Marks NOT in the second file stay ACTIVE on dispatch 1, so the zone's
     // live assemblies span both dispatches at once. Reporting every version
     // technically in play would read as noise — just the highest matters.
@@ -953,7 +948,7 @@ describe('getZoneBimMatch', () => {
     })
     const svc = new ProjectProgressService(prisma)
     const result = await svc.getZoneBimMatch('0X220', 10)
-    expect(result.bom_version).toBe('1.1')
+    expect(result.bom_version).toBe('2')
   })
 
   it('returns empty match set (model + versions null/empty) when the project has no complete BIM model', async () => {

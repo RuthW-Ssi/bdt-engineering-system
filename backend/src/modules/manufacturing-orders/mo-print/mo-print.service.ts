@@ -128,7 +128,7 @@ export interface MoPrintConsumeItem {
 // buildMoPrintPdf) — see mark-drawing-match.ts's currentRevSheetsForMark.
 export interface MoPrintAssemblyMarkRow {
   assemblyMark: string
-  sourceLabel: string // 'Pre-shop' | 'BOM rev N' — printed in the Mark cell (2026-10-09)
+  sourceLabel: string // 'Pre-shop' | 'BOM rev N' (the mark's BOM rev) — printed in the Mark cell
   renamedFrom: string | null // old mark, only for the Rev that renamed it
   name: string | null
   qty: number | null
@@ -367,7 +367,7 @@ export class MoPrintService {
       return {
         seq: i + 1,
         assemblyMark: assembly.assembly_mark,
-        sourceLabel: sourceLabelOf(assembly.dispatch),
+        sourceLabel: sourceLabelOf(assembly.dispatch, assembly.rev),
         renamedFrom: renames.get(assembly.assembly_mark) ?? null,
         name: assembly.name,
         width_mm: assembly.width_mm != null ? Number(assembly.width_mm) : null,
@@ -509,7 +509,7 @@ export class MoPrintService {
         const sheets = sheetsByWoAndMark.get(woMarkKey(wo.id, assembly.assembly_mark)) ?? []
         marks.push({
           assemblyMark: assembly.assembly_mark,
-          sourceLabel: sourceLabelOf(dispatch),
+          sourceLabel: sourceLabelOf(dispatch, assembly.rev),
           renamedFrom: renames.get(assembly.assembly_mark) ?? null,
           name: assembly.name ?? null,
           qty: qtyByAssembly.get(mark.bom_assembly_id) ?? null,

@@ -13,6 +13,7 @@ export const PROGRESS_FIELD_LABEL: Record<string, string> = {
   qty_renew: 'Renew',
   actual_finish: 'Finish Date',
   assembly_mark: 'Mark', // renamed in the BOM, taken at accept (2026-10-21)
+  bom_rev: 'BOM Rev', // the mark's BOM rev, taken at accept (2026-10-26)
 }
 
 /** dd/mm/yyyy HH:MM in the browser's local time — the mark finish date (2026-10-14). */

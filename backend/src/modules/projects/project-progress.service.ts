@@ -5,6 +5,7 @@ import { ProgressChangeLogService, type DiffEntry } from './progress-change-log.
 import { STAGE_WEIGHTS, FAB_STAGES, effectiveQty, clampPct, clampPcs, PAYMENT_STATUSES, buildProgressCreateDefaults } from './progress-shared'
 import type { FabStage, PaymentStatus } from './progress-shared'
 import { assertDepartmentCanEdit } from './progress-department'
+import { uploadNumbersOf } from '../bom-upload/upload-number'
 
 // Re-exported for backward compatibility — every other call site in this
 // module (spec file, bom-upload carry-forward) still imports these from
@@ -469,55 +470,17 @@ export class ProjectProgressService {
     }
   }
 
-  // Mirrors BomList.tsx's own versionMap computation exactly (there is no
-  // stored "minor version" column — `bom_dispatch.revision` only carries
-  // the major number). Group by (zone_id, sub_zone_id), sub-group by
-  // revision, then rank chronologically by dispatch id within each
-  // revision: "Continue revision" reads as 1.0, 1.1, 1.2…; only "Start new
-  // revision" jumps the major number.
-  //
-  // A zone's ACTIVE assemblies can legitimately span more than one dispatch
-  // at once — "Continue revision" only re-uploads the marks present in the
-  // new file, so marks it didn't touch stay ACTIVE on the older dispatch.
-  // Surfacing every version that's technically live would read as noise, so
-  // this reports only the highest (revision, then minor) — the version a
-  // user would recognize as "current".
+  // Zone-level BOM indicator (2026-10-26): the highest upload number among
+  // the zone's ACTIVE dispatches ("BOM v.n"). Per-mark revs live
+  // on the BOM page; this only says which upload is current.
   private async computeBomVersion(
-    projectId: number,
-    assemblies: { dispatch: { id: number; revision: number; zone_id: number; sub_zone_id: number | null } }[],
+    _projectId: number,
+    assemblies: { dispatch: { id: number } }[],
   ): Promise<string | null> {
-    const activeDispatches = new Map(assemblies.map(a => [a.dispatch.id, a.dispatch]))
-    if (!activeDispatches.size) return null
-
-    const groupKeys = [...new Set([...activeDispatches.values()].map(d => `${d.zone_id}:${d.sub_zone_id ?? ''}`))]
-    const allDispatches = await this.prisma.bom_dispatch.findMany({
-      where: {
-        project_id: projectId,
-        OR: groupKeys.map(k => {
-          const [zoneId, subZoneId] = k.split(':')
-          return { zone_id: Number(zoneId), sub_zone_id: subZoneId ? Number(subZoneId) : null }
-        }),
-      },
-      select: { id: true, revision: true, zone_id: true, sub_zone_id: true },
-      orderBy: { id: 'asc' },
-    })
-
-    const byGroupRevision = new Map<string, typeof allDispatches>()
-    for (const d of allDispatches) {
-      const key = `${d.zone_id}:${d.sub_zone_id ?? ''}:${d.revision}`
-      const list = byGroupRevision.get(key)
-      if (list) list.push(d)
-      else byGroupRevision.set(key, [d])
-    }
-    const versionById = new Map<number, { revision: number; minor: number }>()
-    for (const list of byGroupRevision.values()) {
-      list.forEach((d, idx) => versionById.set(d.id, { revision: d.revision, minor: idx }))
-    }
-
-    const versions = [...activeDispatches.keys()].map(id => versionById.get(id)!)
-    const highest = versions.reduce((best, v) =>
-      v.revision > best.revision || (v.revision === best.revision && v.minor > best.minor) ? v : best)
-    return `${highest.revision}.${highest.minor}`
+    const ids = [...new Set(assemblies.map(a => a.dispatch.id))]
+    if (!ids.length) return null
+    const nos = [...(await uploadNumbersOf(this.prisma, ids)).values()]
+    return nos.length ? String(Math.max(...nos)) : null
   }
 
   // Same match, all zones of the project at once — feeds the Overview tab's

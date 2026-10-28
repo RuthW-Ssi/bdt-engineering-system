@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Layers, Box, Package } from 'lucide-react'
 import type { AssemblyDto, AssemblyPartDto } from '../../api/dispatches'
+import { formerMarksText } from '../../lib/bom/markRev'
 
 interface Props {
   assemblies: AssemblyDto[]
@@ -14,14 +15,11 @@ function matches(term: string, ...fields: (string | null | undefined)[]): boolea
   return fields.some(f => f?.toLowerCase().includes(term))
 }
 
-// Shows which revision a row's data currently comes from — relevant once a
-// zone's Main and Acc slots can be at different revisions (one re-uploaded
-// more recently than the other).
-function RevisionBadge({ versionLabel }: { versionLabel: string | null }) {
-  if (versionLabel == null) return null
+// The mark's BOM Rev (2026-10-26, per-mark revision). Parts carry no rev.
+function RevisionBadge({ rev }: { rev: number }) {
   return (
     <span style={{ fontSize: 10, color: '#8E8E8E', background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
-      v{versionLabel}
+      {`Rev ${rev}`}
     </span>
   )
 }
@@ -80,8 +78,11 @@ function AssemblyRow({
       <span className="font-mono" style={{ fontSize: 13, fontWeight: 600, color: '#1F1F1F', minWidth: 110, flexShrink: 0 }}>
         {asm.assembly_mark}
       </span>
+      {formerMarksText(asm.former_marks) && (
+        <span className="font-mono" style={{ fontSize: 11, color: '#0C447C', flexShrink: 0 }}>{formerMarksText(asm.former_marks)}</span>
+      )}
 
-      <RevisionBadge versionLabel={asm.version_label} />
+      <RevisionBadge rev={asm.rev} />
 
       {/* Match status */}
 
@@ -176,8 +177,6 @@ function PartRow({ part, searchTerm }: { part: AssemblyPartDto; searchTerm?: str
       <span className="font-mono" style={{ fontSize: 12, fontWeight: 500, color: '#1F1F1F', minWidth: 110, flexShrink: 0 }}>
         {part.part_mark}
       </span>
-
-      <RevisionBadge versionLabel={part.version_label} />
 
       {/* Match status */}
 

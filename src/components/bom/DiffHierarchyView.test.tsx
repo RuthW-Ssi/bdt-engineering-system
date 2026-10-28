@@ -64,3 +64,23 @@ describe('DiffHierarchyView — renames (2026-10-21)', () => {
     expect(onPair).toHaveBeenCalledWith('PART', 'C-x')
   })
 })
+
+describe('DiffHierarchyView — Standalone Parts (2026-10-27)', () => {
+  const J = (a: string, p: string, st: 'removed' | 'added' | 'unchanged') => ({ status: st, prev: st === 'added' ? null : { assembly_mark: a, part_mark: p, qty: 1 }, curr: st === 'removed' ? null : { assembly_mark: a, part_mark: p, qty: 1 } })
+  const standalone = () => screen.queryByText(/Standalone Parts/i)
+
+  it('a removed part that sat under a removed assembly shows only under that assembly, not again as standalone', () => {
+    render(<DiffHierarchyView assembly_diff={[{ status: 'removed', prev: asm('BR24'), curr: null }]}
+      part_diff={[{ status: 'removed', prev: part('m138'), curr: null }]}
+      junction_diff={[J('BR24', 'm138', 'removed')]} />)
+    expect(screen.getAllByText('m138')).toHaveLength(1)
+    expect(standalone()).toBeNull()
+  })
+
+  it('still lists real standalone parts: removed with no junction before, and a part that moved out of every assembly', () => {
+    render(<DiffHierarchyView assembly_diff={[{ status: 'unchanged', prev: asm('K'), curr: asm('K') }]}
+      part_diff={[{ status: 'removed', prev: part('lone'), curr: null }, { status: 'unchanged', prev: part('moved'), curr: part('moved') }]}
+      junction_diff={[J('K', 'moved', 'removed')]} />)
+    expect(screen.getByText(/Standalone Parts \(2\)/i)).toBeInTheDocument()
+  })
+})

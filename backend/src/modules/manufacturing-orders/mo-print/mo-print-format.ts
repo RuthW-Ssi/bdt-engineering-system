@@ -175,9 +175,9 @@ export function moCodeCell(moCode: string, revision: number): string {
   return `${moCode} · Rev.${revision}`
 }
 
-/** Where a mark's data comes from: "Pre-shop" or "BOM rev N". */
-export function sourceLabelOf(dispatch: { source: string; revision: number }): string {
-  return dispatch.source === 'PRE_SHOP' ? 'Pre-shop' : `BOM rev ${dispatch.revision}`
+/** Where a mark's data comes from: "Pre-shop" or "BOM rev N" — N = the mark's own BOM rev (2026-10-26). */
+export function sourceLabelOf(dispatch: { source: string }, rev: number): string {
+  return dispatch.source === 'PRE_SHOP' ? 'Pre-shop' : `BOM rev ${rev}`
 }
 
 /** "C1-BUH1-3 (เดิม BUH1-3) · BOM rev 1" — the old name only for the Rev that renamed it. */

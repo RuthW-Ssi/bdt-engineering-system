@@ -21,6 +21,7 @@ import { toDatetimeLocal } from '../lib/datetimeLocal'
 import { dateInputGuardHandlers } from '../lib/dateInputGuard'
 import { StepHead, ui } from '../components/mo/PartUi'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
+import { uploadLabel } from '../lib/bom/markRev'
 
 // MO Part create/edit (wiki features/mo-part-import-plan §10). Every source
 // only pre-fills: Dispatch Note → marks, Material List → sizes (and the
@@ -324,7 +325,7 @@ export function MoPartNew() {
                 <div className="mb-1.5 font-semibold text-chrome-900">Part List (BOM) ในระบบ</div>
                 <select className={`${ui.select} mb-1 text-xs`} value={dispatchId ?? ''} onChange={e => setDispatchId(e.target.value ? Number(e.target.value) : null)}>
                   <option value="">— เลือก BOM —</option>
-                  {dispatches?.items.map(d => <option key={d.id} value={d.id}>{d.zone.label}{d.sub_zone ? ` / ${d.sub_zone.name}` : ''} · rev {d.revision}</option>)}
+                  {dispatches?.items.map(d => <option key={d.id} value={d.id}>{d.zone.label}{d.sub_zone ? ` / ${d.sub_zone.name}` : ''} · {uploadLabel(d.upload_no)}</option>)}
                 </select>
                 <div className="flex gap-1">
                   <select className={`${ui.select} text-xs`} value={slot} onChange={e => setSlot(e.target.value as '' | 'MAIN' | 'ACC')}>

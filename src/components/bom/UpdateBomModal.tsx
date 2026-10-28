@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Upload, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useQueryClient } from '@tanstack/react-query'
-import { useUploadBomWithPreview, useLatestRevision } from '../../hooks/useBomDispatches'
+import { useUploadBomWithPreview } from '../../hooks/useBomDispatches'
 import { useRenameStep } from '../../hooks/useRenameStep'
-import type { DispatchDetailDto } from '../../api/dispatches'
+import type { DispatchDetailDto, RevEdit } from '../../api/dispatches'
 import { JunctionMismatchModal } from './JunctionMismatchModal'
 import { RenamePairDialog } from './RenamePairDialog'
+import { RevReviewDialog } from './RevReviewDialog'
+import { InfoTip } from './InfoTip'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
@@ -34,27 +36,57 @@ const ACC_TYPE_MAP: Partial<Record<DocType, DocType>> = {
   PART_LIST: 'ACC_PART_LIST',
 }
 
+// A Dispatch Note is optional and goes in through the same picker as the
+// Tekla lists (2026-10-26) — one per dropzone, at most. A duplicate is
+// rejected with a toast instead of the usual inline "already exists" row.
+const DISPATCH_NOTE_TYPES: DocType[] = ['DISPATCH_NOTE', 'MAIN_DISPATCH_NOTE', 'ACC_DISPATCH_NOTE']
+
 function makeFileHandlers(
   files: FileEntry[],
   setFiles: React.Dispatch<React.SetStateAction<FileEntry[]>>,
   typeMap?: Partial<Record<DocType, DocType>>,
-  requiredKeyword?: string,
+  requiredKeyword?: 'MAIN' | 'ACC',
 ) {
+  // The slot this dropzone belongs to (for separate mode) — null for the combined picker.
+  const ownDnType: DocType | null = requiredKeyword === 'MAIN' ? 'MAIN_DISPATCH_NOTE' : requiredKeyword === 'ACC' ? 'ACC_DISPATCH_NOTE' : null
+  const otherDnType: DocType | null = requiredKeyword === 'MAIN' ? 'ACC_DISPATCH_NOTE' : requiredKeyword === 'ACC' ? 'MAIN_DISPATCH_NOTE' : null
+  const otherSlotLabel = requiredKeyword === 'MAIN' ? 'Acc' : 'Main'
+
   const onFilesAdded = (accepted: File[], rejected: FileRejection[]) => {
     const entries: FileEntry[] = []
+    const typesSoFar = files.filter(e => !e.error).map(e => e.detectedType)
     accepted.forEach(f => {
-      if (requiredKeyword && !f.name.toUpperCase().includes(requiredKeyword.toUpperCase())) {
+      const raw = classifyFilename(f.name)
+
+      if (raw && DISPATCH_NOTE_TYPES.includes(raw)) {
+        // Named for the OTHER slot (e.g. an "ACC Dispatch Note" dropped in the MAIN box) — wrong box.
+        if (otherDnType && raw === otherDnType) {
+          entries.push({ file: f, detectedType: null, error: `ไฟล์นี้เป็น Dispatch Note ของ ${otherSlotLabel} — ใส่ในช่อง ${otherSlotLabel}` })
+          return
+        }
+        // Combined picker: any MAIN/ACC naming collapses to the plain type.
+        // Slotted picker: unprefixed or already-this-slot → this slot's type.
+        const detectedType = ownDnType ?? 'DISPATCH_NOTE'
+        if (typesSoFar.includes(detectedType)) {
+          toast.error('ใส่ Dispatch Note ได้ไฟล์เดียว')
+          return
+        }
+        typesSoFar.push(detectedType)
+        entries.push({ file: f, detectedType })
+        return
+      }
+
+      if (requiredKeyword && !f.name.toUpperCase().includes(requiredKeyword)) {
         entries.push({ file: f, detectedType: null, error: `Filename must contain "${requiredKeyword}"` })
         return
       }
-      const raw = classifyFilename(f.name)
       const detectedType = raw && typeMap ? (typeMap[raw] ?? raw) : raw
-      const existingTypes = files.filter(e => !e.error).map(e => e.detectedType)
-      if (detectedType && existingTypes.includes(detectedType)) {
+      if (detectedType && typesSoFar.includes(detectedType)) {
         entries.push({ file: f, detectedType, error: `A file of type "${detectedType}" already exists` })
-      } else {
-        entries.push({ file: f, detectedType })
+        return
       }
+      if (detectedType) typesSoFar.push(detectedType)
+      entries.push({ file: f, detectedType })
     })
     const rejectedEntries: FileEntry[] = rejected.map(r => ({ file: r.file, detectedType: null, error: r.reason }))
     setFiles(prev => [...prev, ...entries, ...rejectedEntries])
@@ -89,13 +121,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
-  const [revisionChoice, setRevisionChoice] = useState<'continue' | 'new'>('continue')
-
-  const { data: latestRevision } = useLatestRevision(projectId, zoneId, subZoneId)
-
-  useEffect(() => {
-    setRevisionChoice('continue')
-  }, [dispatchId, zoneId, subZoneId])
 
   const combined = makeFileHandlers(files, setFiles)
   const main = makeFileHandlers(mainFiles, setMainFiles, MAIN_TYPE_MAP, 'MAIN')
@@ -108,8 +133,18 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const hasAllCombined = REQUIRED_BOM_TYPES.every(t => validCombined.map(e => e.detectedType).includes(t))
   const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
   const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
+
+  // A DN picked for a slot with none of that slot's own lists is almost
+  // certainly a mistake — block submit and flag it under that box rather
+  // than silently sending an orphan Dispatch Note.
+  const mainDnOrphan = mainFiles.some(e => !e.error && e.detectedType === 'MAIN_DISPATCH_NOTE')
+    && !REQUIRED_MAIN_TYPES.some(t => validMain.map(e => e.detectedType).includes(t))
+  const accDnOrphan = accFiles.some(e => !e.error && e.detectedType === 'ACC_DISPATCH_NOTE')
+    && !REQUIRED_ACC_TYPES.some(t => validAcc.map(e => e.detectedType).includes(t))
+
   const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
-  const canSubmit = bomReady && ncFiles.length >= 1 && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+  const canSubmit = bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
+    && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
   const handleUploadSuccess = async (res: DispatchDetailDto) => {
     qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
@@ -136,7 +171,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     formData.append('project_id', String(projectId))
     formData.append('zone_id', String(zoneId))
     formData.append('upload_mode', uploadMode)
-    formData.append('revision_choice', latestRevision != null ? revisionChoice : 'new')
     if (subZoneId != null) formData.append('sub_zone_id', String(subZoneId))
 
     const allValid = uploadMode === 'combined' ? validCombined : [...validMain, ...validAcc]
@@ -165,6 +199,16 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     }
   }
 
+  const handleConfirmReview = async (revs: RevEdit[]) => {
+    try {
+      const res = await uploadFlow.confirmReview(revs)
+      if (res == null) return
+      await handleUploadSuccess(res)
+    } catch (err: unknown) {
+      handleUploadError(err)
+    }
+  }
+
   const modeLabel = uploadMode === 'separate' ? 'Separate Main + ACC' : 'Combined'
 
   return (
@@ -179,22 +223,6 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             <X size={14} />
           </button>
         </div>
-
-        {latestRevision != null && (
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>Version</label>
-            <div style={{ display: 'flex', gap: 16 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input type="radio" checked={revisionChoice === 'continue'} onChange={() => setRevisionChoice('continue')} />
-                Continue version {latestRevision}
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <input type="radio" checked={revisionChoice === 'new'} onChange={() => setRevisionChoice('new')} />
-                Start new version ({latestRevision + 1})
-              </label>
-            </div>
-          </div>
-        )}
 
         {/* Mode badge */}
         <div style={{ fontSize: 12, color: '#555', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -227,6 +255,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
               maxFiles={3}
               files={mainFiles}
               allowedTypes={REQUIRED_MAIN_TYPES}
+              dnInfoText={DN_SLOT_INFO_TEXT}
+              dnOrphanMessage={mainDnOrphan ? 'ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main' : undefined}
               onFilesAdded={main.onFilesAdded}
               onRemove={main.removeFile}
               onTypeChange={main.updateType}
@@ -237,6 +267,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
               maxFiles={3}
               files={accFiles}
               allowedTypes={REQUIRED_ACC_TYPES}
+              dnInfoText={DN_SLOT_INFO_TEXT}
+              dnOrphanMessage={accDnOrphan ? 'ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc' : undefined}
               onFilesAdded={acc.onFilesAdded}
               onRemove={acc.removeFile}
               onTypeChange={acc.updateType}
@@ -308,6 +340,15 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
         />
       )}
 
+      {uploadFlow.pendingReview && (
+        <RevReviewDialog
+          review={uploadFlow.pendingReview}
+          isUploading={uploadFlow.uploadMutation.isPending}
+          onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
+          onConfirm={handleConfirmReview}
+        />
+      )}
+
       {renameStep.dispatchId != null && (
         <RenamePairDialog dispatchId={renameStep.dispatchId} onClose={() => { renameStep.close(); onClose() }} />
       )}
@@ -315,32 +356,49 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   )
 }
 
+const DEFAULT_DN_INFO_TEXT = 'ใส่ไฟล์ Dispatch Note ปนมากับไฟล์พวกนี้ได้เลย ไม่บังคับ ใช้ดู Rev ของแต่ละ mark ถ้าไม่มีไฟล์นี้ ระบบจะเทียบกับ BOM ครั้งก่อนให้'
+const DN_SLOT_INFO_TEXT = 'ช่อง Main ใส่ Dispatch Note ของ Main / ช่อง Acc ใส่ของ Acc'
+
 interface BomSectionProps {
   label: string
   hint: string
   maxFiles: number
   files: FileEntry[]
   allowedTypes: DocType[]
+  dnInfoText?: string
+  dnOrphanMessage?: string
   onFilesAdded: (accepted: File[], rejected: FileRejection[]) => void
   onRemove: (i: number) => void
   onTypeChange: (i: number, type: DocType) => void
 }
 
-function BomSection({ label, hint, maxFiles, files, allowedTypes, onFilesAdded, onRemove, onTypeChange }: BomSectionProps) {
+function BomSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, onFilesAdded, onRemove, onTypeChange }: BomSectionProps) {
   const validCount = files.filter(e => !e.error).length
+  // +1 slot: a Dispatch Note can be picked here too, on top of the required files — optional.
+  const capacity = maxFiles + 1
   return (
     <div>
       <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
         {label} <span style={{ color: '#C8202A' }}>*</span>
-        <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>{hint}</span>
+        <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>{hint}</span>{' '}
+        <InfoTip label="Dispatch Note ใช้ทำอะไร" text={dnInfoText ?? DEFAULT_DN_INFO_TEXT} />
       </label>
-      <FileDropzone maxFiles={maxFiles} currentCount={validCount} onFilesAdded={onFilesAdded} disabled={validCount >= maxFiles} />
+      <FileDropzone
+        maxFiles={capacity}
+        currentCount={validCount}
+        hint={`${maxFiles} ไฟล์ + Dispatch Note (ไม่ใส่ก็ได้)`}
+        onFilesAdded={onFilesAdded}
+        disabled={validCount >= capacity}
+      />
       {files.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
           {files.map((entry, i) => (
             <FilePreviewItem key={i} file={entry.file} detectedType={entry.detectedType} error={entry.error} allowedTypes={allowedTypes} onRemove={() => onRemove(i)} onTypeChange={type => onTypeChange(i, type)} />
           ))}
         </div>
+      )}
+      {dnOrphanMessage && (
+        <div style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{dnOrphanMessage}</div>
       )}
     </div>
   )

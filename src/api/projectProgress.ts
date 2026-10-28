@@ -179,14 +179,7 @@ export interface ProgressPositions {
 export interface BimMatchResult {
   model_id: number | null
   model_version: string | null
-  // "major.minor" (e.g. "1.1") — same scheme BomList.tsx displays: major =
-  // bom_dispatch.revision, minor = chronological rank within that revision
-  // ("Continue revision" reads 1.0, 1.1…; "Start new revision" jumps the
-  // major). A zone's live assemblies can technically span more than one
-  // dispatch (a partial "continue" upload only touches some marks) — this
-  // is just the highest one, i.e. what a user would call "current". Only
-  // present on the zone-scoped variant — a project spanning zones on
-  // different revisions can't collapse to one number.
+  // highest upload number ("v.n", was "อัปโหลดครั้งที่ n") among the zone's ACTIVE dispatches (2026-10-26)
   bom_version?: string | null
   matches: { assembly_id: number; mark: string; global_ids: string[] }[]
 }

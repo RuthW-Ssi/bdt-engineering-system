@@ -25,6 +25,7 @@ function makeMark(overrides: Record<string, any> = {}) {
       assembly_mark: 'DBN-A1-CTR1',
       name: 'Column A1',
       weight_kg: 450,
+      rev: 1,
       dispatch: makeDispatch(),
     },
     ...overrides,
@@ -74,6 +75,7 @@ function makeMoLine(overrides: Record<string, any> = {}) {
       length_mm: 6000,
       height_mm: 300,
       weight_kg: 450,
+      rev: 1,
       assembly_parts: [],
       dispatch: makeDispatch(),
     },
@@ -467,7 +469,7 @@ describe('MoPrintService.buildPlan', () => {
       ]) },
       mo_assembly_line: {
         findMany: jest.fn().mockResolvedValue([
-          makeMoLine({ line_seq: 1, bom_assembly_id: 1, qty: 2, bom_assembly: { id: 1, assembly_mark: 'C1-BUH1-3', name: null, width_mm: null, length_mm: 6000, height_mm: null, weight_kg: 100, assembly_parts: [], dispatch: makeDispatch() } }),
+          makeMoLine({ line_seq: 1, bom_assembly_id: 1, qty: 2, bom_assembly: { id: 1, assembly_mark: 'C1-BUH1-3', name: null, width_mm: null, length_mm: 6000, height_mm: null, weight_kg: 100, rev: 1, assembly_parts: [], dispatch: makeDispatch() } }),
           makeMoLine({ line_seq: 2, bom_assembly_id: 2, qty: 1, bom_assembly: { id: 2, assembly_mark: 'X1', name: null, width_mm: null, length_mm: 3000, height_mm: null, weight_kg: 50, assembly_parts: [], dispatch: makeDispatch({ source: 'PRE_SHOP', revision: 0 }) } }),
         ]),
       },
@@ -714,7 +716,7 @@ describe('MoPrintService.buildPlan', () => {
   // now every mark on the WO collapses into ONE row's marks[] array, so it
   // prints as a single traveler page listing every mark together.
   it('produces ONE row for a multi-mark WO, with every mark listed in that row\'s marks[]', async () => {
-    const secondAssembly = { id: 2869, assembly_mark: 'DBN-A1-CTR2', name: 'Column A2', weight_kg: 220, dispatch: makeDispatch() }
+    const secondAssembly = { id: 2869, assembly_mark: 'DBN-A1-CTR2', name: 'Column A2', weight_kg: 220, rev: 1, dispatch: makeDispatch() }
     const prisma = makePrisma({
       mo_assembly_line: {
         findMany: jest.fn().mockResolvedValue([

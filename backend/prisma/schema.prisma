@@ -993,6 +993,12 @@ model bom_assembly {
   // the real BOM data). Always false for non-placeholder (real BOM) rows.
   deleted_by_user Boolean      @default(false)
   slot            String?      @db.VarChar(4) // MAIN | ACC | null (combined-mode zones never set this)
+  // Per-mark BOM revision (2026-10-26, wiki features/bom-mark-revision-plan.md).
+  // The ACTIVE row's rev is the mark's current rev. Rows from before this
+  // feature read 0 with rev_source null.
+  rev             Int          @default(0)
+  rev_source      String?      @db.VarChar(16) // DISPATCH_NOTE | CARRIED | NEW | MANUAL ("กำหนด rev เอง")
+  dn_status       String?      @db.VarChar(30) // raw Dispatch Note STATUS (added/changed/…) — display only
   // Sprint 8: eBOM ↔ mBOM mapping
   product_id      Int?
   product         products?    @relation(fields: [product_id], references: [id], onDelete: SetNull)
