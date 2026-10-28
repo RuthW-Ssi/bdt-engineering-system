@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
 import * as XLSX from 'xlsx'
+import { MAX_REV } from '../../bom-upload/mark-rev'
+
+// bom_assembly.dn_status is VarChar(30)
+const STATUS_MAX = 30
 
 // Dispatch Note (wiki features/mo-part-import-plan §10): one row per
 // build-up/assembly mark — Mark No., Set, WeightKg., LENGTH, WIDTH, HIGTH.
@@ -91,7 +95,10 @@ export function parseDispatchNoteRevs(buffer: Buffer): { marks: DnRevRow[]; warn
         if (n != null && Number.isInteger(n) && n >= 0 && (rev == null || n > rev)) rev = n
       }
     }
-    const status = statusCol >= 0 ? String(cells[statusCol] ?? '').trim() || null : null
+    // Out of range would overflow the int column or skip the 0–999 rule (security M-1, 2026-10-28)
+    if (rev != null && rev > MAX_REV) { warnings.push(`${mark}: rev ${rev} เกิน ${MAX_REV} — ไม่ใช้ rev จาก Dispatch Note`); rev = null }
+    let status = statusCol >= 0 ? String(cells[statusCol] ?? '').trim() || null : null
+    if (status && status.length > STATUS_MAX) { warnings.push(`${mark}: STATUS ยาวเกิน ${STATUS_MAX} ตัวอักษร — ตัดเหลือ ${STATUS_MAX}`); status = status.slice(0, STATUS_MAX) }
     marks.push({ mark, rev, status })
   }
   if (revCol < 0) warnings.push('Dispatch Note: ไม่พบคอลัมน์ Rev — อ่าน rev ไม่ได้')

@@ -92,6 +92,16 @@ describe('parseDispatchNoteRevs', () => {
     expect(r.marks).toEqual([{ mark: 'BUH1-3', rev: 4, status: null }])
   })
 
+  it('a rev above 999 is not used (rev null + warning); STATUS is cut to the 30-char column + warning (security M-1, 2026-10-28)', () => {
+    const r = parseDispatchNoteRevs(book({ D: [BANGNA_HEAD, IDX, row(1, 'A1', [0, 1000]), row(2, 'A2', [0, 1e12]), row(3, 'A3', [0, 2], 'x'.repeat(40))] }))
+    expect(r.marks).toEqual([{ mark: 'A1', rev: null, status: null }, { mark: 'A2', rev: null, status: null }, { mark: 'A3', rev: 2, status: 'x'.repeat(30) }])
+    expect(r.warnings).toEqual([
+      'A1: rev 1000 เกิน 999 — ไม่ใช้ rev จาก Dispatch Note',
+      'A2: rev 1000000000000 เกิน 999 — ไม่ใช้ rev จาก Dispatch Note',
+      'A3: STATUS ยาวเกิน 30 ตัวอักษร — ตัดเหลือ 30',
+    ])
+  })
+
   it('no Rev column → every rev null + a warning; a duplicated mark keeps the first row + a warning', () => {
     const r = parseDispatchNoteRevs(book({ D: [['Mark No.', 'Set'], ['A1', 1], ['A1', 2]] }))
     expect(r.marks).toEqual([{ mark: 'A1', rev: null, status: null }])
