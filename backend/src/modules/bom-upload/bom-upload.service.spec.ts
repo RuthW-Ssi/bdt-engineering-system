@@ -13,10 +13,10 @@ import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
 function zoneMocks() {
   return {
     project_zone: {
-      findUniqueOrThrow: jest.fn().mockResolvedValue({ code: 'Z1', project: { project_code: 'TEST' } }),
+      findUnique: jest.fn().mockResolvedValue({ code: 'Z1', project_id: 1, project: { project_code: 'TEST' } }),
     },
     sub_zone: {
-      findUniqueOrThrow: jest.fn().mockResolvedValue({ code: 'SZ1' }),
+      findUnique: jest.fn().mockResolvedValue({ code: 'SZ1', zone_id: 2 }),
     },
   }
 }
@@ -301,6 +301,29 @@ describe('BomUploadService.upload()', () => {
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(storage.putObject).toHaveBeenCalledTimes(1)
+  })
+
+  // 2026-10-28: the client's project/zone/sub-zone pairing is never trusted.
+  it('rejects a zone of another project — nothing stored, preview refused too', async () => {
+    const prisma = makePrisma()
+    prisma.project_zone.findUnique.mockResolvedValue({ code: 'Z9', project_id: 5, project: { project_code: 'OTHER' } })
+    const storage = makeStorage()
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 99)).rejects.toThrow(new BadRequestException('zone นี้ไม่ได้อยู่ใน project ที่เลือก'))
+    await expect(svc.preview([makeFileInput()], [], 'combined', { projectId: 1, zoneId: 2, subZoneId: null })).rejects.toThrow(BadRequestException)
+    expect(storage.putObject).not.toHaveBeenCalled()
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects a sub-zone of another zone', async () => {
+    const prisma = makePrisma()
+    prisma.sub_zone.findUnique.mockResolvedValue({ code: 'SZ9', zone_id: 7 })
+    const storage = makeStorage()
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
+
+    await expect(svc.upload([makeFileInput()], [], 1, 2, 3, 99)).rejects.toThrow(new BadRequestException('sub-zone นี้ไม่ได้อยู่ใน zone ที่เลือก'))
+    expect(storage.putObject).not.toHaveBeenCalled()
   })
 
   it('status is "complete" when both assemblies and parts parsed', async () => {
