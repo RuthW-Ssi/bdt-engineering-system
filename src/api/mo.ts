@@ -279,7 +279,7 @@ export interface AssemblyPickerItem {
   project_due_date: string | null
   zone_end_date: string | null
   sub_zone_due_date: string | null
-  bom_version: string
+  bom_version: string | null
   total: number
   allocated: number
   remaining: number
@@ -719,12 +719,14 @@ export async function getMoDrawingRevStatus(moId: number, woId?: number): Promis
 // ── Pre-shop MO vs the zone's real BOM (2026-10-08) ─────────────────────────
 export interface BomValues { qty: number; name?: string | null; length_mm: number | null; width_mm?: number | null; height_mm?: number | null; weight_kg: number | null; surface_area_m2?: number | null; parts: PreshopPart[] }
 export interface BomCompare {
-  bom: { dispatch_id: number; revision: number; uploaded_at: string } | null
+  bom: { dispatch_id: number; revision: number; upload_no: number | null; uploaded_at: string } | null
   rows: {
     line_id: number
     assembly_mark: string
     kind: 'preshop' | 'bom' // pre-shop data (pick every value) · a Full shop BOM line (new version or keep)
     status: 'same' | 'changed' | 'not_in_bom'
+    rev?: { from: number; to: number } | null // the mark's BOM rev went up (2026-10-26)
+    rev_only?: boolean // only the rev moved — every value is the same
     reviewed: boolean // already checked against this BOM row
     existing: BomValues & { wo_qty: number; wo_parts: string[] }
     bom: (BomValues & { assembly_id: number; assembly_mark: string }) | null

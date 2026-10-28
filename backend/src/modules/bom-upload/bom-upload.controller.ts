@@ -13,6 +13,8 @@ import { BomDiffService } from './bom-diff.service'
 import { BomDiffBimMatchService } from './bom-diff-bim-match.service'
 import { PaintConfigService, SavePaintConfigDto } from './paint-config.service'
 import { MarkRenameService } from './mark-rename.service'
+import { MarkRevHistoryService } from './mark-rev-history.service'
+import { parseBaseField, parseRevsField, UPLOAD_FILE_FIELDS } from './upload-body'
 import { classifyFilename } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
@@ -43,11 +45,12 @@ export class BomUploadController {
     private readonly diffBimMatchSvc: BomDiffBimMatchService,
     private readonly paintSvc: PaintConfigService,
     private readonly renameSvc: MarkRenameService,
+    private readonly revHistorySvc: MarkRevHistoryService,
   ) {}
 
   @Post('bom/upload')
   @RequiresPermission('boms', 'create')
-  @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List) + NC files' })
+  @ApiOperation({ summary: 'Upload BOM files (Assembly List, Assembly Part List, Part List; optional Dispatch Note — one in combined mode, a Main and an Acc one in separate mode) + NC files' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -58,15 +61,16 @@ export class BomUploadController {
         zone_id: { type: 'integer' },
         sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
-        revision_choice: { type: 'string', enum: ['continue', 'new'] },
-        bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        revs: { type: 'string', description: 'JSON [{mark, rev}] from the review table' },
+        base_dispatch_id: { type: 'string' },
+        bom_files: { type: 'array', maxItems: 8, items: { type: 'string', format: 'binary' } },
         nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
-        doc_types: { type: 'array', items: { type: 'string' } },
+        doc_types: { type: 'array', items: { type: 'string' }, description: 'One per bom_files entry: ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST | DISPATCH_NOTE (combined), or MAIN_*/ACC_* incl. MAIN_DISPATCH_NOTE / ACC_DISPATCH_NOTE (separate). Max 8 files.' },
       },
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 6 }, { name: 'nc_files', maxCount: 1500 }],
+    UPLOAD_FILE_FIELDS,
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async upload(
@@ -100,42 +104,49 @@ export class BomUploadController {
     }))
 
     const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
-    const revisionChoice = (body['revision_choice'] === 'continue' ? 'continue' : 'new') as 'continue' | 'new'
-
-    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode, revisionChoice)
+    const revs = parseRevsField(body['revs'])
+    const baseDispatchId = parseBaseField(body['base_dispatch_id'])
+    return this.svc.upload(fileInputs, ncInputs, projectId, zoneId, subZoneId, user.sub, uploadMode, { revs, baseDispatchId })
   }
 
   @Post('bom/upload/preview')
   @RequiresPermission('boms', 'create')
-  @ApiOperation({ summary: 'Dry-run: check which Assembly Part List rows would fail to match an assembly/part — no DB writes' })
+  @ApiOperation({ summary: 'Dry-run: junction check + per-mark Rev review (optional Dispatch Note; separate mode: one per Main/Acc slot) — no DB writes' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['bom_files', 'doc_types'],
+      required: ['project_id', 'zone_id', 'bom_files', 'doc_types', 'nc_files'],
       properties: {
+        project_id: { type: 'integer' },
+        zone_id: { type: 'integer' },
+        sub_zone_id: { type: 'integer' },
         upload_mode: { type: 'string', enum: ['combined', 'separate'] },
-        bom_files: { type: 'array', items: { type: 'string', format: 'binary' } },
-        doc_types: { type: 'array', items: { type: 'string' } },
+        bom_files: { type: 'array', maxItems: 8, items: { type: 'string', format: 'binary' } },
+        nc_files: { type: 'array', items: { type: 'string', format: 'binary' } },
+        doc_types: { type: 'array', items: { type: 'string' }, description: 'One per bom_files entry: ASSEMBLY_LIST | ASSEMBLY_PART_LIST | PART_LIST | DISPATCH_NOTE (combined), or MAIN_*/ACC_* incl. MAIN_DISPATCH_NOTE / ACC_DISPATCH_NOTE (separate). Max 8 files.' },
       },
     },
   })
   @UseInterceptors(FileFieldsInterceptor(
-    [{ name: 'bom_files', maxCount: 6 }],
+    UPLOAD_FILE_FIELDS,
     { storage: memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } },
   ))
   async previewUpload(
-    @UploadedFiles() uploadedFiles: { bom_files?: MulterFile[] },
+    @UploadedFiles() uploadedFiles: { bom_files?: MulterFile[]; nc_files?: MulterFile[] },
     @Body() body: Record<string, string | string[]>,
   ) {
     const bomFiles = uploadedFiles?.bom_files ?? []
     if (!bomFiles.length) throw new BadRequestException('No BOM files uploaded')
-
+    const projectId = parseInt(String(body['project_id']), 10)
+    const zoneId = parseInt(String(body['zone_id']), 10)
+    if (isNaN(projectId) || isNaN(zoneId)) throw new BadRequestException('project_id and zone_id must be valid integers')
+    const subZoneId = body['sub_zone_id'] ? parseInt(String(body['sub_zone_id']), 10) : null
     const rawDocTypes = Array.isArray(body['doc_types']) ? body['doc_types'] : [body['doc_types']]
     const fileInputs = this.buildFileInputs(bomFiles, rawDocTypes)
+    const ncInputs: NcFileInput[] = (uploadedFiles?.nc_files ?? []).map(f => ({ buffer: f.buffer, originalname: f.originalname }))
     const uploadMode = (body['upload_mode'] === 'separate' ? 'separate' : 'combined') as 'combined' | 'separate'
-
-    return this.svc.previewJunctions(fileInputs, uploadMode)
+    return this.svc.preview(fileInputs, ncInputs, uploadMode, { projectId, zoneId, subZoneId })
   }
 
   private buildFileInputs(bomFiles: MulterFile[], rawDocTypes: (string | undefined)[]): FileInput[] {
@@ -238,6 +249,13 @@ export class BomUploadController {
   @ApiOperation({ summary: 'Undo a rename pair while nothing has used it (a1)' })
   undoRename(@Param('id', ParseIntPipe) id: number, @Param('renameId', ParseIntPipe) renameId: number, @CurrentUser() user: JwtPayload) {
     return this.renameSvc.undo(id, renameId, user.sub, user.login)
+  }
+
+  @Get('bom/assemblies/:id/rev-history')
+  @RequiresPermission('boms', 'view')
+  @ApiOperation({ summary: "A mark's BOM Rev history — field old→new, parts, renames, who/when (2026-10-26)" })
+  getRevHistory(@Param('id', ParseIntPipe) id: number) {
+    return this.revHistorySvc.history(id)
   }
 
   @Get('dispatches/:id/mapping')

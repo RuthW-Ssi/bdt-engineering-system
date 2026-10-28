@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2, Package } from 'lucide-react'
 import { toast } from 'sonner'
 import { useDispatchDetail, useDispatchDiff, useRenameCandidates, useDispatchRenames, useUndoRename } from '../hooks/useBomDispatches'
@@ -36,6 +36,15 @@ export function BomDispatchDetail() {
   const onUndo = async (r: RenamePairDto) => {
     if (!window.confirm(`ยกเลิกการจับคู่ ${r.from_mark} → ${r.to_mark} ?\nข้อมูลที่ย้ายไปตอนจับคู่จะถูกคืน`)) return
     try { await undo.mutateAsync(r.id); toast.success('ยกเลิกคู่แล้ว') } catch (e) { toast.error(getErrorMessage(e, 'ยกเลิกคู่ไม่สำเร็จ')) }
+  }
+
+  // First upload of the zone: nothing to compare (diff 204 → null). Tao 2026-10-28: never show an
+  // empty diff page — go to the BOM page's Tree tab for this dispatch (replace, so Back doesn't loop).
+  // The URL carries project/zone so the BOM page opens this dispatch's zone, not the last-picked one.
+  if (detail && !isDiffLoading && !isDiffError && diff === null) {
+    const q = new URLSearchParams({ project_id: String(detail.project_id), zone_id: String(detail.zone_id) })
+    if (detail.sub_zone_id != null) q.set('sub_zone_id', String(detail.sub_zone_id))
+    return <Navigate to={`/bom?${q}`} replace state={{ selectDispatch: detail.id, tab: 'tree' }} />
   }
 
   if (isLoading) {

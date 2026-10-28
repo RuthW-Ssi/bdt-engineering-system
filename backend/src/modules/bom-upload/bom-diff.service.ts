@@ -6,6 +6,7 @@ import type {
   DispatchDiffResult,
 } from './dto/diff.dto'
 import { renamePrev, tagRenamed } from './diff-renames'
+import { uploadNumbersOf } from './upload-number'
 
 const FLOAT_TOL = 0.001
 
@@ -194,11 +195,12 @@ export class BomDiffService {
     const current = await this.prisma.bom_dispatch.findUnique({ where: { id } })
     if (!current) throw new NotFoundException(`Dispatch ${id} not found`)
 
-    // Dispatches sharing this exact revision number are a deliberate group
-    // (the user's own continue/new choice at upload time is the sync
-    // signal) — bound both cutoffs by the group's full id range, not just
-    // this one dispatch's id, so a same-revision sibling with a lower id
-    // is never mistaken for "previous."
+    // Dispatches sharing this exact revision number are a group — legacy only:
+    // uploads from before 2026-10-26 (the old continue/new choice) could share
+    // a revision; every upload since gets its own (latest + 1). Bound both
+    // cutoffs by the group's full id range, not just this one dispatch's id,
+    // so a same-revision sibling with a lower id is never mistaken for
+    // "previous."
     const sameRevision = await this.prisma.bom_dispatch.findMany({
       where: {
         project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
@@ -224,41 +226,12 @@ export class BomDiffService {
     return groupToIds(groups.current).filter(id => !prev.has(id))
   }
 
-  // "major.minor" display label for a set of dispatches — minor is each
-  // dispatch's 0-indexed position (by upload order) among ALL dispatches
-  // sharing its exact revision number in the same zone/sub-zone (not just
-  // the ones in `dispatchIds`), so "Continue revision" uploads read as
-  // 1.0, 1.1, 1.2... and only "Start new revision" advances the major
-  // number. Purely a read-time label — never used for grouping/comparison.
+  // Upload number as text ("3") for a set of dispatches (2026-10-26) — the
+  // label users see; the old "major.minor" from the user-picked revision is
+  // gone with the continue/new choice. Read-time only, never used for grouping.
   async computeVersionLabels(dispatchIds: number[]): Promise<Map<number, string>> {
-    if (!dispatchIds.length) return new Map()
-
-    const dispatches = await this.prisma.bom_dispatch.findMany({
-      where: { id: { in: dispatchIds } },
-      select: { id: true, project_id: true, zone_id: true, sub_zone_id: true, revision: true },
-    })
-
-    const byGroup = new Map<string, typeof dispatches>()
-    for (const d of dispatches) {
-      const key = `${d.project_id}:${d.zone_id}:${d.sub_zone_id}:${d.revision}`
-      if (!byGroup.has(key)) byGroup.set(key, [])
-      byGroup.get(key)!.push(d)
-    }
-
-    const result = new Map<number, string>()
-    for (const group of byGroup.values()) {
-      const { project_id, zone_id, sub_zone_id, revision } = group[0]
-      const siblings = await this.prisma.bom_dispatch.findMany({
-        where: { project_id, zone_id, sub_zone_id, revision },
-        select: { id: true },
-        orderBy: { id: 'asc' },
-      })
-      const minorById = new Map(siblings.map((s, i) => [s.id, i]))
-      for (const d of group) {
-        result.set(d.id, `${d.revision}.${minorById.get(d.id) ?? 0}`)
-      }
-    }
-    return result
+    const n = await uploadNumbersOf(this.prisma, dispatchIds)
+    return new Map([...n].map(([id, no]) => [id, String(no)]))
   }
 
   async computeDiff(id: number): Promise<DispatchDiffResult | null> {

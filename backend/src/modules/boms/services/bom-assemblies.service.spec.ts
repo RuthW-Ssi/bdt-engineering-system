@@ -108,7 +108,7 @@ describe('BomAssembliesService.byMarkPrefix', () => {
     expect(result.groups[0].items[0].bom_version).toBe('2.1')
   })
 
-  it('falls back to "1.0" when computeVersionLabels() has no label for the dispatch', async () => {
+  it('falls back to null when computeVersionLabels() has no label for the dispatch (e.g. a pre-shop row)', async () => {
     const assemblies: FakeAssembly[] = [
       { id: 1, assembly_mark: 'TC-RF-001', name: null, qty: 5, status: 'ACTIVE', dispatch_id: 10, product: { mark_prefix: 'RF' }, dispatch: dispatchStub() },
     ]
@@ -119,7 +119,7 @@ describe('BomAssembliesService.byMarkPrefix', () => {
 
     const result = await svc.byMarkPrefix({})
 
-    expect(result.groups[0].items[0].bom_version).toBe('1.0')
+    expect(result.groups[0].items[0].bom_version).toBeNull()
   })
 
   it('bug repro: Main-slot ACTIVE assemblies are not hidden when only Acc-slot was recently re-superseded', async () => {

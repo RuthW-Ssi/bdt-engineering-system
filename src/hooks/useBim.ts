@@ -8,7 +8,7 @@ export function useBimModels(filter?: BimModelFilter, opts?: { enabled?: boolean
   return useQuery({ queryKey: ['bim-models', 'list', filter], queryFn: () => listBimModels(filter), enabled: opts?.enabled ?? true })
 }
 
-// Mirrors useBomDispatches' useLatestRevision, scoped by project only — BIM
+// Scoped by project only — BIM
 // models are uploaded at the whole-project level (confirmed 2026-07-21).
 // Gates the upload flow's minor/major version choice.
 export function useLatestBimVersion(projectId: number | undefined) {

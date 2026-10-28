@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common'
 import * as XLSX from 'xlsx'
+import { MAX_REV } from '../../bom-upload/mark-rev'
+
+// bom_assembly.dn_status is VarChar(30)
+const STATUS_MAX = 30
 
 // Dispatch Note (wiki features/mo-part-import-plan §10): one row per
 // build-up/assembly mark — Mark No., Set, WeightKg., LENGTH, WIDTH, HIGTH.
@@ -40,8 +44,11 @@ const AREA = ['paint', 'paint area', 'area', 'surface area']
 const LENGTH = ['length', 'length (mm)', 'length(mm)']
 const WIDTH = ['width', 'width (mm)', 'width(mm)']
 const HEIGHT = ['higth', 'height', 'height (mm)', 'height(mm)']
+const REV = ['rev', 'rev.', 'revision']
+const STATUS = ['status']
 
-export function parseDispatchNote(buffer: Buffer): { marks: PartMarkInput[]; warnings: string[] } {
+/** First sheet only (P3). The header row = the first row with a Mark column. */
+function readDispatchSheet(buffer: Buffer): { rows: unknown[][]; headerIdx: number; header: string[] } {
   let rows: unknown[][]
   try {
     const wb = XLSX.read(buffer, { type: 'buffer' })
@@ -50,10 +57,56 @@ export function parseDispatchNote(buffer: Buffer): { marks: PartMarkInput[]; war
   } catch {
     throw new BadRequestException('Dispatch Note: file is not a readable spreadsheet')
   }
-
   const headerIdx = rows.findIndex(r => findCol((r ?? []).map(norm), MARK) >= 0)
   if (headerIdx < 0) throw new BadRequestException('Dispatch Note: cannot find Mark No. column')
-  const header = rows[headerIdx].map(norm)
+  return { rows, headerIdx, header: rows[headerIdx].map(norm) }
+}
+
+export interface DnRevRow { mark: string; rev: number | null; status: string | null }
+
+/** Per-mark Rev for the BOM upload (2026-10-26, wiki features/bom-mark-revision-plan.md).
+ *  The `Rev` header spans sub-columns (Bangna: 0–5) up to the next named header;
+ *  each holds a rev the mark went through. The mark's rev = the highest whole
+ *  number across them; empty cells are skipped — never assume a column count.
+ *  STATUS is unreliable (spec) and only read as text for display. */
+export function parseDispatchNoteRevs(buffer: Buffer): { marks: DnRevRow[]; warnings: string[] } {
+  const { rows, headerIdx, header } = readDispatchSheet(buffer)
+  const markCol = findCol(header, MARK)
+  const revCol = findCol(header, REV)
+  const statusCol = findCol(header, STATUS)
+  let revEnd = revCol + 1
+  if (revCol >= 0) {
+    const width = Math.max(header.length, ...rows.map(r => (r ?? []).length))
+    while (revEnd < width && (header[revEnd] ?? '') === '') revEnd++
+  }
+  const marks: DnRevRow[] = []
+  const warnings: string[] = []
+  const seen = new Set<string>()
+  for (const r of rows.slice(headerIdx + 1)) {
+    const cells = r ?? []
+    const mark = String(cells[markCol] ?? '').trim()
+    if (!mark || /^[\d.]+$/.test(mark)) continue
+    if (seen.has(mark)) { warnings.push(`${mark}: อยู่ใน Dispatch Note มากกว่า 1 แถว — ใช้แถวแรก`); continue }
+    seen.add(mark)
+    let rev: number | null = null
+    if (revCol >= 0) {
+      for (let i = revCol; i < revEnd; i++) {
+        const n = num(cells[i])
+        if (n != null && Number.isInteger(n) && n >= 0 && (rev == null || n > rev)) rev = n
+      }
+    }
+    // Out of range would overflow the int column or skip the 0–999 rule (security M-1, 2026-10-28)
+    if (rev != null && rev > MAX_REV) { warnings.push(`${mark}: rev ${rev} เกิน ${MAX_REV} — ไม่ใช้ rev จาก Dispatch Note`); rev = null }
+    let status = statusCol >= 0 ? String(cells[statusCol] ?? '').trim() || null : null
+    if (status && status.length > STATUS_MAX) { warnings.push(`${mark}: STATUS ยาวเกิน ${STATUS_MAX} ตัวอักษร — ตัดเหลือ ${STATUS_MAX}`); status = status.slice(0, STATUS_MAX) }
+    marks.push({ mark, rev, status })
+  }
+  if (revCol < 0) warnings.push('Dispatch Note: ไม่พบคอลัมน์ Rev — อ่าน rev ไม่ได้')
+  return { marks, warnings }
+}
+
+export function parseDispatchNote(buffer: Buffer): { marks: PartMarkInput[]; warnings: string[] } {
+  const { rows, headerIdx, header } = readDispatchSheet(buffer)
   const col = {
     mark: findCol(header, MARK), name: findCol(header, NAME), set: findCol(header, SET), weight: findCol(header, WEIGHT),
     area: findCol(header, AREA), length: findCol(header, LENGTH), width: findCol(header, WIDTH), height: findCol(header, HEIGHT),

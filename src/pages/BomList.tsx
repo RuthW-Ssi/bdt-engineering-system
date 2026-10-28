@@ -9,6 +9,8 @@ import { useSubZones } from '../hooks/useSubZones'
 import { useProjectSelection } from '../hooks/useProjectSelection'
 import { BomTreeView } from '../components/bom/BomTreeView'
 import { UpdateBomModal } from '../components/bom/UpdateBomModal'
+import { MarkRevHistoryDialog } from '../components/bom/MarkRevHistoryDialog'
+import { formerMarksText, uploadLabel } from '../lib/bom/markRev'
 import type { DispatchSummaryDto, AssemblyDto, AssemblyPartDto } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
 
@@ -143,6 +145,7 @@ function PaintTab({
 
 // ── Assemblies flat table ──────────────────────────────────────
 function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
+  const [revOf, setRevOf] = useState<{ id: number; mark: string } | null>(null)
   const TH: React.CSSProperties = {
     position: 'sticky', top: 0, background: '#F5F5F5', zIndex: 2,
     padding: '6px 10px', fontSize: 10, fontWeight: 600, color: '#555',
@@ -178,8 +181,16 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
           {assemblies.map((asm, i) => (
             <tr key={asm.id} style={{ background: i % 2 === 0 ? '#fff' : '#F9FAFB' }}>
               <td style={{ ...TD, color: '#AAA', width: 32 }}>{i + 1}</td>
-              <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{asm.assembly_mark}</td>
-              <td style={{ ...TD, color: '#8E8E8E' }}>{asm.version_label != null ? `v${asm.version_label}` : '—'}</td>
+              <td style={{ ...TD, fontWeight: 600, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                {asm.assembly_mark}
+                {formerMarksText(asm.former_marks) && <div style={{ fontSize: 10.5, fontWeight: 400, color: '#0C447C' }}>{formerMarksText(asm.former_marks)}</div>}
+              </td>
+              <td style={TD}>
+                <button aria-label={`ประวัติ Rev ของ ${asm.assembly_mark}`} onClick={() => setRevOf({ id: asm.id, mark: asm.assembly_mark })}
+                  style={{ fontSize: 12, fontWeight: 600, color: '#185FA5', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'none' }}>
+                  {`Rev ${asm.rev}`}
+                </button>
+              </td>
               <td style={{ ...TD, color: '#555', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{asm.name ?? '—'}</td>
               <td style={{ ...TD, textAlign: 'right', fontWeight: 500 }}>×{asm.assembly_qty}</td>
               <td style={{ ...TD, textAlign: 'right', color: '#555' }}>{asm.surface_area_m2 != null ? asm.surface_area_m2.toFixed(2) : '—'}</td>
@@ -213,6 +224,7 @@ function AssembliesTable({ assemblies }: { assemblies: AssemblyDto[] }) {
           </tr>
         </tfoot>
       </table>
+      {revOf && <MarkRevHistoryDialog assemblyId={revOf.id} mark={revOf.mark} onClose={() => setRevOf(null)} />}
     </div>
   )
 }
@@ -324,10 +336,10 @@ const LINE_COLOR = '#D0DFF0'
 
 // ── Single version node — DBeaver-style timeline ──────────────
 function VersionNode({
-  item, version, isFirst, isLatest, isLast, selected, onSelect,
+  item, uploadNo, isFirst, isLatest, isLast, selected, onSelect,
 }: {
   item: DispatchSummaryDto
-  version: string
+  uploadNo: number | null
   isFirst: boolean
   isLatest: boolean
   isLast: boolean
@@ -381,18 +393,17 @@ function VersionNode({
           fontSize: 13, fontWeight: 700, marginBottom: 5,
           color: selected ? '#185FA5' : isLatest ? '#1F1F1F' : '#555',
         }}>
-          v{version}
+          {uploadLabel(uploadNo)}
         </div>
 
         <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>
           {item.assembly_count ?? 0} asm · {item.part_count ?? 0} parts
         </div>
 
-        <div style={{ fontSize: 10, color: '#999', fontStyle: 'italic', lineHeight: 1.4 }}>
-          <span style={{ color: '#777', fontStyle: 'normal', fontWeight: 500 }}>{item.uploader.name}</span>
-          {' '}
-          <span>updated on </span>
-          <span>{new Date(item.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+        <div style={{ fontSize: 10, color: '#999', lineHeight: 1.4 }}>
+          <span style={{ color: '#777', fontWeight: 500 }}>{item.uploader.name}</span>
+          {' · '}
+          <span>{new Date(item.uploaded_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' })}</span>
         </div>
       </div>
     </div>
@@ -401,11 +412,10 @@ function VersionNode({
 
 // ── Group of versions for one zone+subzone ─────────────────────
 function DispatchGroup({
-  group, latestIdSet, versionMap, selectedId, onSelect, onOpen,
+  group, latestIdSet, selectedId, onSelect, onOpen,
 }: {
   group: DispatchSummaryDto[]
   latestIdSet: Set<number>
-  versionMap: Map<number, string>
   selectedId: number | null
   onSelect: (id: number) => void
   onOpen: (id: number) => void
@@ -437,11 +447,11 @@ function DispatchGroup({
             marginLeft: 'auto', fontSize: 9, fontWeight: 600,
             color: '#888', background: '#E6E8EC',
             borderRadius: 99, padding: '1px 7px',
-          }}>{group.length} rev</span>
+          }}>{group.length} ครั้ง</span>
         )}
         <button
           onClick={() => onOpen(latestId)}
-          title="Open Dispatch Detail"
+          aria-label="เปิดหน้ารายละเอียด BOM"
           style={{
             marginLeft: group.length > 1 ? 4 : 'auto',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -462,7 +472,7 @@ function DispatchGroup({
         <VersionNode
           key={item.id}
           item={item}
-          version={versionMap.get(item.id) ?? `${item.revision}.0`}
+          uploadNo={item.upload_no}
           isFirst={idx === 0}
           isLatest={latestIdSet.has(item.id)}
           isLast={idx === group.length - 1}
@@ -560,8 +570,8 @@ export function BomList() {
 
   const allItems: DispatchSummaryDto[] = useMemo(() => data?.items ?? [], [data?.items])
 
-  // Per zone+subzone group: latest IDs, version numbers, and grouped array for rendering
-  const { latestIdSet, versionMap, groupedItems } = useMemo(() => {
+  // Per zone+subzone group: latest IDs and grouped array for rendering
+  const { latestIdSet, groupedItems } = useMemo(() => {
     const groups = new Map<string, DispatchSummaryDto[]>()
     for (const item of allItems) {
       const key = `${item.zone_id}-${item.sub_zone_id ?? ''}`
@@ -569,32 +579,13 @@ export function BomList() {
       groups.get(key)!.push(item)
     }
     const latestIdSet = new Set<number>()
-    const versionMap = new Map<number, string>()
     const groupedItems: DispatchSummaryDto[][] = []
     for (const group of groups.values()) {
-      // API returns desc order — group[0] is the most recently uploaded physical dispatch,
-      // regardless of which revision number it carries.
+      // API returns desc order — group[0] is the most recently uploaded physical dispatch.
       latestIdSet.add(group[0].id)
-
-      // Sub-group by revision, then rank by upload order within each
-      // revision (oldest = .0) — dispatches sharing a revision via
-      // "Continue revision" read as 1.0, 1.1, 1.2..., and only "Start new
-      // revision" jumps the major number to 2.0.
-      const byRevision = new Map<number, DispatchSummaryDto[]>()
-      for (const item of group) {
-        if (!byRevision.has(item.revision)) byRevision.set(item.revision, [])
-        byRevision.get(item.revision)!.push(item)
-      }
-      for (const revisionItems of byRevision.values()) {
-        const chronological = [...revisionItems].sort((a, b) => a.id - b.id)
-        chronological.forEach((item, minorIndex) => {
-          versionMap.set(item.id, `${item.revision}.${minorIndex}`)
-        })
-      }
-
       groupedItems.push(group)
     }
-    return { latestIdSet, versionMap, groupedItems }
+    return { latestIdSet, groupedItems }
   }, [allItems])
 
   // Always select the latest dispatch whenever the filtered list changes
@@ -912,7 +903,6 @@ export function BomList() {
                 key={`${group[0].zone_id}-${group[0].sub_zone_id ?? ''}`}
                 group={group}
                 latestIdSet={latestIdSet}
-                versionMap={versionMap}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onOpen={id => navigate(`/bom/dispatch/${id}`)}

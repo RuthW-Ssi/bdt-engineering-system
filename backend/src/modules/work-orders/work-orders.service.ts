@@ -7,6 +7,7 @@ import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 import { MarkAliasService } from '../mark-rename/mark-alias.service'
 import { followRenames, formerNames, partRenameChain, scopeKey, usableFormerNames, type BomScope, type RenameRow } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
+import { isUnchanged, markDiff, partLine, snapshot } from '../bom-upload/mark-rev'
 import { AcceptVersionDto } from './dto/accept-version.dto'
 import { CancelWoDto, WoActualsDto, WoDoneDto } from './dto/wo-transition.dto'
 import { RemoveMarkDto } from './dto/remove-mark.dto'
@@ -14,7 +15,7 @@ import { UpdateConsumeDto } from './dto/update-consume.dto'
 import { UpdatePartsDto } from './dto/update-parts.dto'
 import { UpdateMarkProgressDto } from './dto/update-mark-progress.dto'
 import { fmtBkk } from '../../common/history-format'
-import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField, type FinishChange, type MarkNameChange, type ProgressChange } from './progress-changes'
+import { diffProgress, toNum, EDITABLE_PROGRESS_FIELDS, FIELD_LABEL, type EditableProgressField, type BomRevChange, type FinishChange, type MarkNameChange, type ProgressChange } from './progress-changes'
 
 /**
  * WO list default sort tiebreak (T-WO.09): active work first, terminal last.
@@ -114,6 +115,9 @@ type BomAssemblyLike = {
   width_mm: Prisma.Decimal | null
   height_mm: Prisma.Decimal | null
   attributes: Prisma.JsonValue
+  // Per-mark BOM rev (2026-10-26). Rows from before the feature: rev 0, rev_source null.
+  rev?: number
+  rev_source?: string | null
 }
 
 export interface EnrichedActivity {
@@ -1463,7 +1467,9 @@ export class WorkOrdersService {
       }
     }
 
-    const cmp = await this.compareAssemblyToLatest(mark.bom_assembly, snap)
+    // `legacy` is internal (an isSignificantDelta input) — not part of the API
+    // response (bomVersionStatus / findOne marks[].bom_version_status).
+    const { legacy: _legacy, ...cmp } = await this.compareAssemblyToLatest(mark.bom_assembly, snap)
     return { ...cmp, ...base }
   }
 
@@ -1478,7 +1484,39 @@ export class WorkOrdersService {
       include: { marks: { where: { removed_at: null }, include: { bom_assembly: true } } },
     })
     if (!wo) throw new NotFoundException(`WO ${id} not found`)
-    return Promise.all(wo.marks.map((m) => this.markVersionStatus(m)))
+    const statuses = await Promise.all(wo.marks.map((m) => this.markVersionStatus(m)))
+    const same = await this.dataSameByPair(statuses)
+    return statuses.map((st) => ({ ...st, data_same: same(st) }))
+  }
+
+  /**
+   * `data_same` (final review fix 2): the mark's BOM data — assembly fields AND
+   * parts, the mark-rev `markDiff` set — is identical between the WO's own row and
+   * the latest row. delta_types cover assembly qty/spec only, so a rev rise caused
+   * by a part change alone would otherwise read as "ข้อมูล BOM ไม่เปลี่ยน".
+   * One batched query for the rows that need comparing.
+   */
+  private async dataSameByPair(statuses: { bom_assembly_id: number; latest_assembly_id: number | null }[]) {
+    const pairs = statuses.filter((s) => s.latest_assembly_id != null && s.latest_assembly_id !== s.bom_assembly_id)
+    const ids = [...new Set(pairs.flatMap((s) => [s.bom_assembly_id, s.latest_assembly_id!]))]
+    const rows = ids.length
+      ? await this.prisma.bom_assembly.findMany({
+          where: { id: { in: ids } },
+          select: {
+            id: true, assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true,
+            assembly_parts: { select: { qty: true, part: { select: { part_mark: true, description: true, profile: true, grade: true, length_mm: true, weight_kg: true } } } },
+          },
+        })
+      : []
+    // the mark name is not BOM data (a rename is its own delta) — compare under one name
+    const snap = new Map(rows.map((r) => [r.id, snapshot({ ...r, assembly_mark: '' }, r.assembly_parts.map((ap) => partLine(ap.part, ap.qty)))]))
+    return (s: { bom_assembly_id: number; latest_assembly_id: number | null }): boolean => {
+      if (s.latest_assembly_id == null) return false // REMOVED
+      if (s.latest_assembly_id === s.bom_assembly_id) return true
+      const a = snap.get(s.bom_assembly_id)
+      const b = snap.get(s.latest_assembly_id)
+      return !!a && !!b && isUnchanged(markDiff(a, b))
+    }
   }
 
   /**
@@ -1548,13 +1586,17 @@ export class WorkOrdersService {
     // provided leaves them untouched. Audited (2026-10-05) on the
     // ACCEPT_VERSION event itself.
     const qc = provided ? this.qcBreakdownWrite(dto) : null
-    const changes: (ProgressChange | FinishChange | MarkNameChange)[] = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
+    const changes: (ProgressChange | FinishChange | MarkNameChange | BomRevChange)[] = diffProgress(mark, { qty_planned: newQtyPlanned, ...qc })
     // A finish date only stands while QC Passed = Quantity (2026-10-14, QA F-2).
     const qcAfter = toNum(qc ? qc.qty_qc_passed : mark.qty_qc_passed)
     const clearFinish = mark.actual_finish != null && qcAfter !== Number(newQtyPlanned)
     if (clearFinish) changes.push({ field: 'actual_finish', old: mark.actual_finish!.toISOString(), new: null })
     // History standard: a rename is a field-level change too (final review)
     if (renamedTo) changes.push({ field: 'assembly_mark', old: renamedTo.from, new: renamedTo.to })
+    const revChange: BomRevChange | null = (latestAsm.rev ?? 0) !== (mark.bom_assembly.rev ?? 0)
+      ? { field: 'bom_rev', old: mark.bom_assembly.rev ?? 0, new: latestAsm.rev ?? 0 }
+      : null
+    if (revChange) changes.push(revChange)
 
     // WO part rows follow the mark (2026-10-21 fix — they used to stay on the old
     // version's rows and recomputeParts then added duplicates): by part mark,
@@ -1653,7 +1695,8 @@ export class WorkOrdersService {
         // `others` was already loaded above (needed to scope the part-repoint
         // query) — their part rows were already moved by the same `plan`.
         for (const other of others) {
-          const otherChanges = diffProgress(other, { qty_planned: newQtyPlanned })
+          const otherChanges: (ProgressChange | BomRevChange)[] = diffProgress(other, { qty_planned: newQtyPlanned })
+          if (revChange) otherChanges.push(revChange) // same original row → same rev move
           await tx.work_order_mark.update({
             where: { id: other.id },
             data: {
@@ -1685,18 +1728,23 @@ export class WorkOrdersService {
    * Shared significance filter: a newer dispatch existing for the group
    * (`is_outdated: true`) is NOT by itself grounds to warn on a mark or a DRAFT
    * MO line — e.g. a re-upload can reintroduce an assembly with byte-identical
-   * qty/weight/dims, in which case `delta_types` is genuinely empty. Only a
-   * REMOVED, SPEC_CHANGED, or qty-decrease delta is "significant" (qty-increase-
-   * only is informational, not a warning). Shared by `computeOutdatedWoIds()`'s
-   * list-badge loop and `ManufacturingOrdersService.findOne()`'s stale-line-
-   * warning check.
+   * qty/weight/dims, in which case `delta_types` is genuinely empty.
+   *
+   * Ruling (Tao, 2026-10-26): only REV_UP, RENAMED or REMOVED is "significant" —
+   * a QTY/SPEC change without a rev rise no longer alerts. Legacy exception: when
+   * the mark's OWN snapshotted row predates per-mark revs (`legacy`, rev_source
+   * null — a missing flag counts as legacy), the old rule stands: RENAMED / REMOVED /
+   * SPEC_CHANGED / qty decrease (a qty increase alone is informational). Shared by
+   * `computeOutdatedWoIds()`'s list-badge loop and
+   * `ManufacturingOrdersService.findOne()`'s stale-line-warning check.
    */
-  isSignificantDelta(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null }): boolean {
-    const isRemoved = cmp.delta_types.includes('REMOVED')
-    const isSpecChanged = cmp.delta_types.includes('SPEC_CHANGED')
+  isSignificantDelta(cmp: { delta_types: string[]; delta_details: Record<string, unknown> | null; legacy?: boolean }): boolean {
+    const t = cmp.delta_types
+    if (t.includes('REV_UP') || t.includes('RENAMED') || t.includes('REMOVED')) return true
+    if (cmp.legacy === false) return false
     const qtyDelta = cmp.delta_details?.qty as { from: number; to: number } | undefined
-    const isQtyDecrease = cmp.delta_types.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
-    return cmp.delta_types.includes('RENAMED') || isRemoved || isSpecChanged || isQtyDecrease
+    const isQtyDecrease = t.includes('QTY_CHANGED') && !!qtyDelta && qtyDelta.to < qtyDelta.from
+    return t.includes('SPEC_CHANGED') || isQtyDecrease
   }
 
   // ── BOM-version helpers ─────────────────────────────────────────────────────
@@ -1765,7 +1813,7 @@ export class WorkOrdersService {
   private classifyAssemblyDelta(
     assembly: BomAssemblyLike,
     latestAsm: BomAssemblyLike | null,
-  ): { is_outdated: boolean; delta_types: string[]; delta_details: Record<string, unknown> | null; latest_dispatch_id: number; latest_assembly_id: number | null } {
+  ): { is_outdated: boolean; delta_types: string[]; delta_details: Record<string, unknown> | null; latest_dispatch_id: number; latest_assembly_id: number | null; legacy: boolean } {
     // No ACTIVE row anywhere in the group for this mark → genuinely removed.
     // (No "latest dispatch for the group" concept survives this fix to report here —
     // fall back to the mark's own dispatch, mirroring the pre-Task-6 fallback shape.)
@@ -1776,6 +1824,7 @@ export class WorkOrdersService {
         delta_details: null,
         latest_dispatch_id: assembly.dispatch_id,
         latest_assembly_id: null,
+        legacy: false, // REMOVED alerts either way
       }
     }
 
@@ -1788,6 +1837,7 @@ export class WorkOrdersService {
         delta_details: null,
         latest_dispatch_id: latestAsm.dispatch_id,
         latest_assembly_id: latestAsm.id,
+        legacy: assembly.rev_source == null,
       }
     }
 
@@ -1805,13 +1855,31 @@ export class WorkOrdersService {
       delta_types.push('SPEC_CHANGED')
       delta_details.spec = { from: fromSpec, to: toSpec }
     }
+    // Per-mark BOM rev (2026-10-26): the alert fires on every rev rise, even a
+    // hand-raised one with no data change ("แบบเปลี่ยน detail การผลิตก็อาจส่งผลกระทบ").
+    const fromRev = assembly.rev ?? 0
+    const toRev = latestAsm.rev ?? 0
+    if (toRev > fromRev) {
+      delta_types.push('REV_UP')
+      delta_details.rev = { from: fromRev, to: toRev }
+    }
 
+    // Ruling (Tao, 2026-10-26): a newer row alerts only when its rev went up
+    // (RENAMED is added by compareAssemblyToLatest, REMOVED above). Legacy
+    // exception, decided from the mark's OWN snapshotted row (rev_source null =
+    // it predates per-mark revs): today's rule — any different ACTIVE row is
+    // "outdated" (accept can re-point parts-only changes) and isSignificantDelta()
+    // keeps the old alert rule. Deciding it from the latest row would drop the
+    // alert of a WO on a legacy row the moment an unchanged upload writes
+    // CARRIED rev 0 rows.
+    const legacy = assembly.rev_source == null
     return {
-      is_outdated: true, // a different ACTIVE row exists for this mark elsewhere in the group
+      is_outdated: legacy || delta_types.includes('REV_UP'),
       delta_types,
       delta_details: Object.keys(delta_details).length ? delta_details : null,
       latest_dispatch_id: latestAsm.dispatch_id,
       latest_assembly_id: latestAsm.id,
+      legacy,
     }
   }
 

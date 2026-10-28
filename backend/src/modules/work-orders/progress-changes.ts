@@ -24,6 +24,8 @@ export interface ProgressChange { field: ProgressField; old: number | null; new:
 export interface FinishChange { field: 'actual_finish'; old: string | null; new: string | null }
 /** A mark renamed in the BOM, taken at WO accept (2026-10-21, final review). */
 export interface MarkNameChange { field: 'assembly_mark'; old: string; new: string }
+/** The mark's BOM rev at WO accept (2026-10-26). */
+export interface BomRevChange { field: 'bom_rev'; old: number; new: number }
 
 export function toNum(v: { toString(): string } | number | null | undefined): number | null {
   if (v == null) return null

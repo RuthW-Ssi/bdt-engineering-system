@@ -803,3 +803,44 @@ describe('WoMarksTable — mark renamed in the BOM (2026-10-21)', () => {
     expect(screen.getByText('ชื่อ mark A1 → 3A1')).toBeInTheDocument()
   })
 })
+
+describe('WoMarksTable — BOM Rev went up (2026-10-26)', () => {
+  const revOnly = () => makeBom({ delta_types: ['REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } }, data_same: true })
+
+  it('the badge says "BOM Rev 1 → 2"; Accept says the data did not change', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [revOnly()] })} />)
+    expect(screen.getByText('BOM Rev 1 → 2')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2 · ข้อมูล BOM ไม่เปลี่ยน')).toBeInTheDocument()
+  })
+
+  // final review fix 2: the backend's data_same covers parts; delta_types do not
+  it('Rev up caused only by a part change (data_same false) shows just the move', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom({ delta_types: ['REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } }, data_same: false })] })} />)
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2')).toBeInTheDocument()
+    expect(screen.queryByText(/ข้อมูล BOM ไม่เปลี่ยน/)).toBeNull()
+  })
+
+  it('RENAMED + REV_UP with data_same true keeps the note', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom({ delta_types: ['RENAMED', 'REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 }, renamed: { from: 'A1', to: '3A1', rename_ids: [7] } }, data_same: true })] })} />)
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2 · ข้อมูล BOM ไม่เปลี่ยน')).toBeInTheDocument()
+  })
+
+  it('Rev up together with a spec change shows just the move', () => {
+    render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom({ delta_types: ['SPEC_CHANGED', 'REV_UP'] as any, delta_details: { rev: { from: 1, to: 2 } } })] })} />)
+    fireEvent.click(screen.getByTitle('Accept new BOM version'))
+    expect(screen.getByText('Rev 1 → 2')).toBeInTheDocument()
+  })
+})
+
+describe('WoMarksTable — the accepted BOM Rev move shows in the mark history (2026-10-26)', () => {
+  it('the ACCEPT_VERSION note carries "BOM Rev 1 → 2"', async () => {
+    const events = [makeEvent({ id: 1, work_order_mark_id: 1, recorded_at: '2026-10-26T08:00:00Z', recorded_by: 'tao', event_type: 'ACCEPT_VERSION', notes: 'Accepted BOM version → dispatch 2', changes: [{ field: 'qty_planned', old: 10, new: 8 }, { field: 'bom_rev', old: 1, new: 2 }] })]
+    render(<WoMarksTable {...baseProps({ events })} />)
+    await openEditor(0)
+    fireEvent.click(screen.getByRole('button', { name: /show history/i }))
+    expect(within(screen.getByRole('region', { name: 'History' })).getByText('BOM version accepted · Quantity 10 → 8 · BOM Rev 1 → 2')).toBeInTheDocument()
+  })
+})

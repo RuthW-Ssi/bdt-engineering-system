@@ -26,6 +26,7 @@ import { actualsTracking, parseActualDates } from '../../common/actual-dates'
 import { MarkAliasService } from '../mark-rename/mark-alias.service'
 import { followRenames, partRenameChain, scopeKey, type RenameRow } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
+import { uploadNumbersOf } from '../bom-upload/upload-number'
 
 /**
  * P3 status state machine: allowed forward transitions.
@@ -1246,7 +1247,7 @@ export class ManufacturingOrderService {
     return this.prisma.mo_assembly_line.findMany({
       where: { mo_id: id }, orderBy: { line_seq: 'asc' },
       include: { bom_assembly: { select: {
-        id: true, assembly_mark: true, dispatch_id: true, ...ASM_SELECT, attributes: true, dispatch: { select: { source: true } },
+        id: true, assembly_mark: true, dispatch_id: true, rev: true, ...ASM_SELECT, attributes: true, dispatch: { select: { source: true } },
         assembly_parts: { orderBy: { sequence: 'asc' }, select: { id: true, qty: true, part_id: true, _count: { select: { work_order_parts: { where: { updated_by: { not: null } } } } }, part: { select: { part_mark: true, profile: true, length_mm: true, grade: true, weight_kg: true } } } },
       } } },
     })
@@ -1274,7 +1275,7 @@ export class ManufacturingOrderService {
     if (!dispatch) return empty
     const bomRows = await this.prisma.bom_assembly.findMany({
       where: { status: 'ACTIVE', dispatch: { ...scope, source: 'BOM_UPLOAD' } },
-      select: { id: true, assembly_mark: true, qty: true, dispatch_id: true, ...ASM_SELECT,
+      select: { id: true, assembly_mark: true, qty: true, dispatch_id: true, rev: true, ...ASM_SELECT,
         assembly_parts: { orderBy: { sequence: 'asc' }, select: { qty: true, part: { select: { part_mark: true, profile: true, length_mm: true, grade: true, weight_kg: true } } } } },
     })
     // mark/part renamed on the BOM page (2026-10-21) — pre-pairs Full shop lines.
@@ -1319,14 +1320,17 @@ export class ManufacturingOrderService {
       const next = kind === 'bom' ? followRenames(renames, 'ASSEMBLY', b.assembly_mark, b.dispatch_id) : null
       const hasPair = !!next && next.name !== b.assembly_mark
       const bomA = bomByMark.get(hasPair ? next!.name : b.assembly_mark)
-      const bom = bomA ? { assembly_id: bomA.id, assembly_mark: bomA.assembly_mark, qty: Number(bomA.qty ?? 0), dispatch_id: bomA.dispatch_id, ...asmValues(bomA), parts: partsOf(bomA.assembly_parts) } : null
+      const bom = bomA ? { assembly_id: bomA.id, assembly_mark: bomA.assembly_mark, qty: Number(bomA.qty ?? 0), dispatch_id: bomA.dispatch_id, rev: bomA.rev, ...asmValues(bomA), parts: partsOf(bomA.assembly_parts) } : null
       const renamed_to = hasPair && bomA ? { assembly_id: bomA.id, assembly_mark: bomA.assembly_mark, rename_id: next!.ids[next!.ids.length - 1] } : null
       // every hop's pair id (not just the last) — a multi-hop A→B→C chain marks all of them used_at
       const rename_ids = hasPair && bomA ? next!.ids : []
       const onLatest = kind === 'bom' && bom?.assembly_id === l.bom_assembly_id
-      const status = !bom ? 'not_in_bom' as const : onLatest || !this.preshop.sizeChanges(existing, bom, { strict: true }).length ? 'same' as const : 'changed' as const
+      const sizeSame = onLatest || !bom || !this.preshop.sizeChanges(existing, bom, { strict: true }).length
+      // per-mark BOM rev (2026-10-26): a rev rise on a Full shop line must be looked at, even with no data change
+      const rev = kind === 'bom' && bomA && !onLatest && (bomA.rev ?? 0) > (b.rev ?? 0) ? { from: b.rev ?? 0, to: bomA.rev ?? 0 } : null
+      const status = !bom ? 'not_in_bom' as const : sizeSame && !rev ? 'same' as const : 'changed' as const
       const reviewed = onLatest || (bom ? ref?.assembly_id === bom.assembly_id : ref?.assembly_id === null && ref?.dispatch_id === dispatch.id)
-      return { line_id: l.id, assembly_mark: b.assembly_mark, kind, status, reviewed, existing, bom, renamed_to, rename_ids,
+      return { line_id: l.id, assembly_mark: b.assembly_mark, kind, status, rev, rev_only: !!rev && sizeSame, reviewed, existing, bom, renamed_to, rename_ids,
         part_pairs: bom ? pairPartsWithRenames(existing.parts, bom.parts, kind === 'bom' ? partAliasFrom(b.dispatch_id, bomA!.dispatch_id) : (m: string) => m) : [] }
     })
     // A Full shop MO is a chosen subset of its BOM — offer only marks this
@@ -1354,7 +1358,7 @@ export class ManufacturingOrderService {
         part_pairs: pairPartsWithRenames(r.existing.parts, c.parts, r.kind === 'bom' ? partAliasFrom(dispatchIdByLineId.get(r.line_id)!, c.dispatch_id) : (m: string) => m) }))
       return { ...r, candidates: scored.filter(c => c.score >= 30).sort((x, y) => y.score - x.score).slice(0, 3) }
     })
-    return { bom: { dispatch_id: dispatch.id, revision: dispatch.revision, uploaded_at: dispatch.uploaded_at }, rows: withCandidates, bom_only, pool, pending: rows.filter(r => !r.reviewed).length }
+    return { bom: { dispatch_id: dispatch.id, revision: dispatch.revision, upload_no: (await uploadNumbersOf(this.prisma, [dispatch.id])).get(dispatch.id) ?? null, uploaded_at: dispatch.uploaded_at }, rows: withCandidates, bom_only, pool, pending: rows.filter(r => !r.reviewed).length }
   }
 
   async linkBom(id: number, dto: LinkBomDto, userId: number, userName: string) {

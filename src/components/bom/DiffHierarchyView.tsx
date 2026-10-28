@@ -307,15 +307,19 @@ export function DiffHierarchyView({ assembly_diff, part_diff, junction_diff, sel
     return { assemblyRow: asmRow, mark, parts, hasChanges }
   })
 
-  // Orphan parts: standalone in current dispatch (not in any curr junction)
-  // Using only curr junction marks so parts that moved from assembly→standalone still appear here
+  // Orphan parts: standalone in their own version — a part still present is
+  // checked against curr junctions (so one that moved assembly→standalone still
+  // appears here); a removed part against prev junctions, else every removed part
+  // under a removed assembly showed twice (2026-10-27).
   const currJunctionMarks = new Set<string>()
+  const prevJunctionMarks = new Set<string>()
   for (const row of junction_diff) {
     if (row.curr?.part_mark) currJunctionMarks.add(row.curr.part_mark)
+    if (row.prev?.part_mark) prevJunctionMarks.add(row.prev.part_mark)
   }
   const orphanPartsAll = part_diff.filter(r => {
     const mark = (r.curr ?? r.prev)?.part_mark
-    return mark && !currJunctionMarks.has(mark)
+    return mark && !(r.curr ? currJunctionMarks : prevJunctionMarks).has(mark)
   })
 
   const orphanParts = !term ? orphanPartsAll : orphanPartsAll.filter(r => {
