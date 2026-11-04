@@ -626,6 +626,8 @@ describe('ManufacturingOrderService.create — MO type', () => {
       bom_assembly: { count: jest.fn().mockResolvedValue(0) }, // zone has no real BOM yet
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
+    // create checks one-MO-per-zone inside the transaction, under a zone lock (2026-11-04)
+    Object.assign(tx, { $queryRaw: jest.fn(), manufacturing_order: { ...tx.manufacturing_order, findFirst: prisma.manufacturing_order.findFirst } })
     const preshop = { createDispatch: jest.fn().mockResolvedValue(new Map([['BUH1-3', 700]])) }
     const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, { generate: jest.fn().mockResolvedValue('MO-26000041') } as any, {} as any, {} as any, {} as any, preshop as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 41 } as any)
@@ -772,6 +774,8 @@ describe('ManufacturingOrderService — one MO per zone', () => {
       bom_assembly: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue(lineZones.map((z, i) => ({ id: 700 + i, dispatch: { project_id: 16, zone_id: z } }))) },
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
+    // create checks one-MO-per-zone inside the transaction, under a zone lock (2026-11-04)
+    Object.assign(tx, { $queryRaw: jest.fn(), manufacturing_order: { ...tx.manufacturing_order, findFirst: prisma.manufacturing_order.findFirst } })
     const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, { generate: jest.fn().mockResolvedValue('MO-50') } as any, {} as any, {} as any, {} as any, { createDispatch: jest.fn().mockResolvedValue(new Map([['BUH1-3', 700]])) } as any)
     jest.spyOn(svc as any, 'assertQtyWithinRemaining').mockResolvedValue(undefined)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 50 } as any)
@@ -794,6 +798,18 @@ describe('ManufacturingOrderService — one MO per zone', () => {
       kind: 'ASSEMBLY', status: { not: 'CANCELLED' },
       OR: [{ zone_id: 33 }, { assembly_lines: { some: { bom_assembly: { dispatch: { zone_id: 33 } } } } }],
     })
+  })
+
+  // 2026-11-04: two creates for one zone at the same moment must not both see
+  // "no MO yet" — the check runs inside the transaction after a per-zone lock.
+  it('checks the zone under a per-zone advisory lock inside the transaction', async () => {
+    const { svc, prisma, tx } = make(null)
+    await svc.create({ shop_type: 'PRE_SHOP', routing_template_id: 7, project_id: 16, zone_id: 33, assembly_lines: [], preshop_assemblies: PRE } as any, 1, 'tao')
+    const lock = (tx as any).$queryRaw.mock
+    expect(lock.calls[0][0].join('?')).toContain('pg_advisory_xact_lock')
+    expect(lock.calls[0].slice(1)).toEqual([4201, 33])
+    expect(lock.invocationCallOrder[0]).toBeLessThan(prisma.manufacturing_order.findFirst.mock.invocationCallOrder[0])
+    expect(prisma.manufacturing_order.findFirst.mock.invocationCallOrder[0]).toBeLessThan(tx.manufacturing_order.create.mock.invocationCallOrder[0])
   })
 
   it('takes the zone from the picked BOM lines when none is sent, and saves it on the MO', async () => {
@@ -837,6 +853,8 @@ describe('PRE_SHOP MO — created empty, filled in later', () => {
       manufacturing_order: { findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn((cb: (t: unknown) => unknown) => cb(tx)),
     }
+    // create checks one-MO-per-zone inside the transaction, under a zone lock (2026-11-04)
+    Object.assign(tx, { $queryRaw: jest.fn(), manufacturing_order: { ...tx.manufacturing_order, findFirst: prisma.manufacturing_order.findFirst } })
     const svc = new ManufacturingOrderService(prisma as any, { log: jest.fn() } as any, { generate: jest.fn().mockResolvedValue('MO-60') } as any, {} as any, {} as any, {} as any, {} as any)
     jest.spyOn(svc, 'findOne').mockResolvedValue({ id: 60 } as any)
     return { svc, tx, prisma }
