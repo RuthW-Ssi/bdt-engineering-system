@@ -459,27 +459,31 @@ describe('MoPrintService.buildPlan', () => {
     expect(plan.marks[0]).toMatchObject({ seq: 1, assemblyMark: 'DBN-A1-CTR2', name: null, width_mm: null, qty: 2 })
   })
 
-  // MO type / Rev / mark source ride inside the existing print cells (2026-10-09)
-  it('tells the print where each mark comes from, which marks the current Rev renamed, and that pre-shop data remains', async () => {
+  // MO type / Rev / mark source ride inside the existing print cells (2026-10-09).
+  // The old name comes from the rename records, so a DRAFT MO at Rev 0 prints it too (2026-11-04).
+  it('tells the print where each mark comes from, every older name of a renamed mark, and that pre-shop data remains', async () => {
     const prisma = makePrisma({
-      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-P2600023', status: 'CONFIRMED', shop_type: 'PRE_SHOP', revision: 3, routing_template_id: 17 }) },
-      mo_status_history: { findMany: jest.fn().mockResolvedValue([
-        { reason: 'เพิ่มข้อมูลจาก Dispatch Note: X1 ชุด 2 → 3 · Rev.1 → Rev.2' },
-        { reason: 'เทียบกับ BOM จริง (rev 1): C1-BUH1-3 ชื่อ mark BUH1-3 → C1-BUH1-3 · C1-BUH1-3 ผูกกับ BOM จริง · Rev.2 → Rev.3' },
-      ]) },
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 85, mo_code: 'MO-P2600023', status: 'DRAFT', shop_type: 'PRE_SHOP', revision: 0, routing_template_id: 17 }) },
       mo_assembly_line: {
         findMany: jest.fn().mockResolvedValue([
-          makeMoLine({ line_seq: 1, bom_assembly_id: 1, qty: 2, bom_assembly: { id: 1, assembly_mark: 'C1-BUH1-3', name: null, width_mm: null, length_mm: 6000, height_mm: null, weight_kg: 100, rev: 1, assembly_parts: [], dispatch: makeDispatch() } }),
-          makeMoLine({ line_seq: 2, bom_assembly_id: 2, qty: 1, bom_assembly: { id: 2, assembly_mark: 'X1', name: null, width_mm: null, length_mm: 3000, height_mm: null, weight_kg: 50, assembly_parts: [], dispatch: makeDispatch({ source: 'PRE_SHOP', revision: 0 }) } }),
+          makeMoLine({ line_seq: 1, bom_assembly_id: 1, qty: 2, bom_assembly: { id: 1, assembly_mark: 'C1-BUH1-3', dispatch_id: 10, name: null, width_mm: null, length_mm: 6000, height_mm: null, weight_kg: 100, rev: 1, assembly_parts: [], dispatch: makeDispatch() } }),
+          makeMoLine({ line_seq: 2, bom_assembly_id: 2, qty: 1, bom_assembly: { id: 2, assembly_mark: 'X1', dispatch_id: 9, name: null, width_mm: null, length_mm: 3000, height_mm: null, weight_kg: 50, assembly_parts: [], dispatch: makeDispatch({ source: 'PRE_SHOP', revision: 0 }) } }),
         ]),
       },
     })
-    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any)
+    const alias = {
+      renamesFor: jest.fn().mockResolvedValue([
+        { id: 1, kind: 'ASSEMBLY', from_mark: 'A0', to_mark: 'BUH1-3', dispatch_id: 9 },
+        { id: 2, kind: 'ASSEMBLY', from_mark: 'BUH1-3', to_mark: 'C1-BUH1-3', dispatch_id: 10 },
+      ]),
+      activeMarksFor: jest.fn().mockResolvedValue(new Set(['C1-BUH1-3', 'X1'])),
+    }
+    const svc = new MoPrintService(prisma as any, makeDrawings() as any, makeFileStorage() as any, makeMoService() as any, alias as any)
 
     const plan = await svc.buildPlan(85)
 
-    expect(plan.mo).toMatchObject({ shop_type: 'PRE_SHOP', revision: 3, preshopRemaining: true })
-    expect(plan.marks.map(m => [m.assemblyMark, m.sourceLabel, m.renamedFrom])).toEqual([['C1-BUH1-3', 'BOM rev 1', 'BUH1-3'], ['X1', 'Pre-shop', null]])
+    expect(plan.mo).toMatchObject({ shop_type: 'PRE_SHOP', revision: 0, preshopRemaining: true })
+    expect(plan.marks.map(m => [m.assemblyMark, m.sourceLabel, m.renamedFrom])).toEqual([['C1-BUH1-3', 'BOM rev 1', 'BUH1-3 ← A0'], ['X1', 'Pre-shop', null]])
   })
 
   it("resolves each row's routing-operation label (op_code — name) from its source_routing_op_id snapshot, batched into one findMany", async () => {

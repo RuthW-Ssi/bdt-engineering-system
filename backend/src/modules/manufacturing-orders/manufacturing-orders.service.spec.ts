@@ -1518,6 +1518,7 @@ describe('ManufacturingOrderService.getAssemblies — parts per set', () => {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 36, kind: 'ASSEMBLY' }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([line]) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
     const [r] = await svc.getAssemblies(36)
@@ -1538,6 +1539,7 @@ describe('ManufacturingOrderService.getAssemblies — parts per set', () => {
       manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 36, kind: 'ASSEMBLY', project_id: 3, zone_id: 5, sub_zone_id: null }) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([lineA, lineB]) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const alloc = { allocationBreakdown: jest.fn().mockResolvedValue([]) }
     const pairsOf: Record<number, unknown[]> = { 1: [{ id: 901 }], 2: [{ id: 902 }] }
@@ -1546,9 +1548,32 @@ describe('ManufacturingOrderService.getAssemblies — parts per set', () => {
     await svc.getAssemblies(36)
     expect(renamesFor).toHaveBeenCalledWith({ project_id: 3, zone_id: 5, sub_zone_id: 1 })
     expect(renamesFor).toHaveBeenCalledWith({ project_id: 3, zone_id: 5, sub_zone_id: 2 })
-    expect(renamesFor).toHaveBeenCalledTimes(2) // one call per distinct scope — never assumed from the MO's own single scope
+    // one call per distinct scope — never assumed from the MO's own single scope (the extra
+    // includePreshop calls are the former-names lookup, 2026-11-04)
+    expect(renamesFor.mock.calls.filter((c: unknown[]) => c.length === 1)).toHaveLength(2)
     expect(alloc.allocationBreakdown).toHaveBeenCalledWith(700, [{ id: 901 }])
     expect(alloc.allocationBreakdown).toHaveBeenCalledWith(701, [{ id: 902 }])
+  })
+})
+
+// A renamed mark shows its older names under it on the MO (2026-11-04) — BOM and pre-shop pairings alike
+describe('ManufacturingOrderService.getAssemblies — former_marks', () => {
+  it('each line carries its mark\'s older names, nearest first; none → []', async () => {
+    const dispatch = { id: 10, project_id: 1, zone_id: 1, sub_zone_id: null, project: { name: 'P' }, zone: { label: 'Z' }, sub_zone: null, source: 'PRE_SHOP', revision: 0 }
+    const lineOf = (id: number, mark: string) => ({ id, line_seq: id, bom_assembly_id: 700 + id, qty: '1', bom_assembly: { id: 700 + id, dispatch_id: 10, assembly_mark: mark, name: null, qty: '1', dispatch, assembly_parts: [] } })
+    const prisma = {
+      manufacturing_order: { findUnique: jest.fn().mockResolvedValue({ id: 86, kind: 'ASSEMBLY' }) },
+      mo_assembly_line: { findMany: jest.fn().mockResolvedValue([lineOf(1, '3BUH1A-12'), lineOf(2, 'BUH1-3')]) },
+      work_order_mark: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([
+        { id: 1, kind: 'ASSEMBLY', from_mark: 'A-12', to_mark: 'BUH1A-12', dispatch_id: 9 },
+        { id: 2, kind: 'ASSEMBLY', from_mark: 'BUH1A-12', to_mark: '3BUH1A-12', dispatch_id: 10 },
+      ]) },
+      bom_assembly: { findMany: jest.fn().mockResolvedValue([{ assembly_mark: '3BUH1A-12' }, { assembly_mark: 'BUH1-3' }]) },
+    }
+    const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
+    const rows = await svc.getAssemblies(86)
+    expect(rows.map(r => [r.assembly_mark, r.former_marks])).toEqual([['3BUH1A-12', ['BUH1A-12', 'A-12']], ['BUH1-3', []]])
   })
 })
 
@@ -1569,6 +1594,7 @@ describe('ManufacturingOrderService.getAssemblies — progress per operation', (
       mrp_routing_workcenter: { findMany: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(where.template?.code ? [OPS[0]] : OPS.slice(1))) },
       mo_assembly_line: { findMany: jest.fn().mockResolvedValue([line]) },
       work_order_mark: { findMany: jest.fn().mockResolvedValue([wm(9, 0, { qty_done: '2', qty_qc_passed: '2', actual_finish: '2026-10-14T03:30:00.000Z' })]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
     const [r] = await svc.getAssemblies(51)
@@ -1593,6 +1619,7 @@ describe('ManufacturingOrderService.getAssemblies — progress per operation', (
         { ...wm(9, 10, { qty_qc_passed: '1' }), qty_planned: '2' },
         { ...wm(10, 10, { qty_qc_passed: '1' }), qty_planned: '1' },
       ]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
     }
     const svc = new ManufacturingOrderService(prisma as any, {} as any, {} as any, { allocationBreakdown: jest.fn().mockResolvedValue([]) } as any, {} as any, {} as any)
     const [r] = await svc.getAssemblies(51)

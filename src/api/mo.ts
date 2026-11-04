@@ -133,6 +133,7 @@ export interface MoAssemblyRow {
   line_seq: number
   bom_assembly_id: number
   assembly_mark: string
+  former_marks?: string[] // older names of this mark, nearest first (2026-11-04)
   name: string | null
   length_mm?: number | null
   width_mm?: number | null

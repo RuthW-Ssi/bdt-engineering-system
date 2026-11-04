@@ -24,7 +24,7 @@ import { getErrorMessage } from '../lib/getErrorMessage'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 import { dateInputGuardHandlers } from '../lib/dateInputGuard'
-import { uploadLabel } from '../lib/bom/markRev'
+import { formerMarksText, uploadLabel } from '../lib/bom/markRev'
 
 const TABS = ['Overview', 'Work Orders', 'Assemblies', 'Parts', 'History'] as const
 type Tab = (typeof TABS)[number]
@@ -719,6 +719,8 @@ function AssembliesTab({ moId, editable }: { moId: number; editable: boolean }) 
                   <Pencil size={11} /> Edit parts
                 </button>
               )}
+              {/* the mark's older names after a rename (2026-11-04), same look as the BOM page */}
+              {formerMarksText(r.former_marks) && <div style={{ fontSize: 11, color: '#0C447C', marginTop: 2 }}>{formerMarksText(r.former_marks)}</div>}
               {/* every value of the mark (2026-10-09) */}
               <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
                 {ASM_FIELDS.filter(f => norm(r, f.key) != null).map(f => (f.key === 'name' ? String(r.name) : `${f.label} ${showValue(norm(r, f.key))}`)).join(' · ')}
@@ -1117,6 +1119,7 @@ function WoMarkPickerModal({
                   <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: fullyCommitted ? 'default' : 'pointer', flex: 1, minWidth: 0 }}>
                     <input type="checkbox" checked={selected.has(l.id)} disabled={fullyCommitted} onChange={() => toggle(l)} style={{ width: 15, height: 15, accentColor: '#C8202A', flexShrink: 0 }} />
                     <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{l.assembly_mark}</span>
+                    {formerMarksText(l.former_marks) && <span style={{ fontSize: 11, color: '#0C447C', flexShrink: 0 }}>{formerMarksText(l.former_marks)}</span>}
                     {l.name && <span style={{ fontSize: 12, color: '#999', flexShrink: 0 }}>{l.name}</span>}
                     {fullyCommitted ? (
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: '#AAA', flexShrink: 0 }}>Fully committed to another WO</span>

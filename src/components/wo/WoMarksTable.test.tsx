@@ -104,6 +104,11 @@ describe('WoMarksTable — rendering', () => {
     expect(screen.getByText(/1 removed/)).toBeInTheDocument()
   })
 
+  it('shows a renamed mark\'s older names under it (2026-11-04)', () => {
+    render(<WoMarksTable {...baseProps({ marks: [makeMark({ former_marks: ['BUH1A-12', 'A-12'] })] })} />)
+    expect(screen.getByText('เดิม BUH1A-12 ← A-12')).toBeInTheDocument()
+  })
+
   it('shows an outdated badge when the mark\'s bom-version-status is_outdated', () => {
     render(<WoMarksTable {...baseProps({ bomVersionStatus: [makeBom()] })} />)
     expect(screen.getByText('outdated')).toBeInTheDocument()
