@@ -171,7 +171,22 @@ describe('WorkOrderAutoCreateService.createOrAddMarks', () => {
 
     expect(tx.team.findUnique).toHaveBeenCalledWith({ where: { id: 7 }, select: { team_type: true } })
     expect(result.wo_code).toBe(`WO-${tag}-${year}000900`)
-    expect(tx.$queryRaw).toHaveBeenCalledTimes(1)
+    // 1st raw query = the MO row lock (2026-11-04), 2nd = the code counter
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2)
+  })
+
+  // 2026-11-04: two WOs for the same MO created at once must not both pass the
+  // mark-budget check — the MO row is locked before anything is read.
+  it('locks the MO row (FOR UPDATE) before reading budgets', async () => {
+    const tx = makeTx()
+    const svc = new WorkOrderAutoCreateService()
+
+    await svc.createOrAddMarks(tx, 1, 1, [{ assembly_line_id: 1, qty: 1 }], 'tester')
+
+    const [strings, moId] = tx.$queryRaw.mock.calls[0]
+    expect(strings.join('?')).toMatch(/FROM manufacturing_order WHERE id = \? FOR UPDATE/)
+    expect(moId).toBe(1)
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.manufacturing_order.findUnique.mock.invocationCallOrder[0])
   })
 
   it('defaults subcontractor_id to null when no team is given', async () => {

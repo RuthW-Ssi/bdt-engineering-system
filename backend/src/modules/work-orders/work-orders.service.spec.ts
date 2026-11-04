@@ -2,6 +2,18 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { WorkOrdersService, allowedActionsFrom } from './work-orders.service'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
 
+// The service changes WO status with updateMany({ where: { id, status } })
+// (2026-11-04). Like the DB: matches only while the WO is still in that
+// status, then applies through the mock's `update` so existing asserts hold.
+function statusGuard(prisma: any) {
+  return jest.fn(async ({ where, data }: any) => {
+    const wo = await prisma.work_order.findUnique({ where: { id: where.id } })
+    if (!wo || wo.status !== where.status) return { count: 0 }
+    await prisma.work_order.update({ where: { id: where.id }, data })
+    return { count: 1 }
+  })
+}
+
 // Multi-mark redesign (2026-09-17): a work_order now spans many marks via
 // work_order_mark, so most of this file's fixtures build a WO's `marks[]`
 // array instead of a single flat bom_assembly/qty_done/bom_dispatch_id_snapshot
@@ -789,6 +801,7 @@ describe('WorkOrdersService.done (per-mark array)', () => {
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
     }
+    prisma.work_order.updateMany = statusGuard(prisma)
     return prisma
   }
 
@@ -1113,6 +1126,7 @@ describe('WorkOrdersService.cancel (whole WO, per-mark array)', () => {
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
     }
+    prisma.work_order.updateMany = statusGuard(prisma)
     return prisma
   }
 
@@ -1321,10 +1335,18 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
         update: jest.fn(({ where: { id }, data }: any) => {
           Object.assign(markById.get(id)!, data)
         }),
+        // cascade removes a sibling mark only while it has no output (QA F-1 2026-11-04)
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          const m = markById.get(where.id)
+          if (!m || m.removed_at || (m.qty_done != null && Number(m.qty_done) > 0)) return { count: 0 }
+          await prisma.work_order_mark.update({ where: { id: where.id }, data })
+          return { count: 1 }
+        }),
       },
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
     }
+    prisma.work_order.updateMany = statusGuard(prisma)
     return prisma
   }
 
@@ -1352,6 +1374,45 @@ describe('WorkOrdersService.cancel — cascades to sibling WOs sharing a mark', 
       where: { id: 2 },
       data: { removed_at: expect.any(Date), removed_by: 'tester', removed_reason: 'Cascade-cancelled: sibling of WO-00000001' },
     })
+  })
+
+  // QA F-1 (2026-11-04): a progress save lands on the sibling after the cascade
+  // read it as "no output" → stop with 409 instead of removing real work.
+  it('409s STALE_STATUS when a sibling gains output after the cascade read it', async () => {
+    const assemblies = { 100: { assembly_mark: 'TC-CO1', dispatch: GROUP } }
+    const primary: FakeWo = { id: 1, mo_id: 10, wo_code: 'WO-00000001', status: 'RELEASED', marks: [{ id: 1, work_order_id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
+    const sibling: FakeWo = { id: 2, mo_id: 10, wo_code: 'WO-00000002', status: 'IN_PROGRESS', marks: [{ id: 2, work_order_id: 2, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
+    const prisma = makeFakePrisma(assemblies, [primary, sibling])
+    const read = prisma.work_order.findMany.getMockImplementation()
+    prisma.work_order.findMany.mockImplementation(async (args: any) => {
+      const rows = await read(args)
+      sibling.marks[0].qty_done = 3 // someone saves progress right after our read
+      return rows
+    })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+
+    const err = await svc.cancel(1, { reason: 'x' } as any, 'tester').catch((e) => e)
+    expect(err).toBeInstanceOf(ConflictException)
+    expect(err.getResponse()).toMatchObject({ code: 'STALE_STATUS' })
+    expect(sibling.marks[0].removed_at).toBeNull()
+  })
+
+  it('409s STALE_STATUS when the sibling was cancelled by someone else meanwhile', async () => {
+    const assemblies = { 100: { assembly_mark: 'TC-CO1', dispatch: GROUP } }
+    const primary: FakeWo = { id: 1, mo_id: 10, wo_code: 'WO-00000001', status: 'RELEASED', marks: [{ id: 1, work_order_id: 1, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
+    const sibling: FakeWo = { id: 2, mo_id: 10, wo_code: 'WO-00000002', status: 'NOT_STARTED', marks: [{ id: 2, work_order_id: 2, bom_assembly_id: 100, qty_done: null, removed_at: null }] }
+    const prisma = makeFakePrisma(assemblies, [primary, sibling])
+    const read = prisma.work_order.findMany.getMockImplementation()
+    prisma.work_order.findMany.mockImplementation(async (args: any) => {
+      const rows = await read(args)
+      sibling.status = 'CANCELLED'
+      return rows
+    })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+
+    const err = await svc.cancel(1, { reason: 'x' } as any, 'tester').catch((e) => e)
+    expect(err.getResponse()).toMatchObject({ code: 'STALE_STATUS' })
+    expect(prisma.work_order_event.create).not.toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ work_order_id: 2 }) }))
   })
 
   it('leaves a sibling with real output on the shared mark untouched (needs_disposition)', async () => {
@@ -1671,6 +1732,7 @@ describe('WorkOrdersService — manual hold/resume', () => {
       work_order_event: { create: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
     }
+    prisma.work_order.updateMany = statusGuard(prisma)
     return prisma
   }
 
@@ -1689,6 +1751,24 @@ describe('WorkOrdersService — manual hold/resume', () => {
     expect(prisma.work_order_event.create).toHaveBeenCalledWith({
       data: { work_order_id: 1, event_type: 'HOLD', notes: 'machine breakdown', recorded_by: 'tester' },
     })
+  })
+
+  // 2026-11-04: someone else changed the status between our read and our write
+  // (e.g. Done and Cancel pressed at once) → 409 STALE_STATUS, nothing written.
+  it('409s STALE_STATUS when the WO left the checked status before the write', async () => {
+    const wo = { id: 1, status: 'IN_PROGRESS', pre_hold_status: null }
+    const prisma = makePrisma(wo)
+    prisma.work_order.updateMany.mockImplementation(async ({ where }: any) => {
+      expect(where).toEqual({ id: 1, status: 'IN_PROGRESS' })
+      return { count: 0 } // another request already moved it on
+    })
+    const svc = new WorkOrdersService(prisma, makeAutoCreate() as any, {} as any)
+
+    const err = await svc.transition(1, 'hold', { reason: 'x' }, 'tester').catch((e) => e)
+    expect(err).toBeInstanceOf(ConflictException)
+    expect(err.getResponse()).toMatchObject({ code: 'STALE_STATUS' })
+    expect(prisma.work_order.update).not.toHaveBeenCalled()
+    expect(prisma.work_order_event.create).not.toHaveBeenCalled()
   })
 
   it('hold: 409s from a terminal status', async () => {
@@ -1771,6 +1851,7 @@ describe('WorkOrdersService.transition — start seeds qty_not_started', () => {
       work_order_mark: { findMany: jest.fn().mockResolvedValue(marks), update: jest.fn() },
       $transaction: jest.fn().mockImplementation(async (cb: any) => cb(prisma)),
     }
+    prisma.work_order.updateMany = statusGuard(prisma)
     return prisma
   }
 
