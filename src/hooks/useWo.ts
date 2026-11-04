@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   acceptNewVersion,
@@ -117,6 +118,15 @@ function useWoInvalidate(id: number) {
   }
 }
 
+// A 409 on a status action means the WO moved on since this page loaded (e.g.
+// someone else pressed Cancel first, STALE_STATUS 2026-11-04) — reload it so the
+// screen shows the real status next to the error message.
+function reloadOnConflict(invalidate: () => void) {
+  return (err: unknown) => {
+    if (isAxiosError(err) && err.response?.status === 409) invalidate()
+  }
+}
+
 // Simple transitions — release / start / pause / hold / resume. resume is
 // dual-purpose server-side (PAUSED→IN_PROGRESS or ON_HOLD→unhold) but the
 // same call either way from here.
@@ -126,6 +136,7 @@ export function useWoTransition(id: number) {
     mutationFn: (vars: { action: WoAction; body?: Parameters<typeof woTransition>[2] }) =>
       woTransition(id, vars.action, vars.body),
     onSuccess: invalidate,
+    onError: reloadOnConflict(invalidate),
   })
 }
 
@@ -136,6 +147,7 @@ export function useWoDone(id: number) {
   return useMutation({
     mutationFn: (body: Parameters<typeof woDone>[1]) => woDone(id, body),
     onSuccess: invalidate,
+    onError: reloadOnConflict(invalidate),
   })
 }
 
@@ -166,6 +178,7 @@ export function useWoCancel(id: number) {
   return useMutation({
     mutationFn: (body: Parameters<typeof woCancel>[1]) => woCancel(id, body),
     onSuccess: invalidate,
+    onError: reloadOnConflict(invalidate),
   })
 }
 

@@ -28,6 +28,10 @@ import { followRenames, partRenameChain, scopeKey, type RenameRow } from '../mar
 import { planPartRepoint } from '../mark-rename/part-repoint'
 import { uploadNumbersOf } from '../bom-upload/upload-number'
 
+// pg_advisory_xact_lock(class, zone_id) class for "one MO per zone" — the
+// two-int key space can't collide with the scheduler's single-bigint key.
+const ZONE_MO_LOCK = 4201
+
 /**
  * P3 status state machine: allowed forward transitions.
  * IN_PROGRESS → CANCELLED added 2026-09-23 (user: "mo ต้องมี ปุ่ม complete
@@ -1605,10 +1609,6 @@ export class ManufacturingOrderService {
     // One MO per zone (2026-10-07): the MO's zone is the one picked, or its BOM
     // lines' zone; every line must be in it; no other live MO may hold it.
     const scope = await this.resolveZone(dto.assembly_lines.map(l => l.bom_assembly_id), dto.project_id, dto.zone_id)
-    if (scope.zone_id != null) {
-      const other = await this.zoneMo(scope.zone_id)
-      if (other) throw new ConflictException(`Zone นี้มี ${other.mo_code} อยู่แล้ว (1 zone ได้ 1 MO)`)
-    }
 
     if (dto.assembly_lines.length) await this.assertQtyWithinRemaining(dto.assembly_lines)
 
@@ -1616,6 +1616,13 @@ export class ManufacturingOrderService {
     const status: MoStatus = confirm ? 'CONFIRMED' : 'DRAFT'
 
     const mo = await this.prisma.$transaction(async (tx) => {
+      if (scope.zone_id != null) {
+        // Checked under a per-zone lock (2026-11-04): two creates for one zone
+        // at the same moment would otherwise both see "no MO yet" and make two.
+        await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(${ZONE_MO_LOCK}::int, ${scope.zone_id}::int)) l`
+        const other = await this.zoneMo(scope.zone_id, tx)
+        if (other) throw new ConflictException(`Zone นี้มี ${other.mo_code} อยู่แล้ว (1 zone ได้ 1 MO)`)
+      }
       const mo_code = await this.codeGen.generate(tx, shopType)
       const created = await tx.manufacturing_order.create({
         data: {
@@ -2011,8 +2018,8 @@ export class ManufacturingOrderService {
     return (await this.prisma.bom_assembly.count({ where: { status: 'ACTIVE', dispatch: { zone_id: zoneId, source: 'BOM_UPLOAD' } } })) > 0
   }
 
-  async zoneMo(zoneId: number) {
-    return this.prisma.manufacturing_order.findFirst({
+  async zoneMo(zoneId: number, db: Prisma.TransactionClient = this.prisma) {
+    return db.manufacturing_order.findFirst({
       where: {
         kind: 'ASSEMBLY', status: { not: 'CANCELLED' },
         OR: [{ zone_id: zoneId }, { assembly_lines: { some: { bom_assembly: { dispatch: { zone_id: zoneId } } } } }],
