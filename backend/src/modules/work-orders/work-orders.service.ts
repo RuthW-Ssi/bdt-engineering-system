@@ -4,8 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { MailMessageService } from '../mail/mail-message.service'
 import { actualsTracking, parseActualDates, parseMarkFinish } from '../../common/actual-dates'
 import { WorkOrderAutoCreateService } from './wo-auto-create.service'
-import { MarkAliasService } from '../mark-rename/mark-alias.service'
-import { followRenames, formerNames, partRenameChain, scopeKey, usableFormerNames, type BomScope, type RenameRow } from '../mark-rename/mark-alias'
+import { MarkAliasService, formerMarksOf, type FormerMarksAssembly } from '../mark-rename/mark-alias.service'
+import { followRenames, partRenameChain } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
 import { isUnchanged, markDiff, partLine, snapshot } from '../bom-upload/mark-rev'
 import { AcceptVersionDto } from './dto/accept-version.dto'
@@ -214,23 +214,12 @@ export class WorkOrdersService {
     })
   }
 
-  /** Older names of each mark (2026-10-21) — the WO Visual tab falls back to
-   *  their Drawings. A former name that is an ACTIVE mark in the scope now
-   *  belongs to another piece reusing it, so it's left out (final review) —
-   *  same rule as the print's currentRevSheetsWithAliases. */
-  async formerMarks(assemblies: { id: number; assembly_mark: string; dispatch_id: number; dispatch: BomScope }[]): Promise<Map<number, string[]>> {
-    const byScope = new Map<string, RenameRow[]>()
-    const activeByScope = new Map<string, Set<string>>()
-    const out = new Map<number, string[]>()
-    for (const a of assemblies) {
-      const k = scopeKey(a.dispatch)
-      if (!byScope.has(k)) byScope.set(k, await this.alias.renamesFor(a.dispatch, { includePreshop: true }))
-      const names = formerNames(byScope.get(k)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
-      if (names.length && !activeByScope.has(k)) activeByScope.set(k, await this.alias.activeMarksFor(a.dispatch))
-      out.set(a.id, usableFormerNames(names, activeByScope.get(k)))
-    }
-    return out
+  /** Older names of each mark (2026-10-21) — shown under the mark and used by
+   *  the WO Visual tab to fall back to their Drawings. See formerMarksOf. */
+  async formerMarks(assemblies: FormerMarksAssembly[]): Promise<Map<number, string[]>> {
+    return formerMarksOf(this.alias, assemblies)
   }
+
 
   // ── Detail (+ per-mark snapshot dispatch/bom-version status + routing op activities) ──
   async findOne(id: number) {

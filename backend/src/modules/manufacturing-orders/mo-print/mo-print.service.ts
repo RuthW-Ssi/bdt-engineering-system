@@ -7,9 +7,9 @@ import { computeActivityDuration, type ActivityDurationBreakdownItem } from '../
 import { buildMoPrintPdf } from './mo-print-pdf-builder'
 import type { PrintLang } from './mo-print-labels'
 import { currentRevSheetsWithAliases } from './mark-drawing-match'
-import { summarizeOperations, type OperationSummary, printedDrawingRevs, renamesForRev, sourceLabelOf } from './mo-print-format'
+import { summarizeOperations, type OperationSummary, printedDrawingRevs, sourceLabelOf } from './mo-print-format'
 import { staleDrawings, type CurrentDrawingRevItem, type StaleDrawingItem } from './drawing-rev-status'
-import { MarkAliasService } from '../../mark-rename/mark-alias.service'
+import { MarkAliasService, formerMarksOf } from '../../mark-rename/mark-alias.service'
 import { formerNames, scopeKey, usableFormerNames, type RenameRow } from '../../mark-rename/mark-alias'
 
 export interface MoPrintWorkOrderRow {
@@ -129,7 +129,7 @@ export interface MoPrintConsumeItem {
 export interface MoPrintAssemblyMarkRow {
   assemblyMark: string
   sourceLabel: string // 'Pre-shop' | 'BOM rev N' (the mark's BOM rev) — printed in the Mark cell
-  renamedFrom: string | null // old mark, only for the Rev that renamed it
+  renamedFrom: string | null // older mark names, nearest first (" ← "), from the rename records
   name: string | null
   qty: number | null
   weight_kg: number | null
@@ -359,8 +359,10 @@ export class MoPrintService {
       },
     })
     const qtyByAssembly = new Map<number, number>(lines.map(l => [l.bom_assembly_id, Number(l.qty)]))
-    // a mark renamed by the change that produced the current Rev prints "(เดิม …)"
-    const renames = renamesForRev((await this.prisma.mo_status_history.findMany({ where: { mo_id: moId }, select: { reason: true } })).map(h => h.reason ?? ''), mo.revision)
+    // a renamed mark prints "(เดิม …)" — every older name from the rename records,
+    // whatever the MO status or Rev (2026-11-04; was: only the rename that raised the current Rev)
+    const former = await formerMarksOf(this.alias, lines.map(l => l.bom_assembly))
+    const renamedFrom = (assemblyId: number) => (former.get(assemblyId) ?? []).join(' ← ') || null
 
     const marks: MoPrintMarkItem[] = lines.map((l, i) => {
       const assembly = l.bom_assembly
@@ -368,7 +370,7 @@ export class MoPrintService {
         seq: i + 1,
         assemblyMark: assembly.assembly_mark,
         sourceLabel: sourceLabelOf(assembly.dispatch, assembly.rev),
-        renamedFrom: renames.get(assembly.assembly_mark) ?? null,
+        renamedFrom: renamedFrom(assembly.id),
         name: assembly.name,
         width_mm: assembly.width_mm != null ? Number(assembly.width_mm) : null,
         length_mm: assembly.length_mm != null ? Number(assembly.length_mm) : null,
@@ -478,6 +480,8 @@ export class MoPrintService {
     // table on the manifest, computed from the same underlying formulas.
     const consumeByWo = await this.mo.getConsumeSummaryByWorkOrder(moId)
 
+    // a WO mark can sit on another version than the MO line (not yet accepted) — resolve its names too
+    for (const [id, names] of await formerMarksOf(this.alias, workOrders.flatMap(w => w.marks.map(m => m.bom_assembly)).filter(a => !former.has(a.id)))) former.set(id, names)
     const rows: MoPrintWorkOrderRow[] = []
     for (const wo of workOrders) {
       // Project/Zone and the dimension-driven Activities breakdown are
@@ -510,7 +514,7 @@ export class MoPrintService {
         marks.push({
           assemblyMark: assembly.assembly_mark,
           sourceLabel: sourceLabelOf(dispatch, assembly.rev),
-          renamedFrom: renames.get(assembly.assembly_mark) ?? null,
+          renamedFrom: renamedFrom(assembly.id),
           name: assembly.name ?? null,
           qty: qtyByAssembly.get(mark.bom_assembly_id) ?? null,
           weight_kg: assembly.weight_kg != null ? Number(assembly.weight_kg) : null,

@@ -8,7 +8,7 @@ import * as path from 'path'
 import * as fontkit from '@pdf-lib/fontkit'
 import { PageSizes, PDFDocument, PDFFont, PDFImage, PDFPage, rgb, type RGB } from 'pdf-lib'
 import type { MoPrintAssemblyMarkRow, MoPrintPacketPlan, MoPrintWorkOrderRow } from './mo-print.service'
-import { capList, drawingPageStamps, drawingRevLabel, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes, markCell, moCodeCell } from './mo-print-format'
+import { capList, drawingPageStamps, drawingRevLabel, fitTextSize, fmt0, fmt2, formatPlanDateTime, formatPrintPacketTitle, formatWoCodes, markSubLine, moCodeCell, wrapMark } from './mo-print-format'
 import { generateWoQrPng, getWoQrModuleCount } from './mo-print-qr'
 import { drawFabIcon } from './mo-print-icons'
 import { PRINT_LABELS, type PrintLabels, type PrintLang } from './mo-print-labels'
@@ -265,6 +265,30 @@ function drawRowValues(page: PDFPage, fonts: Fonts, cols: TableColumn[], rowTop:
   })
 }
 
+// The Mark cell (2026-11-04): the mark alone on top, and under it a smaller
+// grey line "Pre-shop · เดิม OLD" (source + nearest former name). A mark too
+// wide even at MARK_MIN_SIZE breaks after its hyphens (wrapMark) instead of
+// spilling into the next column; the whole block shrinks if the row is short.
+// Every line left-aligned in the cell, in both tables (user 2026-11-04).
+const MARK_MIN_SIZE = 7
+function drawMarkCell(page: PDFPage, fonts: Fonts, c: TableColumn, rowTop: number, rowHeight: number, mark: string, sub: string, size: number): void {
+  const font = fonts.regular
+  const maxW = c.w - 6
+  const markLines = wrapMark(mark, t => font.widthOfTextAtSize(t, MARK_MIN_SIZE), maxW)
+  let s1 = Math.min(...markLines.map(l => fitTextSize(font, l, maxW, size)))
+  let s2 = Math.min(s1 - 1, fitTextSize(font, sub, maxW, size - 2)) // never larger than the mark
+  const gap = 1.5
+  const blockOf = () => markLines.length * s1 + markLines.length * gap + s2
+  if (blockOf() > rowHeight - 3) { const k = (rowHeight - 3) / blockOf(); s1 *= k; s2 *= k }
+  const lines = [...markLines.map(text => ({ text, size: s1, color: BLACK })), { text: sub, size: s2, color: GRAY }]
+  const x = c.x + 3
+  let y = rowTop - (rowHeight - blockOf()) / 2 // top of the vertically centered block
+  for (const l of lines) {
+    page.drawText(l.text, { x, y: y - l.size * 0.8, size: l.size, font, color: l.color })
+    y -= l.size + gap
+  }
+}
+
 function drawTickBox(page: PDFPage, col: TableColumn, rowTop: number, rowHeight: number): void {
   const size = 12
   page.drawRectangle({ x: col.x + (col.w - size) / 2, y: rowTop - (rowHeight + size) / 2, width: size, height: size, borderColor: BLACK, borderWidth: 0.75 })
@@ -314,7 +338,7 @@ const moAssemblyColumns = (L: PrintLabels): [label: string, weight: number][] =>
 function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, L: PrintLabels, plan: MoPrintPacketPlan, x: number, top: number): void {
   const markValues = (mark: MoPrintPacketPlan['marks'][number]) => [
     String(mark.seq),
-    markCell(mark.assemblyMark, mark.sourceLabel, mark.renamedFrom, L.formerly),
+    '', // Mark — drawMarkCell (two lines when renamed)
     mark.name ?? '—',
     mark.width_mm != null ? fmt2(mark.width_mm) : '—',
     mark.length_mm != null ? fmt2(mark.length_mm) : '—',
@@ -332,7 +356,11 @@ function drawMoAssemblyList(doc: PDFDocument, page: PDFPage, fonts: Fonts, L: Pr
     const rowHeight = (bodyTop - MARGIN) / capacity
     drawRuledTable(target, fonts, cols, [], headerTop, rowHeight, capacity)
     const placed = marks.slice(0, capacity)
-    placed.forEach((mark, i) => drawRowValues(target, fonts, cols, bodyTop - rowHeight * i, rowHeight, markValues(mark)))
+    placed.forEach((mark, i) => {
+      const rowTop = bodyTop - rowHeight * i
+      drawRowValues(target, fonts, cols, rowTop, rowHeight, markValues(mark))
+      drawMarkCell(target, fonts, cols[1], rowTop, rowHeight, mark.assemblyMark, markSubLine(mark.sourceLabel, mark.renamedFrom, L.formerly), 8)
+    })
     return placed.length
   }
 
@@ -802,17 +830,17 @@ function drawAssemblyAndQcChunk(page: PDFPage, fonts: Fonts, L: PrintLabels, mar
     const bodyTop = bodyTop0 - rowHeight * i
     for (const j of [3, 5, 7]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, L.passed, L.notPassed)
     for (const j of [4, 6, 8]) drawSplitCell(page, fonts, cols[j], bodyTop, rowHeight, L.signature, L.dateTime)
+    drawMarkCell(page, fonts, cols[0], bodyTop, rowHeight, mark.assemblyMark, markSubLine(mark.sourceLabel, mark.renamedFrom, L.formerly), 10)
     const values = [
-      markCell(mark.assemblyMark, mark.sourceLabel, mark.renamedFrom, L.formerly),
       mark.name ?? '—',
       mark.qty != null ? fmt0(mark.qty) : '—',
     ]
-    values.forEach((value, j) => {
+    values.forEach((value, k) => {
+      const j = k + 1 // after the Mark column
       const c = cols[j]
       const size = fitTextSize(fonts.regular, value, c.w - 6, 10)
-      // Every identity column centered horizontally (2026-09-22: "mark กับ
-      // name ด้วย" — extends the earlier Qty/Weight-only centering to
-      // Mark/Name too).
+      // Name/Qty centered horizontally (2026-09-22: "mark กับ name ด้วย");
+      // the Mark cell is left-aligned since 2026-11-04 (drawMarkCell).
       const x = c.x + (c.w - fonts.regular.widthOfTextAtSize(value, size)) / 2
       // Vertically centered — same baseline formula as drawCappedTable.
       page.drawText(value, { x, y: bodyTop - rowHeight / 2 - size * 0.35, size, font: fonts.regular, color: BLACK })
