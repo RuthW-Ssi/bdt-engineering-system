@@ -180,17 +180,27 @@ export function sourceLabelOf(dispatch: { source: string }, rev: number): string
   return dispatch.source === 'PRE_SHOP' ? 'Pre-shop' : `BOM rev ${rev}`
 }
 
-/** "C1-BUH1-3 (เดิม BUH1-3) · BOM rev 1" — the old name only for the Rev that renamed it. */
-export function markCell(mark: string, source: string, renamedFrom: string | null, formerly: string): string {
-  return `${mark}${renamedFrom ? ` (${formerly} ${renamedFrom})` : ''} · ${source}`
+/** Mark cell, the small line under the mark (2026-11-04): where its data comes
+ *  from, then its nearest former name — "Pre-shop · เดิม BUH1A-12". The full
+ *  rename chain stays in MO/WO History; the print shows the one a reader needs. */
+export function markSubLine(source: string, renamedFrom: string | null, formerly: string): string {
+  const nearest = renamedFrom?.split(' ← ')[0]
+  return nearest ? `${source} · ${formerly} ${nearest}` : source
 }
 
-/** new mark → old mark, for renames made by the History entry that raised the
- *  MO to `revision` ("… X ชื่อ mark OLD → NEW … · Rev.(n-1) → Rev.n"). */
-export function renamesForRev(reasons: string[], revision: number): Map<string, string> {
-  const out = new Map<string, string>()
-  const entry = reasons.find(r => r.includes(`→ Rev.${revision}`))
-  if (!entry) return out
-  for (const m of entry.matchAll(/\S+ ชื่อ mark (\S+) → (\S+)/g)) out.set(m[2], m[1])
-  return out
+/** A mark too wide for its cell even at the smallest readable size, broken
+ *  after its hyphens into as few lines as fit (2026-11-04) — never cut short
+ *  with "…": the mark is the code the shop finds the piece by. A piece with no
+ *  hyphen that still doesn't fit stays whole (the caller shrinks it). */
+export function wrapMark(mark: string, widthOf: (text: string) => number, maxWidth: number): string[] {
+  if (widthOf(mark) <= maxWidth) return [mark]
+  const pieces = mark.match(/[^-]+-?|-/g) ?? [mark]
+  const lines: string[] = []
+  let line = ''
+  for (const p of pieces) {
+    if (line && widthOf(line + p) > maxWidth) { lines.push(line); line = p } else line += p
+  }
+  if (line) lines.push(line)
+  return lines
 }
+

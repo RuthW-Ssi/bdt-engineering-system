@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { scopeKey, type BomScope, type RenameRow } from './mark-alias'
+import { formerNames, scopeKey, usableFormerNames, type BomScope, type RenameRow } from './mark-alias'
 
 type RenameClient = { bom_mark_rename: PrismaService['bom_mark_rename'] }
 const SELECT = { id: true, kind: true, from_mark: true, to_mark: true, dispatch_id: true } as const
@@ -59,4 +59,25 @@ export class MarkAliasService {
     if (!unique.length) return
     await client.bom_mark_rename.updateMany({ where: { id: { in: unique }, used_at: null }, data: { used_at: new Date() } })
   }
+}
+
+type FormerMarksSource = Pick<MarkAliasService, 'renamesFor' | 'activeMarksFor'>
+export type FormerMarksAssembly = { id: number; assembly_mark: string; dispatch_id: number; dispatch: BomScope }
+
+/** Older names of each mark, nearest first (2026-10-21; shared by WO detail,
+ *  MO detail and the MO print since 2026-11-04). Pre-shop pairings count. A
+ *  former name that is an ACTIVE mark in the scope now belongs to another
+ *  piece reusing it, so it's left out. */
+export async function formerMarksOf(alias: FormerMarksSource, assemblies: FormerMarksAssembly[]): Promise<Map<number, string[]>> {
+  const byScope = new Map<string, RenameRow[]>()
+  const activeByScope = new Map<string, Set<string>>()
+  const out = new Map<number, string[]>()
+  for (const a of assemblies) {
+    const k = scopeKey(a.dispatch)
+    if (!byScope.has(k)) byScope.set(k, await alias.renamesFor(a.dispatch, { includePreshop: true }))
+    const names = formerNames(byScope.get(k)!, 'ASSEMBLY', a.assembly_mark, a.dispatch_id)
+    if (names.length && !activeByScope.has(k)) activeByScope.set(k, await alias.activeMarksFor(a.dispatch))
+    out.set(a.id, usableFormerNames(names, activeByScope.get(k)))
+  }
+  return out
 }
