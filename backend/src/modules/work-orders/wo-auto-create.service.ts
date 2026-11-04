@@ -48,6 +48,9 @@ export class WorkOrderAutoCreateService {
     teamId?: number,
     teamHeadcount?: number,
   ): Promise<{ work_order_id: number; wo_code: string; marks_added: number }> {
+    // Two WOs created for the same MO at once would both pass the mark-budget
+    // check below and over-plan a mark — lock the MO row so they run in turn.
+    await tx.$queryRaw`SELECT id FROM manufacturing_order WHERE id = ${moId} FOR UPDATE`
     const mo = await tx.manufacturing_order.findUnique({
       where: { id: moId },
       select: { id: true, routing_template_id: true, shop_type: true, status: true },

@@ -144,6 +144,19 @@ export interface SourceRoutingOp {
   activities: EnrichedActivity[]
 }
 
+/**
+ * Status change only if the WO is still in the status the caller checked
+ * (2026-11-04): two people pressing Done and Cancel at the same moment would
+ * both pass the from-status check — the second now gets a 409 instead of
+ * silently overwriting the first and adding a second event.
+ */
+async function claimStatus(tx: Prisma.TransactionClient, id: number, from: WoStatus, data: Prisma.work_orderUpdateManyMutationInput) {
+  const { count } = await tx.work_order.updateMany({ where: { id, status: from }, data })
+  if (count === 0) {
+    throw new ConflictException({ message: 'สถานะ WO นี้เพิ่งถูกเปลี่ยนโดยคนอื่น — เปิดหน้าใหม่แล้วลองอีกครั้ง', code: 'STALE_STATUS' })
+  }
+}
+
 @Injectable()
 export class WorkOrdersService {
   private readonly logger = new Logger(WorkOrdersService.name)
@@ -498,7 +511,7 @@ export class WorkOrdersService {
       })
     }
 
-    const data: Prisma.work_orderUpdateInput = { status: spec.to, updated_by: userName }
+    const data: Prisma.work_orderUpdateManyMutationInput = { status: spec.to, updated_by: userName }
     const now = new Date()
     // 'start' no longer stamps actual_start (2026-10-01) — actuals are user-typed at Done.
     if (action === 'release') {
@@ -512,7 +525,7 @@ export class WorkOrdersService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.work_order.update({ where: { id }, data })
+      await claimStatus(tx, id, wo.status, data)
       if (spec.event) {
         await tx.work_order_event.create({
           data: {
@@ -582,10 +595,7 @@ export class WorkOrdersService {
     const target = wo.pre_hold_status
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.work_order.update({
-        where: { id },
-        data: { status: target, pre_hold_status: null, updated_by: userName },
-      })
+      await claimStatus(tx, id, 'ON_HOLD', { status: target, pre_hold_status: null, updated_by: userName })
       await tx.work_order_event.create({
         data: { work_order_id: id, event_type: 'UNHOLD', notes: body.notes ?? null, recorded_by: userName },
       })
@@ -678,7 +688,7 @@ export class WorkOrdersService {
       }
       const actuals = this.resolveActuals(dto, wo.plan_finish)
       await this.prisma.$transaction(async (tx) => {
-        await tx.work_order.update({ where: { id }, data: { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName } })
+        await claimStatus(tx, id, wo.status, { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName })
         await tx.work_order_event.create({ data: { work_order_id: id, event_type: 'DONE', notes: dto.notes ?? null, recorded_by: userName } })
       })
       return this.findOne(id)
@@ -752,10 +762,7 @@ export class WorkOrdersService {
           })
         }
       }
-      await tx.work_order.update({
-        where: { id },
-        data: { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName },
-      })
+      await claimStatus(tx, id, wo.status, { status: 'DONE', ...actuals, pre_hold_status: null, updated_by: userName })
       await tx.work_order_event.create({
         data: { work_order_id: id, event_type: 'DONE', notes: dto.notes ?? null, recorded_by: userName },
       })
@@ -947,10 +954,7 @@ export class WorkOrdersService {
           })
         }
       }
-      await tx.work_order.update({
-        where: { id },
-        data: { status: 'CANCELLED', pre_hold_status: null, updated_by: userName },
-      })
+      await claimStatus(tx, id, wo.status, { status: 'CANCELLED', pre_hold_status: null, updated_by: userName })
       await tx.work_order_event.create({
         data: { work_order_id: id, event_type: 'CANCEL', notes: dto.reason, recorded_by: userName },
       })
@@ -991,10 +995,9 @@ export class WorkOrdersService {
             `Cascade-cancel: sibling WO ${sibling.id} (${sibling.wo_code}) has status ${sibling.status}, not a valid 'cancel' source status`,
           )
         }
-        await tx.work_order.update({
-          where: { id: sibling.id },
-          data: { status: 'CANCELLED', pre_hold_status: null, updated_by: userName },
-        })
+        // Same stale guard as the primary (QA F-1 2026-11-04): a sibling someone
+        // else just cancelled or moved on → 409, whole cancel rolls back.
+        await claimStatus(tx, sibling.id, sibling.status as WoStatus, { status: 'CANCELLED', pre_hold_status: null, updated_by: userName })
         await tx.work_order_event.create({
           data: {
             work_order_id: sibling.id,
@@ -1006,11 +1009,17 @@ export class WorkOrdersService {
         // Same budget-release as the primary WO above — these siblings have
         // zero output (that's why to_cancel included them), so every mark
         // frees cleanly.
+        // Only while the mark still has no output: a progress save that landed
+        // after loadCancelSiblings() read it makes this sibling one to keep, so
+        // stop (409) instead of removing real work (QA F-1 2026-11-04).
         for (const m of sibling.marks) {
-          await tx.work_order_mark.update({
-            where: { id: m.id },
+          const { count } = await tx.work_order_mark.updateMany({
+            where: { id: m.id, removed_at: null, OR: [{ qty_done: null }, { qty_done: 0 }] },
             data: { removed_at: cancelNow, removed_by: userName, removed_reason: `Cascade-cancelled: sibling of ${wo.wo_code}` },
           })
+          if (count === 0) {
+            throw new ConflictException({ message: `${sibling.wo_code} เพิ่งมีการบันทึกงาน — เปิดหน้าใหม่แล้วลองอีกครั้ง`, code: 'STALE_STATUS' })
+          }
         }
       }
     })
