@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, StandardFonts } from 'pdf-lib'
-import { capList, drawingPageStamps, drawingRevLabel, markCell, moCodeCell, printedDrawingRevs, renamesForRev, sourceLabelOf, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
+import { capList, drawingPageStamps, drawingRevLabel, markSubLine, moCodeCell, printedDrawingRevs, sourceLabelOf, wrapMark, fitTableRows, fitTextSize, formatPlanDateTime, formatPrintPacketTitle, formatShortDate, formatWoCodes, fmt2, summarizeOperations } from './mo-print-format'
 import { PRINT_LABELS } from './mo-print-labels'
 
 describe('fmt2', () => {
@@ -171,19 +171,20 @@ describe('print cells for MO type / Rev / mark source', () => {
     expect(moCodeCell('MO-P2600023', 3)).toBe('MO-P2600023 · Rev.3')
     expect(moCodeCell('MO-26000001', 0)).toBe('MO-26000001 · Rev.0')
   })
-  it('a mark says where its data comes from, and its old name for one Rev after a rename', () => {
+  it('a mark says where its data comes from, and its older names after a rename', () => {
     expect(sourceLabelOf({ source: 'PRE_SHOP' }, 0)).toBe('Pre-shop')
     expect(sourceLabelOf({ source: 'BOM_UPLOAD' }, 3)).toBe('BOM rev 3') // the mark's own BOM rev (2026-10-26), not the zone upload
-    expect(markCell('BUH1A-14', 'BOM rev 1', null, 'เดิม')).toBe('BUH1A-14 · BOM rev 1')
-    expect(markCell('C1-BUH1-3', 'BOM rev 1', 'BUH1-3', 'เดิม')).toBe('C1-BUH1-3 (เดิม BUH1-3) · BOM rev 1')
+    expect(markSubLine('BOM rev 1', null, 'เดิม')).toBe('BOM rev 1')
+    expect(markSubLine('Pre-shop', 'BUH1A-12', 'เดิม')).toBe('Pre-shop · เดิม BUH1A-12')
+    expect(markSubLine('Pre-shop', 'B ← A', 'was')).toBe('Pre-shop · was B') // nearest only; the chain is in History
   })
-  it('finds the marks renamed in the change that made the current Rev', () => {
-    const reasons = [
-      'เทียบกับ BOM จริง (rev 1): C1-BUH1-3 ชื่อ mark BUH1-3 → C1-BUH1-3 · C1-BUH1-3 ผูกกับ BOM จริง · Rev.2 → Rev.3',
-      'เพิ่มข้อมูลจาก Dispatch Note: X9 ชื่อ mark X → X9 · Rev.1 → Rev.2',
-    ]
-    expect(renamesForRev(reasons, 3)).toEqual(new Map([['C1-BUH1-3', 'BUH1-3']]))
-    expect(renamesForRev(reasons, 4)).toEqual(new Map())
+  it('wraps a mark too wide for its cell after its hyphens, never cutting it short', () => {
+    const w = (s: string) => s.length // 1 unit per character
+    expect(wrapMark('BUH1A-12', w, 10)).toEqual(['BUH1A-12'])
+    expect(wrapMark('CELESTICA-3-ZONE1-BUH1A-12', w, 11)).toEqual(['CELESTICA-', '3-ZONE1-', 'BUH1A-12'])
+    expect(wrapMark('CELESTICA-3-ZONE1-BUH1A-12', w, 18)).toEqual(['CELESTICA-3-ZONE1-', 'BUH1A-12'])
+    expect(wrapMark('NOHYPHENVERYLONGMARK', w, 8)).toEqual(['NOHYPHENVERYLONGMARK'])
+    expect(wrapMark('CELESTICA-3-ZONE1-BUH1A-12', w, 12).join('')).toBe('CELESTICA-3-ZONE1-BUH1A-12')
   })
 })
 

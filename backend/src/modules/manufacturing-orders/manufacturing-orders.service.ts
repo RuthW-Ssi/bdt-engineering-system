@@ -23,7 +23,7 @@ import { PRESHOP_TEMPLATE_CODE } from './preshop/preshop-op'
 import { fmtBkk } from '../../common/history-format'
 import { actualsTracking, parseActualDates } from '../../common/actual-dates'
 // mark/part renamed between dispatch versions (2026-10-21, [[bom-mark-rename-plan]])
-import { MarkAliasService } from '../mark-rename/mark-alias.service'
+import { MarkAliasService, formerMarksOf } from '../mark-rename/mark-alias.service'
 import { followRenames, partRenameChain, scopeKey, type RenameRow } from '../mark-rename/mark-alias'
 import { planPartRepoint } from '../mark-rename/part-repoint'
 import { uploadNumbersOf } from '../bom-upload/upload-number'
@@ -539,6 +539,8 @@ export class ManufacturingOrderService {
     // N+1; fix round 2: keyed by each line's own project/zone/sub_zone — don't
     // assume the whole MO sits in one sub-zone)
     const renamesFor = this.renamesCache()
+    // older names of each mark (BOM / pre-shop rename) — shown under it (2026-11-04)
+    const former = await formerMarksOf(this.alias, lines.map(l => l.bom_assembly))
     return Promise.all(
       lines.map(async (line) => {
         const renames = await renamesFor({
@@ -566,6 +568,7 @@ export class ManufacturingOrderService {
           line_seq: line.line_seq,
           bom_assembly_id: line.bom_assembly_id,
           assembly_mark: line.bom_assembly.assembly_mark,
+          former_marks: former.get(line.bom_assembly_id) ?? [],
           ...asmValues(line.bom_assembly), // name, L, W, H, kg/set, area/set (2026-10-09)
           project: line.bom_assembly.dispatch.project?.name ?? null,
           zone: line.bom_assembly.dispatch.zone?.label ?? null,

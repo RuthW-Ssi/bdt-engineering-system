@@ -6,7 +6,7 @@ import type { BomVersionStatus, MarkProgressBody, MarkProgressExpected, MarkProg
 import { datetimeLocalToIso, toDatetimeLocal } from '../../lib/datetimeLocal'
 import { dateInputGuardHandlers } from '../../lib/dateInputGuard'
 import { getErrorMessage } from '../../lib/getErrorMessage'
-import { revMoveText, revUpOf } from '../../lib/bom/markRev'
+import { formerMarksText, revMoveText, revUpOf } from '../../lib/bom/markRev'
 import { QcBreakdownFields, qcBreakdownValid, EMPTY_QC_BREAKDOWN, type QcBreakdown } from './QcBreakdownFields'
 import { fmtFinish, isProgressNoise, showChangeValue } from './progressChanges'
 
@@ -319,6 +319,7 @@ export function WoMarksTable({
                   <td style={td}>
                     <span style={{ ...mono, fontWeight: 700, color: '#1A1A1A' }}>{m.bom_assembly.assembly_mark}</span>
                     {m.bom_assembly.name && <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>{m.bom_assembly.name}</span>}
+                    {formerMarksText(m.former_marks) && <div style={{ fontSize: 11, color: '#0C447C', marginTop: 2 }}>{formerMarksText(m.former_marks)}</div>}
                     {outdated && (
                       <span title={`Newer BOM version: ${bom!.delta_types.join(' · ') || 'change'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 8, fontSize: 10.5, fontWeight: 700, color: '#C62828' }}>
                         <AlertTriangle size={11} /> {rn ? `เปลี่ยนชื่อเป็น ${rn.to}` : ru ? `BOM Rev ${ru.from} → ${ru.to}` : 'outdated'}
