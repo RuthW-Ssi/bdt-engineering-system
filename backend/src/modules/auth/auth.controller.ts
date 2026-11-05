@@ -6,6 +6,7 @@ import { ChangePasswordDto } from './dto/change-password.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { CustomerAccessible } from '../../common/customer-scope/customer-accessible.decorator'
+import { LoginRateLimitGuard } from '../../common/guards/login-rate-limit.guard'
 
 @ApiTags('auth')
 @CustomerAccessible({ selfService: true })
@@ -15,6 +16,7 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(LoginRateLimitGuard) // 5/min per (IP, name), 30/min per IP → 429 RATE_LIMITED
   @ApiOperation({ summary: 'Login with credentials → JWT (dev mode only)' })
   login(@Body() dto: LoginDto) {
     return this.svc.login(dto)

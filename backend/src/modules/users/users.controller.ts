@@ -8,6 +8,8 @@ import { ResetPasswordDto } from './dto/reset-password.dto'
 import { QueryUserDto } from './dto/query-user.dto'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { AdminGuard } from '../../common/guards/admin.guard'
+import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import type { JwtPayload } from '../auth/auth.service'
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -50,5 +52,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Admin sets a new password directly (admin-only)' })
   resetPassword(@Param('id', ParseIntPipe) id: number, @Body() dto: ResetPasswordDto) {
     return this.svc.resetPassword(id, dto)
+  }
+
+  @Post(':id/unlock-login')
+  @ApiOperation({ summary: 'Clear a login lockout — round-3 block, running lock, wrong-password count (admin-only, audited)' })
+  unlockLogin(@Param('id', ParseIntPipe) id: number, @CurrentUser() admin: JwtPayload) {
+    return this.svc.unlockLogin(id, admin.sub)
   }
 }

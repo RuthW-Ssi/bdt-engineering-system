@@ -191,6 +191,9 @@ export interface AppUser {
   partner: { id: number; name: string; short_name: string | null } | null
   active: boolean
   create_date: string
+  // login lockout (2026-11-05): blocked = round 3, waits for an admin unlock
+  login_locked_until: string | null
+  login_blocked_at: string | null
 }
 
 export interface AppUserWithPermissions extends AppUser {
@@ -254,4 +257,18 @@ export async function setUserPermissions(id: number, permissions: PermissionEntr
 export async function resetUserPassword(id: number, password: string): Promise<{ ok: boolean }> {
   const res = await apiClient.post(`/users/${id}/reset-password`, { password })
   return res.data
+}
+
+// Clears a login lockout — round-3 block or a running 1/5-min lock (admin-only, audited)
+export async function unlockUserLogin(id: number): Promise<{ ok: boolean }> {
+  const res = await apiClient.post(`/users/${id}/unlock-login`)
+  return res.data
+}
+
+// Login lockout (2026-11-05): round 3 = blocked until an admin unlocks;
+// rounds 1-2 = a 1/5-min lock that also clears by itself.
+export function loginLockState(u: { login_blocked_at: string | null; login_locked_until: string | null }, now = Date.now()): 'blocked' | 'locked' | null {
+  if (u.login_blocked_at) return 'blocked'
+  if (u.login_locked_until && Date.parse(u.login_locked_until) > now) return 'locked'
+  return null
 }
