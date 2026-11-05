@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Plus, Pencil, KeyRound, Loader2, X, Users as UsersIcon } from 'lucide-react'
+import { Plus, Pencil, KeyRound, LockOpen, Loader2, X, Users as UsersIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useUsers,
@@ -8,6 +8,7 @@ import {
   useUpdateUser,
   useSetUserPermissions,
   useResetUserPassword,
+  useUnlockUserLogin,
 } from '../hooks/useUsers'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import { useCustomers } from '../hooks/useCustomers'
@@ -21,6 +22,7 @@ import {
   type ModuleKey,
   type PermissionEntry,
   type UserType,
+  loginLockState,
 } from '../api/users'
 
 type PermissionAction = 'view' | 'create' | 'update' | 'delete'
@@ -657,15 +659,27 @@ function ActivePill({ active }: { active: boolean }) {
   )
 }
 
+function LockPill({ state }: { state: 'blocked' | 'locked' }) {
+  return (
+    <span
+      className="inline-flex items-center rounded-full"
+      style={{ padding: '2px 10px', fontSize: 11, fontWeight: 600, background: '#FCEBEB', color: '#A32D2D' }}
+    >
+      {state === 'blocked' ? 'ถูกระงับ' : 'ล็อกชั่วคราว'}
+    </span>
+  )
+}
+
 function distinctSorted(values: (string | null | undefined)[]): string[] {
   return Array.from(new Set(values.filter((v): v is string => !!v))).sort()
 }
 
-const COL_TEMPLATE = '150px 1fr 110px 130px 220px 90px 80px'
+const COL_TEMPLATE = '150px 1fr 110px 130px 220px 100px 100px'
 
 export function UsersPage() {
   const [statusFilter, setStatusFilter] = useState<'active' | 'inactive'>('active')
   const { data, isLoading, isError } = useUsers({ limit: 100, active: statusFilter === 'active' ? 'true' : 'false' })
+  const unlock = useUnlockUserLogin()
   const [createOpen, setCreateOpen] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [resetFor, setResetFor] = useState<{ id: number; login: string } | null>(null)
@@ -766,8 +780,23 @@ export function UsersPage() {
             <div style={{ fontSize: 13, color: '#555' }}>{u.user_type === 'customer' ? 'Customer' : ROLE_LABELS[u.role] ?? u.role}</div>
             <div style={{ fontSize: 13, color: u.level ? '#555' : '#C2C2C2' }}>{u.level ?? '—'}</div>
             <div className="truncate" style={{ fontSize: 13, color: u.job_title ? '#555' : '#C2C2C2' }}>{u.job_title ?? '—'}</div>
-            <div><ActivePill active={u.active} /></div>
+            <div className="flex flex-col items-start gap-1">
+              <ActivePill active={u.active} />
+              {loginLockState(u) && <LockPill state={loginLockState(u)!} />}
+            </div>
             <div className="flex items-center justify-end gap-1">
+              {loginLockState(u) && (
+                <button
+                  onClick={() => unlock.mutate(u.id, { onSuccess: () => toast.success(`ปลดล็อก ${u.login} แล้ว`) })}
+                  disabled={unlock.isPending}
+                  title="ปลดล็อกการเข้าสู่ระบบ"
+                  aria-label={`ปลดล็อก ${u.login}`}
+                  className="flex items-center justify-center rounded hover:bg-chrome-100"
+                  style={{ width: 28, height: 28, color: '#A32D2D' }}
+                >
+                  <LockOpen size={14} />
+                </button>
+              )}
               <button onClick={() => setEditingId(u.id)} title="Edit / Permissions" className="flex items-center justify-center rounded hover:bg-chrome-100" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
                 <Pencil size={14} />
               </button>

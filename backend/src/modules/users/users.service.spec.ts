@@ -28,28 +28,28 @@ function makePrisma(overrides: Record<string, unknown> = {}) {
 describe('UsersService.create', () => {
   it('hashes the password when creating a user', async () => {
     const prisma = makePrisma()
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.create({ login: 'somchai', name: 'Somchai', password: 'ChangeMe2026!', role: 'BSC' })
     expect(bcryptjs.hash).toHaveBeenCalledWith('ChangeMe2026!', 12)
   })
 
   it('admin gets no permission rows at all', async () => {
     const prisma = makePrisma()
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.create({ login: 'boss', name: 'Boss', password: 'ChangeMe2026!', role: 'admin' })
     expect(prisma.user_module_permission.createMany).not.toHaveBeenCalled()
   })
 
   it('a department with no pre-assigned template (BTE/BDP/BSC/BCD all start empty) gets no rows, not a crash', async () => {
     const prisma = makePrisma()
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.create({ login: 'newdept', name: 'New Dept', password: 'ChangeMe2026!', role: 'BTE' })
     expect(prisma.user_module_permission.createMany).not.toHaveBeenCalled()
   })
 
   it('saves level and job_title alongside the department', async () => {
     const prisma = makePrisma()
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.create({
       login: 'somchai',
       name: 'Somchai',
@@ -75,7 +75,7 @@ describe('UsersService.create', () => {
 
   it('explicit permissions override the role template', async () => {
     const prisma = makePrisma()
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.create({
       login: 'somchai',
       name: 'Somchai',
@@ -91,7 +91,7 @@ describe('UsersService.create', () => {
 
   it('rejects a duplicate login before touching the transaction', async () => {
     const prisma = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue({ id: 9 }) } })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await expect(
       svc.create({ login: 'admin', name: 'x', password: 'ChangeMe2026!', role: 'sale' }),
     ).rejects.toThrow(ConflictException)
@@ -102,7 +102,7 @@ describe('UsersService.create', () => {
 describe('UsersService.findOne', () => {
   it('throws NotFoundException when the user does not exist', async () => {
     const prisma = makePrisma({ res_users: { findUnique: jest.fn().mockResolvedValue(null) } })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await expect(svc.findOne(999)).rejects.toThrow(NotFoundException)
   })
 })
@@ -112,7 +112,7 @@ describe('UsersService.setPermissions', () => {
     const prisma = makePrisma({
       res_users: { findUnique: jest.fn().mockResolvedValue({ id: 1, login: 'somchai' }) },
     })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.setPermissions(1, {
       permissions: [
         { module: 'boms', can_view: true, can_create: true, can_update: true, can_delete: true },
@@ -133,7 +133,7 @@ describe('UsersService.setPermissions', () => {
     const prisma = makePrisma({
       res_users: { findUnique: jest.fn().mockResolvedValue({ id: 1, login: 'somchai' }) },
     })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.setPermissions(1, { permissions: [] })
     expect(prisma.user_module_permission.deleteMany).toHaveBeenCalledWith({ where: { user_id: 1 } })
     expect(prisma.user_module_permission.createMany).not.toHaveBeenCalled()
@@ -148,7 +148,7 @@ describe('UsersService.resetPassword', () => {
         update: jest.fn().mockResolvedValue({ id: 1 }),
       },
     })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.resetPassword(1, { password: 'NewPassw0rd!' })
     expect(bcryptjs.hash).toHaveBeenCalledWith('NewPassw0rd!', 12)
     expect(prisma.res_users.update).toHaveBeenCalledWith({ where: { id: 1 }, data: { password: 'HASHED' } })
@@ -159,18 +159,18 @@ describe('UsersService customer users', () => {
   const base = { login: 'cust', name: 'Cust', password: 'ChangeMe2026!', role: 'admin' }
 
   it('rejects a customer without a company', async () => {
-    const svc = new UsersService(makePrisma())
+    const svc = new UsersService(makePrisma(), { log: jest.fn() } as any)
     await expect(svc.create({ ...base, user_type: 'customer' })).rejects.toThrow(BadRequestException)
   })
 
   it('rejects a customer linked to a missing company', async () => {
-    const svc = new UsersService(makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue(null) } }))
+    const svc = new UsersService(makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue(null) } }), { log: jest.fn() } as any)
     await expect(svc.create({ ...base, user_type: 'customer', partner_id: 99 })).rejects.toThrow(BadRequestException)
   })
 
   it('forces role "customer" and view-only grants, ignoring requested role/permissions', async () => {
     const prisma = makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue({ id: 7 }) } })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.create({
       ...base,
       user_type: 'customer',
@@ -189,7 +189,7 @@ describe('UsersService customer users', () => {
   it('switching an employee to customer replaces their grants with the view-only set', async () => {
     const prisma = makePrisma({ res_partner: { findUnique: jest.fn().mockResolvedValue({ id: 7 }) } })
     prisma.res_users.findUnique.mockResolvedValue({ id: 3, user_type: 'employee', partner_id: null })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.update(3, { user_type: 'customer', partner_id: 7, role: 'admin' })
     expect(prisma.user_module_permission.deleteMany).toHaveBeenCalledWith({ where: { user_id: 3 } })
     expect(prisma.res_users.update.mock.calls[0][0].data).toMatchObject({ role: 'customer', user_type: 'customer', partner_id: 7 })
@@ -198,8 +198,38 @@ describe('UsersService customer users', () => {
   it('switching back to employee clears the company link', async () => {
     const prisma = makePrisma()
     prisma.res_users.findUnique.mockResolvedValue({ id: 3, user_type: 'customer', partner_id: 7 })
-    const svc = new UsersService(prisma)
+    const svc = new UsersService(prisma, { log: jest.fn() } as any)
     await svc.update(3, { user_type: 'employee', role: 'BTE' })
     expect(prisma.res_users.update.mock.calls[0][0].data).toMatchObject({ role: 'BTE', user_type: 'employee', partner_id: null })
+  })
+})
+
+// Login lockout (2026-11-05): admin unlock clears everything and is audited (QA M3)
+describe('UsersService.unlockLogin', () => {
+  const blockedAt = new Date('2026-11-05T08:00:00Z')
+  function make(user: unknown) {
+    const prisma: any = { res_users: { findUnique: jest.fn().mockResolvedValue(user), update: jest.fn() } }
+    const mail = { log: jest.fn() }
+    return { svc: new UsersService(prisma, mail as any), prisma, mail }
+  }
+
+  it('clears the block, the running lock and both counters, and audits who did it', async () => {
+    const { svc, prisma, mail } = make({ id: 39, login: 'locktest', login_blocked_at: blockedAt, login_locked_until: null })
+    await expect(svc.unlockLogin(39, 1)).resolves.toEqual({ ok: true })
+    expect(prisma.res_users.update).toHaveBeenCalledWith({
+      where: { id: 39 },
+      data: { failed_login_count: 0, login_strikes: 0, login_locked_until: null, login_blocked_at: null },
+    })
+    expect(mail.log).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'res_users', res_id: 39, message_type: 'audit', author_id: 1,
+      tracking: expect.arrayContaining([{ field: 'login_blocked_at', old_value: blockedAt.toISOString(), new_value: null }]),
+    }))
+  })
+
+  it('404s for an unknown user and writes nothing', async () => {
+    const { svc, prisma, mail } = make(null)
+    await expect(svc.unlockLogin(999, 1)).rejects.toThrow(NotFoundException)
+    expect(prisma.res_users.update).not.toHaveBeenCalled()
+    expect(mail.log).not.toHaveBeenCalled()
   })
 })

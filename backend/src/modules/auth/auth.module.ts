@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt'
 import { AuthService } from './auth.service'
 import { AuthController } from './auth.controller'
 import { PrismaModule } from '../../prisma/prisma.module'
+import { LoginRateLimitGuard } from '../../common/guards/login-rate-limit.guard'
 
 @Module({
   imports: [
@@ -13,7 +14,7 @@ import { PrismaModule } from '../../prisma/prisma.module'
       signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN ?? '7d') as any },
     }),
   ],
-  providers: [AuthService],
+  providers: [AuthService, LoginRateLimitGuard], // one instance → one shared counter
   controllers: [AuthController],
   exports: [AuthService, JwtModule],
 })

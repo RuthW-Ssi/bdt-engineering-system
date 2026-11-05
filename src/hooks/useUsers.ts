@@ -6,6 +6,7 @@ import {
   updateUser,
   setUserPermissions,
   resetUserPassword,
+  unlockUserLogin,
   type CreateUserPayload,
   type UpdateUserPayload,
   type PermissionEntry,
@@ -59,6 +60,15 @@ export function useSetUserPermissions() {
 export function useResetUserPassword() {
   return useMutation({
     mutationFn: ({ id, password }: { id: number; password: string }) => resetUserPassword(id, password),
+    meta: { showGlobalErrorToast: true },
+  })
+}
+
+export function useUnlockUserLogin() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => unlockUserLogin(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
     meta: { showGlobalErrorToast: true },
   })
 }

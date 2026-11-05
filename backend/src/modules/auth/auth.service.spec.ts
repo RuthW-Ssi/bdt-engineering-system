@@ -7,12 +7,13 @@ import { PrismaService } from '../../prisma/prisma.service'
 
 describe('AuthService', () => {
   let svc: AuthService
-  let prisma: { res_users: { findFirst: jest.Mock } }
+  let prisma: any
   let jwt: { sign: jest.Mock }
   let warnSpy: jest.SpyInstance
 
   beforeEach(async () => {
-    prisma = { res_users: { findFirst: jest.fn() } }
+    prisma = { res_users: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn().mockResolvedValue({ failed_login_count: 0, login_strikes: 0, role: 'admin', login: 'admin' }), update: jest.fn() }, $queryRaw: jest.fn() }
+    prisma.$transaction = jest.fn((cb: any) => cb(prisma))
     jwt = { sign: jest.fn().mockReturnValue('signed-token') }
 
     const module = await Test.createTestingModule({
