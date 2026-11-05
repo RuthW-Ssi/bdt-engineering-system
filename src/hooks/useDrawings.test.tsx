@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import * as drawingsApi from '../api/drawings'
 import { stagingUploadKey, type Drawing } from '../api/drawings'
-import { useUploadDrawings, useDrawingPdfUrl, useDrawingBomMarks, type StagedDrawing } from './useDrawings'
+import { useUploadDrawings, useDrawingPdfUrl, useDrawingBomMarks, settleInPool, type StagedDrawing } from './useDrawings'
 
 // uploadDrawing resolves with the created row — these tests only assert on
 // what gets sent (the request), not on the response shape, so a single
@@ -248,5 +248,23 @@ describe('useDrawingPdfUrl', () => {
 
     createSpy.mockRestore()
     revokeSpy.mockRestore()
+  })
+})
+
+// 2026-11-05: bulk upload runs at most N at a time so it stays under the API rate limit
+describe('settleInPool', () => {
+  it('runs at most `limit` tasks at once, keeps result order, and settles failures', async () => {
+    let running = 0
+    let peak = 0
+    const results = await settleInPool(10, 4, async (i) => {
+      running++
+      peak = Math.max(peak, running)
+      await new Promise(r => setTimeout(r, 5))
+      running--
+      if (i === 3) throw new Error('bad file')
+      return i * 10
+    })
+    expect(peak).toBe(4)
+    expect(results.map(r => (r.status === 'fulfilled' ? r.value : 'x'))).toEqual([0, 10, 20, 'x', 40, 50, 60, 70, 80, 90])
   })
 })
