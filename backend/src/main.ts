@@ -5,6 +5,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger'
 import * as compression from 'compression'
 import { AppModule } from './app.module'
 import { LoggingExceptionFilter } from './common/filters/logging-exception.filter'
+import { corsOrigins } from './config/cors'
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule)
@@ -14,7 +15,7 @@ async function bootstrap() {
   // they leave the container — cuts response size well under Cloud Run's
   // 32MiB response cap for the text-heavy JSON this API returns.
   app.use(compression())
-  app.enableCors({ origin: '*' })
+  app.enableCors({ origin: corsOrigins() })
   app.setGlobalPrefix('api/v1')
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, forbidNonWhitelisted: false, transform: true }),
@@ -25,18 +26,22 @@ async function bootstrap() {
   // real 500s completely invisible in Cloud Run's logs.
   app.useGlobalFilters(new LoggingExceptionFilter(app.get(HttpAdapterHost).httpAdapter))
 
-  const config = new DocumentBuilder()
-    .setTitle('BDT Engineering System API')
-    .setDescription('Material Master + Product Layer + Routing & Standard Time + Auth (dev) + PM Foundation — Sprint 6')
-    .setVersion('6.0')
-    .addBearerAuth()
-    .build()
-  const doc = SwaggerModule.createDocument(app, config)
-  SwaggerModule.setup('api/docs', app, doc)
+  // The API map stays off the public internet in production (2026-11-05);
+  // open http://localhost:3000/api/docs locally instead.
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('BDT Engineering System API')
+      .setDescription('Material Master + Product Layer + Routing & Standard Time + Auth (dev) + PM Foundation — Sprint 6')
+      .setVersion('6.0')
+      .addBearerAuth()
+      .build()
+    const doc = SwaggerModule.createDocument(app, config)
+    SwaggerModule.setup('api/docs', app, doc)
+  }
 
   const port = process.env.PORT ?? 3000
   await app.listen(port)
   console.log(`BDT backend running on http://localhost:${port}`)
-  console.log(`Swagger: http://localhost:${port}/api/docs`)
+  if (process.env.NODE_ENV !== 'production') console.log(`Swagger: http://localhost:${port}/api/docs`)
 }
 bootstrap()

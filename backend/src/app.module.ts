@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common'
-import { APP_INTERCEPTOR } from '@nestjs/core'
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core'
+import { ApiRateLimitGuard } from './common/guards/api-rate-limit.guard'
 import { CustomerScopeInterceptor } from './common/customer-scope/customer-scope.interceptor'
 import { ConfigModule } from '@nestjs/config'
 import { validate } from './config/configuration'
@@ -88,6 +89,9 @@ import { DocumentsModule } from './modules/documents/documents.module'
     DocumentsModule,
   ],
   // Customer users: default-deny + project scoping + weight/date stripping
-  providers: [{ provide: APP_INTERCEPTOR, useClass: CustomerScopeInterceptor }],
+  providers: [
+    { provide: APP_INTERCEPTOR, useClass: CustomerScopeInterceptor },
+    { provide: APP_GUARD, useClass: ApiRateLimitGuard }, // every route, 2026-11-05
+  ],
 })
 export class AppModule {}

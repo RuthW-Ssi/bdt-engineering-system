@@ -70,6 +70,26 @@ interface UploadDrawingsScope {
 // ONCE here and shared by every file in this batch — the earlier "drop
 // version" plan (Task 3/4) was reversed the same day it shipped. Upload is
 // .pdf-only since 2026-09-15's DWG removal (see DrawingUploadModal.tsx).
+export const UPLOAD_CONCURRENCY = 4
+
+/** Like Promise.allSettled over `count` tasks, but at most `limit` run at once; results keep their index. */
+export async function settleInPool<T>(count: number, limit: number, task: (i: number) => Promise<T>): Promise<PromiseSettledResult<T>[]> {
+  const results: PromiseSettledResult<T>[] = new Array(count)
+  let next = 0
+  const worker = async () => {
+    while (next < count) {
+      const i = next++
+      try {
+        results[i] = { status: 'fulfilled', value: await task(i) }
+      } catch (reason) {
+        results[i] = { status: 'rejected', reason }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, count) }, worker))
+  return results
+}
+
 export function useUploadDrawings(scope: UploadDrawingsScope) {
   const { projectId, projectCode, zoneId, zoneCode, subZoneId, subZoneCode } = scope
   const qc = useQueryClient()
@@ -78,16 +98,17 @@ export function useUploadDrawings(scope: UploadDrawingsScope) {
       const { version: latest } = await getLatestDrawingVersion(zoneId!, subZoneId)
       const nextVersion = (latest ?? 0) + 1
       const fileNames = dedupeStagedFileNames(items)
-      const results = await Promise.allSettled(
-        items.map((item, i) =>
-          uploadDrawing({
-            projectId: projectId!, projectCode: projectCode!,
-            zoneId: zoneId!, zoneCode: zoneCode!,
-            subZoneId, subZoneCode,
-            mark: item.mark, rev: item.rev, version: nextVersion,
-            file: item.file, fileName: fileNames[i],
-          }),
-        ),
+      // UPLOAD_CONCURRENCY at a time (2026-11-05): firing up to 1500 files at
+      // once crossed the API's per-user rate limit; a short 429 is retried by
+      // apiClient, so a big batch now just takes a little longer.
+      const results = await settleInPool(items.length, UPLOAD_CONCURRENCY, (i) =>
+        uploadDrawing({
+          projectId: projectId!, projectCode: projectCode!,
+          zoneId: zoneId!, zoneCode: zoneCode!,
+          subZoneId, subZoneCode,
+          mark: items[i].mark, rev: items[i].rev, version: nextVersion,
+          file: items[i].file, fileName: fileNames[i],
+        }),
       )
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
       return { uploaded: results.length - failed.length, failed }
