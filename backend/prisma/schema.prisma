@@ -27,6 +27,14 @@ model res_users {
   create_date DateTime     @default(now()) @db.Timestamptz
   write_date  DateTime     @updatedAt @db.Timestamptz
 
+  // Login lockout (2026-11-05, Tao): 5 wrong passwords = 1 round; round 1 → locked
+  // 1 min, round 2 → 5 min, round 3 → blocked until an admin unlocks (admins
+  // only ever get the 5-min lock). A correct login clears all of it.
+  failed_login_count Int       @default(0)
+  login_strikes      Int       @default(0)
+  login_locked_until DateTime? @db.Timestamptz
+  login_blocked_at   DateTime? @db.Timestamptz
+
   materials_created materials[]    @relation("create_user")
   materials_written materials[]    @relation("write_user")
   messages          mail_message[]
