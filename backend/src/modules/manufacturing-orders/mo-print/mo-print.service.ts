@@ -4,7 +4,7 @@ import { DrawingsService } from '../../drawings/drawings.service'
 import { FileStorageService } from '../../file-storage/file-storage.service'
 import { ManufacturingOrderService } from '../manufacturing-orders.service'
 import { computeActivityDuration, type ActivityDurationBreakdownItem } from '../../work-orders/activity-duration.util'
-import { buildMoPrintPdf } from './mo-print-pdf-builder'
+import { renderPrintPdf } from './mo-print-render'
 import type { PrintLang } from './mo-print-labels'
 import { currentRevSheetsWithAliases } from './mark-drawing-match'
 import { summarizeOperations, type OperationSummary, printedDrawingRevs, sourceLabelOf } from './mo-print-format'
@@ -304,7 +304,8 @@ export class MoPrintService {
   // only after the PDF built, so a failed print leaves no trace.
   async buildPdf(moId: number, workOrderIds?: number[], includeManifest = true, lang: PrintLang = 'en', printedBy?: string): Promise<Uint8Array> {
     const plan = await this.buildPlan(moId, workOrderIds, includeManifest)
-    const bytes = await buildMoPrintPdf(
+    // Layout runs on a worker thread so a big packet doesn't stall other requests (2026-11-05)
+    const bytes = await renderPrintPdf(
       plan,
       async (row, mark, sheet) => {
         try {
