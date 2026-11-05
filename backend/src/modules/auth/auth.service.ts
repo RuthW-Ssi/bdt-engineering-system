@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import * as bcrypt from 'bcryptjs'
 import { PrismaService } from '../../prisma/prisma.service'
@@ -11,6 +11,29 @@ export interface JwtPayload {
   login: string
   role: string
 }
+
+/**
+ * Login lockout (2026-11-05, Tao): every LOGIN_FAILS_PER_ROUND wrong passwords
+ * is one round. Round 1 → locked 1 min, round 2 → 5 min, round 3 → blocked
+ * until an admin unlocks it (POST /users/:id/unlock-login). Admin accounts are
+ * never blocked — round 1 is still 1 min, every later round 5 min — so the
+ * system can't end up with nobody to unlock.
+ * A correct password clears everything. Locked/blocked accounts are refused
+ * even with the right password.
+ */
+export const LOGIN_FAILS_PER_ROUND = 5
+export const LOCK_MINUTES = [1, 5] // round 1, round 2 (and every admin round after)
+
+const lockedError = (until: Date, now: number) => {
+  const sec = Math.max(1, Math.ceil((until.getTime() - now) / 1000))
+  const wait = sec >= 60 ? `${Math.ceil(sec / 60)} นาที` : `${sec} วินาที`
+  return new HttpException(
+    { message: `ใส่รหัสผ่านผิดหลายครั้ง — บัญชีถูกล็อกชั่วคราว รอ ${wait} แล้วลองใหม่`, code: 'ACCOUNT_LOCKED', retry_after: sec },
+    HttpStatus.TOO_MANY_REQUESTS,
+  )
+}
+const blockedError = () =>
+  new ForbiddenException({ message: 'ใส่รหัสผ่านผิดหลายครั้ง — บัญชีถูกระงับ ติดต่อ admin เพื่อปลดล็อก', code: 'ACCOUNT_BLOCKED' })
 
 @Injectable()
 export class AuthService {
@@ -47,10 +70,21 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials')
     }
 
+    const now = Date.now()
+    if (user.login_blocked_at) throw blockedError()
+    if (user.login_locked_until && user.login_locked_until.getTime() > now) throw lockedError(user.login_locked_until, now)
+
     const valid = await bcrypt.compare(dto.password, user.password)
     if (!valid) {
       this.logger.warn(`Login failed: wrong password for login "${this.sanitizeForLog(dto.login)}"`)
+      await this.recordFailure(user.id)
       throw new UnauthorizedException('Invalid credentials')
+    }
+    if (user.failed_login_count || user.login_strikes || user.login_locked_until) {
+      await this.prisma.res_users.update({
+        where: { id: user.id },
+        data: { failed_login_count: 0, login_strikes: 0, login_locked_until: null },
+      })
     }
 
     const payload: JwtPayload = { sub: user.id, login: user.login, role: user.role }
@@ -59,6 +93,42 @@ export class AuthService {
       access_token: this.jwt.sign(payload),
       user: { id: user.id, login: user.login, name: user.name, role: user.role, job_title: user.job_title, user_type: user.user_type, partner_id: user.partner_id, permissions },
     }
+  }
+
+  /**
+   * Counts one wrong password under a row lock (two wrong attempts at the same
+   * moment can't both read the old count). On every LOGIN_FAILS_PER_ROUND-th it
+   * starts the next round and throws the lock/block error instead of a plain 401.
+   */
+  private async recordFailure(userId: number): Promise<void> {
+    const err = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM res_users WHERE id = ${userId} FOR UPDATE`
+      const u = await tx.res_users.findUniqueOrThrow({
+        where: { id: userId },
+        select: { failed_login_count: true, login_strikes: true, role: true, login: true, login_locked_until: true, login_blocked_at: true },
+      })
+      // Re-check under the lock (QA M1): wrong passwords sent at the same moment
+      // must not keep counting once one of them locked the account.
+      if (u.login_blocked_at) return blockedError()
+      if (u.login_locked_until && u.login_locked_until.getTime() > Date.now()) return lockedError(u.login_locked_until, Date.now())
+      const fails = u.failed_login_count + 1
+      if (fails < LOGIN_FAILS_PER_ROUND) {
+        await tx.res_users.update({ where: { id: userId }, data: { failed_login_count: fails } })
+        return null
+      }
+      const isAdmin = u.role === 'admin'
+      const strikes = isAdmin ? Math.min(u.login_strikes + 1, LOCK_MINUTES.length) : u.login_strikes + 1
+      if (strikes > LOCK_MINUTES.length) {
+        await tx.res_users.update({ where: { id: userId }, data: { failed_login_count: 0, login_strikes: strikes, login_locked_until: null, login_blocked_at: new Date() } })
+        this.logger.warn(`Login blocked (round ${strikes}) for login "${this.sanitizeForLog(u.login)}" — needs admin unlock`)
+        return blockedError()
+      }
+      const until = new Date(Date.now() + LOCK_MINUTES[strikes - 1] * 60_000)
+      await tx.res_users.update({ where: { id: userId }, data: { failed_login_count: 0, login_strikes: strikes, login_locked_until: until } })
+      this.logger.warn(`Login locked ${LOCK_MINUTES[strikes - 1]} min (round ${strikes}) for login "${this.sanitizeForLog(u.login)}"`)
+      return lockedError(until, Date.now())
+    })
+    if (err) throw err
   }
 
   // Self-service password change (2026-09-29). `userId` comes from the JWT,

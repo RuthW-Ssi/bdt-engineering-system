@@ -7,6 +7,7 @@ import {
 import { CUSTOMER_VIEW_MODULES } from "../../common/permissions/permission-modules";
 import * as bcryptjs from "bcryptjs";
 import { PrismaService } from "../../prisma/prisma.service";
+import { MailMessageService } from "../mail/mail-message.service";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
 import { SetPermissionsDto } from "./dto/set-permissions.dto";
@@ -26,6 +27,8 @@ const LIST_SELECT = {
   partner: { select: { id: true, name: true, short_name: true } },
   active: true,
   create_date: true,
+  login_locked_until: true, // login lockout (2026-11-05) — the Users page shows it
+  login_blocked_at: true,
 };
 
 const CUSTOMER_VIEW_GRANTS = CUSTOMER_VIEW_MODULES.map((module) => ({
@@ -38,7 +41,10 @@ const CUSTOMER_VIEW_GRANTS = CUSTOMER_VIEW_MODULES.map((module) => ({
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mail: MailMessageService,
+  ) {}
 
   async findAll(query: QueryUserDto) {
     const page = Number(query.page ?? 1);
@@ -236,6 +242,34 @@ export class UsersService {
     await this.prisma.res_users.update({
       where: { id },
       data: { password: hash },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Admin clears a login lockout (2026-11-05): the round-3 block, a running
+   * 1/5-min lock and the wrong-password count. Audited with who did it.
+   */
+  async unlockLogin(id: number, adminId: number) {
+    const user = await this.prisma.res_users.findUnique({
+      where: { id },
+      select: { id: true, login: true, login_blocked_at: true, login_locked_until: true },
+    });
+    if (!user) throw new NotFoundException(`User ${id} not found`);
+    await this.prisma.res_users.update({
+      where: { id },
+      data: { failed_login_count: 0, login_strikes: 0, login_locked_until: null, login_blocked_at: null },
+    });
+    await this.mail.log({
+      model: "res_users",
+      res_id: id,
+      message_type: "audit",
+      author_id: adminId,
+      subject: `ปลดล็อกการเข้าสู่ระบบ: ${user.login}`,
+      tracking: [
+        { field: "login_blocked_at", old_value: user.login_blocked_at?.toISOString() ?? null, new_value: null },
+        { field: "login_locked_until", old_value: user.login_locked_until?.toISOString() ?? null, new_value: null },
+      ],
     });
     return { ok: true };
   }
