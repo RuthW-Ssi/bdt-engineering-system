@@ -25,6 +25,8 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
+      # required in production since 2026-11-05 — the backend refuses to start without it
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
       PORT: 3000
       NODE_ENV: production
     ports:
