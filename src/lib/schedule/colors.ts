@@ -1,5 +1,5 @@
 // Op-family colours, family order and legend for the Production Schedule page
-// (tokens exactly as backend-schedule/docs/prod-scheduler-mockup.html +
+// (tokens exactly as bdt-scheduler-service/docs/prod-scheduler-mockup.html +
 // the retired cockpit's sched-design-system.css).
 
 export type OpFamily = 'cut' | 'fit' | 'weld' | 'blast' | 'paint' | 'assy' | 'mach'

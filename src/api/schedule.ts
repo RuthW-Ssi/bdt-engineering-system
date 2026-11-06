@@ -3,7 +3,7 @@ import { apiClient } from './client'
 // Production schedule (ADR-0015). The board is one read-only GET that carries
 // everything the Production Schedule page draws (the 4M panel adds a second
 // read-only GET, /schedule/board/fourm); the two POSTs trigger the
-// prod-scheduler Cloud Run service / switch the active version
+// bdt-scheduler-service Cloud Run service / switch the active version
 // (both @RequiresPermission('orders','update')). Decimal → number and
 // Date → ISO string, as everywhere else in this app.
 

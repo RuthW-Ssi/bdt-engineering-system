@@ -1,4 +1,4 @@
-# Build context = backend-schedule/. The image needs only requirements.txt + app/.
+# Build context = bdt-scheduler-service/. The image needs only requirements.txt + app/.
 .venv/
 .env
 .env.*

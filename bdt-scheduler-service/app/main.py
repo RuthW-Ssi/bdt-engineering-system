@@ -1,4 +1,4 @@
-"""FastAPI service "prod-scheduler" for the SSI production scheduler (writes prod_schedule).
+"""FastAPI service "bdt-scheduler-service" for the SSI production scheduler (writes prod_schedule).
 
 Run:  uvicorn app.main:app --reload --port 8100
 Env:  DATABASE_URL=postgresql://...   (Supabase / Postgres)
@@ -61,7 +61,7 @@ def _internal(_request, exc: Exception):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "prod-scheduler"}
+    return {"status": "ok", "service": "bdt-scheduler-service"}
 
 
 @app.post("/schedule")

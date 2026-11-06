@@ -4,7 +4,7 @@ import { getErrorMessage } from '../getErrorMessage'
 /** 409 from POST /schedule/runs or /schedule/versions/:id/activate: the scheduler's advisory lock is held. */
 export const RUN_IN_PROGRESS_MESSAGE = 'มีการคำนวณค้างอยู่ ลองใหม่อีกครั้ง'
 
-/** 504: the backend gave up waiting, but prod-scheduler may still finish and save the version. */
+/** 504: the backend gave up waiting, but bdt-scheduler-service may still finish and save the version. */
 export const SCHEDULER_TIMEOUT_HINT = 'อาจคำนวณเสร็จภายหลัง — กด Reload เพื่อตรวจสอบ'
 
 /**

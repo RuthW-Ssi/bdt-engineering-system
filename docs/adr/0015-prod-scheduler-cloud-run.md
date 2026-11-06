@@ -83,6 +83,17 @@ move to append-only runs when what-if scenarios arrive.
 
 ---
 
+## Addendum 2026-11-06 — renamed to `bdt-scheduler-service`
+
+Service folders and Cloud Run services now share one name, `bdt-<name>-service` (with `bdt-cutting-plan-service`
+and `bdt-pipecut-service`). The folder `backend-schedule/` became `bdt-scheduler-service/`, and the Cloud Run service
+`prod-scheduler` is replaced by a new service `bdt-scheduler-service` (Cloud Run can't rename; same image, settings,
+runtime SA and secret). `SCHEDULER_API_URL` moved to `https://bdt-scheduler-service-489818756412.asia-northeast1.run.app`.
+The secret keeps its name `prod-scheduler-database-url`, and rows already written keep `created_by = prod-scheduler`.
+Cut-over and removal of the old service: `docs/runbooks/bdt-scheduler-service-deploy.md` §8.
+
+---
+
 ## See also
 
 - `backend/src/modules/cutting-plan/cutting-plan-api.client.ts` — service-to-service pattern to copy

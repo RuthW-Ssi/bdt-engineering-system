@@ -1,21 +1,22 @@
-name: Deploy Prod Scheduler to Cloud Run
+name: Deploy Scheduler service to Cloud Run
 
-# ADR-0015. IAM-only service (no --allow-unauthenticated); invoked by NestJS with a Google ID token.
-# One-time setup (DB role, secret, invoker binding): docs/runbooks/prod-scheduler-deploy.md
+# ADR-0015 (Cloud Run service renamed prod-scheduler → bdt-scheduler-service 2026-11-06). IAM-only service (no --allow-unauthenticated); invoked by NestJS with a Google ID token.
+# One-time setup (DB role, secret, invoker binding): docs/runbooks/bdt-scheduler-service-deploy.md
 
 on:
   push:
     branches: [staging]
     paths:
-      - 'backend-schedule/**'
+      - 'bdt-scheduler-service/**'
       - '.github/workflows/deploy-scheduler.yml'
 
 env:
   PROJECT_ID: building-technology-493907
   REGION: asia-northeast1
   AR_REGION: asia-southeast1
-  SERVICE: prod-scheduler
-  IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/prod-scheduler
+  SERVICE: bdt-scheduler-service
+  IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/bdt-scheduler-service
+  BACKEND_SA: 489818756412-compute@developer.gserviceaccount.com
 
 jobs:
   deploy:
@@ -43,7 +44,7 @@ jobs:
           docker build \
             -t "$IMAGE:$GITHUB_SHA" \
             -t "$IMAGE:latest" \
-            ./backend-schedule
+            ./bdt-scheduler-service
           docker push "$IMAGE:$GITHUB_SHA"
           docker push "$IMAGE:latest"
 
@@ -62,7 +63,17 @@ jobs:
             --cpu 1 \
             --timeout 300 \
             --concurrency 4 \
+            --cpu-boost \
             --no-allow-unauthenticated
+
+      # NestJS runs as the default compute SA; it is the only caller (idempotent — also covers a fresh service).
+      - name: Allow the backend to invoke
+        run: |
+          gcloud run services add-iam-policy-binding "$SERVICE" \
+            --member "serviceAccount:$BACKEND_SA" \
+            --role roles/run.invoker \
+            --region "$REGION" \
+            --project "$PROJECT_ID"
 
       - name: Route traffic to new revision
         run: |

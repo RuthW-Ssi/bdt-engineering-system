@@ -153,7 +153,7 @@ export default function App() {
             {/* Sprint 14: Order Hub (MO ↔ WO tabs) */}
             <Route path="/order" element={<ProtectedRoute viewModules={['orders']}><OrderHub /></ProtectedRoute>} />
             <Route path="/order/wo/:id" element={<ProtectedRoute viewModules={['orders']}><WoDetail /></ProtectedRoute>} />
-            {/* Sprint 37: Production Schedule (prod-scheduler board, ADR-0015) */}
+            {/* Sprint 37: Production Schedule (bdt-scheduler-service board, ADR-0015) */}
             <Route path="/production-schedule" element={<ProtectedRoute viewModules={['orders']}><ProductionSchedule /></ProtectedRoute>} />
             {/* Sprint 13: Manufacturing Order · /mo list now aliases into the hub */}
             <Route path="/mo" element={<Navigate to="/order?tab=mo" replace />} />

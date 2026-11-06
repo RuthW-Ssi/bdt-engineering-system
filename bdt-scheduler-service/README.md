@@ -1,4 +1,4 @@
-# backend-schedule
+# bdt-scheduler-service
 
 Finite-capacity **production scheduler** service for SSI steel fabrication.
 Reads scheduling inputs from Postgres/Supabase, runs a heuristic scheduler, and
@@ -7,7 +7,7 @@ writes the result to `prod_schedule_version` + `prod_schedule`. The NestJS
 
 > **Naming:** older docs (`docs/APS_*.md`) say "APS" (Advanced Planning & Scheduling).
 > Elsewhere in this repo **APS = Autodesk Platform Services** (BIM viewer), so this
-> feature is called **prod-scheduler** from here on.
+> feature is called **bdt-scheduler-service** from here on.
 
 Stand-alone Python service (FastAPI) — separate from the NestJS `backend/` so it can
 later host the optimization engine (OR-Tools/CP-SAT) without bloating the main API.
@@ -21,7 +21,7 @@ later host the optimization engine (OR-Tools/CP-SAT) without bloating the main A
 - ✅ Validated on the 125-WO test set: **0 line-overlap (feasible)**, paint = bottleneck
 - ⏳ v2: OR-Tools/CP-SAT optimization (true "algorithmic sequencing"), what-if scenarios, cockpit API
 
-## v0.2 — merged onto main's schema (2026-10-03, branch `dev-t-prod-scheduler`)
+## v0.2 — merged onto main's schema (2026-10-03, branch `dev-t-bdt-scheduler-service`)
 - WO dates: `earliest_start_at`/`target_end_at` → **`plan_start`/`plan_finish`** (main rename).
 - WO ↔ assembly is **multi-mark**: `work_order_part` (qty, `weight_kg`) → `bom_assembly_part` → `bom_assembly`.
 - Labor follows main: **`team`** (internal/external) + **`work_order.team_headcount`** per WO.
@@ -36,7 +36,7 @@ later host the optimization engine (OR-Tools/CP-SAT) without bloating the main A
 
 ## Layout
 ```
-backend-schedule/
+bdt-scheduler-service/
   app/
     main.py              FastAPI (POST /schedule, /schedule/compare, GET /health)
     db.py                psycopg2 conn + local<->tz conversion (Asia/Bangkok +7)
@@ -59,7 +59,7 @@ backend-schedule/
 
 ## Run
 ```bash
-cd backend-schedule
+cd bdt-scheduler-service
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env            # set DATABASE_URL
@@ -73,7 +73,7 @@ uvicorn app.main:app --reload --port 8100
 #    200 {version_id, kpi, ...} · 409 run_in_progress · 422 data_not_ready · 500 {code:internal}
 # -> POST http://localhost:8100/schedule/compare   (body {dispatch_rule?, now?}; never writes)
 # In staging this runs on Cloud Run (IAM only) and NestJS calls it — see ADR-0015 and
-# docs/runbooks/prod-scheduler-deploy.md. Tests: pip install -r requirements-dev.txt && pytest
+# docs/runbooks/bdt-scheduler-service-deploy.md. Tests: pip install -r requirements-dev.txt && pytest
 
 # or CLI
 DATABASE_URL=... python scripts/run_local.py --compare
@@ -91,7 +91,7 @@ activates through `POST /schedule/runs` / `/schedule/versions/:id/activate` (`or
 the browser never holds a database key. Layout follows `docs/prod-scheduler-mockup.html`: KPI tiles,
 Backlog | Resource Gantt | detail + order list, Utilization Heatmap, Bottleneck Load, 4M + WIP.
 
-The standalone HTML cockpit (`backend-schedule/cockpit/`, Supabase REST with the anon key) was
+The standalone HTML cockpit (`bdt-scheduler-service/cockpit/`, Supabase REST with the anon key) was
 retired on 2026-10-04 (ADR-0015 D4); its logic lives on in `src/lib/schedule/` — see git history.
 
 ## Inputs (from DB)

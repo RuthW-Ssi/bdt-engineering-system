@@ -1,5 +1,5 @@
-# prod-scheduler (FastAPI) — Cloud Run image, built by .github/workflows/deploy-scheduler.yml.
-# Python 3.13 matches the tested backend-schedule/.venv. No DDL / migrations here: Prisma owns the schema.
+# bdt-scheduler-service (FastAPI) — Cloud Run image, built by .github/workflows/deploy-scheduler.yml.
+# Python 3.13 matches the tested bdt-scheduler-service/.venv. No DDL / migrations here: Prisma owns the schema.
 FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
