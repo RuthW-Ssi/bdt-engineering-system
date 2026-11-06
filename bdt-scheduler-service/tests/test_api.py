@@ -39,7 +39,7 @@ def _raise(exc):
 
 def test_health(client):
     r = client.get("/health")
-    assert r.status_code == 200 and r.json() == {"status": "ok", "service": "prod-scheduler"}
+    assert r.status_code == 200 and r.json() == {"status": "ok", "service": "bdt-scheduler-service"}
 
 
 def test_schedule_defaults(client, calls):

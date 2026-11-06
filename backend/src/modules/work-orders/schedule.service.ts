@@ -41,7 +41,7 @@ export function isUndefinedTableError(e: unknown): boolean {
 
 /**
  * pg_try_advisory_xact_lock key shared with the Python scheduler
- * (backend-schedule/app/solver/engine.py LOCK_KEY, ASCII "SCHEDULE"). Never change one side alone.
+ * (bdt-scheduler-service/app/solver/engine.py LOCK_KEY, ASCII "SCHEDULE"). Never change one side alone.
  */
 export const SCHEDULER_LOCK_KEY = 0x5343484544554c45n
 
@@ -52,7 +52,7 @@ export function bangkokNowIso(now: Date = new Date()): string {
 
 /**
  * T-WO.06 · Schedule access.
- * The production scheduler (backend-schedule/, Python — Cloud Run `prod-scheduler`,
+ * The production scheduler (bdt-scheduler-service/, Python — Cloud Run `bdt-scheduler-service`,
  * ADR-0015) WRITES prod_schedule_version + prod_schedule; run() only triggers it and
  * the rows travel through the DB. A run with `activate` (or activate()) makes its
  * version the single active one served by activeVersion().

@@ -16,7 +16,7 @@ import { ScheduleBoard, ScheduleFourM } from './schedule-board.types'
 // `permission-modules.ts`'s `orders` entry). GET /board exposes the whole WO/MO
 // set (and GET /board/fourm the plant's headcount + stock), so both are gated per
 // method with `orders:view`. The POST writes — triggering
-// the `prod-scheduler` Cloud Run service and activating a version — are gated per
+// the `bdt-scheduler-service` Cloud Run service and activating a version — are gated per
 // method with `orders:update` (ADR-0015 D2).
 @ApiTags('Schedule')
 @ApiBearerAuth()
@@ -64,7 +64,7 @@ export class ScheduleController {
   @Post('runs')
   @UseGuards(PermissionGuard)
   @RequiresPermission('orders', 'update')
-  @ApiOperation({ summary: 'Run the prod-scheduler (persist) · 409 run_in_progress · 422 data_not_ready · 504 timeout' })
+  @ApiOperation({ summary: 'Run the bdt-scheduler-service (persist) · 409 run_in_progress · 422 data_not_ready · 504 timeout' })
   run(@Body() dto: RunScheduleDto, @CurrentUser() user: JwtPayload) {
     return this.svc.run(dto, user)
   }

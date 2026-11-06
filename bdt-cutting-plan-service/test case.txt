@@ -1,0 +1,17 @@
+Scenario Test Case
+-------------
+Positive Test
+1CRSs4sTiKtzc1mebQtE5DIrOFZ4PdizZ
+passed: handle กรณี ข้อมูลใน section คลาดเคลื่อนเล็กน้อย เช่น title header อยู่สลับที่ >>> 1VJpmJdlgpI7_ixAKzJ0tnEYZ0y2xfp7U
+-------------
+Negative Test
+passed: error กรณีมี material มากกว่า 1 row >>> 1eNsprDv4MJ-ajBEOJZiH6WMA2-NumNK6
+passed: error กรณี remnants ไม่มี data >>> 1T3JG2VN7KmKa0RFhTSRySXzs5syvglQ1
+passed: error กรณี request ไม่ครบ
+passed: error กรณี data table ในแต่ละ section ไม่ถูกต้อง
+passed: error กรณี header ระหว่าง dataframe vs. google sheet ไม่ตรงกัน
+passed: error บอกว่าแต่ละไฟล์ไหนมี error บ้าง
+passed: error ไม่เจอ column header บน google sheet
+passed: error กรณีไม่เจอ text file
+NEED TEST: Remnant ไม่มี data แต่ compromise ให้ใส่ manaul ทีหลังสำหรับ project ก่อนหน้า launched app
+NEED TEST: "mismatches between Dataframe and Google Sheet"

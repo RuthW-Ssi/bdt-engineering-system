@@ -1,0 +1,15 @@
+# Build context = bdt-cutting-plan-service/. The image needs only requirements.txt + *.py.
+.venv/
+.env
+.env.*
+docs/
+db/
+tests/
+data/
+.pytest_cache/
+**/__pycache__/
+**/*.pyc
+.DS_Store
+*.md
+*.txt
+!requirements.txt

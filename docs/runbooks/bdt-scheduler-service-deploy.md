@@ -1,6 +1,6 @@
-# Prod Scheduler Deploy Runbook — Cloud Run `prod-scheduler`
+# Prod Scheduler Deploy Runbook — Cloud Run `bdt-scheduler-service`
 
-> **Decision:** [ADR-0015](../adr/0015-prod-scheduler-cloud-run.md) — the Python scheduler (`backend-schedule/`)
+> **Decision:** [ADR-0015](../adr/0015-prod-scheduler-cloud-run.md) — the Python scheduler (`bdt-scheduler-service/`)
 > runs as its own Cloud Run service, reachable **only** by NestJS through Cloud Run IAM. The browser never
 > calls it. It reads its inputs and writes `prod_schedule_version` + `prod_schedule` with a least-privilege
 > DB role; Prisma migrations stay the only schema authority (the container never runs DDL).
@@ -9,11 +9,11 @@
 
 | Item | Value |
 |------|-------|
-| Service | `prod-scheduler` · Cloud Run `asia-northeast1` · project `building-technology-493907` |
-| URL | `https://prod-scheduler-489818756412.asia-northeast1.run.app` |
-| Image | `asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/prod-scheduler:<sha>` (+ `:latest`) |
-| Built from | `backend-schedule/Dockerfile` (Python 3.13, non-root, `uvicorn app.main:app` on `$PORT`) |
-| Deployed by | `.github/workflows/deploy-scheduler.yml` — push to `staging` touching `backend-schedule/**` |
+| Service | `bdt-scheduler-service` · Cloud Run `asia-northeast1` · project `building-technology-493907` |
+| URL | `https://bdt-scheduler-service-489818756412.asia-northeast1.run.app` |
+| Image | `asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/bdt-scheduler-service:<sha>` (+ `:latest`) |
+| Built from | `bdt-scheduler-service/Dockerfile` (Python 3.13, non-root, `uvicorn app.main:app` on `$PORT`) |
+| Deployed by | `.github/workflows/deploy-scheduler.yml` — push to `staging` touching `bdt-scheduler-service/**` |
 | Access | IAM only (`--no-allow-unauthenticated`); `roles/run.invoker` = NestJS runtime service account |
 | DB | Supavisor **transaction** pooler (6543) as role `sched_writer` · secret `prod-scheduler-database-url` |
 | Caller | NestJS `SchedulerApiClient` via `SCHEDULER_API_URL` (`POST /schedule/runs`) |
@@ -27,7 +27,7 @@ Do the one-time setup and the first deploy **before** merging the NestJS change 
 that NestJS may not invoke.
 
 ```
-§1 DB role sched_writer ─► §2 secret + secretAccessor ─► §3 merge backend-schedule/** to staging
+§1 DB role sched_writer ─► §2 secret + secretAccessor ─► §3 merge bdt-scheduler-service/** to staging
    (first deploy) ─► §4 invoker grant for NestJS SA ─► §6 verify with an ID token
    ─► merge the NestJS change (deploy-backend.yml sets SCHEDULER_API_URL, §5) ─► §6 end-to-end run
 ```
@@ -135,7 +135,7 @@ printf '%s' "$SCHED_DB_URL" | gcloud secrets create prod-scheduler-database-url 
   --project building-technology-493907 --data-file=-
 unset SCHED_DB_URL
 
-# prod-scheduler runs as the default compute SA (the workflow sets no --service-account)
+# bdt-scheduler-service runs as the default compute SA (the workflow sets no --service-account)
 gcloud secrets add-iam-policy-binding prod-scheduler-database-url \
   --project building-technology-493907 \
   --member serviceAccount:489818756412-compute@developer.gserviceaccount.com \
@@ -153,15 +153,15 @@ same mode NestJS `DATABASE_URL` already uses.
 **Rotate the password:** `ALTER ROLE sched_writer WITH PASSWORD '<new>';` → add a secret version
 (`gcloud secrets versions add prod-scheduler-database-url --data-file=-`, same `read -rs` pattern) → start a
 new revision so instances re-read `:latest`:
-`gcloud run services update prod-scheduler --region asia-northeast1 --project building-technology-493907 --update-env-vars SECRET_ROTATED_AT=$(date +%s)`.
+`gcloud run services update bdt-scheduler-service --region asia-northeast1 --project building-technology-493907 --update-env-vars SECRET_ROTATED_AT=$(date +%s)`.
 Runs fail between the `ALTER ROLE` and the new revision — do it outside working hours.
 
 ---
 
 ## 3. Deploy
 
-Normal path: push to `staging` with a change under `backend-schedule/**` (or to the workflow file).
-The workflow builds `backend-schedule/`, pushes `:<sha>` + `:latest`, and deploys:
+Normal path: push to `staging` with a change under `bdt-scheduler-service/**` (or to the workflow file).
+The workflow builds `bdt-scheduler-service/`, pushes `:<sha>` + `:latest`, and deploys:
 
 | Flag | Value | Why |
 |------|-------|-----|
@@ -191,12 +191,12 @@ NEST_SA=$(gcloud run services describe staging-bdt-engineering-service \
 NEST_SA=${NEST_SA:-489818756412-compute@developer.gserviceaccount.com}   # empty = default compute SA
 echo "$NEST_SA"
 
-gcloud run services add-iam-policy-binding prod-scheduler \
+gcloud run services add-iam-policy-binding bdt-scheduler-service \
   --region asia-northeast1 --project building-technology-493907 \
   --member "serviceAccount:$NEST_SA" \
   --role roles/run.invoker
 
-gcloud run services get-iam-policy prod-scheduler \
+gcloud run services get-iam-policy bdt-scheduler-service \
   --region asia-northeast1 --project building-technology-493907
 ```
 
@@ -204,7 +204,7 @@ Expected: one `roles/run.invoker` binding with `$NEST_SA`; no `allUsers` / `allA
 
 > [!note] Default compute SA is shared
 > If NestJS runs as the default compute SA, every other Cloud Run service in the project that also runs as
-> it can invoke `prod-scheduler`. Hardening later: give NestJS its own runtime SA and grant the invoker to that.
+> it can invoke `bdt-scheduler-service`. Hardening later: give NestJS its own runtime SA and grant the invoker to that.
 
 ---
 
@@ -213,13 +213,13 @@ Expected: one `roles/run.invoker` binding with `$NEST_SA`; no `allUsers` / `allA
 Set in `.github/workflows/deploy-backend.yml` `--set-env-vars`:
 
 ```
-SCHEDULER_API_URL=https://prod-scheduler-489818756412.asia-northeast1.run.app
+SCHEDULER_API_URL=https://bdt-scheduler-service-489818756412.asia-northeast1.run.app
 ```
 
 It must live in the workflow, not the Cloud Run console: `--set-env-vars` replaces the whole env list on
 every backend deploy. The value is also the ID-token audience (`getIdTokenClient(SCHEDULER_API_URL)`) —
 no trailing slash, no path. Cloud Run accepts both URL forms (`…run.app` above and the
-`prod-scheduler-<hash>-an.a.run.app` that `status.url` may print). Unset → `POST /schedule/runs` returns
+`bdt-scheduler-service-<hash>-an.a.run.app` that `status.url` may print). Unset → `POST /schedule/runs` returns
 `500 Scheduler service is not configured`.
 
 ---
@@ -229,10 +229,10 @@ no trailing slash, no path. Cloud Run accepts both URL forms (`…run.app` above
 With your own identity (your account needs `roles/run.invoker` or higher on the service):
 
 ```bash
-URL=https://prod-scheduler-489818756412.asia-northeast1.run.app
+URL=https://bdt-scheduler-service-489818756412.asia-northeast1.run.app
 
 curl -sS -H "Authorization: Bearer $(gcloud auth print-identity-token)" "$URL/health"
-# {"status":"ok","service":"prod-scheduler"}
+# {"status":"ok","service":"bdt-scheduler-service"}
 
 curl -sS -o /dev/null -w '%{http_code}\n' "$URL/health"
 # 403 (or 401) — no token: proves the service is not public
@@ -247,7 +247,7 @@ curl -sS -X POST "$URL/schedule/compare" \
 On `500`, read the logs (the response body is generic by design):
 
 ```bash
-gcloud run services logs read prod-scheduler \
+gcloud run services logs read bdt-scheduler-service \
   --region asia-northeast1 --project building-technology-493907 --limit 50
 ```
 
@@ -260,10 +260,10 @@ with `version_id`, and an audit row on `prod_schedule_version`.
 ## 7. Rollback
 
 ```bash
-gcloud run revisions list --service prod-scheduler \
+gcloud run revisions list --service bdt-scheduler-service \
   --region asia-northeast1 --project building-technology-493907 --limit 5
 
-gcloud run services update-traffic prod-scheduler \
+gcloud run services update-traffic bdt-scheduler-service \
   --region asia-northeast1 --project building-technology-493907 \
   --to-revisions <previous-revision>=100
 ```
@@ -274,9 +274,30 @@ gcloud run services update-traffic prod-scheduler \
   by re-running from the good revision (`POST /schedule/runs`), not by restoring rows.
 
 **Emergency stop** (no redeploy): remove the invoker binding
-(`gcloud run services remove-iam-policy-binding prod-scheduler --member "serviceAccount:$NEST_SA" --role roles/run.invoker …`)
+(`gcloud run services remove-iam-policy-binding bdt-scheduler-service --member "serviceAccount:$NEST_SA" --role roles/run.invoker …`)
 so NestJS can no longer call it, and/or block DB writes with `ALTER ROLE sched_writer NOLOGIN;`
 (undo: `LOGIN`).
+
+---
+
+## 8. Rename from `prod-scheduler` (2026-11-06, one-time)
+
+Cloud Run can't rename a service, so the first staging merge that carries the rename creates
+`bdt-scheduler-service` next to the old `prod-scheduler`:
+
+1. `deploy-scheduler.yml` builds and deploys `bdt-scheduler-service` (same settings), grants the backend's
+   runtime SA `roles/run.invoker` on it, and checks it is not public.
+2. `deploy-backend.yml` deploys NestJS with the new `SCHEDULER_API_URL`. The two workflows run in parallel, so
+   for the minute or two until step 1 finishes a schedule run can fail (Thai error, nothing written); retry.
+3. Verify (§6) against the new URL: `POST /api/v1/schedule/runs` from the app works.
+4. Then remove the old service (min 0, so it costs nothing while it waits):
+
+```bash
+gcloud run services delete prod-scheduler --region asia-northeast1 --project building-technology-493907
+```
+
+The secret `prod-scheduler-database-url` and its `secretAccessor` grant stay as they are (§2).
+Old images under `bdt-backend/prod-scheduler` can be deleted from Artifact Registry later.
 
 ---
 
