@@ -14,7 +14,7 @@ export const DISPATCH_RULES = ['EDD', 'CR', 'SPT', 'FIFO'] as const
 export type ScheduleDirection = (typeof SCHEDULE_DIRECTIONS)[number]
 export type DispatchRule = (typeof DISPATCH_RULES)[number]
 
-/** Body of `POST /schedule` on prod-scheduler (ADR-0015). */
+/** Body of `POST /schedule` on bdt-scheduler-service (ADR-0015). */
 export interface ScheduleRunRequest {
   direction: ScheduleDirection
   dispatch_rule: DispatchRule
@@ -28,7 +28,7 @@ export interface ScheduleRunRequest {
   work_order_ids?: number[]
 }
 
-/** backend-schedule/app/solver/kpi.py compute(). */
+/** bdt-scheduler-service/app/solver/kpi.py compute(). */
 export interface ScheduleKpi {
   work_orders: number
   feasible: boolean
@@ -62,7 +62,7 @@ export interface ScheduleReservedLine { wo_code: string; line_id: number; until:
 
 const TIMEOUT_MS = 60_000
 
-// Calls the `prod-scheduler` Cloud Run service (backend-schedule/, FastAPI) —
+// Calls the `bdt-scheduler-service` Cloud Run service (bdt-scheduler-service/, FastAPI) —
 // ADR-0015. Same IAM pattern as CuttingPlanApiClient: Google-signed ID token,
 // aud = the service URL. The Python body is never forwarded on unexpected
 // errors; only the typed 409 / 422 data_not_ready messages reach the client.
@@ -91,7 +91,7 @@ export class SchedulerApiClient {
     }
     let headers: Headers
     if (isLocalSchedulerUrl(this.baseUrl)) {
-      // Local dev: backend-schedule/scripts/dev.sh on http://localhost:8100 has no Cloud Run IAM.
+      // Local dev: bdt-scheduler-service/scripts/dev.sh on http://localhost:8100 has no Cloud Run IAM.
       headers = new Headers()
     } else {
       try {

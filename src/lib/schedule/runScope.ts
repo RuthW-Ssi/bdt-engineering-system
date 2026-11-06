@@ -1,7 +1,7 @@
 import type { BoardMo, BoardWorkOrder } from '../../api/schedule'
 
 // ▶ Run · เลือกเอง — which WOs a run is limited to. Only NOT_STARTED / RELEASED WOs are
-// schedulable (backend-schedule loader.WO_STATUSES_SCHEDULABLE), so only those are offered.
+// schedulable (bdt-scheduler-service loader.WO_STATUSES_SCHEDULABLE), so only those are offered.
 const SCHEDULABLE = new Set(['NOT_STARTED', 'RELEASED'])
 const FINISHED = new Set(['DONE', 'CANCELLED'])
 
@@ -42,7 +42,7 @@ export function toggleWoPick(sel: Set<number>, id: number): Set<number> {
 /**
  * Picked WO id → wo_code of the nearest earlier operation of the same MO that is left out
  * of the run and not finished. The scheduler makes the picked WO wait for that op's
- * plan_finish (backend-schedule loader), so the form warns about it.
+ * plan_finish (bdt-scheduler-service loader), so the form warns about it.
  */
 export function waitsFor(sel: Set<number>, wos: BoardWorkOrder[]): Map<number, string> {
   const out = new Map<number, string>()

@@ -9,7 +9,7 @@ Usage:
 --activate marks the written version as the single active one (shown in the BDT app).
 --compare writes both versions without changing which one is active (the HTTP
 /schedule/compare endpoint, by contrast, never writes).
---requested-by NAME is stored in prod_schedule_version.created_by (default prod-scheduler).
+--requested-by NAME is stored in prod_schedule_version.created_by (default bdt-scheduler-service).
 
 For an offline demo without a DB, see scripts/run_local_embedded.py (the original
 sandbox test with the 125-WO dataset embedded).
@@ -30,7 +30,7 @@ def main():
     ap.add_argument("--no-persist", action="store_true")
     ap.add_argument("--compare", action="store_true")
     ap.add_argument("--activate", action="store_true", help="make the written version the active one")
-    ap.add_argument("--requested-by", default="prod-scheduler", help="stored in prod_schedule_version.created_by")
+    ap.add_argument("--requested-by", default="bdt-scheduler-service", help="stored in prod_schedule_version.created_by")
     a = ap.parse_args()
     if a.compare:
         out = {"backward": engine.run("backward", a.rule, persist=True, requested_by=a.requested_by),

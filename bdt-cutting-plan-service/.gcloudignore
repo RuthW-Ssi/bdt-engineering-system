@@ -1,0 +1,11 @@
+.gcloudignore
+.git
+.gitignore
+.DS_Store
+
+service_account_key.json
+test case.txt
+
+__pycache__/
+*.pyc
+data/

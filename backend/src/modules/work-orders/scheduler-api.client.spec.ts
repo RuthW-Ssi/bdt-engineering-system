@@ -18,7 +18,7 @@ jest.mock('google-auth-library', () => ({
 
 import { ScheduleRunRequest, SchedulerApiClient } from './scheduler-api.client'
 
-const URL_ = 'https://prod-scheduler.example.run.app'
+const URL_ = 'https://bdt-scheduler-service.example.run.app'
 const REQ: ScheduleRunRequest = {
   direction: 'backward',
   dispatch_rule: 'EDD',

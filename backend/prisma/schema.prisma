@@ -2165,7 +2165,7 @@ model activity_required_consumable {
 
 // ── 🟦 Cutting Plan (plate nesting ETL) ───────────────────────────
 // Parsed via the external Python Cloud Run service `bdt-cutting-plan-service`
-// (repo RuthW-Ssi/bdt-cutting-plan-system) — bdt-app uploads .txt nesting
+// (source in `bdt-cutting-plan-service/`) — bdt-app uploads .txt nesting
 // reports to it and persists the returned JSON here. See wiki/features/cutting-plan.md.
 //
 // No project/zone assignment concept on this model (removed 2026-07-17) —

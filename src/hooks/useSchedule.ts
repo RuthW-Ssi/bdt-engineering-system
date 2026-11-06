@@ -40,7 +40,7 @@ export function useScheduleFourM(versionId?: number | null, { enabled = true }: 
 }
 
 // Both mutations invalidate on settle, not only on success: a 504 only aborts
-// the backend's own call to prod-scheduler, which may still persist / activate
+// the backend's own call to bdt-scheduler-service, which may still persist / activate
 // a version afterwards.
 
 /** POST /schedule/runs — 409 / 422 / 5xx are rendered by the run form (describeScheduleError). */

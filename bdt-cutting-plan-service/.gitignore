@@ -1,0 +1,21 @@
+# Secrets — never commit
+service_account_key.json
+*.json.key
+.env
+.env.*
+
+# Claude Code local settings (per-user, not shared)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Runtime data (created when the service processes a request)
+data/
+
+# OS
+.DS_Store

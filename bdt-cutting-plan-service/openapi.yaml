@@ -1,0 +1,119 @@
+openapi: 3.0.3
+info:
+  title: Cutting Plan API
+  version: "1.0.0"
+  description: >
+    Parses one or more directly-uploaded cutting-plan .txt reports (no zip)
+    and returns extracted data as JSON. Stateless — does not persist data
+    itself.
+paths:
+  /:
+    post:
+      summary: Process one or more cutting-plan report files
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - files
+                - file_id
+                - project_code
+                - tag
+                - description
+                - version
+                - revision
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                file_id:
+                  type: string
+                  pattern: '^[A-Za-z0-9_-]+$'
+                project_code:
+                  type: string
+                tag:
+                  type: string
+                description:
+                  type: string
+                version:
+                  type: string
+                revision:
+                  type: string
+      responses:
+        '200':
+          description: Successfully parsed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code:
+                    type: integer
+                    example: 200
+                  status:
+                    type: string
+                    example: success
+                  file_id:
+                    type: string
+                  description:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      nesting:
+                        type: array
+                        items:
+                          type: array
+                          items: {}
+                      order_part:
+                        type: array
+                        items:
+                          type: array
+                          items: {}
+                      plate_usage:
+                        type: array
+                        items:
+                          type: array
+                          items: {}
+                      remnants:
+                        type: array
+                        items:
+                          type: array
+                          items: {}
+        '400':
+          description: Invalid request (missing field or no files uploaded)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Processing failed (unsafe filename, unparseable content, etc. -- all-or-nothing)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+      security:
+        - cloudRunIam: []
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: integer
+        status:
+          type: string
+          example: failed
+        file_id:
+          type: string
+        description:
+          type: string
+  securitySchemes:
+    cloudRunIam:
+      type: http
+      scheme: bearer
+      bearerFormat: "Google-signed ID token"
