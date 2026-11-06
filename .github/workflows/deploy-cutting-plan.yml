@@ -1,7 +1,8 @@
 name: Deploy Cutting Plan service to Cloud Run
 
 # Plate nesting-report parser (bdt-cutting-plan-service/), moved here 2026-11-06 from
-# RuthW-Ssi/bdt-cutting-plan-system — that repo's own deploy must stay off, or the two overwrite each other.
+# RuthW-Ssi/bdt-cutting-plan-system. That repo is still in use and still deploys this same Cloud Run service on
+# push to its main (buildpacks); such a push replaces this image until the next staging deploy here.
 # IAM-only service (no --allow-unauthenticated); invoked by NestJS with a Google ID token.
 # Same settings as deploy-scheduler.yml: min 0, max 2 (was 20), startup CPU boost on, IAM only, runtime SA =
 # default compute SA — no cost increase. Size as before the move (1 vCPU, 1Gi).
@@ -12,6 +13,11 @@ on:
     paths:
       - 'bdt-cutting-plan-service/**'
       - '.github/workflows/deploy-cutting-plan.yml'
+
+# One deploy of this service at a time; a newer push waits rather than racing it.
+concurrency:
+  group: deploy-bdt-cutting-plan-service
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: building-technology-493907
@@ -134,6 +140,7 @@ jobs:
               exit 1
             fi
           else
-            echo "::warning::could not read the IAM policy of $SERVICE; check it is not public"
+            echo "::error::could not read the IAM policy of $SERVICE; refusing to pass without the public-access check"
+            exit 1
           fi
           echo "$SERVICE ready: $URL (revision $READY)"
