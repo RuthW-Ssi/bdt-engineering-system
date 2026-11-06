@@ -30,10 +30,10 @@ export interface CuttingPlanApiResponse {
   }
 }
 
-// Calls the external `bdt-cutting-plan-service` (Cloud Run, repo
-// RuthW-Ssi/bdt-cutting-plan-system) — stateless .txt nesting-report parser.
+// Calls the external `bdt-cutting-plan-service` (Cloud Run, source in
+// `bdt-cutting-plan-service/`) — stateless .txt nesting-report parser.
 // Auth is Cloud Run IAM (Google-signed ID token, aud = the service URL itself),
-// not an API key — see docs/api.md in that repo.
+// not an API key — see bdt-cutting-plan-service/docs/api.md.
 @Injectable()
 export class CuttingPlanApiClient {
   private readonly audience = process.env.CUTTING_PLAN_API_URL
