@@ -1,7 +1,7 @@
 # bdt-cutting-plan-service (Functions Framework) — Cloud Run image, built by
-# .github/workflows/deploy-cutting-plan.yml. Python 3.10 = what the service was
-# tested and deployed on (buildpacks) before it moved into bdt-app.
-FROM python:3.10-slim
+# .github/workflows/deploy-cutting-plan.yml. Python 3.12: newest that numpy<2.0
+# (requirements.txt) supports; 3.10, its runtime before the move, is EOL.
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
