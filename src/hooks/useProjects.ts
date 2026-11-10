@@ -9,6 +9,14 @@ export function useProjects(params?: Parameters<typeof projectsApi.list>[0]) {
   })
 }
 
+// Every project, for pickers (useProjectSelection).
+export function useAllProjects() {
+  return useQuery({
+    queryKey: ['projects', 'all'],
+    queryFn: () => projectsApi.listAll(),
+  })
+}
+
 // Detail by business code — backend includes active zones (erection order).
 export function useProject(projectCode: string | undefined) {
   return useQuery({

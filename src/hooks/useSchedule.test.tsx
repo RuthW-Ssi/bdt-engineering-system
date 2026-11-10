@@ -25,7 +25,7 @@ beforeEach(() => {
 })
 
 describe('schedule mutations', () => {
-  // a 504 only aborts the backend's call — prod-scheduler may still save a version
+  // a 504 only aborts the backend's call — bdt-scheduler-service may still save a version
   it('useRunSchedule refreshes the board even when the run fails', async () => {
     vi.mocked(runSchedule).mockRejectedValue(timeout)
     const invalidate = vi.spyOn(qc, 'invalidateQueries')

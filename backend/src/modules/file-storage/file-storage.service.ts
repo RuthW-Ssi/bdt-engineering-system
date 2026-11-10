@@ -55,6 +55,14 @@ export class FileStorageService implements OnModuleInit {
     return this.driver.putObject(key, buffer, contentType)
   }
 
+  copy(fromKey: string, toKey: string) {
+    return this.driver.copy(fromKey, toKey)
+  }
+
+  list(prefix: string) {
+    return this.driver.list(prefix)
+  }
+
   resolveLocalPath(key: string): string {
     return path.resolve(path.join(STORAGE_ROOT, key))
   }

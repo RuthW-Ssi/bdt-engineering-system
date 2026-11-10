@@ -35,8 +35,8 @@ import { OrderHub } from './pages/OrderHub'
 import { ProductionSchedule } from './pages/ProductionSchedule'
 import { WoDetail } from './pages/WoDetail'
 import { CuttingPlanList } from './pages/CuttingPlanList'
-import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
 import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
+import { CuttingPlanPlate } from './pages/CuttingPlanPlate'
 import { BimViewer } from './pages/BimViewer'
 import { DrawingList } from './pages/DrawingList'
 import { UsersPage } from './pages/UsersPage'
@@ -153,7 +153,7 @@ export default function App() {
             {/* Sprint 14: Order Hub (MO ↔ WO tabs) */}
             <Route path="/order" element={<ProtectedRoute viewModules={['orders']}><OrderHub /></ProtectedRoute>} />
             <Route path="/order/wo/:id" element={<ProtectedRoute viewModules={['orders']}><WoDetail /></ProtectedRoute>} />
-            {/* Sprint 37: Production Schedule (prod-scheduler board, ADR-0015) */}
+            {/* Sprint 37: Production Schedule (bdt-scheduler-service board, ADR-0015) */}
             <Route path="/production-schedule" element={<ProtectedRoute viewModules={['orders']}><ProductionSchedule /></ProtectedRoute>} />
             {/* Sprint 13: Manufacturing Order · /mo list now aliases into the hub */}
             <Route path="/mo" element={<Navigate to="/order?tab=mo" replace />} />
@@ -166,8 +166,8 @@ export default function App() {
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />
             <Route path="/cutting-plan" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanList /></ProtectedRoute>} />
-            <Route path="/cutting-plan/upload" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanUpload /></ProtectedRoute>} />
             <Route path="/cutting-plan/:id" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanDetail /></ProtectedRoute>} />
+            <Route path="/cutting-plan/:id/plate/:plate" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanPlate /></ProtectedRoute>} />
           </Route>
         </Routes>
       </BrowserRouter>

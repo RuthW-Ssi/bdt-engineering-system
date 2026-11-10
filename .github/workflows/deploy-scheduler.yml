@@ -1,27 +1,57 @@
-name: Deploy Prod Scheduler to Cloud Run
+name: Deploy Scheduler service to Cloud Run
 
-# ADR-0015. IAM-only service (no --allow-unauthenticated); invoked by NestJS with a Google ID token.
-# One-time setup (DB role, secret, invoker binding): docs/runbooks/prod-scheduler-deploy.md
+# ADR-0015 (Cloud Run service renamed prod-scheduler → bdt-scheduler-service 2026-11-06). IAM-only service (no --allow-unauthenticated); invoked by NestJS with a Google ID token.
+# One-time setup (DB role, secret, invoker binding): docs/runbooks/bdt-scheduler-service-deploy.md
 
 on:
   push:
     branches: [staging]
     paths:
-      - 'backend-schedule/**'
+      - 'bdt-scheduler-service/**'
       - '.github/workflows/deploy-scheduler.yml'
+
+# One deploy of this service at a time; a newer push waits rather than racing it.
+concurrency:
+  group: deploy-bdt-scheduler-service
+  cancel-in-progress: false
 
 env:
   PROJECT_ID: building-technology-493907
   REGION: asia-northeast1
   AR_REGION: asia-southeast1
-  SERVICE: prod-scheduler
-  IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/prod-scheduler
+  SERVICE: bdt-scheduler-service
+  IMAGE: asia-southeast1-docker.pkg.dev/building-technology-493907/bdt-backend/bdt-scheduler-service
+  BACKEND_SA: 489818756412-compute@developer.gserviceaccount.com
 
 jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: bdt-scheduler-service
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest -q
+
   deploy:
     name: Build and deploy to Cloud Run
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    needs: test
 
     steps:
       - name: Checkout
@@ -43,7 +73,7 @@ jobs:
           docker build \
             -t "$IMAGE:$GITHUB_SHA" \
             -t "$IMAGE:latest" \
-            ./backend-schedule
+            ./bdt-scheduler-service
           docker push "$IMAGE:$GITHUB_SHA"
           docker push "$IMAGE:latest"
 
@@ -62,7 +92,17 @@ jobs:
             --cpu 1 \
             --timeout 300 \
             --concurrency 4 \
+            --cpu-boost \
             --no-allow-unauthenticated
+
+      # NestJS runs as the default compute SA; it is the only caller (idempotent — also covers a fresh service).
+      - name: Allow the backend to invoke
+        run: |
+          gcloud run services add-iam-policy-binding "$SERVICE" \
+            --member "serviceAccount:$BACKEND_SA" \
+            --role roles/run.invoker \
+            --region "$REGION" \
+            --project "$PROJECT_ID"
 
       - name: Route traffic to new revision
         run: |
@@ -96,6 +136,7 @@ jobs:
               exit 1
             fi
           else
-            echo "::warning::could not read the IAM policy of $SERVICE; check it is not public (runbook §4)"
+            echo "::error::could not read the IAM policy of $SERVICE; refusing to pass without the public-access check (runbook §4)"
+            exit 1
           fi
           echo "$SERVICE ready: $URL (revision $READY)"

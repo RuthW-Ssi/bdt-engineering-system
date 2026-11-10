@@ -65,4 +65,13 @@ export class GcsFileStorageDriver implements FileStorageDriver {
     // a resumable session is unneeded overhead here.
     await this.bucket.file(key).save(buffer, { contentType, resumable: false })
   }
+
+  async copy(fromKey: string, toKey: string): Promise<void> {
+    await this.bucket.file(fromKey).copy(this.bucket.file(toKey))
+  }
+
+  async list(prefix: string): Promise<{ key: string; updatedAt: Date }[]> {
+    const [files] = await this.bucket.getFiles({ prefix })
+    return files.map(f => ({ key: f.name, updatedAt: new Date(String(f.metadata.updated ?? f.metadata.timeCreated ?? 0)) }))
+  }
 }

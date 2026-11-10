@@ -1,22 +1,29 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2, Scissors, Trash2 } from 'lucide-react'
+import { ArrowLeft, Box, Download, Loader2, Scissors, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCuttingPlan, useBulkAssignOrderPartProjectCode, useDeleteCuttingPlan } from '../hooks/useCuttingPlan'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import { usePermission } from '../hooks/usePermission'
+import { planLabel } from '../lib/cuttingPlan/planLabel'
+import { PlanMeta } from '../components/cuttingPlan/PlanMeta'
+import { PlanSummaryCharts } from '../components/cuttingPlan/PlanSummary'
+import { sheetKgByPlate, summarizePlan } from '../lib/cuttingPlan/planSummary'
+import { InfoTip } from '../components/bom/InfoTip'
 import type {
-  CuttingPlanNestingRow, CuttingPlanOrderPartRow, CuttingPlanPlateUsageRow, CuttingPlanRemnantRow,
+  CuttingPlanNestingRow, CuttingPlanOrderPartRow, CuttingPlanPlateUsageRow, CuttingPlanRemnantRow, CuttingPlanFile,
 } from '../api/cutting-plan'
+import { downloadCuttingPlanFile } from '../api/cutting-plan'
 
-type DataTab = 'nesting' | 'order_parts' | 'plate_usage' | 'remnants'
+type DataTab = 'nesting' | 'order_parts' | 'plate_usage' | 'remnants' | 'files'
 
 const DATA_TABS: { id: DataTab; label: string }[] = [
   { id: 'nesting', label: 'Plates' },
   { id: 'order_parts', label: 'Order Parts' },
   { id: 'plate_usage', label: 'Plate Usage' },
   { id: 'remnants', label: 'Remnants' },
+  { id: 'files', label: 'Files' },
 ]
 
 function fmt(v: number | string | null): string {
@@ -25,24 +32,16 @@ function fmt(v: number | string | null): string {
   return Number.isFinite(n) ? n.toLocaleString('en', { maximumFractionDigits: 2 }) : String(v)
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, padding: '18px 20px' }}>
-      <div style={{ fontSize: 12, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: '#111827', lineHeight: 1, marginTop: 9 }}>{value}</div>
-    </div>
-  )
-}
-
 // Tab bar mirrors BomList.tsx's CONTENT_TABS pattern — one table visible at a
 // time instead of stacking all 4 (nesting rows in particular can run long).
-function DataTabsCard({ tab, onTabChange, children }: {
+function DataTabsCard({ tab, onTabChange, counts, children }: {
   tab: DataTab
+  counts: Partial<Record<DataTab, number>>
   onTabChange: (tab: DataTab) => void
   children: React.ReactNode
 }) {
   return (
-    <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, overflow: 'hidden' }}>
+    <div style={{ background: 'white', border: '1px solid #E5E7EB', borderRadius: 12, overflow: 'hidden', flexShrink: 0 }}>
       <div style={{ display: 'flex', borderBottom: '1px solid #E8E8E8' }}>
         {DATA_TABS.map(t => (
           <button
@@ -59,7 +58,7 @@ function DataTabsCard({ tab, onTabChange, children }: {
               marginBottom: -1,
             }}
           >
-            {t.label}
+            {t.label}{counts[t.id] != null && <span style={{ color: '#9CA3AF', fontWeight: 400 }}> ({counts[t.id]!.toLocaleString('en')})</span>}
           </button>
         ))}
       </div>
@@ -77,10 +76,11 @@ function TableGrid({ columns, children }: { columns: string; children: React.Rea
 }
 
 function TH({ children }: { children: React.ReactNode }) {
+  // z-index via classes so a header showing an ⓘ tooltip can rise above its sticky neighbours
   return (
-    <div style={{
+    <div className="z-[1] hover:z-10 focus-within:z-10" style={{
       padding: '8px 16px', fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.03em',
-      borderBottom: '1px solid #F0F0F0', background: '#fff', position: 'sticky', top: 0, zIndex: 1,
+      borderBottom: '1px solid #F0F0F0', background: '#fff', position: 'sticky', top: 0,
     }}>
       {children}
     </div>
@@ -91,21 +91,39 @@ function TD({ children, style }: { children: React.ReactNode; style?: React.CSSP
   return <div style={{ padding: '8px 16px', fontSize: 12, color: '#1F1F1F', borderBottom: '1px solid #F5F5F5', ...style }}>{children}</div>
 }
 
-function NestingTable({ rows }: { rows: CuttingPlanNestingRow[] }) {
+// Each plate (Charge) opens its own page with 3D / 2D / cut simulation when its .dxf is stored.
+function NestingTable({ rows, sheetKg, viewable, onView }: { rows: CuttingPlanNestingRow[]; sheetKg: Map<string, number>; viewable: Set<string>; onView: (plate: string) => void }) {
   if (rows.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No plates</div>
   return (
-    <TableGrid columns="1fr 1fr 1.5fr 1fr 1fr 0.8fr">
-      <TH>Plate Number</TH><TH>Mark</TH><TH>Quality / Dimensions</TH><TH>Weight (kg)</TH><TH>Nesting %</TH><TH>Parts</TH>
-      {rows.map(r => (
-        <div key={r.id} style={{ display: 'contents' }}>
-          <TD>{r.plate_number ?? '—'}</TD>
-          <TD style={{ fontFamily: 'monospace' }}>{r.cuttingplan_number}</TD>
-          <TD>{r.quality ?? '—'} · {fmt(r.thick_mm)}×{fmt(r.width_mm)}×{fmt(r.length_mm)} mm</TD>
-          <TD>{fmt(r.weight_kg)}</TD>
-          <TD>{r.nesting_percent != null ? `${fmt(r.nesting_percent)}%` : '—'}</TD>
-          <TD>{r.count ?? '—'}</TD>
-        </div>
-      ))}
+    <TableGrid columns="0.9fr 1fr 1.5fr 1fr 1fr 0.9fr 0.6fr 0.5fr">
+      <TH>Plate Number</TH><TH>Mark (Charge)</TH><TH>Quality / Dimensions</TH>
+      {/* the report's plate weight is only the nested area (2026-11-07: 452 kg of a 1,394 kg sheet) */}
+      <TH><span className="inline-flex items-center gap-1">Nested weight (kg) <InfoTip label="What is nested weight" text="Weight of the part of the sheet used for nesting (Nesting Dim.). The rest of the sheet becomes remnants." /></span></TH>
+      <TH><span className="inline-flex items-center gap-1">Sheet weight (kg) <InfoTip label="What is sheet weight" text="Whole sheet = nested weight + this plate's remnants." /></span></TH>
+      <TH>Nesting %</TH><TH>Parts</TH><TH>3D</TH>
+      {rows.map(r => {
+        const can = viewable.has(r.cuttingplan_number)
+        return (
+          <div key={r.id} style={{ display: 'contents' }}>
+            <TD>{r.plate_number ?? '—'}</TD>
+            <TD style={{ fontFamily: 'monospace' }}>{r.cuttingplan_number}</TD>
+            <TD>{r.quality ?? '—'} · {fmt(r.thick_mm)}×{fmt(r.width_mm)}×{fmt(r.length_mm)} mm</TD>
+            <TD>{fmt(r.weight_kg)}</TD>
+            <TD>{fmt(sheetKg.get(r.cuttingplan_number) ?? null)}</TD>
+            <TD>{r.nesting_percent != null ? `${fmt(r.nesting_percent)}%` : '—'}</TD>
+            <TD>{r.count ?? '—'}</TD>
+            <TD>
+              <button onClick={() => can && onView(r.cuttingplan_number)} disabled={!can}
+                aria-label={`ดู 3D แผ่น ${r.cuttingplan_number}`}
+                title={can ? `ดู 3D แผ่น ${r.cuttingplan_number}` : 'แผ่นนี้ไม่มีไฟล์ .dxf (อัปก่อนเริ่มเก็บไฟล์) จึงดู 3D ไม่ได้'}
+                className="disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-50"
+                style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#C8202A', background: 'none', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
+                <Box size={16} />
+              </button>
+            </TD>
+          </div>
+        )
+      })}
     </TableGrid>
   )
 }
@@ -229,12 +247,63 @@ function RemnantTable({ rows }: { rows: CuttingPlanRemnantRow[] }) {
   )
 }
 
+// The four stored files of each plate (2026-11-06): one row per plate, a download per kind.
+const KINDS = ['TXT', 'XLS', 'PDF', 'DXF'] as const
+function FileTable({ files }: { files: CuttingPlanFile[] }) {
+  if (files.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>ไม่มีไฟล์ (อัปก่อนเริ่มเก็บไฟล์ 2026-11-06)</div>
+  const plates = [...new Set(files.map(f => f.plate_name))]
+  const get = async (f: CuttingPlanFile) => {
+    try { await downloadCuttingPlanFile(f) } catch (e) { toast.error(getErrorMessage(e, 'ดาวน์โหลดไม่สำเร็จ ลองใหม่อีกครั้ง')) }
+  }
+  return (
+    <TableGrid columns="1.4fr 1fr 1fr 1fr 1fr">
+      <TH>Plate</TH>{KINDS.map(k => <TH key={k}>.{k.toLowerCase()}</TH>)}
+      {plates.map(plate => (
+        <div key={plate} style={{ display: 'contents' }}>
+          <TD><span style={{ fontFamily: 'monospace' }}>{plate}</span></TD>
+          {KINDS.map(k => {
+            const f = files.find(x => x.plate_name === plate && x.kind === k)
+            return (
+              <TD key={k}>
+                {f ? (
+                  <button onClick={() => get(f)} title={f.file_name}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#0C447C', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    <Download size={12} />{(f.size_bytes / 1024).toLocaleString('en', { maximumFractionDigits: 0 })} KB
+                  </button>
+                ) : '—'}
+              </TD>
+            )
+          })}
+        </div>
+      ))}
+    </TableGrid>
+  )
+}
+
 export function CuttingPlanDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const cuttingPlanId = id ? parseInt(id) : NaN
   const { data: detail, isLoading, isError } = useCuttingPlan(cuttingPlanId)
   const [dataTab, setDataTab] = useState<DataTab>('nesting')
+  const [thickness, setThickness] = useState<number | null>(null) // filter picked on the thickness chart
+  const summary = useMemo(() => (detail ? summarizePlan(detail.nestings, detail.remnants) : null), [detail])
+  // The thickness picked on the chart filters every tab: child rows and files follow their plate by name.
+  const shown = useMemo(() => {
+    const all = { nestings: detail?.nestings ?? [], order_parts: detail?.order_parts ?? [], plate_usages: detail?.plate_usages ?? [], remnants: detail?.remnants ?? [], files: detail?.files ?? [] }
+    if (thickness == null) return all
+    const nestings = all.nestings.filter(r => Number(r.thick_mm) === thickness)
+    const names = new Set(nestings.map(r => r.cuttingplan_number))
+    return {
+      nestings,
+      order_parts: all.order_parts.filter(r => names.has(r.cuttingplan_number)),
+      plate_usages: all.plate_usages.filter(r => names.has(r.cuttingplan_number)),
+      remnants: all.remnants.filter(r => names.has(r.cuttingplan_number)),
+      files: all.files.filter(f => names.has(f.plate_name)),
+    }
+  }, [detail, thickness])
+  const sheetKg = useMemo(() => sheetKgByPlate(detail?.nestings ?? [], detail?.remnants ?? []), [detail])
+  const focus = useMemo(() => summarizePlan(shown.nestings, shown.remnants), [shown])
   const deleteMut = useDeleteCuttingPlan()
   const confirm = useConfirm()
   const canDelete = usePermission('cutting-plan', 'delete')
@@ -244,7 +313,7 @@ export function CuttingPlanDetail() {
     if (!detail) return
     const ok = await confirm({
       title: 'Delete this cutting plan upload?',
-      message: `"${detail.tag}" and all its parsed plates, order parts, plate usage, and remnants will be permanently deleted.`,
+      message: `"${planLabel(detail)}" and all its parsed plates, order parts, plate usage, and remnants will be permanently deleted.`,
       variant: 'danger',
       confirmLabel: 'Delete',
     })
@@ -299,7 +368,10 @@ export function CuttingPlanDetail() {
           <ArrowLeft size={16} />
         </button>
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>{detail.tag}</span>
+          {/* the labelled line is the title; "0X202 · WH" above it only repeated the codes (2026-11-06) */}
+          {detail.project
+            ? <PlanMeta plan={detail} size="title" />
+            : <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>{planLabel(detail)}</span>}
         </div>
         {canDelete && (
           <button
@@ -316,18 +388,24 @@ export function CuttingPlanDetail() {
       </div>
 
       <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '20px 24px 24px', background: '#F9FAFB', gap: 20, display: 'flex' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-          <StatCard label="Plates" value={detail.nestings.length} />
-          <StatCard label="Order Parts" value={detail.order_parts.length} />
-          <StatCard label="Plate Usage" value={detail.plate_usages.length} />
-          <StatCard label="Remnants" value={detail.remnants.length} />
-        </div>
+        {/* children keep their height: this column scrolls instead of squeezing the tables (2026-11-06) */}
+        {/* composition of this one plan (not averages): the row counts moved into the tab labels (2026-11-07) */}
+        {summary && detail.nestings.length > 0 && (
+          <PlanSummaryCharts summary={summary} focus={focus} thickness={thickness}
+            onThickness={setThickness} />
+        )}
 
-        <DataTabsCard tab={dataTab} onTabChange={setDataTab}>
-          {dataTab === 'nesting' && <NestingTable rows={detail.nestings} />}
-          {dataTab === 'order_parts' && <OrderPartTable rows={detail.order_parts} canWrite={canWrite} />}
-          {dataTab === 'plate_usage' && <PlateUsageTable rows={detail.plate_usages} />}
-          {dataTab === 'remnants' && <RemnantTable rows={detail.remnants} />}
+        <DataTabsCard tab={dataTab} onTabChange={setDataTab}
+          counts={{ nesting: shown.nestings.length, order_parts: shown.order_parts.length, plate_usage: shown.plate_usages.length, remnants: shown.remnants.length, files: shown.files.length }}>
+          {dataTab === 'nesting' && (
+            <NestingTable rows={shown.nestings} sheetKg={sheetKg}
+              viewable={new Set((detail.files ?? []).filter(f => f.kind === 'DXF').map(f => f.plate_name))}
+              onView={plate => navigate(`/cutting-plan/${detail.id}/plate/${encodeURIComponent(plate)}`)} />
+          )}
+          {dataTab === 'order_parts' && <OrderPartTable key={thickness ?? 'all'} rows={shown.order_parts} canWrite={canWrite} />}
+          {dataTab === 'plate_usage' && <PlateUsageTable rows={shown.plate_usages} />}
+          {dataTab === 'remnants' && <RemnantTable rows={shown.remnants} />}
+          {dataTab === 'files' && <FileTable files={shown.files} />}
         </DataTabsCard>
       </div>
     </div>
