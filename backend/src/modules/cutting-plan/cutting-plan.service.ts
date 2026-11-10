@@ -62,7 +62,7 @@ export interface StagedFile { upload_key: string; file_name: string }
 // A real nesting report always starts with the "NESTING" section. Drive history has a 0-byte
 // .txt (0X203-Z1-16-17, 2026-11-06) that crashed the parser with a Python error → catch it here.
 const notAReport = (f: CuttingPlanFileInput) => f.buffer.length === 0 || !f.buffer.toString('latin1', 0, 4096).includes('NESTING')
-const badReportMessage = (names: string[]) => `ไฟล์ .txt ว่างหรือไม่ใช่รายงาน nesting: ${names.join(', ')}`
+const badReportMessage = (names: string[]) => `Empty or not a nesting report (.txt): ${names.join(', ')}`
 
 const REQUIRED_FIELDS = ['project_id', 'zone_id', 'version', 'revision'] as const
 const LOT_MAX = 60
@@ -312,7 +312,7 @@ export class CuttingPlanService {
     for (const f of allStaged) {
       // one tenant must not claim another project's staged files (cf. drawings assertUploadKeyOwnership)
       if (!keyShape.test(f.upload_key) || !f.upload_key.startsWith(stagingPrefix) || seen.has(f.upload_key)) {
-        throw new BadRequestException(`ไฟล์ ${f.file_name} อัปโหลดไม่ถูกต้อง กรุณาอัปใหม่`)
+        throw new BadRequestException(`${f.file_name} was not uploaded correctly. Please upload again.`)
       }
       seen.add(f.upload_key)
     }
@@ -334,8 +334,8 @@ export class CuttingPlanService {
     const sizes = new Map<string, number>()
     await inBatches(allStaged, 16, async f => {
       const meta = await this.fileStorage.getMetadata(f.upload_key)
-      if (!meta) throw new BadRequestException(`ไม่พบไฟล์ ${f.file_name} ที่อัปโหลด กรุณาอัปใหม่`)
-      if (meta.size > MAX_FILE_BYTES) throw new BadRequestException(`ไฟล์ ${f.file_name} ใหญ่เกิน 30 MB`)
+      if (!meta) throw new BadRequestException(`Uploaded file ${f.file_name} was not found. Please upload again.`)
+      if (meta.size > MAX_FILE_BYTES) throw new BadRequestException(`${f.file_name} is larger than 30 MB`)
       sizes.set(f.file_name, meta.size)
     })
     // checked on the stored size, before any .txt is read into memory
@@ -495,7 +495,7 @@ export class CuttingPlanService {
   async plateView(uploadId: number, plate: string) {
     const files = await this.prisma.cutting_plan_file.findMany({ where: { upload_id: uploadId, plate_name: plate, kind: { in: ['DXF', 'TXT'] } } })
     const dxf = files.find(f => f.kind === 'DXF')
-    if (!dxf) throw new NotFoundException(`แผ่น ${plate} ไม่มีไฟล์ .dxf`)
+    if (!dxf) throw new NotFoundException(`Plate ${plate} has no .dxf file`)
     const txt = files.find(f => f.kind === 'TXT')
     const nesting = await this.prisma.cutting_plan_nesting.findFirst({ where: { upload_id: uploadId, cuttingplan_number: plate } })
     const geometry = parsePlateDxf((await this.fileStorage.getObject(dxf.file_key)).toString('latin1'))
@@ -543,7 +543,7 @@ export class CuttingPlanService {
       this.logger.error(`Cutting plan ${uploadId}: storing files failed, rolling back`, err instanceof Error ? err.stack : String(err))
       await this.prisma.cutting_plan_upload.delete({ where: { id: uploadId } }).catch(() => undefined)
       await this.deleteObjects(written)
-      throw new InternalServerErrorException('บันทึกไฟล์ไม่สำเร็จ กรุณาลองใหม่')
+      throw new InternalServerErrorException('Could not store the files. Nothing was saved. Please try again.')
     }
     await this.deleteObjects([...byName.values()].map(f => f.upload_key))
   }

@@ -53,9 +53,9 @@ export function groupPlateFiles(fileNames: string[]): PlateFileGrouping {
 // One line per problem, in Thai for the preview; empty = the set can be saved.
 export function plateFileProblems(g: PlateFileGrouping): string[] {
   const out: string[] = []
-  for (const p of g.plates) if (!p.files.txt) out.push(`แผ่น ${p.plate} ไม่มีไฟล์ .txt (ทุกแผ่นต้องมี .txt)`)
-  for (const n of g.notAllowed) out.push(`ไฟล์ ${n} ไม่ใช่ .txt / .xls / .pdf / .dxf`)
-  for (const n of g.duplicates) out.push(`ไฟล์ ${n} ซ้ำกับไฟล์ชนิดเดียวกันของแผ่นเดียวกัน`)
+  for (const p of g.plates) if (!p.files.txt) out.push(`Plate ${p.plate} has no .txt (every plate needs its .txt)`)
+  for (const n of g.notAllowed) out.push(`${n} is not a .txt / .xls / .pdf / .dxf file`)
+  for (const n of g.duplicates) out.push(`${n} duplicates another file of the same type for the same plate`)
   return out
 }
 
@@ -63,5 +63,5 @@ export function plateFileProblems(g: PlateFileGrouping): string[] {
 export function plateFileWarnings(g: PlateFileGrouping): string[] {
   return g.plates
     .filter(p => p.files.txt && p.missing.length)
-    .map(p => `แผ่น ${p.plate} ไม่มี ${p.missing.map(k => '.' + k).join(', ')} (บันทึกได้ แต่เปิดไฟล์นั้นไม่ได้)`)
+    .map(p => `Plate ${p.plate} has no ${p.missing.map(k => '.' + k).join(', ')} (it can be saved, but that file cannot be opened)`)
 }

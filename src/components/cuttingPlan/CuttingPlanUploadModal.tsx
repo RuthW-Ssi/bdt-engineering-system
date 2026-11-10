@@ -67,9 +67,9 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
     const over = rejected.filter(r => r.reason.startsWith('Maximum')).length
     const big = rejected.filter(r => r.reason.toLowerCase().includes('mb')).length
     const wrong = rejected.length - over - big
-    if (over) toast.error(`อัปได้ไม่เกิน ${MAX_FILES} ไฟล์ (${MAX_FILES / 4} แผ่น) ต่อครั้ง ไม่รับอีก ${over} ไฟล์`)
-    if (big) toast.error(`ไฟล์ใหญ่เกิน 30 MB ${big} ไฟล์`)
-    if (wrong) toast.error(`ไม่รับไฟล์ ${wrong} ไฟล์ (รับเฉพาะ .txt / .xls / .pdf / .dxf)`)
+    if (over) toast.error(`Up to ${MAX_FILES} files (${MAX_FILES / 4} plates) per upload: ${over} file(s) not added`)
+    if (big) toast.error(`${big} file(s) larger than 30 MB not added`)
+    if (wrong) toast.error(`${wrong} file(s) not added: only .txt / .xls / .pdf / .dxf`)
     setEntries(prev => {
       const have = new Set(prev.map(e => e.file.name))
       return [...prev, ...accepted.filter(f => !have.has(f.name)).map(file => ({ file, plateCountHint: null }))]
@@ -93,12 +93,12 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
   const bigTxt = kept.filter(e => e.file.name.toLowerCase().endsWith('.txt') && e.file.size > MAX_TXT_BYTES).map(e => e.file.name)
   const problems = [
     ...plateFileProblems(grouping),
-    ...(emptyTxt.length ? [`ไฟล์ว่าง (0 byte): ${emptyTxt.join(', ')}`] : []),
+    ...(emptyTxt.length ? [`Empty file (0 bytes): ${emptyTxt.join(', ')}`] : []),
     ...(bigTxt.length ? [`Not a nesting report, larger than 1 MB: ${bigTxt.join(', ')}`] : []),
   ]
   const warnings = [
     ...plateFileWarnings(grouping),
-    ...(emptyOther.length ? [`ไฟล์ว่าง (0 byte) ไม่ถูกเก็บ: ${emptyOther.map(e => e.file.name).join(', ')}`] : []),
+    ...(emptyOther.length ? [`Empty file (0 bytes), not kept: ${emptyOther.map(e => e.file.name).join(', ')}`] : []),
   ]
   const hint = (name?: string) => entries.find(e => e.file.name === name)?.plateCountHint ?? null
 
@@ -280,9 +280,9 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
 
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            ไฟล์แผนตัด <span style={{ color: '#C8202A' }}>*</span>
+            Cutting plan files <span style={{ color: '#C8202A' }}>*</span>
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              ทุกแผ่นต้องมี 4 ไฟล์ชื่อเดียวกัน: .txt .xls .pdf .dxf
+              each plate: .txt (required) + .xls .pdf .dxf, same name
             </span>
           </label>
           <FileDropzone
@@ -290,7 +290,7 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
             currentCount={entries.length}
             acceptedFormats={PLATE_FORMATS}
             maxSizeBytes={MAX_FILE_BYTES}
-            hint={`.txt .xls .pdf .dxf · ไม่เกิน ${MAX_FILES} ไฟล์ (${MAX_FILES / 4} แผ่น) · ไฟล์ละไม่เกิน 30 MB`}
+            hint={`.txt .xls .pdf .dxf · up to ${MAX_FILES} files (${MAX_FILES / 4} plates) · 30 MB per file`}
             onFilesAdded={onFilesAdded}
             disabled={false}
           />
@@ -299,13 +299,13 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
         {entries.length > 0 && (
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>
-              แผ่น ({grouping.plates.length}) · ไฟล์ ({entries.length})
+              Plates ({grouping.plates.length}) · Files ({entries.length})
             </div>
             <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid #E0E0E0', borderRadius: 6, background: '#FAFAFA' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
                   <tr style={{ color: '#8E8E8E', textAlign: 'left' }}>
-                    <th style={{ padding: '6px 8px', fontWeight: 600 }}>แผ่น</th>
+                    <th style={{ padding: '6px 8px', fontWeight: 600 }}>Plate</th>
                     {PLATE_FILE_KINDS.map(k => <th key={k} style={{ padding: '6px 4px', fontWeight: 600, textAlign: 'center' }}>.{k}</th>)}
                     <th style={{ width: 28 }} />
                   </tr>
@@ -324,12 +324,12 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
                           </span>
                         </td>
                         {PLATE_FILE_KINDS.map(k => (
-                          <td key={k} style={{ textAlign: 'center' }} title={p.files[k] ?? `ขาด .${k}`}>
+                          <td key={k} style={{ textAlign: 'center' }} title={p.files[k] ?? `Missing .${k}`}>
                             {p.files[k] ? <Check size={13} style={{ color: '#15803D', display: 'inline' }} /> : <X size={13} style={{ color: '#C8202A', display: 'inline' }} />}
                           </td>
                         ))}
                         <td>
-                          <button onClick={() => removePlate(Object.values(p.files) as string[])} aria-label={`เอาแผ่น ${p.plate} ออก`}
+                          <button onClick={() => removePlate(Object.values(p.files) as string[])} aria-label={`Remove plate ${p.plate}`}
                             style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
                         </td>
                       </tr>
@@ -340,19 +340,19 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
             </div>
             {problems.length > 0 && (
               <div style={{ marginTop: 8, background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#991B1B', lineHeight: 1.6 }}>
-                <div style={{ fontWeight: 600 }}>บันทึกไม่ได้จนกว่าจะแก้</div>
+                <div style={{ fontWeight: 600 }}>Cannot save until these are fixed</div>
                 {problems.map(m => <div key={m}>{m}</div>)}
                 {(grouping.notAllowed.length > 0 || grouping.duplicates.length > 0) && (
                   <button onClick={() => removePlate([...grouping.notAllowed, ...grouping.duplicates])}
                     style={{ marginTop: 4, fontSize: 12, color: '#991B1B', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                    เอาไฟล์ที่ไม่รับ/ซ้ำออก
+                    Remove rejected / duplicate files
                   </button>
                 )}
               </div>
             )}
             {warnings.length > 0 && (
               <div style={{ marginTop: 8, background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#92400E', lineHeight: 1.6, maxHeight: 140, overflowY: 'auto' }}>
-                <div style={{ fontWeight: 600 }}>บันทึกได้ แต่บางแผ่นไฟล์ไม่ครบ ({warnings.length})</div>
+                <div style={{ fontWeight: 600 }}>Can be saved, but some plates are missing files ({warnings.length})</div>
                 {warnings.map(m => <div key={m}>{m}</div>)}
               </div>
             )}

@@ -114,8 +114,8 @@ function NestingTable({ rows, sheetKg, viewable, onView }: { rows: CuttingPlanNe
             <TD>{r.count ?? '—'}</TD>
             <TD>
               <button onClick={() => can && onView(r.cuttingplan_number)} disabled={!can}
-                aria-label={`ดู 3D แผ่น ${r.cuttingplan_number}`}
-                title={can ? `ดู 3D แผ่น ${r.cuttingplan_number}` : 'แผ่นนี้ไม่มีไฟล์ .dxf (อัปก่อนเริ่มเก็บไฟล์) จึงดู 3D ไม่ได้'}
+                aria-label={`View plate ${r.cuttingplan_number} in 3D`}
+                title={can ? `View plate ${r.cuttingplan_number} in 3D` : 'No .dxf for this plate (uploaded before files were kept), so no 3D view'}
                 className="disabled:opacity-30 disabled:cursor-not-allowed hover:bg-red-50"
                 style={{ width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#C8202A', background: 'none', border: 'none', borderRadius: 6, cursor: 'pointer' }}>
                 <Box size={16} />
@@ -250,10 +250,10 @@ function RemnantTable({ rows }: { rows: CuttingPlanRemnantRow[] }) {
 // The four stored files of each plate (2026-11-06): one row per plate, a download per kind.
 const KINDS = ['TXT', 'XLS', 'PDF', 'DXF'] as const
 function FileTable({ files }: { files: CuttingPlanFile[] }) {
-  if (files.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>ไม่มีไฟล์ (อัปก่อนเริ่มเก็บไฟล์ 2026-11-06)</div>
+  if (files.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No files (uploaded before files were kept, 2026-11-06)</div>
   const plates = [...new Set(files.map(f => f.plate_name))]
   const get = async (f: CuttingPlanFile) => {
-    try { await downloadCuttingPlanFile(f) } catch (e) { toast.error(getErrorMessage(e, 'ดาวน์โหลดไม่สำเร็จ ลองใหม่อีกครั้ง')) }
+    try { await downloadCuttingPlanFile(f) } catch (e) { toast.error(getErrorMessage(e, 'Download failed. Please try again.')) }
   }
   return (
     <TableGrid columns="1.4fr 1fr 1fr 1fr 1fr">
