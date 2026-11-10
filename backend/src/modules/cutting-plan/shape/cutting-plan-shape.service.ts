@@ -54,6 +54,11 @@ export class CuttingPlanShapeService {
         continue
       }
       problems.push(...cutlogic.planProblems(plan).map(problem => ({ file: f.originalname, problem })))
+      // Note 2 and marks are free text; refuse what the columns (VarChar 30 / 120) cannot hold, here, not as a failed save
+      if ((plan.grade?.length ?? 0) > 30) problems.push({ file: f.originalname, problem: 'Grade (Note 2) is longer than 30 characters' })
+      for (const m of new Set(plan.layouts.flatMap(l => l.parts.map(p => p.mark)).filter(m => m.length > 120))) {
+        problems.push({ file: f.originalname, problem: `Mark ${m.slice(0, 20)}… is longer than 120 characters` })
+      }
       const named = cutlogic.profileFromFileName(f.originalname)
       if (named && named !== plan.profile) problems.push({ file: f.originalname, problem: `The file name says ${named}, the report is ${plan.profile}` })
       const twin = sizes.find(s => s.plan.profile === plan.profile)

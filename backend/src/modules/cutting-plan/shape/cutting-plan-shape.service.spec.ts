@@ -86,6 +86,17 @@ describe('CuttingPlanShapeService.preview', () => {
     expect(r.problems).toEqual([{ file: N113, problem: 'Not a CutLogic 1D cutting layout' }])
   })
 
+  // final review 2026-11-10: Note 2 / marks are free text; longer than their columns used to pass preview and 500 on save
+  it('a grade or mark longer than its column is a problem, not a failed save', async () => {
+    const { shape } = build()
+    const real = cutlogic.parseCutLogic(await cutlogic.pdfLines(P113))
+    jest.spyOn(cutlogic, 'parseCutLogic').mockReturnValueOnce({ ...real, grade: 'G'.repeat(31), layouts: [{ ...real.layouts[0], parts: [{ ...real.layouts[0].parts[0], mark: 'M'.repeat(121) }] }, ...real.layouts.slice(1)] })
+    const r = await shape.preview([file(N113, P113)], FIELDS, [N113])
+    expect(r.problems.map(p => p.problem)).toEqual(expect.arrayContaining([
+      'Grade (Note 2) is longer than 30 characters', `Mark ${'M'.repeat(20)}… is longer than 120 characters`,
+    ]))
+  })
+
   it('grade mismatch is a warning', async () => {
     const { shape } = build()
     const n = 'CP-x - PIPE 113.5X2.4-SS500.pdf'

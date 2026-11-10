@@ -12,6 +12,7 @@ import { QueryCuttingPlanDto } from './dto/query-cutting-plan.dto'
 import { BulkAssignOrderPartProjectCodeDto } from './dto/bulk-assign-order-part-project-code.dto'
 import { PreviewCuttingPlanDto, SaveCuttingPlanDto, SaveShapeCuttingPlanDto, StagingUrlsDto } from './dto/upload-cutting-plan.dto'
 import { CuttingPlanShapeService, MAX_SHAPE_FILES, MAX_SHAPE_PDF_BYTES } from './shape/cutting-plan-shape.service'
+import { uploadFileName } from './upload-file-name'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
@@ -78,7 +79,7 @@ export class CuttingPlanController {
     @UploadedFiles() files: Express.Multer.File[],
     @Body() body: PreviewCuttingPlanDto,
   ) {
-    return this.shape.preview((files ?? []).map(f => ({ buffer: f.buffer, originalname: f.originalname })), body, body.file_names ?? [])
+    return this.shape.preview((files ?? []).map(f => ({ buffer: f.buffer, originalname: uploadFileName(f.originalname) })), body, body.file_names ?? [])
   }
 
   @Post('upload/shape')
@@ -137,6 +138,6 @@ export class CuttingPlanController {
 
   private buildFileInputs(files: Express.Multer.File[] | undefined): CuttingPlanFileInput[] {
     if (!files?.length) throw new BadRequestException('No files uploaded')
-    return files.map(f => ({ buffer: f.buffer, originalname: f.originalname }))
+    return files.map(f => ({ buffer: f.buffer, originalname: uploadFileName(f.originalname) }))
   }
 }
