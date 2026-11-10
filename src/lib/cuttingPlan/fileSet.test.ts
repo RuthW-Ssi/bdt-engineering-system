@@ -23,15 +23,15 @@ describe('groupPlateFiles', () => {
   // came out empty from CutLogic; they are saved, they just can't be opened in 3D / as PDF.
   it('blocks a wrong extension and a duplicate kind, but only warns about a missing .pdf', () => {
     const g = groupPlateFiles(['Z100-5-2.txt', 'Z100-5-2.xls', 'Z100-5-2.dxf', 'CP_2026.zip', 'WHA31-2 Part List.xlsx', ...set('A-1'), 'a-1.TXT'])
-    expect(plateFileWarnings(g)).toEqual(['แผ่น Z100-5-2 ไม่มี .pdf (บันทึกได้ แต่เปิดไฟล์นั้นไม่ได้)'])
+    expect(plateFileWarnings(g)).toEqual(['Plate Z100-5-2 has no .pdf (it can be saved, but that file cannot be opened)'])
     expect(plateFileProblems(g)).toEqual([
-      'ไฟล์ CP_2026.zip ไม่ใช่ .txt / .xls / .pdf / .dxf',
-      'ไฟล์ WHA31-2 Part List.xlsx ไม่ใช่ .txt / .xls / .pdf / .dxf',
-      'ไฟล์ a-1.TXT ซ้ำกับไฟล์ชนิดเดียวกันของแผ่นเดียวกัน',
+      'CP_2026.zip is not a .txt / .xls / .pdf / .dxf file',
+      'WHA31-2 Part List.xlsx is not a .txt / .xls / .pdf / .dxf file',
+      'a-1.TXT duplicates another file of the same type for the same plate',
     ])
   })
 
   it('a plate without its .txt is blocked: the .txt is the report the parser reads', () => {
-    expect(plateFileProblems(groupPlateFiles(['lonely.pdf']))).toEqual(['แผ่น lonely ไม่มีไฟล์ .txt (ทุกแผ่นต้องมี .txt)'])
+    expect(plateFileProblems(groupPlateFiles(['lonely.pdf']))).toEqual(['Plate lonely has no .txt (every plate needs its .txt)'])
   })
 })
