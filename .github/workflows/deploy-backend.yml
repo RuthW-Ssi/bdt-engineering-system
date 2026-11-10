@@ -66,6 +66,7 @@ jobs:
             --set-env-vars APS_DRAWING_BUCKET_KEY=bdt-drawing-staging \
             --set-env-vars FRONTEND_BASE_URL=https://bdt-engineering-system.vercel.app \
             --set-env-vars SCHEDULER_API_URL=https://bdt-scheduler-service-489818756412.asia-northeast1.run.app \
+            --set-env-vars CUTTING_PLAN_API_URL=https://bdt-cutting-plan-service-jr5hvzmn5q-an.a.run.app \
             --set-env-vars DB_CONNECTION_LIMIT=5 \
             --set-env-vars DB_POOL_TIMEOUT=20 \
             --port 3000 \
