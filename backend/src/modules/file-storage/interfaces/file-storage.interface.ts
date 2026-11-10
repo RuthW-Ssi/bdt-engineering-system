@@ -25,4 +25,12 @@ export interface FileStorageDriver {
   // doesn't fit the other methods' presigned-URL/browser-uploads-directly
   // model.
   putObject(key: string, buffer: Buffer, contentType?: string): Promise<void>
+
+  // Server-side copy (no bytes through this process) — cutting-plan moves up to
+  // ~1,000 staged files per upload (2026-11-06).
+  copy(fromKey: string, toKey: string): Promise<void>
+
+  // Every object under a prefix with its last-modified time — for sweeping what a browser staged
+  // and never saved (cutting-plan/_incoming/, 2026-11-10). Prefixes are small; no paging.
+  list(prefix: string): Promise<{ key: string; updatedAt: Date }[]>
 }

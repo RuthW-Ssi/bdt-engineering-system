@@ -14,6 +14,17 @@ export const projectsApi = {
     return apiClient.get('/projects', { params }).then(r => r.data)
   },
 
+  // Every project, page by page (the API caps a page at 100). Pickers use this; one page of 20
+  // hid every project after the 20th newest (2026-11-09).
+  async listAll(params?: { state?: string }): Promise<ProjectDTO[]> {
+    const items: ProjectDTO[] = []
+    for (let page = 1; ; page++) {
+      const res = await projectsApi.list({ ...params, page, limit: 100 })
+      items.push(...res.items)
+      if (res.items.length < 100 || items.length >= res.total) return items
+    }
+  },
+
   get(project_code: string): Promise<ProjectDTO> {
     return apiClient.get(`/projects/${project_code}`).then(r => r.data)
   },

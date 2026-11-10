@@ -1,4 +1,4 @@
-import { countDistinctPlates, isLikelyMultiPlate } from './cutting-plan-nc-file-check'
+import { countDistinctPlates, isLikelyMultiPlate, reportCharge } from './cutting-plan-nc-file-check'
 
 // Excerpts below are real lines from captured Cutting Plan report .txt files
 // (not synthesized) — the exact "NC File" line format the summary block and
@@ -38,5 +38,30 @@ describe('isLikelyMultiPlate', () => {
 
   it('flags a bundled multi-plate report', () => {
     expect(isLikelyMultiPlate(MULTI_PLATE_EXCERPT)).toBe(true)
+  })
+})
+
+// Real Used Material blocks (CRLF, as CutLogic writes them). The Charge is the plate's name in the report,
+// which is not always its file name: CP_2024_09_0413325 has file Z332-10-1.txt saying Charge Z322-10-1.
+describe('reportCharge', () => {
+  const block = (row: string) => [
+    'NESTING',
+    'Used Material\tUsage',
+    'Article Number\tCount\tPlate Number \tCharge\tQuality\tThick.\tWidth\tLength\t2\tkg\tNesting % ',
+    'm',
+    row,
+    'Orders',
+  ].join('\r\n')
+
+  it('reads the Charge cell of the plate row', () => {
+    expect(reportCharge(block('108\t1\t14038 \t224-F7-20-4\tSM520\t20.00\t1480\t6000\t2.88\t452\t77.49'))).toBe('224-F7-20-4')
+  })
+
+  it('keeps a Charge that CutLogic wrapped inside the cell (file 0X203-Z1-10-10)', () => {
+    expect(reportCharge(block('5\t1\t12023 \t0X203-Z1-10-1 0 \tHY370\t10.00\t1460\t7600\t3.80\t298\t92.37'))).toBe('0X203-Z1-10-1 0')
+  })
+
+  it('returns null when there is no Used Material table', () => {
+    expect(reportCharge('NESTING\r\nNC File\t:\t1.cld')).toBeNull()
   })
 })

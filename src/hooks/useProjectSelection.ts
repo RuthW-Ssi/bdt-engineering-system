@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import type { useSearchParams } from 'react-router-dom'
-import { useProjects } from './useProjects'
+import { useAllProjects } from './useProjects'
 import type { ProjectDTO } from '../api/types'
 
 const LAST_PROJECT_KEY = 'bdt.lastProjectId'
@@ -8,8 +8,8 @@ const LAST_PROJECT_KEY = 'bdt.lastProjectId'
 type SetSearchParams = ReturnType<typeof useSearchParams>[1]
 
 export function useProjectSelection(searchParams: URLSearchParams, setSearchParams: SetSearchParams) {
-  const { data: projectsData } = useProjects({ limit: 20 })
-  const projects = projectsData?.items ?? []
+  const { data: projectsData } = useAllProjects()
+  const projects = projectsData ?? []
 
   const paramId = searchParams.get('project_id')
   const activeProject = paramId

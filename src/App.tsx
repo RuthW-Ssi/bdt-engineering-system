@@ -35,8 +35,8 @@ import { OrderHub } from './pages/OrderHub'
 import { ProductionSchedule } from './pages/ProductionSchedule'
 import { WoDetail } from './pages/WoDetail'
 import { CuttingPlanList } from './pages/CuttingPlanList'
-import { CuttingPlanUpload } from './pages/CuttingPlanUpload'
 import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
+import { CuttingPlanPlate } from './pages/CuttingPlanPlate'
 import { BimViewer } from './pages/BimViewer'
 import { DrawingList } from './pages/DrawingList'
 import { UsersPage } from './pages/UsersPage'
@@ -166,8 +166,8 @@ export default function App() {
             <Route path="/qc" element={<Placeholder title="QC" />} />
             <Route path="/reports" element={<Placeholder title="Reports" />} />
             <Route path="/cutting-plan" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanList /></ProtectedRoute>} />
-            <Route path="/cutting-plan/upload" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanUpload /></ProtectedRoute>} />
             <Route path="/cutting-plan/:id" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanDetail /></ProtectedRoute>} />
+            <Route path="/cutting-plan/:id/plate/:plate" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanPlate /></ProtectedRoute>} />
           </Route>
         </Routes>
       </BrowserRouter>

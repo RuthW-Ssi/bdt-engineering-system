@@ -96,7 +96,9 @@ class AppProcess:
             # etl_error = self.etl.msg_error
 
         except Exception as e:
-            raise ValueError(f"Error in ETL process: {str(e)}")
+            error = ValueError(f"Error in ETL process: {str(e)}")
+            error.errors = getattr(e, 'errors', None)  # per-file errors, for main.py to return as a list
+            raise error from e
 
     # Collect parsed tables into a response dict (replaces Sheet-append)
     def build_response_data(self):
