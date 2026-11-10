@@ -13,7 +13,7 @@ import { CuttingPlanUploadModal } from '../components/cuttingPlan/CuttingPlanUpl
 
 const LIMIT = 10
 
-// Plate = .txt nesting reports (built). Shape = CutLogic 1D PDFs for pipe/rod (next).
+// Plate = .txt nesting reports. Shape = CutLogic 1D cutting-layout PDFs for pipe/rod (2026-11-10).
 const TABS = [
   { key: 'plate', label: 'Plate' },
   { key: 'shape', label: 'Shape' },
@@ -34,6 +34,7 @@ export function CuttingPlanList() {
 
   const { data, isLoading } = useCuttingPlans({
     search: search || undefined,
+    plan_type: tab === 'shape' ? 'SHAPE' : 'PLATE',
   })
   const items = data ?? []
   const totalPages = Math.max(1, Math.ceil(items.length / LIMIT))
@@ -86,7 +87,7 @@ export function CuttingPlanList() {
         {TABS.map(t => (
           <button
             key={t.key}
-            onClick={() => setSearchParams(t.key === 'plate' ? {} : { tab: t.key })}
+            onClick={() => { setSearchParams(t.key === 'plate' ? {} : { tab: t.key }); setPage(1) }}
             style={{
               height: 40, padding: '0 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
               color: tab === t.key ? '#C8202A' : '#8E8E8E',
@@ -98,13 +99,7 @@ export function CuttingPlanList() {
         ))}
       </div>
 
-      {tab === 'shape' ? (
-        <div className="flex flex-col items-center justify-center" style={{ flex: 1, gap: 8, color: '#8E8E8E' }}>
-          <Scissors size={28} style={{ color: '#C2C2C2' }} />
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#555' }}>Shape cutting plans — coming soon</div>
-          <div style={{ fontSize: 12 }}>Pipe and rod cutting plans (CutLogic PDF)</div>
-        </div>
-      ) : (<>
+      {/* Plate and Shape (2026-11-10) list their own uploads the same way */}
       <div className="border-b border-chrome-100 px-6 flex items-center gap-3" style={{ minHeight: 48, background: '#F5F5F5', flexShrink: 0, flexWrap: 'wrap', paddingTop: 8, paddingBottom: 8 }}>
         <div className="relative">
           <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
@@ -149,8 +144,12 @@ export function CuttingPlanList() {
                 </div>
               </div>
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>
-                <span><strong style={{ color: '#333' }}>{cp._count.nestings}</strong> plates</span>
-                <span><strong style={{ color: '#333' }}>{cp._count.order_parts}</strong> parts</span>
+                {cp.plan_type === 'SHAPE'
+                  ? <span><strong style={{ color: '#333' }}>{cp._count.shape_sizes}</strong> {cp._count.shape_sizes === 1 ? 'size' : 'sizes'}</span>
+                  : <>
+                    <span><strong style={{ color: '#333' }}>{cp._count.nestings}</strong> plates</span>
+                    <span><strong style={{ color: '#333' }}>{cp._count.order_parts}</strong> parts</span>
+                  </>}
                 <span>Uploaded: <strong style={{ color: '#333' }}>{fmtDate(cp.create_date)}</strong></span>
               </div>
               {canDelete && (
@@ -169,7 +168,6 @@ export function CuttingPlanList() {
         )}
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
-      </>)}
       {uploadOpen && <CuttingPlanUploadModal onClose={() => setUploadOpen(false)} />}
     </div>
   )
