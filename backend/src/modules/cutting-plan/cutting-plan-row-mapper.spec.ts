@@ -36,6 +36,7 @@ describe('mapNestingRow', () => {
   it('maps a real captured row correctly, dropping the 7 project-meta columns', () => {
     expect(mapNestingRow(NESTING_ROW)).toEqual({
       cuttingplan_number: 'X197-Z0-5-1',
+      source_file: null,
       nc_file: '00009430.cld',
       need_date: '26.08.2025',
       nesting_length_mm: 3870,
@@ -63,6 +64,15 @@ describe('mapNestingRow', () => {
     })
   })
 
+  // 2026-11-09: the service appends source_file (the report the row came from); an older one omits it
+  it('reads the optional trailing source_file column on every table', () => {
+    expect(mapNestingRow([...NESTING_ROW, 'X197-Z0-5-1 REV1'])).toMatchObject({ cuttingplan_number: 'X197-Z0-5-1', source_file: 'X197-Z0-5-1 REV1', total_time_min: mapNestingRow(NESTING_ROW).total_time_min })
+    expect(mapOrderPartRow([...ORDER_PART_ROW, 'A']).source_file).toBe('A')
+    expect(mapPlateUsageRow([...PLATE_USAGE_ROW, 'A']).source_file).toBe('A')
+    expect(mapRemnantRow([...REMNANT_ROW, 'A']).source_file).toBe('A')
+    expect(() => mapNestingRow([...NESTING_ROW, 'A', 'B'])).toThrow(BadRequestException)
+  })
+
   it('throws BadRequestException on unexpected column count (API shape drift)', () => {
     expect(() => mapNestingRow(NESTING_ROW.slice(0, -1))).toThrow(BadRequestException)
   })
@@ -72,6 +82,7 @@ describe('mapOrderPartRow', () => {
   it('maps a real captured row correctly', () => {
     expect(mapOrderPartRow(ORDER_PART_ROW)).toEqual({
       cuttingplan_number: 'X197-Z0-5-1',
+      source_file: null,
       tag_part: 1,
       order_number: '0X197',
       item: 51,
@@ -90,6 +101,7 @@ describe('mapPlateUsageRow', () => {
   it('maps a real captured row correctly', () => {
     expect(mapPlateUsageRow(PLATE_USAGE_ROW)).toEqual({
       cuttingplan_number: 'X197-Z0-5-1',
+      source_file: null,
       order_number: '0X197',
       net_kg: 170.24,
       gross_kg: 225.87,
@@ -101,6 +113,7 @@ describe('mapRemnantRow', () => {
   it('maps a real captured row correctly', () => {
     expect(mapRemnantRow(REMNANT_ROW)).toEqual({
       cuttingplan_number: 'X197-Z0-5-1',
+      source_file: null,
       plate_number: 'R3715',
       length_mm: 2112,
       width_mm: 1480,

@@ -6,6 +6,14 @@ import re
 import zipfile
 import numpy as np
 
+class ReportFileErrors(ValueError):
+    """Every report that failed, as [{'File name', 'Error message'}]; str() is the same text as before."""
+
+    def __init__(self, errors):
+        super().__init__(f"{errors}")
+        self.errors = errors
+
+
 class Etl_Cuttingplan:
 
     def __init__(self, zip_name):
@@ -208,6 +216,7 @@ class Etl_Cuttingplan:
 
             # Add cuttingplan number to the DataFrame
             self.used_mat_df[["cuttingplan_number"]] = self.ref_cuttingplan
+            self.used_mat_df["source_file"] = self.ref_file
             self.used_mat_table = pd.concat([self.used_mat_table, self.used_mat_df], ignore_index=True)
 
         except Exception as e:
@@ -255,6 +264,7 @@ class Etl_Cuttingplan:
                 raise ValueError("Empty used NESTING data.")
             else:
                 self.nesting_df[["cuttingplan_number"]] = self.ref_cuttingplan
+                self.nesting_df["source_file"] = self.ref_file
                 self.nesting_table = pd.concat([self.nesting_table, self.nesting_df], ignore_index=True)
 
         except Exception as e:
@@ -284,6 +294,7 @@ class Etl_Cuttingplan:
                 raise ValueError("Empty part order data.")
             else:
                 self.order_df[["cuttingplan_number"]] = self.ref_cuttingplan
+                self.order_df["source_file"] = self.ref_file
                 self.order_table = pd.concat([self.order_table, self.order_df], ignore_index=True)
     
         except Exception as e:
@@ -313,6 +324,7 @@ class Etl_Cuttingplan:
                 raise ValueError("Empty plate usage data.")
             else:
                 self.plateusage_df[["cuttingplan_number"]] = self.ref_cuttingplan
+                self.plateusage_df["source_file"] = self.ref_file
                 self.plateusage_df = self.plateusage_df[self.plateusage_df['order_number'] != 'Total']
                 self.plate_usage_table = pd.concat([self.plateusage_df, self.plate_usage_table], ignore_index=True)
 
@@ -354,9 +366,11 @@ class Etl_Cuttingplan:
                 raise ValueError(f"Empty remnants data.")
             else:
                 self.remnant_df[["cuttingplan_number"]] = self.ref_cuttingplan
+                self.remnant_df["source_file"] = self.ref_file
                 self.remnants_table = pd.concat([self.remnant_df, self.remnants_table], ignore_index=True)
             
             self.remnant_df[["cuttingplan_number"]] = self.ref_cuttingplan
+            self.remnant_df["source_file"] = self.ref_file
             self.remnants_table = pd.concat([self.remnant_df, self.remnants_table], ignore_index=True)
 
         except Exception as e:
@@ -381,6 +395,7 @@ class Etl_Cuttingplan:
                 raise ValueError("Empty used machine times data.")
             else:
                 self.machinetime_df[["cuttingplan_number"]] = self.ref_cuttingplan
+                self.machinetime_df["source_file"] = self.ref_file
                 self.machinetime_table = pd.concat([self.machinetime_df, self.machinetime_table], ignore_index=True)
 
         except Exception as e:
@@ -407,6 +422,9 @@ class Etl_Cuttingplan:
 
                     count_txt += 1       
 
+                    # The report every row of this file is tagged with: two reports can share a Charge
+                    self.ref_file = file_name[:-4]
+
                     # Open each text file
                     file_path = os.path.join(self.extracted_folder, self.zip_name, file_name)
                     with open(file_path, 'r') as file:
@@ -420,9 +438,11 @@ class Etl_Cuttingplan:
                     sections = self.get_sections(text)
 
                     # ##### Extract each section #####
-                    self.extract_used_mat(section=sections['used_material'],header=self.used_mat_head,key=0)
+                    # Rows are found by a column that is always a whole number: Count (Article Number can be a
+                    # material code, "SS400_3.2_2000_600 0") and Item (Tag can be "-"; 2026-11-09)
+                    self.extract_used_mat(section=sections['used_material'],header=self.used_mat_head,key=1)
                     self.extract_nesting_info(sections['nesting'])
-                    self.extract_order(section=sections['orders'],header=self.order_head,key=0)
+                    self.extract_order(section=sections['orders'],header=self.order_head,key=2)
                     self.sortout_plateusage(section=sections['plate_usage'],header=self.plate_usage_head)
                     if sections['remnants'] != []:
                         self.sortout_remnants(section=sections['remnants'],header=self.remnant_head,key=3)
@@ -476,7 +496,7 @@ class Etl_Cuttingplan:
 
         # Check if any error messages were generated
         if self.msg_error != []:
-            raise ValueError(f"{self.msg_error}")
+            raise ReportFileErrors(self.msg_error)
 
     ######################################
     ##### ETL in Specific Dataframes #####
@@ -486,8 +506,10 @@ class Etl_Cuttingplan:
     def merge_dataframes(self):
 
         try:
-            self.merged_table = pd.merge(self.nesting_table, self.used_mat_table, on='cuttingplan_number')
-            self.merged_table = pd.merge(self.merged_table, self.machinetime_table, on='cuttingplan_number')
+            # Charge + report: a plate re-nested from another plate's remnant keeps that plate's Charge
+            keys = ['cuttingplan_number', 'source_file']
+            self.merged_table = pd.merge(self.nesting_table, self.used_mat_table, on=keys)
+            self.merged_table = pd.merge(self.merged_table, self.machinetime_table, on=keys)
 
         except Exception as e:
             raise ValueError(f"Error encountered while attempting to merge data. Message: {e}")
@@ -562,9 +584,13 @@ class Etl_Cuttingplan:
                     'count',
                     'ref_plate',
                     'ref_plate_seq',
-                    'cuttingplan_number'
+                    'cuttingplan_number',
+                    'source_file'
                 ]
                 df = df.reindex(columns=desired_cols_rem)
+            # source_file goes last so the columns before it keep their positions
+            if 'source_file' in df.columns:
+                df = df[[c for c in df.columns if c != 'source_file'] + ['source_file']]
             return df
         
         except Exception as e:

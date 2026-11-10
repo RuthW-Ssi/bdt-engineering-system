@@ -33,12 +33,20 @@ const REMNANT_COLS = [
   'cuttingplan_number',
 ] as const
 
+// Since 2026-11-09 the service appends one more column to every table: source_file, the report (.txt name
+// without extension) the row came from. Two reports can share a Charge (a plate re-nested from another
+// plate's remnant keeps its Charge), so cuttingplan_number alone does not identify the plate. A service
+// that predates it sends the old count; both are accepted.
 function assertLength(row: Row, cols: readonly string[], table: string) {
-  if (row.length !== cols.length) {
+  if (row.length !== cols.length && row.length !== cols.length + 1) {
     throw new BadRequestException(
       `Cutting Plan API returned an unexpected column count for "${table}": expected ${cols.length}, got ${row.length}`,
     )
   }
+}
+
+function sourceFile(row: Row, cols: readonly string[]): string | null {
+  return row.length === cols.length + 1 ? str(row[cols.length]) : null
 }
 
 function zip(row: Row, cols: readonly string[]): Record<string, unknown> {
@@ -71,6 +79,7 @@ function decimal(v: unknown): number | null {
 
 export interface MappedNestingRow {
   cuttingplan_number: string
+  source_file: string | null
   nc_file: string | null
   need_date: string | null
   nesting_length_mm: number | null
@@ -99,6 +108,7 @@ export interface MappedNestingRow {
 
 export interface MappedOrderPartRow {
   cuttingplan_number: string
+  source_file: string | null
   tag_part: number | null
   order_number: string | null
   item: number | null
@@ -113,6 +123,7 @@ export interface MappedOrderPartRow {
 
 export interface MappedPlateUsageRow {
   cuttingplan_number: string
+  source_file: string | null
   order_number: string | null
   net_kg: number | null
   gross_kg: number | null
@@ -120,6 +131,7 @@ export interface MappedPlateUsageRow {
 
 export interface MappedRemnantRow {
   cuttingplan_number: string
+  source_file: string | null
   plate_number: string | null
   length_mm: number | null
   width_mm: number | null
@@ -135,6 +147,7 @@ export function mapNestingRow(row: Row): MappedNestingRow {
   const r = zip(row, NESTING_COLS)
   return {
     cuttingplan_number: reqStr(r.cuttingplan_number),
+    source_file: sourceFile(row, NESTING_COLS),
     nc_file: str(r.nc_file),
     need_date: str(r.need_date),
     nesting_length_mm: decimal(r.nesting_length_mm),
@@ -167,6 +180,7 @@ export function mapOrderPartRow(row: Row): MappedOrderPartRow {
   const r = zip(row, ORDER_PART_COLS)
   return {
     cuttingplan_number: reqStr(r.cuttingplan_number),
+    source_file: sourceFile(row, ORDER_PART_COLS),
     tag_part: int(r.tag_part),
     order_number: str(r.order_number),
     item: int(r.item),
@@ -185,6 +199,7 @@ export function mapPlateUsageRow(row: Row): MappedPlateUsageRow {
   const r = zip(row, PLATE_USAGE_COLS)
   return {
     cuttingplan_number: reqStr(r.cuttingplan_number),
+    source_file: sourceFile(row, PLATE_USAGE_COLS),
     order_number: str(r.order_number),
     net_kg: decimal(r.net_kg),
     gross_kg: decimal(r.gross_kg),
@@ -196,6 +211,7 @@ export function mapRemnantRow(row: Row): MappedRemnantRow {
   const r = zip(row, REMNANT_COLS)
   return {
     cuttingplan_number: reqStr(r.cuttingplan_number),
+    source_file: sourceFile(row, REMNANT_COLS),
     plate_number: str(r.plate_number),
     length_mm: decimal(r.length_mm),
     width_mm: decimal(r.width_mm),
@@ -216,15 +232,15 @@ export const mapRemnantRows = (rows: Row[]) => rows.map(mapRemnantRow)
 // twice (a copy-paste bug) — every remnant row arrives duplicated exactly.
 // Group by full field-equality and keep half of each group (floor, min 1) so
 // a genuine single remnant survives even if the bug doesn't hold exactly.
-export function dedupRemnants(rows: MappedRemnantRow[]): MappedRemnantRow[] {
-  const groups = new Map<string, MappedRemnantRow[]>()
+export function dedupRemnants<T>(rows: T[]): T[] {
+  const groups = new Map<string, T[]>()
   for (const row of rows) {
     const key = JSON.stringify(row)
     const group = groups.get(key)
     if (group) group.push(row)
     else groups.set(key, [row])
   }
-  const result: MappedRemnantRow[] = []
+  const result: T[] = []
   for (const group of groups.values()) {
     const keep = Math.max(1, Math.floor(group.length / 2))
     result.push(...group.slice(0, keep))

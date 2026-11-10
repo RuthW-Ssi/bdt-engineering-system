@@ -75,6 +75,8 @@ def process_cuttingplan(request):
             "file_id": form_data.get('file_id'),
             "status": "failed",
             "description": str(e),
+            # every rejected report by name, so the caller can list them all (2026-11-09)
+            "errors": [{"file": x["File name"], "message": x["Error message"]} for x in (getattr(e, "errors", None) or [])],
         }, 500
 
 

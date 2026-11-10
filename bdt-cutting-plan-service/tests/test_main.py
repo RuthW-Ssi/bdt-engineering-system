@@ -125,3 +125,24 @@ def test_processing_error_returns_500_and_cleans_up(mock_app_process_cls, client
     assert body["status"] == "failed"
     assert "boom" in body["description"]
     mock_instance.remove_files.assert_called_once()
+
+
+@patch("main.AppProcess")
+def test_processing_error_lists_every_rejected_report(mock_app_process_cls, client):
+    error = ValueError("Error in ETL process: ...")
+    error.errors = [{"File name": "A.txt", "Error message": "Text format in Remnants ..."}, {"File name": "B.txt", "Error message": "x"}]
+    mock_app_process_cls.return_value.process_etl.side_effect = error
+
+    data = _form_fields()
+    data["files"] = [(io.BytesIO(b"report one"), "A.txt")]
+    body = client.post("/", data=data, content_type="multipart/form-data").get_json()
+
+    assert body["errors"] == [{"file": "A.txt", "message": "Text format in Remnants ..."}, {"file": "B.txt", "message": "x"}]
+
+
+@patch("main.AppProcess")
+def test_other_errors_return_an_empty_list(mock_app_process_cls, client):
+    mock_app_process_cls.return_value.process_etl.side_effect = ValueError("boom")
+    data = _form_fields()
+    data["files"] = [(io.BytesIO(b"report one"), "A.txt")]
+    assert client.post("/", data=data, content_type="multipart/form-data").get_json()["errors"] == []

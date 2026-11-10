@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { Plus, Search, Loader2, Scissors, ChevronRight, Trash2 } from 'lucide-react'
 import { useCuttingPlans, useDeleteCuttingPlan } from '../hooks/useCuttingPlan'
@@ -8,8 +8,17 @@ import { PaginationBar } from '../components/PaginationBar'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import { usePermission } from '../hooks/usePermission'
+import { planLabel } from '../lib/cuttingPlan/planLabel'
+import { CuttingPlanUploadModal } from '../components/cuttingPlan/CuttingPlanUploadModal'
 
 const LIMIT = 10
+
+// Plate = .txt nesting reports (built). Shape = CutLogic 1D PDFs for pipe/rod (next).
+const TABS = [
+  { key: 'plate', label: 'Plate' },
+  { key: 'shape', label: 'Shape' },
+] as const
+type TabKey = (typeof TABS)[number]['key']
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
@@ -17,7 +26,10 @@ function fmtDate(d: string) {
 
 export function CuttingPlanList() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab: TabKey = searchParams.get('tab') === 'shape' ? 'shape' : 'plate'
   const [search, setSearch] = useState('')
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [page, setPage] = useState(1)
 
   const { data, isLoading } = useCuttingPlans({
@@ -36,7 +48,7 @@ export function CuttingPlanList() {
   async function handleDelete(cp: CuttingPlanListItem) {
     const ok = await confirm({
       title: 'Delete this cutting plan upload?',
-      message: `"${cp.tag}" and all its parsed plates, order parts, plate usage, and remnants will be permanently deleted.`,
+      message: `"${planLabel(cp)}" and all its parsed plates, order parts, plate usage, and remnants will be permanently deleted.`,
       variant: 'danger',
       confirmLabel: 'Delete',
     })
@@ -59,9 +71,9 @@ export function CuttingPlanList() {
             {isLoading ? '...' : `${items.length} uploads`}
           </span>
         </div>
-        {canCreate && (
+        {tab === 'plate' && canCreate && (
           <button
-            onClick={() => navigate('/cutting-plan/upload')}
+            onClick={() => setUploadOpen(true)}
             className="flex items-center gap-1.5 rounded-md text-white"
             style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#C8202A', border: 'none', cursor: 'pointer' }}
           >
@@ -70,13 +82,36 @@ export function CuttingPlanList() {
         )}
       </div>
 
+      <div className="bg-white border-b border-chrome-100 px-6 flex items-end gap-1" style={{ height: 40, flexShrink: 0 }}>
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSearchParams(t.key === 'plate' ? {} : { tab: t.key })}
+            style={{
+              height: 40, padding: '0 16px', fontSize: 13, fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
+              color: tab === t.key ? '#C8202A' : '#8E8E8E',
+              borderBottom: tab === t.key ? '2px solid #C8202A' : '2px solid transparent',
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'shape' ? (
+        <div className="flex flex-col items-center justify-center" style={{ flex: 1, gap: 8, color: '#8E8E8E' }}>
+          <Scissors size={28} style={{ color: '#C2C2C2' }} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#555' }}>Shape cutting plans — coming soon</div>
+          <div style={{ fontSize: 12 }}>Pipe and rod cutting plans (CutLogic PDF)</div>
+        </div>
+      ) : (<>
       <div className="border-b border-chrome-100 px-6 flex items-center gap-3" style={{ minHeight: 48, background: '#F5F5F5', flexShrink: 0, flexWrap: 'wrap', paddingTop: 8, paddingBottom: 8 }}>
         <div className="relative">
           <Search size={14} className="absolute text-chrome-400 pointer-events-none" style={{ left: 10, top: '50%', transform: 'translateY(-50%)' }} />
           <input
             value={search}
             onChange={e => handleSearch(e.target.value)}
-            placeholder="Search project code / name / tag..."
+            placeholder="Search project code / name / lot..."
             style={{ paddingLeft: 32, paddingRight: 12, height: 32, fontSize: 13, border: '1px solid #C2C2C2', borderRadius: 4, background: '#fff', width: 280 }}
           />
         </div>
@@ -107,10 +142,10 @@ export function CuttingPlanList() {
               <div style={{ width: 40, height: 40, borderRadius: 8, flexShrink: 0, background: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Scissors size={18} style={{ color: '#8E8E8E' }} />
               </div>
-              <div style={{ minWidth: 140 }}>
-                <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{cp.tag}</div>
+              <div style={{ minWidth: 200 }}>
+                <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: '#1A1A1A' }}>{planLabel(cp)}</div>
                 <div style={{ fontSize: 12, color: '#8E8E8E', marginTop: 2 }}>
-                  {cp.description || '—'}
+                  {[cp.lot && `Lot ${cp.lot}`, cp.description].filter(Boolean).join(' · ') || '—'}
                 </div>
               </div>
               <div style={{ flex: 1, display: 'flex', gap: 24, fontSize: 12, color: '#666' }}>
@@ -134,6 +169,8 @@ export function CuttingPlanList() {
         )}
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
+      </>)}
+      {uploadOpen && <CuttingPlanUploadModal onClose={() => setUploadOpen(false)} />}
     </div>
   )
 }

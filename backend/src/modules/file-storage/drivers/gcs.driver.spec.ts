@@ -1,8 +1,9 @@
 const mockFile = jest.fn()
+const mockGetFiles = jest.fn()
 
 jest.mock('@google-cloud/storage', () => ({
   Storage: jest.fn().mockImplementation(() => ({
-    bucket: jest.fn(() => ({ file: mockFile })),
+    bucket: jest.fn(() => ({ file: mockFile, getFiles: mockGetFiles })),
   })),
 }))
 
@@ -24,6 +25,7 @@ beforeEach(() => {
   process.env.FILE_STORAGE_GCS_BUCKET = 'test-bucket'
   delete process.env.FILE_STORAGE_GCS_CREDENTIALS_JSON
   mockFile.mockReset()
+  mockGetFiles.mockReset()
 })
 
 afterEach(() => {
@@ -105,5 +107,21 @@ describe('GcsFileStorageDriver', () => {
 
     expect(mockFile).toHaveBeenCalledWith('bom/0X220/Z01/assembly-list-rev1.xlsx')
     expect(file.save).toHaveBeenCalledWith(buf, { contentType: 'application/vnd.ms-excel', resumable: false })
+  })
+
+  it('list: every object under the prefix with its name and last-modified time', async () => {
+    mockGetFiles.mockResolvedValue([[
+      { name: 'cutting-plan/_incoming/0X197/u1/A.txt', metadata: { updated: '2026-11-09T01:00:00.000Z' } },
+      { name: 'cutting-plan/_incoming/0X197/u2/B.dxf', metadata: { timeCreated: '2026-11-10T01:00:00.000Z' } },
+    ]])
+    const driver = new GcsFileStorageDriver()
+
+    const out = await driver.list('cutting-plan/_incoming/')
+
+    expect(mockGetFiles).toHaveBeenCalledWith({ prefix: 'cutting-plan/_incoming/' })
+    expect(out).toEqual([
+      { key: 'cutting-plan/_incoming/0X197/u1/A.txt', updatedAt: new Date('2026-11-09T01:00:00.000Z') },
+      { key: 'cutting-plan/_incoming/0X197/u2/B.dxf', updatedAt: new Date('2026-11-10T01:00:00.000Z') },
+    ])
   })
 })

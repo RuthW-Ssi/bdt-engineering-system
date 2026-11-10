@@ -1,0 +1,37 @@
+import { describe, expect, it } from 'vitest'
+import { groupPlateFiles, plateFileProblems, plateFileWarnings } from './fileSet'
+
+const set = (base: string) => ['txt', 'xls', 'pdf', 'dxf'].map(e => `${base}.${e}`)
+
+describe('groupPlateFiles', () => {
+  it('groups four files per plate and sorts plates naturally (5 before 12)', () => {
+    const g = groupPlateFiles([...set('222-B5-12-3'), ...set('222-B5-5-1')])
+    expect(g.plates.map(p => p.plate)).toEqual(['222-B5-5-1', '222-B5-12-3'])
+    expect(g.plates.every(p => p.missing.length === 0)).toBe(true)
+    expect(plateFileProblems(g)).toEqual([])
+  })
+
+  it('pairs names that differ only by case or spaces (real Drive uploads)', () => {
+    const g = groupPlateFiles(['222-A4-20-1 rev1.dxf', '222-A4-20-1rev1.pdf', '222-A4-20-1rev1.txt', '222-A4-20-1rev1.xls',
+      'x190-z1-40-1.dxf', 'x190-z1-40-1.pdf', 'x190-z1-40-1.xls', 'X190-Z1-40-1.txt'])
+    expect(g.plates).toHaveLength(2)
+    expect(g.plates.map(p => p.plate)).toEqual(['222-A4-20-1rev1', 'X190-Z1-40-1']) // named after the .txt
+    expect(plateFileProblems(g)).toEqual([])
+  })
+
+  // 2026-11-09 (Tao, option 1): only the .txt is required. Old uploads have real plates whose .pdf / .dxf
+  // came out empty from CutLogic; they are saved, they just can't be opened in 3D / as PDF.
+  it('blocks a wrong extension and a duplicate kind, but only warns about a missing .pdf', () => {
+    const g = groupPlateFiles(['Z100-5-2.txt', 'Z100-5-2.xls', 'Z100-5-2.dxf', 'CP_2026.zip', 'WHA31-2 Part List.xlsx', ...set('A-1'), 'a-1.TXT'])
+    expect(plateFileWarnings(g)).toEqual(['แผ่น Z100-5-2 ไม่มี .pdf (บันทึกได้ แต่เปิดไฟล์นั้นไม่ได้)'])
+    expect(plateFileProblems(g)).toEqual([
+      'ไฟล์ CP_2026.zip ไม่ใช่ .txt / .xls / .pdf / .dxf',
+      'ไฟล์ WHA31-2 Part List.xlsx ไม่ใช่ .txt / .xls / .pdf / .dxf',
+      'ไฟล์ a-1.TXT ซ้ำกับไฟล์ชนิดเดียวกันของแผ่นเดียวกัน',
+    ])
+  })
+
+  it('a plate without its .txt is blocked: the .txt is the report the parser reads', () => {
+    expect(plateFileProblems(groupPlateFiles(['lonely.pdf']))).toEqual(['แผ่น lonely ไม่มีไฟล์ .txt (ทุกแผ่นต้องมี .txt)'])
+  })
+})
