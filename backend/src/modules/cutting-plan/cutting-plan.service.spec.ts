@@ -342,19 +342,19 @@ describe('CuttingPlanService', () => {
 
     it('preview blocks a plate without its .txt, but not one missing .xls / .dxf', async () => {
       expect((await service.preview([FILE], FIELDS, ['X197-Z0-5-1.txt', 'X197-Z0-5-1.pdf'])).fileProblems).toEqual([])
-      expect((await service.preview([FILE], FIELDS, ['X197-Z0-5-1.txt', 'B-2.pdf'])).fileProblems).toEqual(['แผ่น B-2 ไม่มีไฟล์ .txt (ทุกแผ่นต้องมี .txt)'])
+      expect((await service.preview([FILE], FIELDS, ['X197-Z0-5-1.txt', 'B-2.pdf'])).fileProblems).toEqual(['Plate B-2 has no .txt (every plate needs its .txt)'])
     })
 
     it('preview flags an empty .txt (a real 0-byte file from Drive) and does not send it to the parser', async () => {
       const empty = { buffer: Buffer.alloc(0), originalname: '0X203-Z1-16-17.txt' }
       const r = await service.preview([FILE, empty], FIELDS, [...ALL_NAMES, ...['txt', 'xls', 'pdf', 'dxf'].map(e => `0X203-Z1-16-17.${e}`)])
-      expect(r.fileProblems).toEqual(['ไฟล์ .txt ว่างหรือไม่ใช่รายงาน nesting: 0X203-Z1-16-17.txt'])
+      expect(r.fileProblems).toEqual(['Empty or not a nesting report (.txt): 0X203-Z1-16-17.txt'])
       expect(apiClient.submit.mock.calls[0][0].map((f: any) => f.originalname)).toEqual(['X197-Z0-5-1.txt'])
     })
 
     it('save refuses a staged .txt that is empty', async () => {
       storage.objects.set(STAGED[0].upload_key, Buffer.alloc(0))
-      await expect(service.upload(STAGED, FIELDS, 7)).rejects.toThrow('ไฟล์ .txt ว่างหรือไม่ใช่รายงาน nesting: X197-Z0-5-1.txt')
+      await expect(service.upload(STAGED, FIELDS, 7)).rejects.toThrow('Empty or not a nesting report (.txt): X197-Z0-5-1.txt')
       expect(apiClient.submit).not.toHaveBeenCalled()
     })
 
@@ -363,7 +363,7 @@ describe('CuttingPlanService', () => {
     })
 
     it('save refuses a plate without its .txt before calling the parser', async () => {
-      await expect(service.upload(STAGED.filter(f => !f.file_name.endsWith('.txt')), FIELDS, 7)).rejects.toThrow('ไม่มีไฟล์ .txt')
+      await expect(service.upload(STAGED.filter(f => !f.file_name.endsWith('.txt')), FIELDS, 7)).rejects.toThrow('has no .txt')
       expect(apiClient.submit).not.toHaveBeenCalled()
     })
 
@@ -383,12 +383,12 @@ describe('CuttingPlanService', () => {
 
     it('save refuses a staged key outside the chosen project', async () => {
       const other = STAGED.map((f, i) => (i ? f : { ...f, upload_key: `cutting-plan/_incoming/0X999/${UUID}/${f.file_name}` }))
-      await expect(service.upload(other, FIELDS, 7)).rejects.toThrow('อัปโหลดไม่ถูกต้อง')
+      await expect(service.upload(other, FIELDS, 7)).rejects.toThrow('was not uploaded correctly')
     })
 
     it('save refuses a staged file that is not in storage', async () => {
       storage.objects.delete(STAGED[2].upload_key)
-      await expect(service.upload(STAGED, FIELDS, 7)).rejects.toThrow('ไม่พบไฟล์ X197-Z0-5-1.pdf')
+      await expect(service.upload(STAGED, FIELDS, 7)).rejects.toThrow('Uploaded file X197-Z0-5-1.pdf was not found')
     })
 
     it('parses only the .txt, stores all four under plate/<project>/<zone>/<sub-zone>/<upload-id>/, and clears staging', async () => {
@@ -405,7 +405,7 @@ describe('CuttingPlanService', () => {
     it('if storing a file fails, the upload is removed again with the files already written', async () => {
       storage.copy.mockImplementationOnce(async (f: string, t: string) => { storage.objects.set(t, storage.objects.get(f)!) })
         .mockImplementationOnce(async () => { throw new Error('GCS down') })
-      await expect(service.upload(STAGED, FIELDS, 7)).rejects.toThrow('บันทึกไฟล์ไม่สำเร็จ')
+      await expect(service.upload(STAGED, FIELDS, 7)).rejects.toThrow('Could not store the files')
       expect(prisma.cutting_plan_upload.delete).toHaveBeenCalledWith({ where: { id: 1 } })
       expect([...storage.objects.keys()].some(k => k.startsWith('cutting-plan/plate/'))).toBe(false)
     })
@@ -440,7 +440,7 @@ describe('CuttingPlanService', () => {
 
     it('plateView says so when the plate has no .dxf', async () => {
       prisma.cutting_plan_file.findMany.mockImplementationOnce(async () => [])
-      await expect(service.plateView(1, 'nope')).rejects.toThrow('ไม่มีไฟล์ .dxf')
+      await expect(service.plateView(1, 'nope')).rejects.toThrow('has no .dxf file')
     })
 
     it('deleting an upload deletes its stored files', async () => {
