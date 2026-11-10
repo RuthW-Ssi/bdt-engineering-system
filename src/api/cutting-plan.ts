@@ -157,7 +157,7 @@ export function previewCuttingPlan(formData: FormData): Promise<CuttingPlanPrevi
 
 export interface SaveCuttingPlanPayload {
   project_id: number
-  zone_id: number
+  zone_id?: number // omitted = All zones (whole project)
   sub_zone_id?: number
   lot?: string
   description?: string
