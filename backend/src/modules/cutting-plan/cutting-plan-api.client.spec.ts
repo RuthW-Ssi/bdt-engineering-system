@@ -1,4 +1,4 @@
-import { BadRequestException, InternalServerErrorException } from '@nestjs/common'
+import { BadRequestException, InternalServerErrorException, ServiceUnavailableException } from '@nestjs/common'
 
 const mockGetRequestHeaders = jest.fn()
 const mockGetIdTokenClient = jest.fn()
@@ -9,7 +9,7 @@ jest.mock('google-auth-library', () => ({
   })),
 }))
 
-import { CuttingPlanApiClient } from './cutting-plan-api.client'
+import { CuttingPlanApiClient, CuttingPlanReportErrors } from './cutting-plan-api.client'
 
 const FIELDS = { file_id: 'f1', project_code: 'X1', project_name: 'P', tag: 'T', description: 'd', version: '1', revision: '0' }
 const FILES = [{ buffer: Buffer.from('hello'), originalname: 'a.txt' }]
@@ -72,6 +72,36 @@ describe('CuttingPlanApiClient', () => {
     const client = new CuttingPlanApiClient()
     await expect(client.submit(FILES, FIELDS)).rejects.toThrow(InternalServerErrorException)
     await expect(client.submit(FILES, FIELDS)).rejects.toThrow('parse error')
+  })
+
+  const failWith = (body: object) => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, json: () => Promise.resolve(body) }) as unknown as typeof fetch
+  }
+
+  // 2026-11-09: the parser names every rejected report; the upload lists them all instead of one long string
+  it('throws the per-file errors the parser lists', async () => {
+    failWith({ status: 'failed', description: 'Error in ETL process: ...', errors: [{ file: 'A.txt', message: 'm1' }, { file: 'B.txt', message: 'm2' }] })
+    const err = await new CuttingPlanApiClient().submit(FILES, FIELDS).catch(e => e)
+    expect(err).toBeInstanceOf(CuttingPlanReportErrors)
+    expect(err.files).toEqual([{ file: 'A.txt', message: 'm1' }, { file: 'B.txt', message: 'm2' }])
+  })
+
+  it('reads the same list from the message of a parser that predates the errors field', async () => {
+    failWith({ status: 'failed', description: `Error in ETL process: [{'File name': 'A B.txt', 'Error message': 'Text format in Remnants is not complatible with criteria. >>> Empty remnants data.'}, {'File name': 'C.txt', 'Error message': "expected string, got 'NoneType'"}]` })
+    const err = await new CuttingPlanApiClient().submit(FILES, FIELDS).catch(e => e)
+    expect(err.files).toEqual([
+      { file: 'A B.txt', message: 'Text format in Remnants is not complatible with criteria. >>> Empty remnants data.' },
+      { file: 'C.txt', message: "expected string, got 'NoneType'" },
+    ])
+  })
+
+  // 2026-11-09 re-check: one save hit "fetch failed" (parser not reachable for a moment) and the user saw a
+  // bare "Internal server error". Say what happened and that nothing was saved.
+  it('says the parser could not be reached when the request never gets through', async () => {
+    global.fetch = jest.fn().mockRejectedValue(Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })) as unknown as typeof fetch
+    const err = await new CuttingPlanApiClient().submit(FILES, FIELDS).catch(e => e)
+    expect(err).toBeInstanceOf(ServiceUnavailableException)
+    expect(err.message).toBe('Cannot reach the cutting plan parser. Nothing was saved. Please try again.')
   })
 
   it('throws InternalServerErrorException if CUTTING_PLAN_API_URL is not configured', async () => {

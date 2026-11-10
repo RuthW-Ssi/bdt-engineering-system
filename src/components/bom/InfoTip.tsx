@@ -20,7 +20,7 @@ export function InfoTip({ label, text, size = 12, color = '#8E8E8E' }: { label: 
         <Info size={size} />
       </span>
       {open && (
-        <div role="tooltip" style={{ position: 'absolute', left: 0, top: '100%', marginTop: 4, zIndex: 20, width: 'max-content', maxWidth: 240, whiteSpace: 'normal', background: '#1F1F1F', color: 'white', fontSize: 11, fontWeight: 400, lineHeight: 1.4, borderRadius: 6, padding: '6px 8px', boxShadow: '0 4px 8px rgba(0,0,0,0.18)' }}>
+        <div role="tooltip" style={{ position: 'absolute', left: 0, top: '100%', marginTop: 4, zIndex: 20, width: 'max-content', maxWidth: 240, whiteSpace: 'normal', background: '#1F1F1F', color: 'white', fontSize: 11, fontWeight: 400, lineHeight: 1.4, textTransform: 'none', letterSpacing: 'normal', borderRadius: 6, padding: '6px 8px', boxShadow: '0 4px 8px rgba(0,0,0,0.18)' }}>
           {text}
         </div>
       )}

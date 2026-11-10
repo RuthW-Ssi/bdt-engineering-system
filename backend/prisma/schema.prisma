@@ -339,6 +339,7 @@ model project {
   drawings                drawing[]
   progress_change_batches progress_change_batch[]
   part_mos                manufacturing_order[]   @relation("ProjectPartMos")
+  cutting_plans           cutting_plan_upload[]   @relation("ProjectCuttingPlans")
 }
 
 // ── 🟥 Project Zone (erection sequence — F23 / PD-37) ──────────
@@ -365,11 +366,12 @@ model project_zone {
   // by BOM upload / Work Order creation.
   is_placeholder    Boolean   @default(false)
 
-  products   products[]
-  sub_zones  sub_zone[]
-  dispatches bom_dispatch[]        @relation("ZoneDispatches")
-  drawings   drawing[]
-  part_mos   manufacturing_order[] @relation("ZonePartMos")
+  products      products[]
+  sub_zones     sub_zone[]
+  dispatches    bom_dispatch[]        @relation("ZoneDispatches")
+  drawings      drawing[]
+  part_mos      manufacturing_order[] @relation("ZonePartMos")
+  cutting_plans cutting_plan_upload[] @relation("ZoneCuttingPlans")
 
   @@unique([project_id, code])
 }
@@ -389,9 +391,10 @@ model sub_zone {
   create_date DateTime     @default(now()) @db.Timestamptz
   write_date  DateTime     @updatedAt @db.Timestamptz
 
-  dispatches bom_dispatch[]        @relation("SubZoneDispatches")
-  drawings   drawing[]
-  part_mos   manufacturing_order[] @relation("SubZonePartMos")
+  dispatches    bom_dispatch[]        @relation("SubZoneDispatches")
+  drawings      drawing[]
+  part_mos      manufacturing_order[] @relation("SubZonePartMos")
+  cutting_plans cutting_plan_upload[] @relation("SubZoneCuttingPlans")
 }
 
 // ── 🟥 Mark Prefix Master (27 entries — F9 / PD-20) ────────────
@@ -2168,21 +2171,25 @@ model activity_required_consumable {
 // (source in `bdt-cutting-plan-service/`) — bdt-app uploads .txt nesting
 // reports to it and persists the returned JSON here. See wiki/features/cutting-plan.md.
 //
-// No project/zone assignment concept on this model (removed 2026-07-17) —
-// a per-upload project_id was the wrong granularity (one upload/plate can
-// span multiple projects) and the BOM-mark-matching redesign that would
-// replace it is paused pending new information; `project_code` on
-// `cutting_plan_order_part` (per-part, manually bulk-assignable) is the only
-// project-linking mechanism for now. `project_name` was dropped (2026-07-15)
-// — the external API removed it from its contract (always "" now); it never
-// carried real data.
+// Project / zone / sub-zone are picked once per upload and `tag` was dropped
+// (2026-11-06, Tao; this reverses the 2026-07-17 removal). `project_code` on `cutting_plan_order_part`
+// stays the per-part, bulk-editable code, pre-filled from the picked project.
+// `project_name` was dropped (2026-07-15): the API always sends "".
 model cutting_plan_upload {
-  id           Int     @id @default(autoincrement())
-  file_id      String  @unique @db.VarChar(100) // identifier bdt-app generates per call to the Cutting Plan API
-  tag          String  @db.VarChar(60)
-  description  String? @db.VarChar(500)
-  version      String  @db.VarChar(20)
-  revision     String  @db.VarChar(20)
+  id           Int           @id @default(autoincrement())
+  file_id      String        @unique @db.VarChar(100) // identifier bdt-app generates per call to the Cutting Plan API
+  description  String?       @db.VarChar(500)
+  // Picked on the upload form (2026-11-06): project + zone required for new uploads, sub-zone optional.
+  // Nullable only because older uploads have none. RESTRICT: zones/sub-zones are soft-deleted anyway.
+  project_id   Int?
+  project      project?      @relation("ProjectCuttingPlans", fields: [project_id], references: [id], onDelete: Restrict)
+  zone_id      Int?
+  zone         project_zone? @relation("ZoneCuttingPlans", fields: [zone_id], references: [id], onDelete: Restrict)
+  sub_zone_id  Int?
+  sub_zone     sub_zone?     @relation("SubZoneCuttingPlans", fields: [sub_zone_id], references: [id], onDelete: Restrict)
+  lot          String?       @db.VarChar(60) // free text typed by the user, optional
+  version      String        @db.VarChar(20)
+  revision     String        @db.VarChar(20)
   raw_response Json // full parsed API response, kept for reprocessing/debugging around known parser bugs (multi-plate-per-file silent data loss, duplicated remnants)
 
   create_uid  Int
@@ -2193,6 +2200,27 @@ model cutting_plan_upload {
   order_parts  cutting_plan_order_part[]
   plate_usages cutting_plan_plate_usage[]
   remnants     cutting_plan_remnant[]
+  files        cutting_plan_file[]
+
+  @@index([project_id])
+  @@index([zone_id])
+}
+
+// The four files of each plate (.txt / .xls / .pdf / .dxf, 2026-11-06), kept in
+// storage at cutting-plan/plate/<project>/<zone>/[<sub-zone>/]<upload-id>/<file_name>.
+// plate_name = the .txt's base name as uploaded (= nesting.cuttingplan_number).
+model cutting_plan_file {
+  id          Int                 @id @default(autoincrement())
+  upload_id   Int
+  upload      cutting_plan_upload @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  plate_name  String              @db.VarChar(120)
+  kind        String              @db.VarChar(4) // TXT | XLS | PDF | DXF
+  file_name   String              @db.VarChar(255)
+  file_key    String              @unique @db.VarChar(500)
+  size_bytes  Int
+  create_date DateTime            @default(now()) @db.Timestamptz
+
+  @@index([upload_id])
 }
 
 // One row per plate/nest (merge of the API's NESTING + Used Material +

@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  getCuttingPlans, getCuttingPlan, previewCuttingPlan, uploadCuttingPlan,
+  getCuttingPlans, getCuttingPlan, getPlateView, previewCuttingPlan, saveCuttingPlan, getStagingUrls, putStagedFile,
   bulkAssignOrderPartProjectCode, deleteCuttingPlan,
-  type CuttingPlanPreviewResult, type BulkAssignOrderPartProjectCodePayload,
+  type CuttingPlanPreviewResult, type BulkAssignOrderPartProjectCodePayload, type SaveCuttingPlanPayload,
 } from '../api/cutting-plan'
 
 export function useCuttingPlans(params?: Parameters<typeof getCuttingPlans>[0]) {
@@ -14,50 +14,79 @@ export function useCuttingPlan(id: number) {
   return useQuery({ queryKey: ['cutting-plan', 'detail', id], queryFn: () => getCuttingPlan(id), enabled: !!id })
 }
 
+export function usePlateView(id: number, plate: string | null) {
+  return useQuery({ queryKey: ['cutting-plan', 'plate-view', id, plate], queryFn: () => getPlateView(id, plate!), enabled: !!id && !!plate, staleTime: Infinity })
+}
+
 function usePreviewCuttingPlan() {
   return useMutation({ mutationFn: (formData: FormData) => previewCuttingPlan(formData) })
 }
 
-function useUploadCuttingPlan() {
+export interface CuttingPlanUploadInput {
+  previewForm: FormData // .txt files + fields + file_names
+  files: File[] // all four files of every plate
+  fields: Omit<SaveCuttingPlanPayload, 'staged'>
+}
+
+// Save = one call for all staging URLs, put every file into storage, then post the keys.
+// Straight-to-GCS PUTs are not API calls, so 8 run at once. With the local dev driver each
+// "PUT" is an API call, so it is paced under the API's 600/min limit instead.
+function useSaveCuttingPlan() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ formData, onProgress }: { formData: FormData; onProgress?: (pct: number) => void }) =>
-      uploadCuttingPlan(formData, onProgress),
+    mutationFn: async ({ input, onProgress }: { input: CuttingPlanUploadInput; onProgress?: (pct: number) => void }) => {
+      const urls = await getStagingUrls(input.fields.project_id, input.files.map(f => f.name))
+      const byName = new Map(input.files.map(f => [f.name, f]))
+      const viaApi = urls[0]?.method === 'POST'
+      let done = 0, next = 0
+      const worker = async () => {
+        while (next < urls.length) {
+          const u = urls[next++]
+          const started = Date.now()
+          await putStagedFile(u, byName.get(u.file_name)!)
+          onProgress?.(Math.round((++done / urls.length) * 95))
+          if (viaApi) await new Promise(r => setTimeout(r, Math.max(0, 1000 - (Date.now() - started)))) // ≤ 1/s per worker → 8 workers ≈ 480/min
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(8, urls.length) }, worker))
+      const saved = await saveCuttingPlan({ ...input.fields, staged: urls.map(u => ({ upload_key: u.upload_key, file_name: u.file_name })) })
+      onProgress?.(100)
+      return saved
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cutting-plan'] }),
   })
 }
 
-// Cutting Plan always shows the parsed summary + any warnings before saving
-// (unlike BOM's useUploadBomWithPreview, which only interrupts on an actual
-// mismatch) — submit() always stashes the FormData and surfaces the preview.
+// Cutting Plan always shows the parsed summary + any problems before saving.
+// submit() previews (only the .txt files travel); confirm() stores all files and saves.
 export function useUploadCuttingPlanWithPreview() {
-  const uploadMutation = useUploadCuttingPlan()
+  const uploadMutation = useSaveCuttingPlan()
   const previewMutation = usePreviewCuttingPlan()
   const [pendingPreview, setPendingPreview] = useState<CuttingPlanPreviewResult | null>(null)
-  const pendingFormDataRef = useRef<FormData | null>(null)
+  const pendingRef = useRef<CuttingPlanUploadInput | null>(null)
   const pendingOnProgressRef = useRef<((pct: number) => void) | undefined>(undefined)
 
-  async function submit(formData: FormData, onProgress?: (pct: number) => void) {
-    const result = await previewMutation.mutateAsync(formData)
-    pendingFormDataRef.current = formData
+  async function submit(input: CuttingPlanUploadInput, onProgress?: (pct: number) => void) {
+    const result = await previewMutation.mutateAsync(input.previewForm)
+    pendingRef.current = input
     pendingOnProgressRef.current = onProgress
     setPendingPreview(result)
     return result
   }
 
   async function confirm() {
-    const formData = pendingFormDataRef.current
-    if (!formData) return null
+    const input = pendingRef.current
+    if (!input) return null
     const onProgress = pendingOnProgressRef.current
     setPendingPreview(null)
-    pendingFormDataRef.current = null
+    pendingRef.current = null
     pendingOnProgressRef.current = undefined
-    return uploadMutation.mutateAsync({ formData, onProgress })
+    return uploadMutation.mutateAsync({ input, onProgress })
   }
 
   function cancel() {
     setPendingPreview(null)
-    pendingFormDataRef.current = null
+    pendingRef.current = null
     pendingOnProgressRef.current = undefined
   }
 
