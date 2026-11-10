@@ -5,14 +5,15 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 // Multipart fields arrive as strings; an empty optional field ("") means "not picked".
 const toInt = ({ value }: { value: unknown }) => (value === '' || value == null ? undefined : Number(value))
 
-// Upload form (2026-11-06): project + zone required, sub-zone and lot optional, no tag.
+// Upload form (2026-11-06): project required; zone optional since 2026-11-10 (none = All zones); sub-zone and lot optional, no tag.
 // Used as-is by the preview (multipart, .txt files only).
 export class UploadCuttingPlanDto {
   @ApiProperty() @Transform(toInt) @IsInt() @Min(1)
   project_id!: number
 
-  @ApiProperty() @Transform(toInt) @IsInt() @Min(1)
-  zone_id!: number
+  // omitted = All zones (whole project), 2026-11-10
+  @ApiPropertyOptional() @Transform(toInt) @IsOptional() @IsInt() @Min(1)
+  zone_id?: number
 
   @ApiPropertyOptional() @Transform(toInt) @IsOptional() @IsInt() @Min(1)
   sub_zone_id?: number

@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { CuttingPlanService, MAX_PLATES, MAX_TXT_BYTES } from './cutting-plan.service'
+import { CuttingPlanService, MAX_PLATES, MAX_TXT_BYTES, storageFolder } from './cutting-plan.service'
 import { CuttingPlanReportErrors } from './cutting-plan-api.client'
 import type { CuttingPlanApiClient, CuttingPlanApiResponse } from './cutting-plan-api.client'
 
@@ -136,7 +136,6 @@ describe('CuttingPlanService', () => {
 
     it.each([
       ['no project', { project_id: undefined }, 'project_id is required'],
-      ['no zone', { zone_id: undefined }, 'zone_id is required'],
       ['an unknown project', { project_id: 99 }, 'Project 99 not found'],
       ['a zone of another project', { zone_id: 60 }, 'Zone 60 is not in the chosen project'],
       ['a sub-zone of another zone', { sub_zone_id: 600 }, 'Sub-zone 600 is not in the chosen zone'],
@@ -144,6 +143,26 @@ describe('CuttingPlanService', () => {
     ])('rejects preview() with %s, before calling the parser', async (_label, patch, message) => {
       await expect(service.preview([FILE], { ...FIELDS, ...patch } as any, ALL_NAMES)).rejects.toThrow(message)
       expect(apiClient.submit).not.toHaveBeenCalled()
+    })
+  })
+
+  // 2026-11-10 (Tao, option ก): "All zones (whole project)" = an upload with no zone, for plans that cover the whole
+  // project (e.g. the rod folder "BIF - All rod 25"); no zone row is created in the project
+  describe('All zones', () => {
+    it('upload with no zone_id saves zone_id null and stores files under cutting-plan/plate/0X197/ALL/<id>/', async () => {
+      await service.upload(STAGED, { ...FIELDS, zone_id: undefined }, 7)
+      expect(prisma._tx.cutting_plan_upload.create.mock.calls[0][0].data.zone_id).toBeNull()
+      expect(prisma._files.length).toBeGreaterThan(0)
+      expect(prisma._files.every((r: any) => r.file_key.startsWith('cutting-plan/plate/0X197/ALL/1/'))).toBe(true)
+    })
+
+    it('a sub-zone without a zone is refused', async () => {
+      await expect(service.upload(STAGED, { ...FIELDS, zone_id: undefined, sub_zone_id: 500 }, 7)).rejects.toThrow(/Sub-zone needs a zone/)
+    })
+
+    it('storageFolder puts a no-zone upload under ALL', () => {
+      expect(storageFolder('shape', '0X222', null, null, 12)).toBe('cutting-plan/shape/0X222/ALL/12/')
+      expect(storageFolder('plate', '0X222', 'Z1', 'SZA', 12)).toBe('cutting-plan/plate/0X222/Z1/SZA/12/')
     })
   })
 

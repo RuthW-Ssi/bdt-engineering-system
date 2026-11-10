@@ -64,7 +64,12 @@ export interface StagedFile { upload_key: string; file_name: string }
 const notAReport = (f: CuttingPlanFileInput) => f.buffer.length === 0 || !f.buffer.toString('latin1', 0, 4096).includes('NESTING')
 const badReportMessage = (names: string[]) => `Empty or not a nesting report (.txt): ${names.join(', ')}`
 
-const REQUIRED_FIELDS = ['project_id', 'zone_id', 'version', 'revision'] as const
+// cutting-plan/<plate|shape>/<project>/<zone|ALL>/[<sub-zone>/]<upload-id>/ — one folder per upload (D7); no zone = ALL
+export function storageFolder(kind: 'plate' | 'shape', projectCode: string, zoneCode: string | null, subZoneCode: string | null, uploadId: number) {
+  return `cutting-plan/${kind}/${projectCode}/${zoneCode ?? 'ALL'}/${subZoneCode ? subZoneCode + '/' : ''}${uploadId}/`
+}
+
+const REQUIRED_FIELDS = ['project_id', 'version', 'revision'] as const
 const LOT_MAX = 60
 export const MAX_PLATES = 250 // = 1,000 files; the biggest real upload so far is 244 plates (Drive, 2026-11-06)
 const MAX_FILE_BYTES = 30 * 1024 * 1024 // per file; the biggest real .pdf/.dxf seen is ~1.5 MB
@@ -105,6 +110,11 @@ export class CuttingPlanService {
 
     const project = await this.prisma.project.findUnique({ where: { id: fields.project_id }, select: { id: true, project_code: true } })
     if (!project) throw new BadRequestException(`Project ${fields.project_id} not found`)
+    // No zone = "All zones (whole project)" (2026-11-10)
+    if (fields.zone_id == null) {
+      if (fields.sub_zone_id != null) throw new BadRequestException('Sub-zone needs a zone. Pick a zone or clear the sub-zone.')
+      return { projectCode: project.project_code, zoneCode: null, subZoneCode: null }
+    }
     const zone = await this.prisma.project_zone.findUnique({ where: { id: fields.zone_id }, select: { id: true, project_id: true, code: true } })
     if (!zone || zone.project_id !== project.id) throw new BadRequestException(`Zone ${fields.zone_id} is not in the chosen project`)
     let subZoneCode: string | null = null
@@ -113,7 +123,7 @@ export class CuttingPlanService {
       if (!sub || !sub.active || sub.zone_id !== zone.id) throw new BadRequestException(`Sub-zone ${fields.sub_zone_id} is not in the chosen zone`)
       subZoneCode = sub.code || `sz${sub.id}`
     }
-    return { projectCode: project.project_code, zoneCode: zone.code, subZoneCode }
+    return { projectCode: project.project_code, zoneCode: zone.code as string | null, subZoneCode }
   }
 
   private reportProblemsOf(files: CuttingPlanFileInput[]): FileReportProblem[] {
@@ -328,7 +338,7 @@ export class CuttingPlanService {
 
   private async saveStaged(
     allStaged: StagedFile[], fields: CuttingPlanUploadFields, userId: number,
-    { projectCode, zoneCode, subZoneCode }: { projectCode: string; zoneCode: string; subZoneCode: string | null },
+    { projectCode, zoneCode, subZoneCode }: { projectCode: string; zoneCode: string | null; subZoneCode: string | null },
     grouping: ReturnType<typeof groupPlateFiles>,
   ) {
     const sizes = new Map<string, number>()
@@ -383,7 +393,7 @@ export class CuttingPlanService {
         data: {
           file_id: apiFields.file_id,
           project_id: fields.project_id!,
-          zone_id: fields.zone_id!,
+          zone_id: fields.zone_id ?? null,
           sub_zone_id: fields.sub_zone_id ?? null,
           lot: fields.lot?.trim() || null,
           description: fields.description?.trim() || null,
@@ -430,7 +440,7 @@ export class CuttingPlanService {
         })
       }
 
-      const folder = `cutting-plan/plate/${projectCode}/${zoneCode}/${subZoneCode ? subZoneCode + '/' : ''}${upload.id}/`
+      const folder = storageFolder('plate', projectCode, zoneCode, subZoneCode, upload.id)
       await tx.cutting_plan_file.createMany({
         data: plates.flatMap(p => (Object.entries(p.files) as [PlateFileKind, string][]).map(([kind, name]) => ({
           upload_id: upload.id, plate_name: p.plate, kind: kind.toUpperCase(), file_name: name,
