@@ -65,6 +65,19 @@ const notAReport = (f: CuttingPlanFileInput) => f.buffer.length === 0 || !f.buff
 const badReportMessage = (names: string[]) => `Empty or not a nesting report (.txt): ${names.join(', ')}`
 
 // cutting-plan/<plate|shape>/<project>/<zone|ALL>/[<sub-zone>/]<upload-id>/ — one folder per upload (D7); no zone = ALL
+// One tenant must not claim another project's staged files (cf. drawings assertUploadKeyOwnership)
+export function checkStagedKeys(staged: StagedFile[], projectCode: string) {
+  const stagingPrefix = `${INCOMING_PREFIX}${projectCode}/`
+  const keyShape = /^cutting-plan\/_incoming\/[^/\\]+\/[0-9a-f-]{36}\/[^/\\]+$/
+  const seen = new Set<string>()
+  for (const f of staged) {
+    if (!keyShape.test(f.upload_key) || !f.upload_key.startsWith(stagingPrefix) || seen.has(f.upload_key)) {
+      throw new BadRequestException(`${f.file_name} was not uploaded correctly. Please upload again.`)
+    }
+    seen.add(f.upload_key)
+  }
+}
+
 export function storageFolder(kind: 'plate' | 'shape', projectCode: string, zoneCode: string | null, subZoneCode: string | null, uploadId: number) {
   return `cutting-plan/${kind}/${projectCode}/${zoneCode ?? 'ALL'}/${subZoneCode ? subZoneCode + '/' : ''}${uploadId}/`
 }
@@ -101,7 +114,7 @@ export class CuttingPlanService {
 
   // Checks the form and the project → zone → sub-zone chain, before the parser
   // is called. Returns the codes for the parser field, the pre-fill and the storage folder.
-  private async validatePicks(fields: CuttingPlanUploadFields) {
+  async validatePicks(fields: CuttingPlanUploadFields) {
     for (const key of REQUIRED_FIELDS) {
       const v = fields[key]
       if (v == null || !String(v).trim()) throw new BadRequestException(`${key} is required`)
@@ -316,16 +329,7 @@ export class CuttingPlanService {
     const problems = plateFileProblems(grouping)
     if (problems.length) throw new BadRequestException(problems.join('\n'))
 
-    const stagingPrefix = `${INCOMING_PREFIX}${projectCode}/`
-    const keyShape = /^cutting-plan\/_incoming\/[^/\\]+\/[0-9a-f-]{36}\/[^/\\]+$/
-    const seen = new Set<string>()
-    for (const f of allStaged) {
-      // one tenant must not claim another project's staged files (cf. drawings assertUploadKeyOwnership)
-      if (!keyShape.test(f.upload_key) || !f.upload_key.startsWith(stagingPrefix) || seen.has(f.upload_key)) {
-        throw new BadRequestException(`${f.file_name} was not uploaded correctly. Please upload again.`)
-      }
-      seen.add(f.upload_key)
-    }
+    checkStagedKeys(allStaged, projectCode)
     // From here the staged files are ours: whatever refuses or fails the save removes them, since the browser
     // stages afresh for every Confirm (316 files sat in _incoming after refused saves, 2026-11-10).
     try {
@@ -455,7 +459,8 @@ export class CuttingPlanService {
   }
 
   async list(query: QueryCuttingPlanDto) {
-    const where: Prisma.cutting_plan_uploadWhereInput = {}
+    // The Plate and Shape tabs list their own uploads; no plan_type = Plate, as before 2026-11-10
+    const where: Prisma.cutting_plan_uploadWhereInput = { plan_type: query.plan_type ?? 'PLATE' }
     if (query.search) {
       const q = { contains: query.search, mode: 'insensitive' as const }
       where.OR = [
@@ -470,7 +475,7 @@ export class CuttingPlanService {
       orderBy: { create_date: 'desc' },
       include: {
         ...UPLOAD_INCLUDE,
-        _count: { select: { nestings: true, order_parts: true, plate_usages: true, remnants: true } },
+        _count: { select: { nestings: true, order_parts: true, plate_usages: true, remnants: true, shape_sizes: true } },
       },
     })
   }
@@ -485,6 +490,10 @@ export class CuttingPlanService {
         plate_usages: true,
         remnants: true,
         files: { orderBy: [{ plate_name: 'asc' }, { kind: 'asc' }] },
+        shape_sizes: {
+          orderBy: { profile: 'asc' },
+          include: { layouts: { orderBy: { seq: 'asc' }, include: { parts: { orderBy: { seq: 'asc' } } } } },
+        },
       },
     })
     if (!upload) throw new NotFoundException(`Cutting plan upload ${id} not found`)
@@ -541,7 +550,7 @@ export class CuttingPlanService {
   // Copy each staged file to its final key (server-side copy, 8 at a time — an upload can be
   // ~1,000 files), then drop the staged copies. Any failure: remove the upload (rows cascade)
   // and whatever finals were written.
-  private async moveStagedFiles(uploadId: number, byName: Map<string, StagedFile>) {
+  async moveStagedFiles(uploadId: number, byName: Map<string, StagedFile>) {
     const rows = await this.prisma.cutting_plan_file.findMany({ where: { upload_id: uploadId } })
     const written: string[] = []
     try {
@@ -558,7 +567,7 @@ export class CuttingPlanService {
     await this.deleteObjects([...byName.values()].map(f => f.upload_key))
   }
 
-  private async deleteObjects(keys: string[]) {
+  async deleteObjects(keys: string[]) {
     await inBatches(keys, 8, async key => {
       try { await this.fileStorage.delete(key) } catch (err) {
         this.logger.warn(`Could not delete ${key}: ${err instanceof Error ? err.message : String(err)}`) // orphan only costs storage
@@ -581,7 +590,7 @@ export class CuttingPlanService {
 
 // Run `fn` over `items`, at most `n` at a time. On the first error nothing new starts, the ones
 // already running finish, then the error is thrown — so a rollback sees every write that happened.
-async function inBatches<T>(items: T[], n: number, fn: (item: T) => Promise<void>) {
+export async function inBatches<T>(items: T[], n: number, fn: (item: T) => Promise<void>) {
   let i = 0
   let failed: unknown = null
   const worker = async () => {

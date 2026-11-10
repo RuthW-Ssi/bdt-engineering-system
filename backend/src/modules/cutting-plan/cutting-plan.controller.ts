@@ -10,7 +10,8 @@ import { memoryStorage } from 'multer'
 import { CuttingPlanService, CuttingPlanFileInput, MAX_PLATES, MAX_TXT_BYTES } from './cutting-plan.service'
 import { QueryCuttingPlanDto } from './dto/query-cutting-plan.dto'
 import { BulkAssignOrderPartProjectCodeDto } from './dto/bulk-assign-order-part-project-code.dto'
-import { PreviewCuttingPlanDto, SaveCuttingPlanDto, StagingUrlsDto } from './dto/upload-cutting-plan.dto'
+import { PreviewCuttingPlanDto, SaveCuttingPlanDto, SaveShapeCuttingPlanDto, StagingUrlsDto } from './dto/upload-cutting-plan.dto'
+import { CuttingPlanShapeService, MAX_SHAPE_FILES, MAX_SHAPE_PDF_BYTES } from './shape/cutting-plan-shape.service'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
@@ -38,7 +39,7 @@ const UPLOAD_BODY_SCHEMA = {
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('cutting-plan')
 export class CuttingPlanController {
-  constructor(private readonly svc: CuttingPlanService) {}
+  constructor(private readonly svc: CuttingPlanService, private readonly shape: CuttingPlanShapeService) {}
 
   @Post('upload/preview')
   @RequiresPermission('cutting-plan', 'create')
@@ -65,6 +66,26 @@ export class CuttingPlanController {
   @ApiOperation({ summary: 'Save: parse the staged .txt files, store all four files per plate, persist (JSON body)' })
   async upload(@Body() body: SaveCuttingPlanDto, @CurrentUser() user: JwtPayload) {
     return this.svc.upload(body.staged, body, user.sub)
+  }
+
+  @Post('upload/shape-preview')
+  @RequiresPermission('cutting-plan', 'create')
+  @ApiOperation({ summary: 'Shape: read the CutLogic CP-*.pdf cutting layouts and check them — no DB or storage writes' })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: UPLOAD_BODY_SCHEMA })
+  @UseInterceptors(FilesInterceptor('files', MAX_SHAPE_FILES, { storage: memoryStorage(), limits: { fileSize: MAX_SHAPE_PDF_BYTES } }))
+  async shapePreview(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body() body: PreviewCuttingPlanDto,
+  ) {
+    return this.shape.preview((files ?? []).map(f => ({ buffer: f.buffer, originalname: f.originalname })), body, body.file_names ?? [])
+  }
+
+  @Post('upload/shape')
+  @RequiresPermission('cutting-plan', 'create')
+  @ApiOperation({ summary: 'Shape save: read the staged CP PDFs, store them, persist sizes → layouts → parts (JSON body)' })
+  async shapeUpload(@Body() body: SaveShapeCuttingPlanDto, @CurrentUser() user: JwtPayload) {
+    return this.shape.upload(body.staged, body, user.sub)
   }
 
   @Get(':id/plate-view')

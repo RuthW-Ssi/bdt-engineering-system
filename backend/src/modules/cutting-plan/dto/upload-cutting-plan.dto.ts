@@ -55,6 +55,13 @@ export class SaveCuttingPlanDto extends UploadCuttingPlanDto {
   staged!: StagedFileDto[]
 }
 
+// Shape save (2026-11-10): the staged CutLogic CP-*.pdf files, one per size
+export class SaveShapeCuttingPlanDto extends UploadCuttingPlanDto {
+  @ApiProperty({ type: [StagedFileDto] }) @IsArray() @ArrayMinSize(1) @ArrayMaxSize(60)
+  @ValidateNested({ each: true }) @Type(() => StagedFileDto)
+  staged!: StagedFileDto[]
+}
+
 // One request for all staging URLs of an upload (D8).
 export class StagingUrlsDto {
   @ApiProperty() @Transform(toInt) @IsInt() @Min(1)
