@@ -72,7 +72,7 @@ export function CuttingPlanList() {
             {isLoading ? '...' : `${items.length} uploads`}
           </span>
         </div>
-        {tab === 'plate' && canCreate && (
+        {canCreate && (
           <button
             onClick={() => setUploadOpen(true)}
             className="flex items-center gap-1.5 rounded-md text-white"
@@ -168,7 +168,7 @@ export function CuttingPlanList() {
         )}
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
-      {uploadOpen && <CuttingPlanUploadModal onClose={() => setUploadOpen(false)} />}
+      {uploadOpen && <CuttingPlanUploadModal initialType={tab} onClose={() => setUploadOpen(false)} />}
     </div>
   )
 }

@@ -6,7 +6,8 @@ export function PlanMeta({ plan, size = 'line' }: { plan: Pick<CuttingPlanListIt
   const big = size === 'title'
   const items: [string, string | null, string | null][] = [
     ['Project', plan.project?.project_code ?? null, plan.project?.name ?? null],
-    ['Zone', plan.zone?.code ?? null, plan.zone?.label ?? null],
+    // no zone on a picked project = All zones (whole project), 2026-11-10
+    ['Zone', plan.zone?.code ?? (plan.project ? 'All zones' : null), plan.zone?.label ?? null],
     ['Sub-zone', plan.sub_zone ? (plan.sub_zone.code || plan.sub_zone.name) : null, plan.sub_zone?.code ? plan.sub_zone.name : null],
     ['Lot', plan.lot ?? null, null],
   ]

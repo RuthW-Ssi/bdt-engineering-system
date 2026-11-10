@@ -43,7 +43,7 @@ const PLAN_TYPES = [
 ] as const
 
 // Upload form as a modal on the Cutting Plan list (2026-11-06; was the /cutting-plan/upload page).
-export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
+export function CuttingPlanUploadModal({ onClose, initialType = 'plate' }: { onClose: () => void; initialType?: 'plate' | 'shape' }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   // Same project pick as BOM upload: kept in the URL, remembered across visits.
@@ -55,7 +55,7 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
   const [zoneId, setZoneId] = useState('')
   const [subZoneId, setSubZoneId] = useState('')
   const [entries, setEntries] = useState<FileEntry[]>([])
-  const [planType, setPlanType] = useState<'plate' | 'shape'>('plate')
+  const [planType, setPlanType] = useState<'plate' | 'shape'>(initialType)
   const [progress, setProgress] = useState<number | null>(null)
   const uploadFlow = useUploadCuttingPlanWithPreview()
   const { data: zonesData } = useProjectZones(activeProject?.id)
