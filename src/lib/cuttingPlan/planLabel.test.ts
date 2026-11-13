@@ -12,6 +12,10 @@ describe('planLabel', () => {
     expect(planLabel({ id: 1, project, zone, sub_zone: { id: 9, code: 'SZ-A', name: 'Grid A' } })).toBe('0X197 · Z1 / SZ-A')
     expect(planLabel({ id: 1, project, zone, sub_zone: { id: 9, code: null, name: 'Grid A' } })).toBe('0X197 · Z1 / Grid A')
   })
+  // 2026-11-10: no zone = "All zones (whole project)"
+  it('names a whole-project upload "All zones"', () => {
+    expect(planLabel({ id: 9, project, zone: null, sub_zone: null })).toBe('0X197 · All zones')
+  })
   it('falls back to the upload number for older uploads without a pick', () => {
     expect(planLabel({ id: 12, project: null, zone: null, sub_zone: null })).toBe('Upload #12')
   })

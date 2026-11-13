@@ -3,9 +3,11 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { X, Upload, Loader2, AlertTriangle, Check } from 'lucide-react'
 import { toast } from 'sonner'
 import { FileDropzone } from '../bom/FileDropzone'
+import { ALL_ZONES, zonePick } from '../../lib/cuttingPlan/zonePick'
 import type { FileRejection } from '../bom/FileDropzone'
 import { useUploadCuttingPlanWithPreview } from '../../hooks/useCuttingPlan'
 import { CuttingPlanPreviewModal } from './CuttingPlanPreviewModal'
+import { ShapeUploadPanel } from './shape/ShapeUploadPanel'
 import { countDistinctPlates } from '../../lib/cuttingPlan/ncFileCheck'
 import { groupPlateFiles, plateFileProblems, plateFileWarnings, PLATE_FILE_KINDS } from '../../lib/cuttingPlan/fileSet'
 import { useProjectSelection } from '../../hooks/useProjectSelection'
@@ -37,11 +39,11 @@ type FieldKey = (typeof FIELDS)[number]['key']
 
 const PLAN_TYPES = [
   { key: 'plate', label: 'Plate', ready: true },
-  { key: 'shape', label: 'Shape', ready: false },
+  { key: 'shape', label: 'Shape', ready: true }, // CutLogic 1D cutting layouts (2026-11-10)
 ] as const
 
 // Upload form as a modal on the Cutting Plan list (2026-11-06; was the /cutting-plan/upload page).
-export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
+export function CuttingPlanUploadModal({ onClose, initialType = 'plate' }: { onClose: () => void; initialType?: 'plate' | 'shape' }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   // Same project pick as BOM upload: kept in the URL, remembered across visits.
@@ -53,11 +55,12 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
   const [zoneId, setZoneId] = useState('')
   const [subZoneId, setSubZoneId] = useState('')
   const [entries, setEntries] = useState<FileEntry[]>([])
+  const [planType, setPlanType] = useState<'plate' | 'shape'>(initialType)
   const [progress, setProgress] = useState<number | null>(null)
   const uploadFlow = useUploadCuttingPlanWithPreview()
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
-  const { data: subZonesData } = useSubZones(zoneId ? Number(zoneId) : null)
+  const { data: subZonesData } = useSubZones(zoneId && zoneId !== ALL_ZONES ? Number(zoneId) : null)
   const subZones = subZonesData ?? []
   const canWrite = usePermission('cutting-plan', 'create')
 
@@ -124,14 +127,15 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
     kept.filter(e => e.file.name.toLowerCase().endsWith('.txt')).forEach(e => previewForm.append('files', e.file))
     FIELDS.forEach(f => previewForm.append(f.key, values[f.key]))
     previewForm.append('project_id', String(activeProject!.id))
-    previewForm.append('zone_id', zoneId)
-    if (subZoneId) previewForm.append('sub_zone_id', subZoneId)
+    const pick = zonePick(zoneId, subZoneId)!
+    if (pick.zone_id) previewForm.append('zone_id', String(pick.zone_id))
+    if (pick.sub_zone_id) previewForm.append('sub_zone_id', String(pick.sub_zone_id))
     previewForm.append('file_names', JSON.stringify(kept.map(e => e.file.name)))
     return {
       previewForm,
       files: kept.map(e => e.file),
       fields: {
-        project_id: activeProject!.id, zone_id: Number(zoneId), sub_zone_id: subZoneId ? Number(subZoneId) : undefined,
+        project_id: activeProject!.id, ...pick,
         lot: values.lot.trim() || undefined, description: values.description.trim() || undefined,
         version: values.version.trim(), revision: values.revision.trim(),
       },
@@ -213,6 +217,7 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
             onChange={e => { setZoneId(e.target.value); setSubZoneId('') }}
           >
             <option value="">Select Zone...</option>
+            <option value={ALL_ZONES}>All zones (whole project)</option>
             {zones.map(z => <option key={z.id} value={z.id}>{z.code} — {z.label}</option>)}
           </select>
         </div>
@@ -222,11 +227,11 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
             Sub-zone
             <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              {subZones.length === 0 && zoneId ? '(this zone has no sub-zones)' : '(optional)'}
+              {zoneId === ALL_ZONES ? '(not for All zones)' : subZones.length === 0 && zoneId ? '(this zone has no sub-zones)' : '(optional)'}
             </span>
           </label>
           <select
-            disabled={!zoneId || subZones.length === 0}
+            disabled={!zoneId || zoneId === ALL_ZONES || subZones.length === 0}
             style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${subZoneId ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: zoneId && subZones.length > 0 ? 'white' : '#F5F5F5', opacity: !zoneId || subZones.length === 0 ? 0.5 : 1 }}
             value={subZoneId}
             onChange={e => setSubZoneId(e.target.value)}
@@ -252,7 +257,7 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
           </div>
         ))}
 
-        {/* Type — Shape (CutLogic PDF for pipe / rod) is the next step */}
+        {/* Type: Plate (.txt nesting reports) | Shape (CutLogic 1D PDFs, 2026-11-10) */}
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 8 }}>
             Cutting Plan Type <span style={{ color: '#C8202A' }}>*</span>
@@ -264,13 +269,13 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
                 style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: t.ready ? 'pointer' : 'default',
                   padding: '8px 16px', borderRadius: 8, fontSize: 13,
-                  border: `1px solid ${t.key === 'plate' ? '#C8202A' : '#E0E0E0'}`,
-                  background: t.key === 'plate' ? '#FEF2F2' : 'white',
+                  border: `1px solid ${t.key === planType ? '#C8202A' : '#E0E0E0'}`,
+                  background: t.key === planType ? '#FEF2F2' : 'white',
                   color: t.ready ? '#1F1F1F' : '#CCC',
                   opacity: t.ready ? 1 : 0.4,
                 }}
               >
-                <input type="radio" value={t.key} checked={t.key === 'plate'} disabled={!t.ready} readOnly style={{ accentColor: '#C8202A' }} />
+                <input type="radio" value={t.key} checked={t.key === planType} disabled={!t.ready || busy} onChange={() => setPlanType(t.key)} style={{ accentColor: '#C8202A' }} />
                 {t.label}
                 {!t.ready && <span style={{ fontSize: 11, color: '#8E8E8E' }}>(coming soon)</span>}
               </label>
@@ -278,6 +283,20 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
 
+        {planType === 'shape' ? (
+          <ShapeUploadPanel
+            fields={activeProject && zoneId && FIELDS.filter(f => f.required).every(f => values[f.key].trim() !== '')
+              ? {
+                project_id: activeProject.id, ...zonePick(zoneId, subZoneId)!,
+                lot: values.lot.trim() || undefined, description: values.description.trim() || undefined,
+                version: values.version.trim(), revision: values.revision.trim(),
+              }
+              : null}
+            canWrite={canWrite}
+            onCancel={onClose}
+            onSaved={handleSuccess}
+          />
+        ) : (<>
         <div>
           <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
             Cutting plan files <span style={{ color: '#C8202A' }}>*</span>
@@ -385,6 +404,7 @@ export function CuttingPlanUploadModal({ onClose }: { onClose: () => void }) {
                 : <><Upload size={14} />Upload</>}
           </button>
         </div>
+        </>)}
       </div>
       </div>
 
