@@ -18,7 +18,8 @@ export interface CuttingPlanListItem extends CuttingPlanRefs {
   version: string
   revision: string
   create_date: string
-  _count: { nestings: number; order_parts: number; plate_usages: number; remnants: number }
+  plan_type: 'PLATE' | 'SHAPE' // 2026-11-10
+  _count: { nestings: number; order_parts: number; plate_usages: number; remnants: number; shape_sizes: number }
 }
 
 export interface CuttingPlanNestingRow {
@@ -105,6 +106,27 @@ export interface CuttingPlanDetail extends CuttingPlanListItem {
   order_parts: CuttingPlanOrderPartRow[]
   plate_usages: CuttingPlanPlateUsageRow[]
   remnants: CuttingPlanRemnantRow[]
+  shape_sizes: CuttingPlanShapeSize[] // SHAPE uploads only
+}
+
+// Cutting Plan Shape (2026-11-10): one CutLogic CP-*.pdf = one size → its layouts → parts. Decimals arrive as strings.
+export interface CuttingPlanShapePart { id: number; seq: number; part_no: number; mark: string; length_mm: string | number; count: number }
+export interface CuttingPlanShapeLayout {
+  id: number; seq: number; stock_no: number; stock_length_mm: string | number; rest_mm: string | number; repeat: number
+  parts: CuttingPlanShapePart[]
+}
+export interface CuttingPlanShapeSize {
+  id: number; profile: string; grade: string | null; plan_no: number; kerf_mm: string | number | null; yield_pct: string | number
+  stocks: number; parts: number; parts_length_mm: string | number; layouts_count: number
+  layouts: CuttingPlanShapeLayout[]
+}
+
+export interface ShapePreviewResult {
+  sizes: { file: string; profile: string; grade: string | null; stocks: number; parts: number; yieldPct: number }[]
+  problems: { file: string; problem: string }[] // non-empty → cannot save
+  warnings: string[]
+  notUsed: string[]
+  alreadyInSystem: { profile: string; uploadId: number; sameReport: boolean }[]
 }
 
 export interface CuttingPlanReportProblem {
@@ -141,6 +163,7 @@ export interface BulkAssignOrderPartProjectCodePayload {
 
 export async function getCuttingPlans(params?: {
   search?: string
+  plan_type?: 'PLATE' | 'SHAPE' // the server defaults to PLATE
 }): Promise<CuttingPlanListItem[]> {
   return (await apiClient.get('/cutting-plan', { params })).data
 }
@@ -157,7 +180,7 @@ export function previewCuttingPlan(formData: FormData): Promise<CuttingPlanPrevi
 
 export interface SaveCuttingPlanPayload {
   project_id: number
-  zone_id: number
+  zone_id?: number // omitted = All zones (whole project)
   sub_zone_id?: number
   lot?: string
   description?: string
@@ -182,6 +205,16 @@ export async function putStagedFile(s: StagingUrl, file: File): Promise<void> {
 
 export function saveCuttingPlan(payload: SaveCuttingPlanPayload): Promise<CuttingPlanDetail> {
   return apiClient.post('/cutting-plan/upload', payload).then(r => r.data)
+}
+
+export function previewShapeCuttingPlan(formData: FormData): Promise<ShapePreviewResult> {
+  return apiClient
+    .post('/cutting-plan/upload/shape-preview', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+    .then(r => r.data)
+}
+
+export function saveShapeCuttingPlan(payload: SaveCuttingPlanPayload): Promise<CuttingPlanDetail> {
+  return apiClient.post('/cutting-plan/upload/shape', payload).then(r => r.data)
 }
 
 export async function downloadCuttingPlanFile(file: CuttingPlanFile): Promise<void> {

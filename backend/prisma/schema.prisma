@@ -2191,6 +2191,9 @@ model cutting_plan_upload {
   version      String        @db.VarChar(20)
   revision     String        @db.VarChar(20)
   raw_response Json // full parsed API response, kept for reprocessing/debugging around known parser bugs (multi-plate-per-file silent data loss, duplicated remnants)
+  // PLATE = .txt nesting reports via the parser service; SHAPE = CutLogic 1D cutting-layout PDFs (2026-11-10).
+  // Shape uploads store a random file_id and raw_response {}.
+  plan_type    String        @default("PLATE") @db.VarChar(10)
 
   create_uid  Int
   create_user res_users @relation("cutting_plan_upload_create", fields: [create_uid], references: [id])
@@ -2201,9 +2204,59 @@ model cutting_plan_upload {
   plate_usages cutting_plan_plate_usage[]
   remnants     cutting_plan_remnant[]
   files        cutting_plan_file[]
+  shape_sizes  cutting_plan_shape_size[]
 
   @@index([project_id])
   @@index([zone_id])
+  @@index([plan_type])
+}
+
+// Cutting Plan Shape (2026-11-10): one row per CutLogic CP-*.pdf = one size (profile) of an upload.
+model cutting_plan_shape_size {
+  id              Int                         @id @default(autoincrement())
+  upload_id       Int
+  upload          cutting_plan_upload         @relation(fields: [upload_id], references: [id], onDelete: Cascade)
+  profile         String                      @db.VarChar(60) // normalised, e.g. "PIPE 113.5X2.4", "ROD RB25"
+  grade           String?                     @db.VarChar(30) // Note 2 of the report
+  plan_no         Int // CutLogic "Plan #668"
+  kerf_mm         Decimal?                    @db.Decimal(8, 2)
+  yield_pct       Decimal                     @db.Decimal(6, 2)
+  stocks          Int
+  parts           Int
+  parts_length_mm Decimal                     @db.Decimal(14, 2)
+  layouts_count   Int
+  fingerprint     String                      @db.VarChar(40) // sha1 of the report text without the print footer
+  layouts         cutting_plan_shape_layout[]
+
+  @@index([upload_id])
+  @@index([profile])
+}
+
+model cutting_plan_shape_layout {
+  id              Int                       @id @default(autoincrement())
+  size_id         Int
+  size            cutting_plan_shape_size   @relation(fields: [size_id], references: [id], onDelete: Cascade)
+  seq             Int // "1 of 5"
+  stock_no        Int
+  stock_length_mm Decimal                   @db.Decimal(12, 2)
+  rest_mm         Decimal                   @db.Decimal(12, 2)
+  repeat          Int // stock pieces cut with this layout
+  parts           cutting_plan_shape_part[]
+
+  @@index([size_id])
+}
+
+model cutting_plan_shape_part {
+  id        Int                       @id @default(autoincrement())
+  layout_id Int
+  layout    cutting_plan_shape_layout @relation(fields: [layout_id], references: [id], onDelete: Cascade)
+  seq       Int
+  part_no   Int
+  mark      String                    @db.VarChar(120)
+  length_mm Decimal                   @db.Decimal(12, 2)
+  count     Int // pieces per stock piece of this layout
+
+  @@index([layout_id])
 }
 
 // The four files of each plate (.txt / .xls / .pdf / .dxf, 2026-11-06), kept in
