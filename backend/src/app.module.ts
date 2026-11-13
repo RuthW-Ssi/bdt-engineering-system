@@ -37,6 +37,7 @@ import { ManufacturingOrdersModule } from './modules/manufacturing-orders/manufa
 import { WorkOrdersModule } from './modules/work-orders/work-orders.module'
 // Cutting Plan
 import { CuttingPlanModule } from './modules/cutting-plan/cutting-plan.module'
+import { CuttingPlanTestModule } from './modules/cutting-plan-test/cutting-plan-test.module'
 // Sprint 23
 import { BimModule } from './modules/bim/bim.module'
 // Sprint 27
@@ -82,6 +83,7 @@ import { DocumentsModule } from './modules/documents/documents.module'
     WorkOrdersModule,
     // Cutting Plan
     CuttingPlanModule,
+    CuttingPlanTestModule,
     // Sprint 23
     BimModule,
     // Sprint 27

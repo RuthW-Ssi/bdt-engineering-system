@@ -8,6 +8,7 @@ import { getErrorMessage } from '../lib/getErrorMessage'
 import { usePermission } from '../hooks/usePermission'
 import { planLabel } from '../lib/cuttingPlan/planLabel'
 import { PlanMeta } from '../components/cuttingPlan/PlanMeta'
+import { ShapePlanView } from '../components/cuttingPlan/shape/ShapePlanView'
 import { PlanSummaryCharts } from '../components/cuttingPlan/PlanSummary'
 import { sheetKgByPlate, summarizePlan } from '../lib/cuttingPlan/planSummary'
 import { InfoTip } from '../components/bom/InfoTip'
@@ -388,6 +389,7 @@ export function CuttingPlanDetail() {
       </div>
 
       <div className="flex flex-col flex-1" style={{ overflowY: 'auto', minHeight: 0, padding: '20px 24px 24px', background: '#F9FAFB', gap: 20, display: 'flex' }}>
+        {detail.plan_type === 'SHAPE' ? <ShapePlanView detail={detail} /> : (<>
         {/* children keep their height: this column scrolls instead of squeezing the tables (2026-11-06) */}
         {/* composition of this one plan (not averages): the row counts moved into the tab labels (2026-11-07) */}
         {summary && detail.nestings.length > 0 && (
@@ -407,6 +409,7 @@ export function CuttingPlanDetail() {
           {dataTab === 'remnants' && <RemnantTable rows={shown.remnants} />}
           {dataTab === 'files' && <FileTable files={shown.files} />}
         </DataTabsCard>
+        </>)}
       </div>
     </div>
   )
