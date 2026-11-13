@@ -10,15 +10,19 @@ import { getErrorMessage } from '../lib/getErrorMessage'
 import { usePermission } from '../hooks/usePermission'
 import { planLabel } from '../lib/cuttingPlan/planLabel'
 import { CuttingPlanUploadModal } from '../components/cuttingPlan/CuttingPlanUploadModal'
+import { ShapeTestPanel } from '../components/cuttingPlanTest/ShapeTestPanel'
 
 const LIMIT = 10
 
 // Plate = .txt nesting reports. Shape = CutLogic 1D cutting-layout PDFs for pipe/rod (2026-11-10).
-const TABS = [
+// CP-Shape-Test (2026-11-11) = our own pipe layouts from a part list; a separate test bench, no uploads, no DB.
+export const TABS = [
   { key: 'plate', label: 'Plate' },
   { key: 'shape', label: 'Shape' },
+  { key: 'shape-test', label: 'CP-Shape-Test' },
 ] as const
 type TabKey = (typeof TABS)[number]['key']
+export const tabFromParam = (v: string | null): TabKey => TABS.find(t => t.key === v)?.key ?? 'plate'
 
 function fmtDate(d: string) {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
@@ -27,7 +31,8 @@ function fmtDate(d: string) {
 export function CuttingPlanList() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tab: TabKey = searchParams.get('tab') === 'shape' ? 'shape' : 'plate'
+  const tab = tabFromParam(searchParams.get('tab'))
+  const isTest = tab === 'shape-test'
   const [search, setSearch] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
   const [page, setPage] = useState(1)
@@ -67,12 +72,14 @@ export function CuttingPlanList() {
       <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Cutting Plan</span>
-          <span style={{ color: '#C2C2C2' }}>·</span>
-          <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
-            {isLoading ? '...' : `${items.length} uploads`}
-          </span>
+          {!isTest && <span style={{ color: '#C2C2C2' }}>·</span>}
+          {!isTest && (
+            <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
+              {isLoading ? '...' : `${items.length} uploads`}
+            </span>
+          )}
         </div>
-        {canCreate && (
+        {canCreate && !isTest && (
           <button
             onClick={() => setUploadOpen(true)}
             className="flex items-center gap-1.5 rounded-md text-white"
@@ -99,6 +106,9 @@ export function CuttingPlanList() {
         ))}
       </div>
 
+      {isTest ? (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}><ShapeTestPanel /></div>
+      ) : <>
       {/* Plate and Shape (2026-11-10) list their own uploads the same way */}
       <div className="border-b border-chrome-100 px-6 flex items-center gap-3" style={{ minHeight: 48, background: '#F5F5F5', flexShrink: 0, flexWrap: 'wrap', paddingTop: 8, paddingBottom: 8 }}>
         <div className="relative">
@@ -168,7 +178,8 @@ export function CuttingPlanList() {
         )}
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
-      {uploadOpen && <CuttingPlanUploadModal initialType={tab} onClose={() => setUploadOpen(false)} />}
+      </>}
+      {uploadOpen && !isTest && <CuttingPlanUploadModal initialType={tab} onClose={() => setUploadOpen(false)} />}
     </div>
   )
 }
