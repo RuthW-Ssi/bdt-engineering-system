@@ -3,7 +3,7 @@ import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsNumber, IsOpti
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger'
 
 // CP-Shape-Test: one size per request. Limits keep one solve small (knapsack memory grows with stock length × part types).
-export const MAX_STOCK_MM = 15000
+export const MAX_STOCK_MM = 12500 // Tao 2026-11-16: no stock (or part) longer than 12,500 mm
 export const MAX_PART_TYPES = 300 // distinct lengths per size (the optimizer works on lengths, not marks)
 export const MAX_MARKS = 5000 // several BOM zones together carry many marks of the same lengths
 export const MAX_PIECES = 20000
