@@ -36,16 +36,49 @@ describe('ShapeTestPanel', () => {
   })
   afterEach(() => vi.restoreAllMocks())
 
+  // Tao 2026-11-16: only SS400 (6,000) and bars (10,000) get a starting length; the HSS550 size of the fixture starts
+  // empty, so the tests give it the lengths the 0X222 run used, the way a user would
+  const fillStock = () => screen.queryAllByText('Enter a stock length').forEach(cell => {
+    const row = cell.closest('tr')!
+    fireEvent.click(within(row).getByRole('button', { name: '12,500' }))
+    fireEvent.click(within(row).getByRole('button', { name: '6,013' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Done' }))
+  })
   const upload = async () => {
     wrap(<ShapeTestPanel />)
     fireEvent.change(screen.getByLabelText('Part list file'), { target: { files: [new File(['x'], 'list.xls')] } })
     await screen.findByText('PIPE 101.6X2.6')
+    fillStock()
   }
 
   // Tao 2026-11-13: a size's lengths are one line until Edit is pressed; the totals are tiles (value over label)
   const edit = (row: HTMLElement) => fireEvent.click(within(row).getByRole('button', { name: 'Edit stock lengths' }))
   const tile = (label: string | RegExp) => within(screen.getByTestId('test-totals')).getByText(label).previousElementSibling?.textContent
   const barMarks = (bar: HTMLElement) => [...bar.children].filter(c => /^[\d,.]+ mm · /.test(c.getAttribute('title') ?? '')).map(c => c.textContent)
+
+  it('a size with no confirmed starting length is left out of a run until it has one', async () => {
+    wrap(<ShapeTestPanel />)
+    fireEvent.change(screen.getByLabelText('Part list file'), { target: { files: [new File(['x'], 'list.xls')] } })
+    const empty = await screen.findByTestId('size-PIPE 101.6X2.6') // HSS550: nothing confirmed
+    expect(within(empty).getByText('Enter a stock length')).toBeInTheDocument()
+    expect(within(empty).queryByRole('button', { name: 'Edit stock lengths' })).toBeNull() // already open on the inputs
+    expect(within(empty).getByRole('button', { name: '6,000' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('size-PIPE 76.3X3.2')).getByText('6,000')).toBeInTheDocument() // SS400
+    expect(screen.getByTestId('not-ready')).toHaveTextContent('1 of 2 sizes need stock lengths')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(api.optimizeShapeTest).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.optimizeShapeTest).mock.calls[0][0]).toEqual(expect.objectContaining({ stock: [{ lengthMm: 6000, qty: null }] }))
+    expect(within(empty).getByText('Enter a stock length')).toBeInTheDocument()
+  })
+
+  it('refuses a stock length over 12,500 mm', async () => {
+    await upload()
+    const row = screen.getByTestId('size-PIPE 76.3X3.2')
+    edit(row)
+    fireEvent.change(within(row).getByLabelText('Stock 1 length (mm)'), { target: { value: '13000' } })
+    expect(within(row).getByText('Stock lengths are 100 to 12,500 mm')).toBeInTheDocument()
+    expect(screen.getByTestId('not-ready')).toHaveTextContent('1 of 2 sizes need stock lengths')
+  })
 
   it('says it is a test bench that saves nothing', () => {
     wrap(<ShapeTestPanel />)
@@ -64,7 +97,7 @@ describe('ShapeTestPanel', () => {
     expect(within(row).queryByLabelText('Stock 1 limit (in stock)')).toBeNull() // no limits unless asked
     fireEvent.click(within(row).getByRole('button', { name: 'Limit in stock' }))
     expect(within(row).getByLabelText('Stock 1 limit (in stock)')).toHaveValue(null)
-    expect(within(screen.getByTestId('size-PIPE 76.3X3.2')).getByText('6,013')).toBeInTheDocument()
+    expect(within(screen.getByTestId('size-PIPE 76.3X3.2')).getByText('6,000')).toBeInTheDocument() // SS400: the factory standard
     fireEvent.click(within(row).getByRole('button', { name: 'Done' }))
     expect(within(row).queryByLabelText('Stock 1 length (mm)')).toBeNull()
   })
@@ -131,6 +164,7 @@ describe('ShapeTestPanel', () => {
     fireEvent.click(screen.getByLabelText('DBN-A3 · 140 pcs'))
     fireEvent.click(screen.getByRole('button', { name: 'Load parts' }))
     await screen.findByText('PIPE 101.6X2.6')
+    fillStock()
     expect(api.readShapeBomParts).toHaveBeenCalledWith({ project_id: 7, zone_ids: [72], groups: ['DBN-A3'] })
     expect(screen.getByText(/BOM 0X222 · Z07 · DBN-A3/)).toBeInTheDocument()
   })
@@ -150,6 +184,7 @@ describe('ShapeTestPanel', () => {
     expect(screen.getByRole('button', { name: 'All zones together' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Load parts' }))
     await screen.findByText('PIPE 101.6X2.6')
+    fillStock()
     expect(api.readShapeBomParts).toHaveBeenCalledTimes(1)
     expect(api.readShapeBomParts).toHaveBeenCalledWith({ project_id: 7, zone_ids: [72, 74], groups: [] })
     expect(screen.queryByRole('columnheader', { name: 'Zone' })).not.toBeInTheDocument()
@@ -164,6 +199,7 @@ describe('ShapeTestPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Each zone' }))
     fireEvent.click(screen.getByRole('button', { name: 'Load parts' }))
     await screen.findAllByText('PIPE 101.6X2.6')
+    fillStock()
     expect(api.readShapeBomParts).toHaveBeenCalledWith({ project_id: 7, zone_ids: [72], groups: [] })
     expect(api.readShapeBomParts).toHaveBeenCalledWith({ project_id: 7, zone_ids: [74], groups: [] })
     expect(screen.getByText(/each zone/)).toBeInTheDocument()
@@ -249,6 +285,7 @@ describe('ShapeTestPanel', () => {
     wrap(<ShapeTestPanel />)
     fireEvent.change(screen.getByLabelText('Part list file'), { target: { files: [new File(['x'], 'list.xls')] } })
     const row = await screen.findByTestId('size-PIPE 101.6X2.6')
+    fillStock()
     expect(within(row).getByText('1,650')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
     expect(await within(row).findByText('1,324')).toBeInTheDocument()
@@ -374,6 +411,7 @@ describe('ShapeTestPanel', () => {
     await pickTwoZones()
     fireEvent.click(screen.getByRole('button', { name: 'Load parts' }))
     await screen.findByText('PIPE 60.5X2.4')
+    fillStock()
     fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Layouts of PIPE 60.5X2.4' }))
     fireEvent.click(screen.getByRole('button', { name: '3D of layout 1' }))
@@ -394,6 +432,7 @@ describe('ShapeTestPanel', () => {
     await pickTwoZones()
     fireEvent.click(screen.getByRole('button', { name: 'Load parts' }))
     await screen.findByText('PIPE 76.3X3.2')
+    fillStock()
     expect(screen.getByRole('button', { name: 'Tip to tip' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.queryByRole('button', { name: 'Model length' })).toBeNull() // Tao 2026-11-12: lengths always from the BOM
     fireEvent.click(screen.getByRole('button', { name: 'Nest saddles' }))

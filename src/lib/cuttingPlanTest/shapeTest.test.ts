@@ -1,28 +1,35 @@
-import { barGroups, barPieces, splitByMarkSet, defaultKerf, defaultStock, familyOf, nestTurn, pipeSection, totals, yieldLossGrade } from './shapeTest'
+import { barGroups, barPieces, splitByMarkSet, defaultKerf, defaultStock, familyOf, stockProblem, nestTurn, pipeSection, totals, yieldLossGrade } from './shapeTest'
 
-describe('yieldLossGrade (boss: 3% = great, over 7% = bad)', () => {
-  it.each([[0, 'great'], [3, 'great'], [3.01, 'ok'], [7, 'ok'], [7.01, 'bad']] as const)('%s%% → %s', (loss, grade) => {
+describe('yieldLossGrade (3% = great, over 5% = bad)', () => {
+  it.each([[0, 'great'], [3, 'great'], [3.01, 'ok'], [5, 'ok'], [5.01, 'bad'], [7, 'bad']] as const)('%s%% → %s', (loss, grade) => {
     expect(yieldLossGrade(loss)).toBe(grade)
   })
 })
 
-describe('defaultStock', () => {
-  // Tao 2026-11-11: plan what to buy — lengths only, no limits; limits are an opt-in per size
-  it('known sizes start from the 0X222 NP zone 3 plan-stock lengths, without limits', () => {
-    expect(defaultStock('PIPE 101.6X2.6')).toEqual([{ lengthMm: 12500, qty: null }, { lengthMm: 6013, qty: null }])
-    expect(defaultStock('PIPE 60.5X2.4')).toEqual([{ lengthMm: 6013, qty: null }])
+describe('defaultStock (Tao 2026-11-16: only lengths the factory has confirmed)', () => {
+  it('starts SS400 at 6,000 mm, whatever the shape, without a limit', () => {
+    for (const profile of ['C200X80X7.5X11', 'H200X100X5.5X8', 'L50X50X5', 'RHS100X50X2.3', 'SHS50X50X3.2', 'PIPE48.6X2.3', 'PIPE 101.6X2.6'])
+      expect(defaultStock(profile, 'SS400')).toEqual([{ lengthMm: 6000, qty: null }])
+    expect(defaultStock('L50X50X5', ' ss400 ')).toEqual([{ lengthMm: 6000, qty: null }])
   })
-  it('other pipes start from 6,013 mm, rods from 10,000 mm (BIF all rod 25 run), unlimited', () => {
-    expect(defaultStock('PIPE 76.3X3.2')).toEqual([{ lengthMm: 6013, qty: null }])
-    expect(defaultStock('ROD RB25')).toEqual([{ lengthMm: 10000, qty: null }])
+  it('starts deformed and round bars at 10,000 mm, whatever the grade', () => {
+    for (const [profile, grade] of [['ROD RB25', 'SS400'], ['RB12', 'SR24'], ['DB16', 'SD40'], ['ROD DB 20', null], ['db25', 'SS400']] as const)
+      expect(defaultStock(profile, grade)).toEqual([{ lengthMm: 10000, qty: null }])
+  })
+  it('leaves every other size empty for the user to fill in', () => {
+    expect(defaultStock('PIPE 101.6X2.6', 'HSS550')).toEqual([])
+    expect(defaultStock('PIPE 76.3X3.2', null)).toEqual([])
+    expect(defaultStock('SHS150X150X4.5')).toEqual([])
   })
 })
 
-describe('defaultStock with the longest part', () => {
-  // live 2026-11-11: PIPE 216.3X8 parts of 12,443 mm on a 6,013 mm default → "longer than every stock length"
-  it('adds 12,500 mm unlimited when the longest part does not fit the starting lengths', () => {
-    expect(defaultStock('PIPE 216.3X8', 12443)).toEqual([{ lengthMm: 6013, qty: null }, { lengthMm: 12500, qty: null }])
-    expect(defaultStock('PIPE 76.3X3.2', 3000)).toEqual([{ lengthMm: 6013, qty: null }])
+describe('stockProblem', () => {
+  it('asks for a length when there is none', () => expect(stockProblem([])).toBe('Enter a stock length'))
+  it('refuses a length under 100 or over 12,500 mm', () => {
+    expect(stockProblem([{ lengthMm: 12500, qty: null }])).toBeNull()
+    expect(stockProblem([{ lengthMm: 6000, qty: null }, { lengthMm: 12501, qty: null }])).toBe('Stock lengths are 100 to 12,500 mm')
+    expect(stockProblem([{ lengthMm: 99, qty: null }])).toBe('Stock lengths are 100 to 12,500 mm')
+    expect(stockProblem([{ lengthMm: NaN, qty: null }])).toBe('Stock lengths are 100 to 12,500 mm')
   })
 })
 

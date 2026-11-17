@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, FlaskConical, Loader2, Pencil, Play, Plus, Upload, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, FlaskConical, Loader2, Pencil, Play, Plus, Printer, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { getShapeBomSources, optimizeShapeTest, readShapeBomParts, readShapePartList } from '../../api/cutting-plan-test'
 import type { ShapeTestPartList, ShapeTestResult, ShapeTestStock } from '../../api/cutting-plan-test'
-import { splitByMarkSet, defaultKerf, defaultStock, STOCK_PRESETS, totals, yieldLossGrade } from '../../lib/cuttingPlanTest/shapeTest'
+import { splitByMarkSet, defaultKerf, defaultStock, MAX_STOCK_MM, STOCK_PRESETS, stockProblem, totals, yieldLossGrade } from '../../lib/cuttingPlanTest/shapeTest'
 import { useAllProjects } from '../../hooks/useProjects'
 import { InfoTip } from '../bom/InfoTip'
 import { LayoutList } from './LayoutList'
+import { CutReport } from './CutReport'
 import type { LossGrade } from '../../lib/cuttingPlanTest/shapeTest'
 import { getErrorMessage } from '../../lib/getErrorMessage'
 
@@ -62,12 +63,12 @@ function LossBadge({ yieldPct }: { yieldPct: number }) {
 // hand: it caps that length, it does not make the layout use it first.
 function StockEditor({ stock, onChange }: { stock: ShapeTestStock[]; onChange: (s: ShapeTestStock[]) => void }) {
   const [limits, setLimits] = useState(stock.some(s => s.qty != null))
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(!stock.length) // no confirmed starting length (Tao 2026-11-16): open on the inputs, until Done
   const set = (i: number, patch: Partial<ShapeTestStock>) => onChange(stock.map((s, k) => (k === i ? { ...s, ...patch } : s)))
   const unused = STOCK_PRESETS.filter(p => !stock.some(s => s.lengthMm === p))
   const link = { fontSize: 11, color: '#0C447C', background: 'none', border: 'none', cursor: 'pointer', padding: 0 } as const
   // Tao 2026-11-13: most sizes keep their starting lengths, so the row says them in one line; Edit opens the inputs
-  if (!editing) return (
+  if (!editing && stock.length) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap' }}>
       <span>{stock.map(s => `${mm(s.lengthMm)}${s.qty != null ? ` (max ${s.qty})` : ''}`).join(' · ')}</span>
       <button onClick={() => setEditing(true)} aria-label="Edit stock lengths" style={{ ...link, display: 'inline-flex', alignItems: 'center', gap: 3 }}><Pencil size={11} />Edit</button>
@@ -77,7 +78,7 @@ function StockEditor({ stock, onChange }: { stock: ShapeTestStock[]; onChange: (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {stock.map((s, i) => (
         <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <input type="number" aria-label={`Stock ${i + 1} length (mm)`} value={s.lengthMm} min={100} max={15000}
+          <input type="number" aria-label={`Stock ${i + 1} length (mm)`} value={s.lengthMm} min={100} max={MAX_STOCK_MM}
             onChange={e => set(i, { lengthMm: Number(e.target.value) })} style={{ ...input, width: 76 }} />
           <span style={{ fontSize: 11, color: '#8E8E8E' }}>mm</span>
           {limits && <>
@@ -101,7 +102,7 @@ function StockEditor({ stock, onChange }: { stock: ShapeTestStock[]; onChange: (
         {limits
           ? <button style={link} onClick={() => { setLimits(false); onChange(stock.map(s => ({ ...s, qty: null }))) }}>No limits</button>
           : <button style={link} onClick={() => setLimits(true)}>Limit in stock</button>}
-        <button style={{ ...link, fontWeight: 600 }} onClick={() => setEditing(false)}>Done</button>
+        {stock.length > 0 && <button style={{ ...link, fontWeight: 600 }} onClick={() => setEditing(false)}>Done</button>}
       </div>
     </div>
   )
@@ -218,6 +219,7 @@ export function ShapeTestPanel() {
   const [ran, setRan] = useState(0) // sizes finished in the run under way, for the button's "2 of 6"
   const [open, setOpen] = useState<string | null>(null)
   const [reqOpen, setReqOpen] = useState<string[]>([])
+  const [report, setReport] = useState(false) // POC 2026-11-16: the cutting report for the shop floor
   const keyOf = (s: { profile: string; grade: string | null; zone?: string }) => `${s.zone ? `${s.zone}|` : ''}${s.profile}|${s.grade ?? ''}`
 
   // Every edit / new list bumps a version, so a run still in flight cannot write onto newer inputs
@@ -241,14 +243,14 @@ export function ShapeTestPanel() {
 
   const applyList = (r: ShapeTestPartList, label: string, project: number | null = null) => {
     setList(r); setFileName(label); setOpen(null); clear(); setProjectId(project)
-    setStock(Object.fromEntries(r.sizes.map(s => [keyOf(s), defaultStock(s.profile, Math.max(...s.parts.map(p => p.lengthMm)))])))
+    setStock(Object.fromEntries(r.sizes.map(s => [keyOf(s), defaultStock(s.profile, s.grade)])))
     setKerfs(Object.fromEntries(r.sizes.map(s => [keyOf(s), defaultKerf(s.profile)])))
   }
 
   const run = async () => {
     if (!list) return
     clear(); setRan(0)
-    for (const s of list.sizes) {
+    for (const s of ready) {
       const k = keyOf(s)
       setRunning(k)
       const token = tokenOf(k)
@@ -261,6 +263,9 @@ export function ShapeTestPanel() {
     setRunning(null)
   }
 
+  // sizes whose stock lengths are missing or out of range are left out of a run and say why in their row
+  const problemOf = (s: { profile: string; grade: string | null; zone?: string }) => stockProblem(stock[keyOf(s)] ?? [])
+  const ready = list ? list.sizes.filter(s => !problemOf(s)) : []
   const done = list ? list.sizes.map(keyOf).filter(k => results[k]).map(k => results[k]) : []
   const t = totals(done)
   const byZone = !!list?.sizes.some(s => s.zone)
@@ -328,8 +333,15 @@ export function ShapeTestPanel() {
                 </div>
               </div>
             )}
-            <button onClick={run} disabled={!!running} aria-label="Run layouts" className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40" style={primary}>
-              {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{running ? `Laying out ${Math.min(ran + 1, list.sizes.length)} of ${list.sizes.length}` : 'Run layouts'}
+            {ready.length < list.sizes.length && <span data-testid="not-ready" style={{ fontSize: 12, color: '#92400E' }}>{`${list.sizes.length - ready.length} of ${list.sizes.length} sizes need stock lengths`}</span>}
+            {/* always in sight once parts are loaded (Tao 2026-11-16: "why is the print button not there" after a reload): off until a run has finished */}
+            <button onClick={() => setReport(true)} disabled={!!running || done.length === 0} title={done.length === 0 ? 'Run layouts first' : undefined}
+              className="flex items-center gap-1.5 rounded-md disabled:opacity-40"
+              style={{ height: 32, padding: '0 14px', fontSize: 13, fontWeight: 600, background: 'white', border: '1px solid #C2C2C2', color: '#1F1F1F', cursor: 'pointer' }}>
+              <Printer size={14} />Cutting report
+            </button>
+            <button onClick={run} disabled={!!running || !ready.length} aria-label="Run layouts" className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40" style={primary}>
+              {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{running ? `Laying out ${Math.min(ran + 1, ready.length)} of ${ready.length}` : 'Run layouts'}
             </button>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -378,8 +390,8 @@ export function ShapeTestPanel() {
                         </button>
                       </td>
                     </> : (
-                      <td colSpan={6} style={{ padding: '8px 12px', fontSize: 12, color: errors[k] ? '#991B1B' : '#8E8E8E' }}>
-                        {errors[k] ?? (running === k ? 'Laying out…' : '—')}
+                      <td colSpan={6} style={{ padding: '8px 12px', fontSize: 12, color: errors[k] ? '#991B1B' : problemOf(s) ? '#92400E' : '#8E8E8E' }}>
+                        {errors[k] ?? (running === k ? 'Laying out…' : problemOf(s) ?? '—')}
                       </td>
                     )}
                   </tr>
@@ -399,6 +411,10 @@ export function ShapeTestPanel() {
       )}
 
       {done.length > 0 && list && <Step n={3} title="Result" hint={running ? 'so far' : undefined} />}
+      {report && list && (
+        <CutReport source={fileName} onClose={() => setReport(false)}
+          sizes={list.sizes.filter(s => results[keyOf(s)]).map(s => ({ profile: s.profile, grade: s.grade, zone: s.zone, kerfMm: kerfs[keyOf(s)] ?? 12, result: results[keyOf(s)] }))} />
+      )}
       {done.length > 0 && (
         <div data-testid="test-totals" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
           {[
