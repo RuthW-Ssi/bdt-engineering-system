@@ -2,33 +2,31 @@ import type { ShapeTestLayout, ShapeTestStock } from '../../api/cutting-plan-tes
 
 // CP-Shape-Test (2026-11-11, wiki features/cp-shape-test.md)
 
-// Boss's yield-loss scale: up to 3% great, over 7% bad
+// Yield-loss scale: up to 3% great, over 5% bad (Tao 2026-11-17; the boss's first scale said over 7%)
 export type LossGrade = 'great' | 'ok' | 'bad'
-export const yieldLossGrade = (lossPct: number): LossGrade => (lossPct <= 3 ? 'great' : lossPct <= 7 ? 'ok' : 'bad')
+export const yieldLossGrade = (lossPct: number): LossGrade => (lossPct <= 3 ? 'great' : lossPct <= 5 ? 'ok' : 'bad')
 
-// Starting lengths (Tao 2026-11-11: plan what to buy, so no limits by default): the plan-stock lengths of the CutLogic
-// run for 0X222 Driving Bangna NP zone 3 (17 Jun 2026); other sizes by family. That run's limits, to replay it with
-// "Limit in stock": 101.6X2.4 9,500 × 32 · 101.6X2.6 12,500 × 12 · 113.5X2.4 9,500 × 64.
-const PROTOTYPE_LENGTHS: Record<string, number[]> = {
-  'PIPE 101.6X2.4': [9500, 6013],
-  'PIPE 101.6X2.6': [12500, 6013],
-  'PIPE 113.5X2.4': [9500, 6013],
-  'PIPE 139.8X3.2': [12500],
-  'PIPE 165.2X4.5': [12500],
-  'PIPE 60.5X2.4': [6013],
-}
-export const STOCK_PRESETS = [6013, 9500, 10000, 12500]
+// Starting lengths (Tao 2026-11-16, replaces the 0X222 prototype lengths and the 6,013 every other size got): only what
+// the factory has confirmed. SS400 = 6,000 mm, whatever the shape; deformed and round bars (DB, RB) = 10,000 mm; any
+// other size starts empty and the user enters its lengths. No stock length over 12,500 mm (the backend refuses it too).
+export const MAX_STOCK_MM = 12500
+export const STOCK_PRESETS = [6000, 6013, 9500, 10000, 12500]
 
 // Laid out now: PIPE and ROD (the backend's profile-family.ts lists the shapes prepared for later)
 export type Family = 'PIPE' | 'ROD' | 'OTHER'
 export const familyOf = (profile: string): Family => (profile.startsWith('PIPE') ? 'PIPE' : profile.startsWith('ROD') ? 'ROD' : 'OTHER')
-// Rods: 10,000 mm stock and kerf 10 mm, as in the "BIF all rod 25" CutLogic run (24 Jun 2026); pipes kerf 12 mm
-const FAMILY_STOCK: Record<Family, number> = { PIPE: 6013, ROD: 10000, OTHER: 6013 }
+// Rods: kerf 10 mm, as in the "BIF all rod 25" CutLogic run (24 Jun 2026); pipes kerf 12 mm
 export const defaultKerf = (profile: string) => (familyOf(profile) === 'ROD' ? 10 : 12)
-export function defaultStock(profile: string, longestMm = 0): ShapeTestStock[] {
-  const stock: ShapeTestStock[] = (PROTOTYPE_LENGTHS[profile] ?? [FAMILY_STOCK[familyOf(profile)]]).map(lengthMm => ({ lengthMm, qty: null }))
-  if (longestMm > Math.max(...stock.map(s => s.lengthMm)) && longestMm <= 12500) stock.push({ lengthMm: 12500, qty: null })
-  return stock
+const isBar = (profile: string) => /^(ROD)?(DB|RB)\d/.test(profile.toUpperCase().replace(/\s+/g, ''))
+export function defaultStock(profile: string, grade?: string | null): ShapeTestStock[] {
+  const lengthMm = isBar(profile) ? 10000 : grade?.trim().toUpperCase() === 'SS400' ? 6000 : null
+  return lengthMm ? [{ lengthMm, qty: null }] : []
+}
+// Why a size cannot be laid out yet (it is skipped by a run), or null
+export function stockProblem(stock: ShapeTestStock[]): string | null {
+  if (!stock.length) return 'Enter a stock length'
+  if (stock.some(s => !(s.lengthMm >= 100 && s.lengthMm <= MAX_STOCK_MM))) return `Stock lengths are 100 to ${MAX_STOCK_MM.toLocaleString('en-US')} mm`
+  return null
 }
 
 // nestedMm (saddle nesting): BOM length that tucked into other pieces; the yield counts what the parts take up on the bars
@@ -122,4 +120,12 @@ export function pipeSection(profile: string): { outerMm: number; wallMm: number 
   if (pipe && familyOf(profile) === 'PIPE') return { outerMm: Number(pipe[1]), wallMm: Number(pipe[2]) }
   const d = /(\d+(?:\.\d+)?)/.exec(profile)
   return { outerMm: d ? Number(d[1]) : 50, wallMm: null }
+}
+
+// The prefix every mark of a layout shares (up to its last "-", e.g. DBN-B2-), said once above the layout
+export function sharedPrefix(marks: string[]) {
+  if (!marks.length) return ''
+  let p = marks[0]
+  for (const m of marks) while (!m.startsWith(p)) p = p.slice(0, -1)
+  return p.slice(0, p.lastIndexOf('-') + 1)
 }
