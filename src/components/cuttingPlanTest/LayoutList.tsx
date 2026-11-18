@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Search } from 'lucide-react'
 import type { ShapeTestLayout } from '../../api/cutting-plan-test'
-import { barPieces, pieceColors, splitByMarkSet } from '../../lib/cuttingPlanTest/shapeTest'
+import { barPieces, pieceColors, sharedPrefix, splitByMarkSet } from '../../lib/cuttingPlanTest/shapeTest'
 import { labelFits } from '../../lib/cuttingPlan/shapeSummary'
 import { ShowAll } from '../cuttingPlan/PlanSummary'
 import { PipeBar3dDialog } from './PipeBar3dDialog'
@@ -73,14 +73,6 @@ function BarDims({ n, layout, pieces, kerfMm, bg }: { n: number; layout: ShapeTe
       </div>
     </div>
   )
-}
-
-// The prefix every mark of a layout shares (up to its last "-", e.g. DBN-B2-), said once above the layout
-function sharedPrefix(marks: string[]) {
-  if (!marks.length) return ''
-  let p = marks[0]
-  for (const m of marks) while (!m.startsWith(p)) p = p.slice(0, -1)
-  return p.slice(0, p.lastIndexOf('-') + 1)
 }
 
 // One layout per set of marks (Tao 2026-11-12, splitByMarkSet): every bar of a layout is the same pieces. One line
