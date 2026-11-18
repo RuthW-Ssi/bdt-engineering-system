@@ -503,3 +503,79 @@ describe('XlsxParserService — DISPATCH_NOTE guard', () => {
     }
   })
 })
+
+// ─── Raw (un-squeezed) Tekla report layout ────────────────────────────────────
+// Some Tekla exports arrive with the report's column-alignment whitespace still
+// in every cell ("Assembly     Part        ", "Contract No: 00X227     Contract
+// Name: ...") instead of the whitespace-stripped form ("AssemblyPart",
+// "ContractNo:0X221ContractName:..."). Mirrors the real EQUIPMENT STORAGE
+// RAFTER REV.1 export (00X227).
+
+describe('XlsxParserService — raw Tekla layout with alignment whitespace', () => {
+  const S = '     '
+  const SEP = '---------------------------------------------------------------------------'
+  function makeRawTeklaApl(): Buffer {
+    const ws = XLSX.utils.aoa_to_sheet([
+      [S, SEP, '', '', '', '', '', ''],
+      [S, 'PROJECT :EQUIPMENT STORAGE BUILDING                ', '  ', ' Date :09.11.2026  ', 'Time :   10:36:24', '', '', ''],
+      [S, SEP, '', '', '', '', '', ''],
+      [S, 'Assembly     Part        ', 'No  ', 'Profile             ', '          ', ' Grade   ', 'Weight (kg)/1 Pcs. ', 'Area/1 Pcs.'],
+      [S, SEP, '', '', '', '', '', ''],
+      [S, SEP, '', '', '', '', '', ''],
+      [S, '00X227ESB-RF5            ', 1, 'RAFTER              ', '          ', '         ', 387.79, 14.555],
+      ['', '', '', '', '', '', '', ''],
+      [S, '            ESB-w2       ', 1, 'PL6x850             ', 6315, '  HY370  ', 190.25, 8.16],
+      [S, '            ESB-p12      ', 6, 'PL8x75              ', 250, '  HY370  ', 1.18, 0.043],
+      [S, SEP, '', '', '', '', '', ''],
+      [S, '00X227ESB-RF8            ', 1, 'RAFTER              ', '          ', '         ', 387.79, 14.555],
+      ['', '', '', '', '', '', '', ''],
+      [S, '            ESB-f7       ', 1, 'PL6x175             ', 6451, '  HY370  ', 53.17, 2.337],
+      [S, SEP, '', '', '', '', '', ''],
+    ])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+    return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+  }
+
+  it('finds the "Assembly     Part" header and parses the nested Tekla APL', () => {
+    const result = svc.parse(makeRawTeklaApl(), 'ASSEMBLY_PART_LIST', '00X227')
+    expect(result.assemblyParts).toEqual([
+      { assembly_mark: 'ESB-RF5', part_mark: 'ESB-w2', qty: 1, sequence: 1 },
+      { assembly_mark: 'ESB-RF5', part_mark: 'ESB-p12', qty: 6, sequence: 2 },
+      { assembly_mark: 'ESB-RF8', part_mark: 'ESB-f7', qty: 1, sequence: 3 },
+    ])
+  })
+
+  it('reads Part List length from a raw "Length  (mm)" header (was silently dropped)', () => {
+    const buf = makeBufferWithPreamble(
+      [['    Contract No:', '     00X227                                Date: ', '   09.11.2026']],
+      ['     Mark        ', '    Profile       ', ' No.  ', '  Grade     ', '     Length  (mm)  ', 'Area(m2)/PCS.', 'Weight(kg)/PCS.'],
+      [['    ESB-Xp5      ', 'PL12x84.5         ', 8, ' HY370      ', 719.82, 0.14, 5.72]],
+    )
+    expect(svc.parse(buf, 'PART_LIST', '00X227').parts).toEqual([
+      { part_mark: 'ESB-Xp5', description: undefined, profile: 'PL12x84.5', grade: 'HY370', qty: 8, length_mm: 719.82, weight_kg: 5.72 },
+    ])
+  })
+
+  it('extracts the contract number from a spaced "Contract No: … Contract Name:" preamble', () => {
+    const rows = [[' Contract No: 00X227     Contract Name: EQUIPMENT STORAGE***   Date: 09.11.2026']]
+    expect(extractContractNo(rows)).toBe('00X227')
+  })
+
+  it('reads the contract number from a raw Assembly List so sibling APL part marks keep their prefix', () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      [' ------------------------------------------------------------------------------'],
+      ['                                   ASSEMBLY LIST  '],
+      [' Contract No: 00X227     Contract Name: EQUIPMENT STORAGE***   Date: 09.11.2026'],
+      [' ------------------------------------------------------------------------------'],
+      ['  NO.     ', '     Ass Mk                   ', "Q'TY", '              Name ', '     Wt    '],
+      [1, 'ESB-RF5                       ', 1, '      RAFTER       ', 387.79],
+    ])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+    const al = Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+    expect(svc.peekContractNo(al)).toBe('00X227')
+    const result = svc.parse(makeRawTeklaApl(), 'ASSEMBLY_PART_LIST', svc.peekContractNo(al))
+    expect(result.assemblyParts.map(p => p.part_mark)).toEqual(['ESB-w2', 'ESB-p12', 'ESB-f7'])
+  })
+})

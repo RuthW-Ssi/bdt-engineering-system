@@ -43,7 +43,8 @@ export interface ParsedBomFile {
   assemblyParts: ParsedAssemblyPart[]
 }
 
-// Column header aliases (lowercase, exact match after trim)
+// Column header aliases (lowercase; matched with all whitespace removed on both
+// sides — see normHeader)
 const ASSEMBLY_MARK_COLS = [
   'assembly mark', 'assembly_mark', 'mark', 'assembly',
   'asm mark', 'asm_mark', 'assmk', 'asm mk', 'ass mark', 'ass mk',
@@ -75,10 +76,17 @@ const ASM_HEIGHT_COLS = ['height', 'height (mm)', 'height_mm', 'higth', 'high', 
 // (e.g. "q'ty" beats "no." when both appear in the same header)
 function findCol(header: string[], aliases: string[]): number {
   for (const alias of aliases) {
-    const idx = header.indexOf(alias)
+    const idx = header.indexOf(normHeader(alias))
     if (idx >= 0) return idx
   }
   return -1
+}
+
+// Header cells are compared with ALL whitespace removed: raw Tekla reports keep
+// their column-alignment padding ("Assembly     Part        "), while other
+// exports arrive already squeezed ("AssemblyPart") — both must match.
+function normHeader(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, '')
 }
 
 // Scan up to maxScan rows to find the first row that contains a known alias.
@@ -89,7 +97,7 @@ function findHeaderRow(
   maxScan = 15,
 ): { headerIdx: number; header: string[] } | null {
   for (let i = 0; i < Math.min(rows.length, maxScan); i++) {
-    const header = (rows[i] as unknown[]).map(h => String(h ?? '').toLowerCase().trim())
+    const header = (rows[i] as unknown[]).map(h => normHeader(String(h ?? '')))
     if (findCol(header, aliases) >= 0) return { headerIdx: i, header }
   }
   return null
@@ -102,12 +110,13 @@ function isSeparatorRow(row: unknown[]): boolean {
 // Extract Tekla contract number from preamble rows before the data header.
 // Different Tekla export templates spell this two ways — the typo'd
 // "ContactNo.00X220-2Date:28.04.2026" and the correctly-spelled
-// "ContractNo:0X221ContractName:...Date:11.05.2026" — so both are matched.
+// "ContractNo:0X221ContractName:...Date:11.05.2026" — so both are matched,
+// with or without the raw report's spacing ("Contract No: 00X227     Contract Name:").
 export function extractContractNo(preambleRows: unknown[][]): string {
   for (const row of preambleRows) {
     for (const cell of row) {
       const s = String(cell ?? '').trim()
-      const m = s.match(/Contr?actNo\.?:?\s*([0-9X][0-9X\-]*?)(?=Date|ContractName)/i)
+      const m = s.match(/Contr?act\s*No\.?\s*:?\s*([0-9X][0-9X\-]*?)\s*(?=Date|Contract\s*Name)/i)
       if (m?.[1]) return m[1].trim()
     }
   }
