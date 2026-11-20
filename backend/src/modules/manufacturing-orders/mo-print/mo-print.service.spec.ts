@@ -1,6 +1,11 @@
 import { ConflictException, NotFoundException } from '@nestjs/common'
 import { MoPrintService } from './mo-print.service'
 
+// Builds real print-packet PDFs on the test thread (no compiled worker file
+// under jest): ~0.5 s alone, but past jest's 5 s default when the full backend
+// suite saturates the CPU.
+jest.setTimeout(30_000)
+
 function makeDispatch(overrides: Record<string, any> = {}) {
   return {
     zone_id: 23,
