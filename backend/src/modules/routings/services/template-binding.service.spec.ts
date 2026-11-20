@@ -19,7 +19,6 @@ const BASE_PRODUCT = {
   product_type: 'custom',
   categ_id: 10,
   attributes: {},
-  has_custom_routing: false,
   mark_prefix: 'WH',
 }
 
@@ -33,14 +32,25 @@ describe('TemplateBindingService', () => {
   let svc: TemplateBindingService
 
   describe('bindProduct', () => {
-    it('returns null immediately when has_custom_routing=true', async () => {
+    // has_custom_routing (and its early return) was dropped with the Sprint 4
+    // routing chain in S11 (2026-06-08) — every product now goes through the rules.
+    it('skips a mark_prefix rule when the product has no mark_prefix', async () => {
       const prisma = makePrisma()
-      ;(prisma.products.findUniqueOrThrow as jest.Mock).mockResolvedValue({ ...BASE_PRODUCT, has_custom_routing: true })
+      ;(prisma.products.findUniqueOrThrow as jest.Mock).mockResolvedValue({ ...BASE_PRODUCT, mark_prefix: null })
+      ;(prisma.routing_template_binding_rule.findMany as jest.Mock).mockResolvedValue([RULE_PREFIX, RULE_CATEG])
       svc = new TemplateBindingService(prisma)
 
-      const result = await svc.bindProduct(1)
-      expect(result).toBeNull()
-      expect(prisma.routing_template_binding_rule.findMany).not.toHaveBeenCalled()
+      expect(await svc.bindProduct(1)).toBe(55)
+    })
+
+    it('skips an attr rule when the attribute value differs or is missing', async () => {
+      const prisma = makePrisma()
+      ;(prisma.products.findUniqueOrThrow as jest.Mock).mockResolvedValue({ ...BASE_PRODUCT, attributes: { grade: 'SS400' } })
+      ;(prisma.routing_template_binding_rule.findMany as jest.Mock).mockResolvedValue([RULE_ATTR])
+      svc = new TemplateBindingService(prisma)
+
+      expect(await svc.bindProduct(1)).toBeNull()
+      expect(prisma.products.update).not.toHaveBeenCalled()
     })
 
     it('returns null when no rules match', async () => {

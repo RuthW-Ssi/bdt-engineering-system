@@ -457,7 +457,7 @@ describe('getProjectRows', () => {
     const prisma = makePrisma({
       bom_assembly: {
         findMany: jest.fn().mockResolvedValue([
-          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 10, qty: 4, progress: { ...EMPTY, cut: 100, loaded_pcs: 2, payment_status: 'Paid' } },
+          { id: 1, assembly_mark: 'TC-FB1', weight_kg: 10, qty: 4, progress: { ...EMPTY, cut: 100, loaded_pcs: 2, payment_status: 'Paid' }, dispatch: { zone: { id: 10, code: 'Z1', label: 'Zone 1' } } },
         ]),
         findFirst: jest.fn(),
       },
@@ -466,6 +466,7 @@ describe('getProjectRows', () => {
     const rows = await svc.getProjectRows('0X220')
     expect(rows[0]).toMatchObject({
       assembly_id: 1, mark: 'TC-FB1', qty: 4,
+      zone_id: 10, zone_code: 'Z1', zone_label: 'Zone 1',
       cut: 100, buildup: 0,
       loaded_pcs: 2, erected_pcs: 0,
       erection_actual_finish_date: null, payment_status: 'Paid',
