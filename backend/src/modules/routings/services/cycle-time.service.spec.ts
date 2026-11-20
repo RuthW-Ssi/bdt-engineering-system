@@ -2,137 +2,83 @@ import { BadRequestException } from '@nestjs/common'
 import { CycleTimeService } from './cycle-time.service'
 import { FormulaService } from './formula.service'
 
-const FORMULA_SVC = new FormulaService()
+// compute() since the S11 routing-chain drop (2026-06-08) + duration engine
+// (2026-06-30): no formula eval, no cache, no per-product override, no custom
+// routing. An op's time = sum of its activities' minutes, read from the linked
+// operation template (source activity's duration_min first, else per_minute)
+// or, with no template linked, from the op's activities_snapshot.
 
-function makeOp(id: number, cacheKey: string | null, timeCycle: number, activities: unknown[]) {
-  return {
-    id,
-    op_code: `op_${id}`,
-    sequence: id * 10,
-    cache_key: cacheKey,
-    time_cycle: String(timeCycle),
-    workcenter: { code: 'WC-BU', name: 'Built Up' },
-    op_activities: activities,
-  }
-}
+const WC = { code: 'WC-BU', name: 'Built Up' }
 
-function makeActivity(id: number, expr: string, perMin = 10, stdMeasure = 5, manpower = 1) {
-  return {
-    activity_template_id: id,
-    sequence: id * 10,
-    activity_template: {
-      id,
-      description: `Activity ${id}`,
-      formula_param_code: 'test_param',
-      per_minute: perMin,
-      std_measure: stdMeasure,
-      manpower,
-      formula_param: { code: 'test_param', formula_expression: expr },
-    },
-  }
-}
-
-function makePrisma(product: unknown, ops: unknown[], overrides: unknown[] = [], customRouting: unknown = null) {
+function makePrisma(product: unknown, ops: unknown[] = []) {
   return {
     products: { findUnique: jest.fn().mockResolvedValue(product) },
-    mrp_routing_workcenter: {
-      findMany: jest.fn().mockResolvedValue(ops),
-      update: jest.fn().mockResolvedValue({}),
-    },
-    product_routing_override: { findMany: jest.fn().mockResolvedValue(overrides) },
-    custom_routing: { findUnique: jest.fn().mockResolvedValue(customRouting) },
+    mrp_routing_workcenter: { findMany: jest.fn().mockResolvedValue(ops) },
   } as unknown as any
 }
 
+const svcWith = (prisma: any) => new CycleTimeService(prisma, new FormulaService())
+
 describe('CycleTimeService', () => {
-  it('throws BadRequestException for unbound product', async () => {
-    const prisma = makePrisma({ id: 1, attributes: {}, routing_template_id: null, has_custom_routing: false }, [])
-    const svc = new CycleTimeService(prisma, FORMULA_SVC)
-    await expect(svc.compute(1)).rejects.toThrow(BadRequestException)
+  it('throws BadRequestException when the product does not exist', async () => {
+    await expect(svcWith(makePrisma(null)).compute(1)).rejects.toThrow(BadRequestException)
   })
 
-  it('template path — computes cycle time from formula', async () => {
-    const op = makeOp(1, null, 0, [makeActivity(1, '1', 5, 1, 1)])
-    const prisma = makePrisma({ id: 1, attributes: {}, routing_template_id: 4, has_custom_routing: false }, [op])
-    const svc = new CycleTimeService(prisma, FORMULA_SVC)
-
-    const result = await svc.compute(1, true)
-    expect(result.operations[0].total_cycle_time_min).toBe(5)
-    expect(result.total_cycle_time_min).toBe(5)
+  it('returns an empty result (0 min) for a product with no routing template, without querying ops', async () => {
+    const prisma = makePrisma({ id: 1, routing_template_id: null })
+    const result = await svcWith(prisma).compute(1)
+    expect(result).toMatchObject({ product_id: 1, operations: [], total_cycle_time_min: 0 })
+    expect(prisma.mrp_routing_workcenter.findMany).not.toHaveBeenCalled()
   })
 
-  it('template path — merges override per_minute before formula eval', async () => {
-    const op = makeOp(1, null, 0, [makeActivity(1, '1', 10, 1, 1)])
-    const override = { activity_template_id: 1, override_per_minute: '20', override_std_measure: null, override_manpower: null }
-    const prisma = makePrisma({ id: 1, attributes: {}, routing_template_id: 4, has_custom_routing: false }, [op], [override])
-    const svc = new CycleTimeService(prisma, FORMULA_SVC)
-
-    const result = await svc.compute(1, true)
-    expect(result.operations[0].activities[0].per_minute).toBe(20)
-    expect(result.operations[0].activities[0].cycle_time_min).toBe(20)
-  })
-
-  it('template path — cache hit skips formula eval when force=false', async () => {
-    const cacheKey = '1_1_e3b0c44298fc1c149afbf4c8996fb924'
-    const op = { ...makeOp(1, null, 0, [makeActivity(1, '1', 10, 1, 1)]) }
-
-    const prisma = makePrisma({ id: 1, attributes: {}, routing_template_id: 4, has_custom_routing: false }, [op])
-    const svc = new CycleTimeService(prisma, FORMULA_SVC)
-
-    const firstResult = await svc.compute(1, true)
-    expect(prisma.mrp_routing_workcenter.update).toHaveBeenCalled()
-    const savedCache = (prisma.mrp_routing_workcenter.update as jest.Mock).mock.calls[0][0].data.cache_key
-
-    const op2 = { ...op, cache_key: savedCache, time_cycle: String(firstResult.operations[0].total_cycle_time_min) }
-    const prisma2 = makePrisma({ id: 1, attributes: {}, routing_template_id: 4, has_custom_routing: false }, [op2])
-    const svc2 = new CycleTimeService(prisma2, FORMULA_SVC)
-
-    await svc2.compute(1, false)
-    expect(prisma2.mrp_routing_workcenter.update).not.toHaveBeenCalled()
-  })
-
-  it('template path — force=true bypasses cache', async () => {
-    const op = makeOp(1, 'some-stale-key', 999, [makeActivity(1, '1', 5, 1, 1)])
-    const prisma = makePrisma({ id: 1, attributes: {}, routing_template_id: 4, has_custom_routing: false }, [op])
-    const svc = new CycleTimeService(prisma, FORMULA_SVC)
-
-    const result = await svc.compute(1, true)
-    expect(result.operations[0].total_cycle_time_min).toBe(5)
-    expect(prisma.mrp_routing_workcenter.update).toHaveBeenCalled()
-  })
-
-  it('custom_routing path — computes from custom ops', async () => {
-    const customRouting = {
-      id: 1,
-      ops: [{
-        id: 10,
-        op_code: 'custom_op',
-        sequence: 10,
-        workcenter: { code: 'WC-BU', name: 'Built Up' },
-        activities: [{
-          id: 100,
-          sequence: 10,
-          description: 'Custom activity',
-          per_minute: 8,
-          std_measure: 2,
-          manpower: 1,
-          formula_param_code: 'per unit',
-          formula_param: { code: 'per unit', formula_expression: '1' },
-        }],
-      }],
+  it('template path — source activity duration_min wins over per_minute; manpower = sum of skill qty', async () => {
+    const op = {
+      id: 11, op_code: 'BU', workcenter: WC, operation_template_id: 7, activities_snapshot: null,
+      operation_template: {
+        activities: [
+          { id: 1, name: 'Fit-up', per_minute: '99', source_activity: { id: 5, name: 'Fit-up', duration_min: '12.5' }, skills: [{ skill: 'fitter', qty: 2, level: 1 }, { skill: 'helper', qty: 1, level: 1 }] },
+          { id: 2, name: 'Weld', per_minute: '30', source_activity: null, skills: [] },
+        ],
+      },
     }
-    const prisma = makePrisma(
-      { id: 1, attributes: {}, routing_template_id: null, has_custom_routing: true },
-      [],
-      [],
-      customRouting,
-    )
-    const svc = new CycleTimeService(prisma, FORMULA_SVC)
+    const prisma = makePrisma({ id: 1, routing_template_id: 4 }, [op])
+    const result = await svcWith(prisma).compute(1)
 
-    const result = await svc.compute(1, false)
-    expect(result.operations[0].op_code).toBe('custom_op')
-    // per_minute=8, std_measure=2, formula=1 → ratio=ceil(1/2)=1 → 1*8*1=8
-    expect(result.operations[0].total_cycle_time_min).toBe(8)
-    expect(result.total_cycle_time_min).toBe(8)
+    expect(prisma.mrp_routing_workcenter.findMany.mock.calls[0][0].where).toEqual({ template_id: 4 })
+    expect(result.operations[0]).toMatchObject({
+      routing_workcenter_id: 11, op_code: 'BU', workcenter_code: 'WC-BU', workcenter_name: 'Built Up', operation_template_id: 7,
+      total_cycle_time_min: 42.5,
+    })
+    expect(result.operations[0].activities).toEqual([
+      expect.objectContaining({ activity_template_id: 1, description: 'Fit-up', cycle_time_min: 12.5, manpower: 3, per_minute: 99 }),
+      expect.objectContaining({ activity_template_id: 2, description: 'Weld', cycle_time_min: 30, manpower: 1, per_minute: 30 }),
+    ])
+  })
+
+  it('snapshot path — no template linked: reads activities_snapshot (duration_min, else per_minute; manpower from labors)', async () => {
+    const op = {
+      id: 12, op_code: 'PT', workcenter: WC, operation_template_id: null, operation_template: null,
+      activities_snapshot: [
+        { source_activity_id: 8, name: 'Blast', duration_min: 20, per_minute: 5, labors: [{ qty: 2 }, { qty: 1 }] },
+        { name: 'Paint', per_minute: 15 },
+      ],
+    }
+    const result = await svcWith(makePrisma({ id: 1, routing_template_id: 4 }, [op])).compute(1)
+    expect(result.operations[0].total_cycle_time_min).toBe(35)
+    expect(result.operations[0].activities).toEqual([
+      expect.objectContaining({ activity_template_id: 8, description: 'Blast', cycle_time_min: 20, manpower: 3 }),
+      expect.objectContaining({ activity_template_id: 0, description: 'Paint', cycle_time_min: 15, manpower: 1 }),
+    ])
+  })
+
+  it('sums every operation into total_cycle_time_min; an op with neither template nor snapshot counts 0', async () => {
+    const ops = [
+      { id: 1, op_code: 'A', workcenter: WC, operation_template_id: null, operation_template: null, activities_snapshot: [{ name: 'x', duration_min: 10 }] },
+      { id: 2, op_code: 'B', workcenter: WC, operation_template_id: null, operation_template: null, activities_snapshot: null },
+      { id: 3, op_code: 'C', workcenter: WC, operation_template_id: null, operation_template: null, activities_snapshot: [{ name: 'y', duration_min: 5 }] },
+    ]
+    const result = await svcWith(makePrisma({ id: 1, routing_template_id: 4 }, ops)).compute(1)
+    expect(result.operations.map(o => [o.op_code, o.total_cycle_time_min])).toEqual([['A', 10], ['B', 0], ['C', 5]])
+    expect(result.total_cycle_time_min).toBe(15)
   })
 })
