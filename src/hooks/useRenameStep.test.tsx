@@ -54,4 +54,16 @@ describe('useRenameStep', () => {
     expect([opened, result.current.dispatchId]).toEqual([false, null])
     expect(api.getRenameCandidates).not.toHaveBeenCalled()
   })
+
+  // Missing marks are decided in the review now (2026-11-23): after save only parts are left to pair
+  it('partsOnly: opens only for parts, and says so', async () => {
+    const asm = { mark: 'CO1', ref_id: 1, data: null, suggestions: [] }
+    api.getRenameCandidates.mockResolvedValueOnce({ ...empty, assemblies: [asm] })
+    const { result } = renderHook(() => useRenameStep(), { wrapper })
+    await act(async () => { expect(await result.current.afterUpload(9, { partsOnly: true })).toBe(false) })
+    api.getRenameCandidates.mockResolvedValueOnce({ ...empty, assemblies: [asm], parts: [{ mark: 'p1', ref_id: 2, data: null, suggestions: [] }] })
+    await act(async () => { expect(await result.current.afterUpload(9, { partsOnly: true })).toBe(true) })
+    expect(result.current.partsOnly).toBe(true)
+  })
 })
+

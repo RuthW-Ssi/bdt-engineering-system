@@ -16,7 +16,7 @@ describe('revMoveText / revUpOf', () => {
 
 const row = (over: Partial<RevReviewRowDto> = {}): RevReviewRowDto => ({
   mark: 'B1', kind: 'changed', prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL', dn_rev: null, dn_status: null,
-  in_dn: false, warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null, ...over,
+  in_dn: false, warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null, slot: null, ...over,
 })
 
 describe('review helpers', () => {
@@ -47,9 +47,9 @@ describe('review helpers', () => {
     expect(cancelledNote(row())).toBeNull()
   })
 
-  it('renameNote: new mark → "อาจเปลี่ยนชื่อจาก …", removed → "อาจเปลี่ยนชื่อเป็น …", else nothing', () => {
-    expect(renameNote(row({ kind: 'added', rename_hint: 'DBN-B1-BR10' }))).toBe('อาจเปลี่ยนชื่อจาก DBN-B1-BR10 — จับคู่ชื่อได้หลังบันทึก')
-    expect(renameNote(row({ kind: 'removed', rename_hint: '3DBN-B1-BR10' }))).toBe('อาจเปลี่ยนชื่อเป็น 3DBN-B1-BR10')
+  it('renameNote: new mark → "อาจเปลี่ยน mark จาก …", removed → "อาจเปลี่ยนเป็น …", else nothing', () => {
+    expect(renameNote(row({ kind: 'added', rename_hint: 'DBN-B1-BR10' }))).toBe('อาจเปลี่ยน mark จาก DBN-B1-BR10')
+    expect(renameNote(row({ kind: 'removed', rename_hint: '3DBN-B1-BR10' }))).toBe('อาจเปลี่ยนเป็น 3DBN-B1-BR10')
     expect(renameNote(row())).toBeNull()
   })
 
@@ -86,5 +86,26 @@ describe('review helpers', () => {
     // a changed row the Dispatch Note already raised (no ⚠) follows the same rule
     expect(revError(row({ warning: null, suggested_source: 'DISPATCH_NOTE', dn_rev: 3, suggested_rev: 3 }), '1')).toBe('ข้อมูลของ mark นี้เปลี่ยน ต้องใส่ rev มากกว่า 1')
     expect(revError(row({ kind: 'unchanged', warning: 'DN_REV_LOWER', dn_rev: 0 }), '1')).toBeNull()
+  })
+})
+
+// Every missing mark gets a decision before save (2026-11-23, Tao)
+import { missingDecisions, removedStillInDn, renamesFrom } from './markRev'
+
+describe('missing-mark decisions', () => {
+  const removed = (mark: string, over: Partial<RevReviewRowDto> = {}) => row({ mark, kind: 'removed', warning: null, editable: false, ...over })
+  const rows = [removed('ESB-CO1', { in_dn: true }), removed('ESB-CO2', { in_dn: true, dn_status: 'Cancel', dn_cancelled_in_files: true }), removed('ESB-CO3'), row({ mark: 'ESB-RF5' })]
+
+  it('lists removed marks the uploaded Dispatch Note still has (not cancelled)', () => {
+    expect(removedStillInDn(rows)).toEqual(['ESB-CO1'])
+  })
+
+  it('lists removed marks with no decision yet', () => {
+    expect(missingDecisions(rows, { 'ESB-CO1': 'delete' })).toEqual(['ESB-CO2', 'ESB-CO3'])
+    expect(missingDecisions(rows, { 'ESB-CO1': 'delete', 'ESB-CO2': 'delete', 'ESB-CO3': { rename: 'ESB-CO3A' } })).toEqual([])
+  })
+
+  it('turns rename decisions into pairs', () => {
+    expect(renamesFrom({ 'ESB-CO1': 'delete', 'ESB-CO3': { rename: 'ESB-CO3A' } })).toEqual([{ from_mark: 'ESB-CO3', to_mark: 'ESB-CO3A' }])
   })
 })

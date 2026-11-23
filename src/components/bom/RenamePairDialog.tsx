@@ -13,7 +13,7 @@ const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 
 const card: React.CSSProperties = { background: 'white', borderRadius: 12, width: '100%', maxWidth: 640, maxHeight: '85vh', overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }
 const chip: React.CSSProperties = { display: 'inline-block', fontSize: 11.5, padding: '2px 8px', borderRadius: 10, background: '#F3F4F6', color: '#374151', marginRight: 4, marginTop: 4 }
 
-export function RenamePairDialog({ dispatchId, only, onClose }: { dispatchId: number; only?: { kind: RenameKind; mark: string }; onClose: () => void }) {
+export function RenamePairDialog({ dispatchId, only, partsOnly, onClose }: { dispatchId: number; only?: { kind: RenameKind; mark: string }; partsOnly?: boolean; onClose: () => void }) {
   const { data, isLoading, isError } = useRenameCandidates(dispatchId)
   const save = useSaveRenames(dispatchId)
   const [sel, setSel] = useState<Selections>({})
@@ -30,7 +30,7 @@ export function RenamePairDialog({ dispatchId, only, onClose }: { dispatchId: nu
   const sections = [
     { kind: 'ASSEMBLY' as const, title: 'mark ที่หายไป', rows: keep('ASSEMBLY', data.assemblies) },
     { kind: 'PART' as const, title: 'part ที่หายไป', rows: keep('PART', data.parts) },
-  ].filter(s => s.rows.length)
+  ].filter(s => s.rows.length && !(partsOnly && s.kind === 'ASSEMBLY'))
   const { renames, missingKeep } = buildRenamePayload(data, sel)
   const set = (k: string, c: Choice) => setSel(s => ({ ...s, [k]: c }))
 

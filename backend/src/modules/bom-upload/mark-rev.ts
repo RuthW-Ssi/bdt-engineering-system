@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common'
 import type { ParsedAssembly, ParsedAssemblyPart, ParsedPart } from './xlsx-parser.service'
-import { suggestAssemblies, type AsmRow } from '../mark-rename/rename-candidates'
+import { suggestAssemblies, suggestParts, type AsmRow, type PartRow } from '../mark-rename/rename-candidates'
 
 // Per-mark BOM revision (2026-10-26, wiki features/bom-mark-revision-plan.md).
 // Pure: preview and save both run this, so the server never trusts the
@@ -33,6 +33,8 @@ export interface RevRow {
   rename_hint: string | null
   editable: boolean
   diff: MarkDiff | null
+  /** MAIN | ACC in separate mode, null when combined — the review offers renames within one slot (2026-11-23). */
+  slot: Slot | null
 }
 export interface RevDecision { rows: RevRow[]; dn_only_marks: string[]; has_dn: boolean }
 export interface FinalRev { rev: number; rev_source: RevSource; dn_status: string | null }
@@ -113,7 +115,7 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
     const p = prevBy.get(c.mark)
     const d = dnOf(c.mark, c.slot)
     const dnRev = d?.rev ?? null
-    const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d, dn_cancelled_in_files: isCancelledStatus(d?.status), rename_hint: null }
+    const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d, dn_cancelled_in_files: isCancelledStatus(d?.status), rename_hint: null, slot: c.slot ?? null }
     if (!p) return { ...base, kind: 'added', prev_rev: null, suggested_rev: dnRev ?? 0, suggested_source: dnRev != null ? 'DISPATCH_NOTE' : 'NEW', warning: null, editable: false, diff: null }
     const diff = markDiff(p, c)
     if (!isUnchanged(diff)) {
@@ -129,7 +131,7 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
   for (const p of input.previous) {
     if (currMarks.has(p.mark) || !input.removable(p)) continue
     const d = dnOf(p.mark, p.slot)
-    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null })
+    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null, slot: p.slot === 'MAIN' || p.slot === 'ACC' ? p.slot : null })
   }
   // DN-only = marks the zone has never had. A removed mark already has its row;
   // a kept mark (slot not uploaded, e.g. MAIN on an ACC-only upload with a
@@ -191,6 +193,72 @@ export function finalizeRevs(d: RevDecision, edits: RevEdit[]): Map<string, Fina
   for (const r of byMark.values()) {
     const rev = edited.get(r.mark) ?? r.suggested_rev!
     out.set(r.mark, { rev, rev_source: sourceOf(r, rev), dn_status: r.dn_status })
+  }
+  return out
+}
+
+// ── Missing parts (2026-11-23, Tao): same decision as missing marks, before save ──
+export interface PrevPart { id: number; mark: string; slot: Slot | null; profile: string | null; grade: string | null; length_mm: number | null; weight_kg: number | null
+  /** linked from an ACTIVE assembly this upload does not replace (e.g. an ACC assembly using a MAIN plate) */
+  used_by_kept_assembly: boolean }
+export interface PartReviewRow { mark: string; kind: 'removed' | 'added'; slot: Slot | null; rename_hint: string | null
+  /** removed but still needed: named in the uploaded Assembly Part List, or used by a kept assembly → the Part List may be incomplete */
+  still_used: boolean }
+
+/** `removable` = the save's part supersede rule; `referenced` = part marks the uploaded Assembly Part List names. */
+export function decideParts(input: {
+  previous: PrevPart[]
+  current: { part_mark: string; slot?: Slot | null; profile?: string | null; grade?: string | null; length_mm?: number | null; weight_kg?: number | null }[]
+  removable: (p: PrevPart) => boolean
+  referenced: Set<string>
+}): PartReviewRow[] {
+  const currMarks = new Set(input.current.map(c => c.part_mark))
+  const prevMarks = new Set(input.previous.map(p => p.mark))
+  const removed = input.previous.filter(p => !currMarks.has(p.mark) && input.removable(p))
+  const fresh = input.current.filter(c => !prevMarks.has(c.part_mark))
+  const rows: PartReviewRow[] = [
+    ...removed.map(p => ({ mark: p.mark, kind: 'removed' as const, slot: p.slot, rename_hint: null, still_used: input.referenced.has(p.mark) || p.used_by_kept_assembly })),
+    ...fresh.map(c => ({ mark: c.part_mark, kind: 'added' as const, slot: c.slot ?? null, rename_hint: null, still_used: false })),
+  ]
+  // same scorer + minimum as the after-save dialog, one-to-one, best score first, same slot only
+  const toRow = (x: { mark: string; profile?: string | null; grade?: string | null; length_mm?: number | null; weight_kg?: number | null }, id: number): PartRow =>
+    ({ id, mark: x.mark, profile: x.profile ?? null, grade: x.grade ?? null, length_mm: x.length_mm ?? null, weight_kg: x.weight_kg ?? null })
+  const sameSlot = (a: Slot | null | undefined, b: Slot | null | undefined) => a == null || b == null || a === b
+  const pairs = removed.flatMap(p => {
+    const cand = fresh.filter(c => sameSlot(c.slot, p.slot)).map((c, i) => toRow({ ...c, mark: c.part_mark }, i))
+    return suggestParts(toRow(p, p.id), cand).map(x => ({ from: p.mark, to: x.mark, score: x.score }))
+  }).sort((a, b) => b.score - a.score)
+  const byMark = (kind: 'removed' | 'added', m: string) => rows.find(r => r.kind === kind && r.mark === m)!
+  for (const x of pairs) {
+    const r = byMark('removed', x.from), a = byMark('added', x.to)
+    if (r.rename_hint || a.rename_hint) continue
+    r.rename_hint = x.to
+    a.rename_hint = x.from
+  }
+  return rows
+}
+
+// ── Same part mark in both MAIN and ACC Part Lists (2026-11-23, Tao) ──
+// One row is kept per mark (MAIN's) and both slots' assemblies link to it; that is right when the
+// two rows are the same piece. Data that differ mean a wrong export → warn in the review. qty is per list, not compared.
+const CONFLICT_FIELDS = ['profile', 'grade', 'length_mm', 'weight_kg', 'description'] as const
+export interface PartConflict { mark: string; fields: { field: (typeof CONFLICT_FIELDS)[number]; main: string | number | null; acc: string | number | null }[] }
+
+export function partConflicts(parts: { part_mark: string; slot?: Slot | null; profile?: string | null; grade?: string | null; length_mm?: number | null; weight_kg?: number | null; description?: string | null }[]): PartConflict[] {
+  const norm = (f: (typeof CONFLICT_FIELDS)[number], v: unknown) => (f === 'length_mm' ? round(v, 2) : f === 'weight_kg' ? round(v, 3) : text(v))
+  const acc = new Map(parts.filter(p => p.slot === 'ACC').map(p => [p.part_mark, p]))
+  const seen = new Set<string>()
+  const out: PartConflict[] = []
+  for (const m of parts) {
+    if (m.slot !== 'MAIN' || seen.has(m.part_mark)) continue
+    seen.add(m.part_mark)
+    const a = acc.get(m.part_mark)
+    if (!a) continue
+    const fields = CONFLICT_FIELDS.flatMap(f => {
+      const mv = norm(f, m[f]), av = norm(f, a[f])
+      return mv === av ? [] : [{ field: f, main: mv, acc: av }]
+    })
+    if (fields.length) out.push({ mark: m.part_mark, fields })
   }
   return out
 }

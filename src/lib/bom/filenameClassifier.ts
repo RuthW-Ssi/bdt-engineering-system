@@ -57,3 +57,19 @@ export function classifyFilename(filename: string): DocType | null {
   }
   return null
 }
+
+/** Separate mode (2026-11-23, Tao): one Part List is shared by MAIN and ACC, two = each its own.
+ *  A slot is ready with its Assembly List + Assembly Part List and a Part List in EITHER box. */
+export function separateReadiness(main: (DocType | null)[], acc: (DocType | null)[]): { ready: boolean; sharedFrom: 'MAIN' | 'ACC' | null } {
+  const mainPl = main.includes('MAIN_PART_LIST'), accPl = acc.includes('ACC_PART_LIST')
+  const anyPl = mainPl || accPl
+  const mainReady = main.includes('MAIN_ASSEMBLY_LIST') && main.includes('MAIN_ASSEMBLY_PART_LIST') && anyPl
+  const accReady = acc.includes('ACC_ASSEMBLY_LIST') && acc.includes('ACC_ASSEMBLY_PART_LIST') && anyPl
+  return { ready: mainReady || accReady, sharedFrom: mainPl === accPl ? null : mainPl ? 'MAIN' : 'ACC' }
+}
+
+/** Note under the box WITHOUT a Part List when it borrows the other box's one — only once it has lists of its own. */
+export function sharedPartListNote(slot: 'MAIN' | 'ACC', own: (DocType | null)[], sharedFrom: 'MAIN' | 'ACC' | null): string | undefined {
+  if (!sharedFrom || sharedFrom === slot || !own.some(t => t === `${slot}_ASSEMBLY_LIST` || t === `${slot}_ASSEMBLY_PART_LIST`)) return undefined
+  return `ใช้ Part List ร่วมจากช่อง ${sharedFrom}`
+}

@@ -68,7 +68,7 @@ export class ProjectsService {
         where,
         skip,
         take: limit,
-        orderBy: { write_date: 'desc' },
+        orderBy: { project_code: 'asc' },
         include: {
           customer: { select: { id: true, name: true, ref: true } },
           write_user: { select: { id: true, name: true } },
