@@ -124,6 +124,18 @@ describe('saveErrors', () => {
     expect(saveErrors(s).incompleteParts).toEqual(['P103'])
   })
 
+  it('lists a part mark used by two different parts', () => {
+    let s = mergeDispatchNote(empty, [asm('C-01', 4)]).state
+    s = { ...s, parts: [
+      { key: 'x1', src: 'own', part_mark: 'TMP-01', profile: 'PL10', grade: 'SS400', length_mm: 100, unit_weight_kg: 1, no: null },
+      { key: 'x2', src: 'own', part_mark: 'TMP-01', profile: 'PL12', grade: 'SS400', length_mm: 200, unit_weight_kg: 2, no: null },
+    ] }
+    s = addLink(addLink(s, 'x1', keyOf(s, 'C-01')), 'x2', keyOf(s, 'C-01'))
+    const e = saveErrors(s)
+    expect(e.dupPartMarks).toEqual(['TMP-01'])
+    expect(canSave(e, s)).toBe(false)
+  })
+
   it('allows saving when every assembly has complete parts', () => {
     let s = mergePartList(mergeDispatchNote(empty, [asm('C-01', 4)]).state, [listPart('P103')]).state
     s = addLink(s, partKey(s, 'P103'), keyOf(s, 'C-01'))

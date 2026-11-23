@@ -91,6 +91,16 @@ export class BomPreshopService {
   async save(scope: PreshopScope, assemblies: PreshopAssembly[], userId: number): Promise<{ dispatch_id: number; revision: number }> {
     const noParts = assemblies.filter(a => !a.parts.length).map(a => a.assembly_mark)
     if (noParts.length) throw new BadRequestException(`ใส่ part ให้ครบทุก mark ก่อนบันทึก: ${noParts.join(', ')}`)
+    // one bom_part per mark ("first spec wins" in createDispatch) — refuse instead of silently dropping a size
+    const spec = new Map<string, string>()
+    const clash = new Set<string>()
+    for (const a of assemblies) for (const p of a.parts) {
+      const k = `${p.profile.trim()}|${p.grade.trim()}|${p.length_mm}|${p.unit_weight_kg}`
+      const cur = spec.get(p.part_mark)
+      if (cur == null) spec.set(p.part_mark, k)
+      else if (cur !== k) clash.add(p.part_mark)
+    }
+    if (clash.size) throw new BadRequestException(`Part mark ซ้ำแต่ขนาดไม่ตรงกัน: ${[...clash].join(', ')}`)
 
     return this.prisma.$transaction(async (tx) => {
       // two saves for one zone at the same moment would both read the same "previous" revision

@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { newKey, usage, type EditorState } from '../../../lib/bomPreshop'
 import { PART_DRAG_TYPE } from './PreshopAssemblyTable'
 
 const IN: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '4px 6px', fontSize: 12.5, border: '1px solid #D4D4D4', borderRadius: 5, background: '#fff', color: '#1F1F1F' }
 const MONO: React.CSSProperties = { ...IN, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }
-const num = (v: number | null) => (v == null ? '' : v.toLocaleString('en-US', { maximumFractionDigits: 2 }))
 const EMPTY_DRAFT = { part_mark: '', profile: '', grade: '', length_mm: '', unit_weight_kg: '' }
 
 const Grip = () => (
@@ -28,6 +27,9 @@ export function PreshopPartPool({ state, onChange, dragging, onDragging }: {
   const shown = filter === 'all' ? rows : rows.filter(r => r.u.asmMarks.length === 0)
   const pill = (on: boolean): React.CSSProperties => ({ padding: '3px 10px', fontSize: 12, fontWeight: 600, borderRadius: 999, cursor: 'pointer', border: `1px solid ${on ? '#C8202A' : '#D4D4D4'}`, background: on ? '#FEF2F2' : '#fff', color: on ? '#C8202A' : '#555' })
 
+  const patch = (key: string, p: Partial<EditorState['parts'][number]>) =>
+    onChange({ ...state, parts: state.parts.map(x => (x.key === key ? { ...x, ...p } : x)) })
+  const toNum = (v: string) => (v.trim() === '' ? null : Number(v))
   const addPart = () => {
     if (!draft) return
     const n = (v: string) => (v.trim() === '' ? null : Number(v))
@@ -50,7 +52,7 @@ export function PreshopPartPool({ state, onChange, dragging, onDragging }: {
           const text = !used
             ? 'Not in an assembly'
             : `In ${u.asmMarks.length} assembly (${u.asmMarks.join(', ')}) · ${u.pcs}${p.no != null ? ` / ${p.no}` : ''} pcs${u.over ? ' · over the Part List qty' : ''}`
-          const detail = [p.profile, p.grade, p.length_mm != null ? `L ${num(p.length_mm)}` : '', p.unit_weight_kg != null ? `${num(p.unit_weight_kg)} kg/ชิ้น` : '', p.no != null ? `No. ${p.no}` : '', p.src === 'own' ? 'เพิ่มเอง' : '']
+          const detail = [p.no != null ? `No. ${p.no}` : '', p.src === 'own' ? 'เพิ่มเอง' : '']
             .filter(Boolean).join(' · ')
           return (
             <div key={p.key} data-testid={`part-card-${p.part_mark}`} draggable
@@ -59,8 +61,23 @@ export function PreshopPartPool({ state, onChange, dragging, onDragging }: {
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'grab', background: '#fff', border: '1px solid #E0E0E0', opacity: dragging === p.key ? 0.5 : 1 }}>
               <Grip />
               <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                <input aria-label="Part mark" style={{ ...MONO, padding: '2px 6px' }} value={p.part_mark} placeholder="เช่น TMP-01"
-                  onChange={e => onChange({ ...state, parts: state.parts.map(x => (x.key === p.key ? { ...x, part_mark: e.target.value } : x)) })} />
+                <div className="flex items-center" style={{ gap: 6 }}>
+                  <input aria-label="Part mark" style={{ ...MONO, padding: '2px 6px' }} value={p.part_mark} placeholder="เช่น TMP-01"
+                    onChange={e => patch(p.key, { part_mark: e.target.value })} />
+                  {!used && (
+                    <button type="button" aria-label={`Delete ${p.part_mark || 'part'}`} onClick={() => onChange({ ...state, parts: state.parts.filter(x => x.key !== p.key) })}
+                      style={{ width: 24, height: 24, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', color: '#C8202A', cursor: 'pointer', padding: 0 }}>
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+                {/* everything is editable by hand (spec) — a blank kg or L would otherwise block Save with no way out */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)', gap: 4 }}>
+                  <input aria-label="Profile" style={{ ...IN, padding: '2px 5px', fontSize: 11.5 }} value={p.profile} placeholder="Profile" onChange={e => patch(p.key, { profile: e.target.value })} />
+                  <input aria-label="Grade" style={{ ...IN, padding: '2px 5px', fontSize: 11.5 }} value={p.grade} placeholder="Grade" onChange={e => patch(p.key, { grade: e.target.value })} />
+                  <input aria-label="L (mm)" type="number" style={{ ...IN, padding: '2px 5px', fontSize: 11.5 }} value={p.length_mm ?? ''} placeholder="L (mm)" onChange={e => patch(p.key, { length_mm: toNum(e.target.value) })} />
+                  <input aria-label="kg / ชิ้น" type="number" style={{ ...IN, padding: '2px 5px', fontSize: 11.5 }} value={p.unit_weight_kg ?? ''} placeholder="kg / ชิ้น" onChange={e => patch(p.key, { unit_weight_kg: toNum(e.target.value) })} />
+                </div>
                 <span style={{ fontSize: 11.5, color: '#555' }}>{detail}</span>
                 <span style={{ fontSize: 11, fontWeight: 600, color }}>{text}</span>
               </div>

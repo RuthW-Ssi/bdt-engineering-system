@@ -140,7 +140,7 @@ export function usage(s: EditorState, partKey: string): { asmMarks: string[]; pc
   return { asmMarks, pcs, over: part?.no != null && pcs > part.no }
 }
 
-export interface SaveErrors { needsParts: string[]; badSets: string[]; blankMarks: number; dupMarks: string[]; badQty: string[]; incompleteParts: string[] }
+export interface SaveErrors { needsParts: string[]; badSets: string[]; blankMarks: number; dupMarks: string[]; badQty: string[]; incompleteParts: string[]; dupPartMarks: string[] }
 
 export function saveErrors(s: EditorState): SaveErrors {
   const label = (a: EdAsm) => a.mark.trim() || '(no mark)'
@@ -156,11 +156,16 @@ export function saveErrors(s: EditorState): SaveErrors {
     incompleteParts: s.parts
       .filter(p => usedParts.has(p.key) && (blank(p.part_mark) || blank(p.profile) || !(Number(p.length_mm) > 0) || p.unit_weight_kg == null))
       .map(p => p.part_mark.trim() || '(no mark)'),
+    // two different parts under one mark would be merged on save (one bom_part per mark)
+    dupPartMarks: (() => {
+      const marks = s.parts.filter(p => usedParts.has(p.key)).map(p => p.part_mark.trim()).filter(Boolean)
+      return [...new Set(marks.filter((m, i) => marks.indexOf(m) !== i))]
+    })(),
   }
 }
 
 export function canSave(e: SaveErrors, s: EditorState): boolean {
-  return s.asm.length > 0 && !e.needsParts.length && !e.badSets.length && e.blankMarks === 0 && !e.dupMarks.length && !e.badQty.length && !e.incompleteParts.length
+  return s.asm.length > 0 && !e.needsParts.length && !e.badSets.length && e.blankMarks === 0 && !e.dupMarks.length && !e.badQty.length && !e.incompleteParts.length && !e.dupPartMarks.length
 }
 
 export function toPayload(s: EditorState): PreshopAssembly[] {

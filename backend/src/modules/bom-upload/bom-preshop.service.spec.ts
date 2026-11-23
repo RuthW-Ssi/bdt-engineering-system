@@ -66,6 +66,13 @@ describe('BomPreshopService.save', () => {
     await expect(svc.save(SCOPE, [C01, { ...C02, parts: [] }], 1)).rejects.toThrow(new BadRequestException('ใส่ part ให้ครบทุก mark ก่อนบันทึก: C-02'))
   })
 
+  it('refuses one part mark with two different sizes', async () => {
+    const { svc, preshop } = make()
+    await expect(svc.save(SCOPE, [C01, { ...C02, parts: [{ ...P102, profile: 'PL30x400' }] }], 1))
+      .rejects.toThrow('Part mark ซ้ำแต่ขนาดไม่ตรงกัน: P102')
+    expect(preshop.createDispatch).not.toHaveBeenCalled()
+  })
+
   it('takes the per-zone lock before reading the previous revision', async () => {
     const { svc, calls } = make()
     await svc.save(SCOPE, [C01], 1)

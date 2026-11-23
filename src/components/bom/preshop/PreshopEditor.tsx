@@ -73,6 +73,7 @@ export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
     errors.badSets.length ? `ชุดต้องมากกว่า 0: ${errors.badSets.join(', ')}` : '',
     errors.badQty.length ? `จำนวนต่อชุดต้องมากกว่า 0: ${errors.badQty.join(', ')}` : '',
     errors.incompleteParts.length ? `part ยังไม่ครบ (Part, Profile, L, kg/ชิ้น): ${errors.incompleteParts.join(', ')}` : '',
+    errors.dupPartMarks.length ? `Part mark ซ้ำ: ${errors.dupPartMarks.join(', ')}` : '',
   ].filter(Boolean)
 
   return (

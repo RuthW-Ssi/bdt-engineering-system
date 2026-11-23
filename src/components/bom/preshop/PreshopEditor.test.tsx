@@ -116,5 +116,24 @@ describe('PreshopEditor', () => {
     expect(within(screen.getByTestId('asm-row-C-01')).getByTestId('asm-part-count')).toHaveTextContent('1')
     expect(within(screen.getByTestId('asm-row-C-01')).getByLabelText('ชุด')).toHaveValue(6)
   })
+
+  it('lets the Engineer fill a missing kg on a part so Save can go', () => {
+    const base = mergeDispatchNote(EMPTY_STATE, [asm('C-01', 4)]).state
+    const s0 = mergePartList(base, [{ ...P('P103'), unit_weight_kg: null }]).state
+    render(<PreshopEditor initial={s0} onSave={vi.fn()} saving={false} />)
+    drag('P103', 'C-01')
+    const save = screen.getByRole('button', { name: 'Save pre-shop' })
+    expect(save).toBeDisabled()
+    fireEvent.change(within(screen.getByTestId('part-card-P103')).getByLabelText('kg / ชิ้น'), { target: { value: '4.2' } })
+    expect(save).toBeEnabled()
+  })
+
+  it('deletes a part that is not in any assembly, and offers no delete for one that is', () => {
+    render(<PreshopEditor initial={twoAsmWithParts()} onSave={vi.fn()} saving={false} />)
+    drag('P103', 'C-01')
+    expect(within(screen.getByTestId('part-card-P103')).queryByRole('button', { name: /Delete/ })).toBeNull()
+    fireEvent.click(within(screen.getByTestId('part-card-P201')).getByRole('button', { name: 'Delete P201' }))
+    expect(screen.queryByTestId('part-card-P201')).toBeNull()
+  })
 })
 
