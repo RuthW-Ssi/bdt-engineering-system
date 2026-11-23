@@ -299,7 +299,7 @@ export function BomUpload() {
       </div>
 
       {/* Form */}
-      <div style={{ maxWidth: bomType === 'preshop' ? 1240 : 640, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Project */}
         <div>
