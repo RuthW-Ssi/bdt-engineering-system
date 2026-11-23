@@ -27,7 +27,9 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(editable.map(r => [r.mark, String(r.suggested_rev ?? '')])))
   const errors = Object.fromEntries(editable.map(r => [r.mark, revError(r, values[r.mark] ?? '')]))
   const [decisions, setDecisions] = useState<Record<string, MissingDecision>>({})
-  const addedMarks = review.rows.filter(r => r.kind === 'added').map(r => r.mark)
+  // separate mode: a missing MAIN mark can only become a new MAIN mark (and ACC → ACC); combined has no slot
+  const addedRows = review.rows.filter(r => r.kind === 'added')
+  const addedFor = (slot: RevReviewDto['rows'][number]['slot']) => addedRows.filter(a => slot == null || a.slot == null || a.slot === slot).map(a => a.mark)
   const undecided = missingDecisions(review.rows, decisions)
   const stillInDn = removedStillInDn(review.rows)
   const takenBy = (except: string) => new Set(Object.entries(decisions).filter(([m, d]) => m !== except && typeof d === 'object').map(([, d]) => (d as { rename: string }).rename))
@@ -96,8 +98,9 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
                     {renameNote(r) && <div style={{ color: '#555', marginTop: 4, fontSize: 12, lineHeight: 1.4 }}>{renameNote(r)}</div>}
                     {r.kind === 'removed' && (() => {
                       const taken = takenBy(r.mark)
-                      const hint = allowRename && r.rename_hint && addedMarks.includes(r.rename_hint) ? r.rename_hint : null
-                      const others = allowRename ? addedMarks.filter(m => m !== hint) : []
+                      const targets = addedFor(r.slot)
+                      const hint = allowRename && r.rename_hint && targets.includes(r.rename_hint) ? r.rename_hint : null
+                      const others = allowRename ? targets.filter(m => m !== hint) : []
                       return (
                         <select aria-label={`ผลของ ${r.mark}`} value={valueOf(r.mark)} onChange={e => choose(r.mark, e.target.value)}
                           style={{ display: 'block', width: '100%', marginTop: 6, fontSize: 12.5, padding: '3px 4px', color: '#1F1F1F', border: `1px solid ${decisions[r.mark] ? '#C2C2C2' : '#C8202A'}`, borderRadius: 4, background: 'white' }}>

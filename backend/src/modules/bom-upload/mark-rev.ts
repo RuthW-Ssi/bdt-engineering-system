@@ -33,6 +33,8 @@ export interface RevRow {
   rename_hint: string | null
   editable: boolean
   diff: MarkDiff | null
+  /** MAIN | ACC in separate mode, null when combined — the review offers renames within one slot (2026-11-23). */
+  slot: Slot | null
 }
 export interface RevDecision { rows: RevRow[]; dn_only_marks: string[]; has_dn: boolean }
 export interface FinalRev { rev: number; rev_source: RevSource; dn_status: string | null }
@@ -113,7 +115,7 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
     const p = prevBy.get(c.mark)
     const d = dnOf(c.mark, c.slot)
     const dnRev = d?.rev ?? null
-    const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d, dn_cancelled_in_files: isCancelledStatus(d?.status), rename_hint: null }
+    const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d, dn_cancelled_in_files: isCancelledStatus(d?.status), rename_hint: null, slot: c.slot ?? null }
     if (!p) return { ...base, kind: 'added', prev_rev: null, suggested_rev: dnRev ?? 0, suggested_source: dnRev != null ? 'DISPATCH_NOTE' : 'NEW', warning: null, editable: false, diff: null }
     const diff = markDiff(p, c)
     if (!isUnchanged(diff)) {
@@ -129,7 +131,7 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
   for (const p of input.previous) {
     if (currMarks.has(p.mark) || !input.removable(p)) continue
     const d = dnOf(p.mark, p.slot)
-    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null })
+    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null, slot: p.slot === 'MAIN' || p.slot === 'ACC' ? p.slot : null })
   }
   // DN-only = marks the zone has never had. A removed mark already has its row;
   // a kept mark (slot not uploaded, e.g. MAIN on an ACC-only upload with a

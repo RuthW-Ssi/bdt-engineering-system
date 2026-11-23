@@ -5,7 +5,7 @@ import type { RevReviewDto, RevReviewRowDto } from '../../api/dispatches'
 
 const R = (over: Partial<RevReviewRowDto>): RevReviewRowDto => ({
   mark: 'B1', kind: 'changed', prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL', dn_rev: null, dn_status: null, in_dn: false,
-  warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: { fields: [{ field: 'length_mm', old: 650, new: 700 }], parts_added: [], parts_removed: [], parts_changed: [] }, ...over,
+  warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, slot: null, editable: true, diff: { fields: [{ field: 'length_mm', old: 650, new: 700 }], parts_added: [], parts_removed: [], parts_changed: [] }, ...over,
 })
 const review = (over: Partial<RevReviewDto> = {}): RevReviewDto => ({
   base_dispatch_id: 7, has_dn: true, dn_only_marks: [], dn_warnings: [],
@@ -176,4 +176,13 @@ describe('RevReviewDialog — missing marks', () => {
     render(<RevReviewDialog review={rv([removed('CO1'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename={false} />)
     expect(within(screen.getByLabelText('ผลของ CO1')).queryByRole('option', { name: /CO1A/ })).toBeNull()
   })
+
+  it('separate mode: a missing MAIN mark is offered new MAIN marks only (not ACC)', () => {
+    const add = (mark: string, slot: 'MAIN' | 'ACC') => ({ ...added(mark), slot })
+    render(<RevReviewDialog review={rv([removed('CO1', { slot: 'MAIN' }), add('CO1A', 'MAIN'), add('DF1', 'ACC')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    const select = screen.getByLabelText('ผลของ CO1')
+    expect(within(select).getByRole('option', { name: 'เปลี่ยนเป็น CO1A' })).toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: /DF1/ })).toBeNull()
+  })
 })
+

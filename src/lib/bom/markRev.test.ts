@@ -16,7 +16,7 @@ describe('revMoveText / revUpOf', () => {
 
 const row = (over: Partial<RevReviewRowDto> = {}): RevReviewRowDto => ({
   mark: 'B1', kind: 'changed', prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL', dn_rev: null, dn_status: null,
-  in_dn: false, warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null, ...over,
+  in_dn: false, warning: 'CHANGED_NO_REV_UP', dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null, slot: null, ...over,
 })
 
 describe('review helpers', () => {

@@ -193,6 +193,17 @@ describe('decideRevs — separate mode, one Dispatch Note per slot (2026-10-26)'
     expect(d.has_dn).toBe(true)
   })
 
+  // the review offers renames within the same slot only (2026-11-23, Tao)
+  it('every row carries its slot: new rows from the upload, removed rows from the BOM', () => {
+    const d = decideRevs({ current: [SS('M1', 'MAIN'), SS('A1', 'ACC')], previous: [PREV('OLD', 1, { slot: 'MAIN' })], removable: all, dn: null })
+    expect(d.rows.map(r => [r.mark, r.kind, r.slot])).toEqual([['M1', 'added', 'MAIN'], ['A1', 'added', 'ACC'], ['OLD', 'removed', 'MAIN']])
+  })
+
+  it('combined uploads have no slot', () => {
+    const d = decideRevs({ current: [S('A')], previous: [PREV('B', 1)], removable: all, dn: null })
+    expect(d.rows.map(r => r.slot)).toEqual([null, null])
+  })
+
   it('a removed mark reads the DN of its own slot', () => {
     const d = decideRevs({ current: [], previous: [PREV('G', 2, { slot: 'ACC' })], removable: all, dn: [SDN('G', 3, 'MAIN')] })
     expect(d.rows[0]).toMatchObject({ kind: 'removed', in_dn: false, dn_rev: null })

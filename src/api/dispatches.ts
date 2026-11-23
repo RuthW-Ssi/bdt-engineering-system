@@ -184,6 +184,7 @@ export interface RevReviewRowDto {
   rename_hint: string | null
   editable: boolean
   diff: MarkDiffDto | null
+  slot: 'MAIN' | 'ACC' | null // separate mode; renames are offered within one slot (2026-11-23)
 }
 export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreviewDto extends PreviewJunctionsResult { review: RevReviewDto }
