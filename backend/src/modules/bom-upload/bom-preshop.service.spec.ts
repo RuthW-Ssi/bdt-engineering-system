@@ -11,7 +11,7 @@ const C01 = { assembly_mark: 'C-01', name: 'COLUMN', qty: 4, weight_kg: 1265.4, 
 const C02 = { assembly_mark: 'C-02', name: 'COLUMN', qty: 2, weight_kg: 1240.8, surface_area_m2: 24.1, length_mm: 8450, width_mm: 300, height_mm: 300, parts: [P102] }
 const SCOPE = { project_id: 43, zone_id: 79, sub_zone_id: null }
 
-function make(opts: { prev?: { id: number; revision: number } | null; realBom?: number } = {}) {
+function make(opts: { prev?: { id: number; revision: number } | null; realBom?: number; zoneOf?: number } = {}) {
   const calls: string[] = []
   const tx = {
     $queryRaw: jest.fn(() => { calls.push('lock'); return Promise.resolve([]) }),
@@ -25,7 +25,11 @@ function make(opts: { prev?: { id: number; revision: number } | null; realBom?: 
       return Promise.resolve({ id: 900 }) // read-back of the dispatch just written
     }) },
   }
-  const prisma = { $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)), bom_dispatch: { findFirst: jest.fn() }, bom_assembly: { findMany: jest.fn() } }
+  const prisma = {
+    $transaction: jest.fn((fn: (t: typeof tx) => unknown) => fn(tx)), bom_dispatch: { findFirst: jest.fn() }, bom_assembly: { findMany: jest.fn() },
+    project_zone: { findFirst: jest.fn((q: any) => Promise.resolve(opts.zoneOf === undefined || opts.zoneOf === q.where.project_id ? { id: q.where.id } : null)) },
+    sub_zone: { findFirst: jest.fn((q: any) => Promise.resolve(q.where.zone_id === 79 ? { id: q.where.id } : null)) },
+  }
   const preshop = { createDispatch: jest.fn(() => Promise.resolve(new Map([['C-01', 700]]))), fromDispatchNote: jest.fn() }
   const xlsx = { parse: jest.fn() }
   const svc = new BomPreshopService(prisma as any, preshop as any, xlsx as any)
@@ -71,6 +75,17 @@ describe('BomPreshopService.save', () => {
     await expect(svc.save(SCOPE, [C01, { ...C02, parts: [{ ...P102, profile: 'PL30x400' }] }], 1))
       .rejects.toThrow('Part mark ซ้ำแต่ขนาดไม่ตรงกัน: P102')
     expect(preshop.createDispatch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a zone that is not in the project', async () => {
+    const { svc, preshop } = make({ zoneOf: 99 })
+    await expect(svc.save(SCOPE, [C01], 1)).rejects.toThrow('Zone นี้ไม่ได้อยู่ใน project ที่เลือก')
+    expect(preshop.createDispatch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a sub-zone that is not in the zone', async () => {
+    const { svc } = make()
+    await expect(svc.save({ ...SCOPE, zone_id: 80, sub_zone_id: 5 }, [C01], 1)).rejects.toThrow('Sub-zone นี้ไม่ได้อยู่ใน zone ที่เลือก')
   })
 
   it('takes the per-zone lock before reading the previous revision', async () => {
@@ -132,6 +147,11 @@ describe('BomPreshopService.partsFromPartList', () => {
       ['DBN-B-px7', 'PL12x226.1', 1, 'HY370', 305.94, 0.14, 4.05],
     ])
     expect(svc().partsFromPartList(buf)).toEqual([{ part_mark: 'DBN-B-px7', profile: 'PL12x225.9', grade: 'HY370', length_mm: 305.02, unit_weight_kg: 4.04, no: 29 }])
+  })
+
+  it('refuses a Dispatch Note with a plain "Mark" header in the Part List slot', () => {
+    const buf = sheet([['Mark', 'Name', 'Set', 'WeightKg.'], ['DBN-B1-BR1', 'BRACE', 18, 104.44]])
+    expect(() => svc().partsFromPartList(buf)).toThrow('Part List: ไม่พบ part ในไฟล์นี้ — ตรวจว่าเป็นไฟล์ Part List')
   })
 
   it('refuses a file that is not a Part List', () => {

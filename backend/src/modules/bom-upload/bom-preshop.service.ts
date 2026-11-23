@@ -41,7 +41,8 @@ export class BomPreshopService {
     } catch {
       throw new BadRequestException(NOT_PART_LIST)
     }
-    if (!parsed.parts.length) throw new BadRequestException(NOT_PART_LIST)
+    // a Part List always has a Profile column; a Dispatch Note with a plain "Mark" header has none
+    if (!parsed.parts.length || parsed.parts.every(p => !p.profile?.trim())) throw new BadRequestException(NOT_PART_LIST)
     // Tekla lists one mark on several rows when plate sizes round apart
     // (PL12x225.9 / PL12x226): first row's size, as the real upload does
     // (buildDedupedParts), pieces added up so the zone count stays right.
@@ -101,6 +102,13 @@ export class BomPreshopService {
       else if (cur !== k) clash.add(p.part_mark)
     }
     if (clash.size) throw new BadRequestException(`Part mark ซ้ำแต่ขนาดไม่ตรงกัน: ${[...clash].join(', ')}`)
+
+    const zone = await this.prisma.project_zone.findFirst({ where: { id: scope.zone_id, project_id: scope.project_id }, select: { id: true } })
+    if (!zone) throw new BadRequestException('Zone นี้ไม่ได้อยู่ใน project ที่เลือก')
+    if (scope.sub_zone_id != null) {
+      const sub = await this.prisma.sub_zone.findFirst({ where: { id: scope.sub_zone_id, zone_id: scope.zone_id }, select: { id: true } })
+      if (!sub) throw new BadRequestException('Sub-zone นี้ไม่ได้อยู่ใน zone ที่เลือก')
+    }
 
     return this.prisma.$transaction(async (tx) => {
       // two saves for one zone at the same moment would both read the same "previous" revision
