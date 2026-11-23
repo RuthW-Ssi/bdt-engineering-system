@@ -39,6 +39,11 @@ vi.mock('../hooks/useRenameStep', () => ({
   useRenameStep: () => ({ dispatchId: null, afterUpload: vi.fn().mockResolvedValue(false), close: vi.fn() }),
 }))
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => true }))
+const preshopCurrent = vi.fn().mockReturnValue({ data: null, isLoading: false })
+vi.mock('../hooks/useBomPreshop', () => ({
+  usePreshopCurrent: (scope: unknown) => preshopCurrent(scope),
+  useSavePreshop: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 
 afterEach(() => {
@@ -166,5 +171,35 @@ describe('BomUpload — opened from the BOM page (2026-10-28)', () => {
     render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1']}><BomUpload /></MemoryRouter>)
     expect(screen.getByDisplayValue('Z1 — Zone 1')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('Select Zone...')).toBeNull()
+  })
+})
+
+describe('BomUpload — BOM Type', () => {
+  it('opens on Full shop with NC Files', () => {
+    renderPage()
+    selectZone()
+    expect(screen.getByRole('radio', { name: 'Full shop (BOM)' })).toBeChecked()
+    expect(screen.getByText(/^NC Files/)).toBeInTheDocument()
+  })
+
+  it('Pre-shop hides the BOM and NC sections and shows the pre-shop slots', () => {
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    expect(screen.queryByText(/^NC Files/)).toBeNull()
+    expect(screen.getByText('Part list (ถ้ามี)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save pre-shop' })).toBeDisabled()
+  })
+
+  it('loads the saved pre-shop of the zone', () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', assemblies: [
+      { assembly_mark: 'C-01', name: 'COLUMN', qty: 4, weight_kg: 100, surface_area_m2: 2, length_mm: 8450, width_mm: 300, height_mm: 300,
+        parts: [{ part_mark: 'P101', profile: 'H300', grade: 'SS400', length_mm: 8400, unit_weight_kg: 789.6, qty: 1 }] },
+    ] } })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    expect(screen.getByText(/Pre-shop rev 2/)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('C-01')).toBeInTheDocument()
   })
 })

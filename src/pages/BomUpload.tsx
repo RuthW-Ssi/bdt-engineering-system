@@ -18,6 +18,10 @@ import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
 import type { DispatchDetailDto, RevEdit } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
+import { usePreshopCurrent, useSavePreshop } from '../hooks/useBomPreshop'
+import { PreshopEditor } from '../components/bom/preshop/PreshopEditor'
+import { EMPTY_STATE, fromSaved } from '../lib/bomPreshop'
+import type { PreshopAssembly } from '../api/bomPreshop'
 
 const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 const NC_FORMATS = ['.nc1']
@@ -124,6 +128,9 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
+  // BOM Type (2026-11-23, wiki features/bom-preshop-upload-plan): Full shop =
+  // the real BOM upload below; Pre-shop = Dispatch Note + Part List editor.
+  const [bomType, setBomType] = useState<'full' | 'preshop'>(() => (searchParams.get('type') === 'preshop' ? 'preshop' : 'full'))
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -139,6 +146,11 @@ export function BomUpload() {
   const effectiveMode = isModeLocked ? zoneMode! : uploadMode
 
   const uploadFlow = useUploadBomWithPreview()
+  const preshopScope = activeProject && zoneId
+    ? { project_id: activeProject.id, zone_id: Number(zoneId), sub_zone_id: subZoneId ? Number(subZoneId) : null }
+    : null
+  const preshopCurrent = usePreshopCurrent(bomType === 'preshop' ? preshopScope : null)
+  const savePreshop = useSavePreshop()
   const renameStep = useRenameStep()
 
   const combined = makeFileHandlers(files, setFiles)
@@ -195,6 +207,18 @@ export function BomUpload() {
   const canWrite = usePermission('boms', 'create')
   const canSubmit = canWrite && !!zoneId && bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
     && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+
+  const handleSavePreshop = async (assemblies: PreshopAssembly[]) => {
+    if (!preshopScope) return
+    try {
+      const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies })
+      toast.success(`Pre-shop saved (rev ${res.revision})`)
+      navigate('/bom', { state: { selectDispatch: res.dispatch_id } })
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Save pre-shop failed — please try again'))
+    }
+  }
 
   const handleUploadError = (err: unknown) => {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -273,7 +297,7 @@ export function BomUpload() {
       </div>
 
       {/* Form */}
-      <div style={{ maxWidth: 640, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ maxWidth: bomType === 'preshop' ? 1240 : 640, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Project */}
         <div>
@@ -330,6 +354,55 @@ export function BomUpload() {
           </select>
         </div>
 
+        {/* BOM Type */}
+        {zoneId && (
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>BOM Type</div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {([['full', 'Full shop (BOM)'], ['preshop', 'Pre-shop']] as const).map(([t, label]) => (
+                <label key={t} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 16px', borderRadius: 8, fontSize: 13,
+                  border: `1px solid ${bomType === t ? '#C8202A' : '#E0E0E0'}`, background: bomType === t ? '#FEF2F2' : 'white', color: '#1F1F1F',
+                }}>
+                  <input type="radio" name="bom-type" checked={bomType === t} onChange={() => setBomType(t)} style={{ accentColor: '#C8202A' }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {bomType === 'preshop' && (
+              <div style={{ fontSize: 11.5, color: '#767676', marginTop: 6 }}>
+                Pre-shop: ยังไม่มี BOM จริง · ใช้ Dispatch Note และ Part list (ถ้ามี) หรือกรอกเองทั้งหมด · บันทึกแต่ละครั้งเป็น rev ใหม่
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Pre-shop editor */}
+        {bomType === 'preshop' && zoneId && (
+          preshopCurrent.isLoading
+            ? <div className="flex items-center gap-2" style={{ fontSize: 13, color: '#8E8E8E' }}><Loader2 size={14} className="animate-spin" />Loading pre-shop…</div>
+            : (
+              <>
+                {preshopCurrent.data && (
+                  <div style={{ fontSize: 12.5, color: '#555' }}>
+                    Pre-shop rev {preshopCurrent.data.revision} · saved {new Date(preshopCurrent.data.uploaded_at).toLocaleString('en-GB')} — แก้ด้วยมือหรืออัปไฟล์ใหม่เพื่อเทียบกับค่าเดิม
+                  </div>
+                )}
+                <PreshopEditor
+                  key={`${zoneId}-${subZoneId}-${preshopCurrent.data?.dispatch_id ?? 'new'}`}
+                  initial={preshopCurrent.data ? fromSaved(preshopCurrent.data.assemblies) : EMPTY_STATE}
+                  onSave={handleSavePreshop}
+                  saving={savePreshop.isPending}
+                  canWrite={canWrite}
+                />
+                <div>
+                  <button onClick={() => navigate('/bom')} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+                </div>
+              </>
+            )
+        )}
+
+        {bomType === 'full' && (<>
         {/* Upload Mode Radio */}
         {zoneId && !zoneModeLoading && (
           <div>
@@ -478,6 +551,7 @@ export function BomUpload() {
                 : <><Upload size={14} />Upload</>}
           </button>
         </div>
+        </>)}
       </div>
 
       {uploadFlow.pendingMismatch && (
