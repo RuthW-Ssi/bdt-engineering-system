@@ -117,6 +117,16 @@ describe('BomPreshopService.partsFromPartList', () => {
     expect(svc().partsFromPartList(buf)).toEqual([{ part_mark: 'DBN-B-px1', profile: 'PL20x520', grade: 'HY370', length_mm: 520, unit_weight_kg: 42.45, no: 40 }])
   })
 
+  it('folds rows that share a part mark into one: first row\'s size (as the real upload), pieces added up', () => {
+    const buf = sheet([
+      ['Mark', 'Profile', 'No.', 'Grade', 'Length(mm)', 'Area(m2)/PCS.', 'Weight(kg)/PCS.'],
+      ['DBN-B-px7', 'PL12x225.9', 1, 'HY370', 305.02, 0.14, 4.04],
+      ['DBN-B-px7', 'PL12x226', 27, 'HY370', 305.51, 0.14, 4.05],
+      ['DBN-B-px7', 'PL12x226.1', 1, 'HY370', 305.94, 0.14, 4.05],
+    ])
+    expect(svc().partsFromPartList(buf)).toEqual([{ part_mark: 'DBN-B-px7', profile: 'PL12x225.9', grade: 'HY370', length_mm: 305.02, unit_weight_kg: 4.04, no: 29 }])
+  })
+
   it('refuses a file that is not a Part List', () => {
     const buf = sheet([['No.', 'MarkNo.', 'Name', 'DrawingNumber', 'Set'], [1, 'DBN-B1-BR1', 'BRACE', 'DBN-B1-BR1', 18]])
     expect(() => svc().partsFromPartList(buf)).toThrow('Part List: ไม่พบ part ในไฟล์นี้ — ตรวจว่าเป็นไฟล์ Part List')

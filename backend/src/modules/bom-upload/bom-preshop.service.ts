@@ -42,10 +42,19 @@ export class BomPreshopService {
       throw new BadRequestException(NOT_PART_LIST)
     }
     if (!parsed.parts.length) throw new BadRequestException(NOT_PART_LIST)
-    return parsed.parts.map(p => ({
-      part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '',
-      length_mm: p.length_mm ?? null, unit_weight_kg: p.weight_kg ?? null, no: p.qty ?? null,
-    }))
+    // Tekla lists one mark on several rows when plate sizes round apart
+    // (PL12x225.9 / PL12x226): first row's size, as the real upload does
+    // (buildDedupedParts), pieces added up so the zone count stays right.
+    const byMark = new Map<string, PreshopListPart>()
+    for (const p of parsed.parts) {
+      const cur = byMark.get(p.part_mark)
+      if (cur) { if (p.qty != null) cur.no = (cur.no ?? 0) + p.qty; continue }
+      byMark.set(p.part_mark, {
+        part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '',
+        length_mm: p.length_mm ?? null, unit_weight_kg: p.weight_kg ?? null, no: p.qty ?? null,
+      })
+    }
+    return [...byMark.values()]
   }
 
   /** The zone's current BOM-page pre-shop (ACTIVE rows, parts per set), or null. */
