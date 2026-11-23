@@ -337,7 +337,7 @@ export const dispatchesApi = {
 
   getZoneUploadMode(projectId: number, zoneId: number): Promise<'combined' | 'separate' | null> {
     return apiClient
-      .get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1 } })
+      .get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1, source: 'BOM_UPLOAD' } }) // pre-shop never locks the mode
       .then(r => {
         const items: DispatchSummaryDto[] = r.data.items ?? []
         return items.length > 0 ? items[0].upload_mode : null

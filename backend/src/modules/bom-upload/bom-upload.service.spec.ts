@@ -801,6 +801,13 @@ describe('BomUploadService.list()', () => {
     expect(prisma.bom_dispatch.findMany.mock.calls[0][0].where).toMatchObject({ NOT: { source: 'PRE_SHOP', revision: 0 } })
   })
 
+  it('filters by source when asked (zone upload-mode lookup ignores pre-shop) — 2026-11-23', async () => {
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await svc.list({ zone_id: 2, source: 'BOM_UPLOAD', limit: 1 } as any)
+    expect(prisma.bom_dispatch.findMany.mock.calls[0][0].where).toMatchObject({ zone_id: 2, source: 'BOM_UPLOAD' })
+  })
+
   it('defaults page=1, limit=20 when not provided', async () => {
     const prisma = makePrisma()
     const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
@@ -1194,7 +1201,9 @@ function makePersistentPrisma() {
   const dispatchMatches = (d: any, where: any) =>
     (where.project_id === undefined || d.project_id === where.project_id) &&
     (where.zone_id === undefined || d.zone_id === where.zone_id) &&
-    (!('sub_zone_id' in where) || d.sub_zone_id === where.sub_zone_id)
+    (!('sub_zone_id' in where) || d.sub_zone_id === where.sub_zone_id) &&
+    (where.source === undefined || d.source === where.source) &&
+    (where.revision?.gte === undefined || d.revision >= where.revision.gte)
 
   const updateManyFor = (rows: any[]) => jest.fn(({ where, data }: any) => {
     let count = 0
@@ -1321,6 +1330,18 @@ describe('BomUploadService — slot-scoped status supersession (write path)', ()
     expect(byMark('Z')).toHaveLength(1)
     expect(byMark('Z')[0].status).toBe('ACTIVE')
     expect(byMark('Z')[0].slot).toBeNull()
+  })
+
+  it('separate-mode real upload supersedes the zone\'s BOM-page pre-shop rows (slot null) — 2026-11-23', async () => {
+    const store = makePersistentPrisma()
+    store.dispatches.push({ id: 900, project_id: 1, zone_id: 2, sub_zone_id: null, source: 'PRE_SHOP', revision: 1 })
+    store.assemblies.push({ id: 901, dispatch_id: 900, assembly_mark: 'C-01', status: 'ACTIVE', slot: null })
+    store.parts.push({ id: 902, dispatch_id: 900, part_mark: 'P101', status: 'ACTIVE', slot: null })
+    const parser = makeBranchingParser({ MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'X' }] } })
+    const svc = new BomUploadService(store.prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(store.prisma) as any)
+    await svc.upload([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' })], [], 1, 2, null, 1, 'separate')
+    expect(store.assemblies.find(a => a.id === 901)!.status).toBe('INACTIVE')
+    expect(store.parts.find(p => p.id === 902)!.status).toBe('INACTIVE')
   })
 
   it('separate-mode Acc-only upload never touches Main-slot rows (the production bug this plan fixes)', async () => {

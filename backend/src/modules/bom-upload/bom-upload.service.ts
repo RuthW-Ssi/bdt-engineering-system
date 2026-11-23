@@ -246,6 +246,15 @@ export class BomUploadService {
           })
         }
 
+        // A real BOM replaces the zone's BOM-page pre-shop (2026-11-23). In
+        // combined mode the wipe above already covers it; separate mode only
+        // touches MAIN/ACC slots and pre-shop rows have slot null.
+        if (uploadMode === 'separate' && (asmList?.assemblies.length || dedupedParts.length)) {
+          const preshopScope = { status: 'ACTIVE', dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } }
+          await tx.bom_assembly.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
+          await tx.bom_part.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
+        }
+
         // bom_assembly rows — batch insert, get IDs back in one round-trip
         const assemblyIdByMark = new Map<string, number>()
         if (asmList?.assemblies.length) {
@@ -596,6 +605,7 @@ export class BomUploadService {
       ...(query.zone_id ? { zone_id: query.zone_id } : {}),
       ...(query.sub_zone_id ? { sub_zone_id: query.sub_zone_id } : {}),
       ...(query.status ? { status: query.status } : {}),
+      ...(query.source ? { source: query.source } : {}),
       // MO-made pre-shop (PRE_SHOP, revision 0) belongs to the MO, not the BOM
       // page; BOM-page pre-shop is revision ≥ 1 (2026-11-23).
       NOT: { source: 'PRE_SHOP', revision: 0 },
