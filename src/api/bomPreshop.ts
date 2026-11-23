@@ -45,7 +45,7 @@ export async function importPartList(file: File): Promise<{ filename: string; pa
 /** GET /bom/preshop — the zone's current BOM-page pre-shop, or null. */
 export async function getPreshop(scope: PreshopScope): Promise<PreshopCurrent | null> {
   const params = { project_id: scope.project_id, zone_id: scope.zone_id, ...(scope.sub_zone_id != null ? { sub_zone_id: scope.sub_zone_id } : {}) }
-  return (await apiClient.get('/bom/preshop', { params })).data ?? null
+  return (await apiClient.get('/bom/preshop', { params })).data || null // Nest sends an empty body for null
 }
 
 /** POST /bom/preshop — save as a new pre-shop revision. */

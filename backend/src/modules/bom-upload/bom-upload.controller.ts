@@ -1,10 +1,10 @@
 import {
   Controller, Get, Post, Delete, Param, Query, Body,
-  UseInterceptors, UploadedFiles,
+  UseInterceptors, UploadedFiles, UploadedFile,
   ParseIntPipe, UseGuards, BadRequestException,
   Res, HttpStatus, HttpCode,
 } from '@nestjs/common'
-import { FileFieldsInterceptor } from '@nestjs/platform-express'
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express'
 import { ApiTags, ApiOperation, ApiConsumes, ApiBearerAuth, ApiBody } from '@nestjs/swagger'
 import { memoryStorage } from 'multer'
 import type { Response } from 'express'
@@ -20,6 +20,10 @@ import type { BomDocType } from './filename-classifier'
 import { QueryDispatchDto, QueryDiffBimModelsDto, QueryLatestRevisionDto } from './dto/dispatch.dto'
 import { SaveAssemblyMatchDto } from './dto/assembly-match.dto'
 import { SaveRenamesDto } from './dto/rename.dto'
+import { PreshopScopeQueryDto, SaveBomPreshopDto } from './dto/bom-preshop.dto'
+import { BomPreshopService } from './bom-preshop.service'
+import { PreshopService } from '../manufacturing-orders/preshop/preshop.service'
+import { parseDispatchNote } from '../manufacturing-orders/mo-part/dispatch-note-parser'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
 import { RequiresPermission } from '../../common/decorators/permission.decorator'
@@ -46,7 +50,53 @@ export class BomUploadController {
     private readonly paintSvc: PaintConfigService,
     private readonly renameSvc: MarkRenameService,
     private readonly revHistorySvc: MarkRevHistoryService,
+    private readonly bomPreshop: BomPreshopService,
+    private readonly preshop: PreshopService,
   ) {}
+
+  // ── Pre-shop at the BOM page (2026-11-23, wiki features/bom-preshop-upload-plan) ──
+  @Post('bom/preshop/import/dispatch-note')
+  @RequiresPermission('boms', 'create')
+  @ApiOperation({ summary: 'Pre-shop · parse ONE Dispatch Note into assemblies (not stored)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  importPreshopDispatchNote(@UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('file is required')
+    if (!/\.xlsx?$/i.test(file.originalname)) throw new BadRequestException('Dispatch Note: .xls or .xlsx only')
+    let parsed: ReturnType<typeof parseDispatchNote>
+    try {
+      parsed = parseDispatchNote(file.buffer)
+    } catch {
+      parsed = { marks: [], warnings: [] }
+    }
+    if (!parsed.marks.length) throw new BadRequestException('Dispatch Note: ไม่พบ mark ในไฟล์นี้ — ตรวจว่าเป็นไฟล์ Dispatch Note')
+    return { filename: file.originalname, assemblies: this.preshop.fromDispatchNote(parsed.marks), warnings: parsed.warnings }
+  }
+
+  @Post('bom/preshop/import/part-list')
+  @RequiresPermission('boms', 'create')
+  @ApiOperation({ summary: 'Pre-shop · parse ONE Tekla Part List into parts (not stored)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  importPreshopPartList(@UploadedFile() file?: { originalname: string; buffer: Buffer }) {
+    if (!file) throw new BadRequestException('file is required')
+    if (!/\.xlsx?$/i.test(file.originalname)) throw new BadRequestException('Part List: .xls or .xlsx only')
+    return { filename: file.originalname, parts: this.bomPreshop.partsFromPartList(file.buffer) }
+  }
+
+  @Get('bom/preshop')
+  @RequiresPermission('boms', 'view')
+  @ApiOperation({ summary: 'Pre-shop · the zone\'s current BOM-page pre-shop (latest revision ≥ 1) or null' })
+  getPreshop(@Query() q: PreshopScopeQueryDto) {
+    return this.bomPreshop.current({ project_id: q.project_id, zone_id: q.zone_id, sub_zone_id: q.sub_zone_id ?? null })
+  }
+
+  @Post('bom/preshop')
+  @RequiresPermission('boms', 'create')
+  @ApiOperation({ summary: 'Pre-shop · save as a new revision (previous BOM-page revision goes INACTIVE)' })
+  savePreshop(@Body() dto: SaveBomPreshopDto, @CurrentUser() user: JwtPayload) {
+    return this.bomPreshop.save({ project_id: dto.project_id, zone_id: dto.zone_id, sub_zone_id: dto.sub_zone_id ?? null }, dto.assemblies, user.sub)
+  }
 
   @Post('bom/upload')
   @RequiresPermission('boms', 'create')

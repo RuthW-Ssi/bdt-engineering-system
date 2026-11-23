@@ -12,6 +12,8 @@ import { XlsxParserService } from './xlsx-parser.service'
 // dispatches keep revision 0 and MO lines point at them, so nothing here
 // reads or touches revision 0.
 
+export interface PreshopListPart { part_mark: string; profile: string; grade: string; length_mm: number | null; unit_weight_kg: number | null; no: number | null }
+
 export type PreshopScope = { project_id: number; zone_id: number; sub_zone_id: number | null }
 
 const BOM_PRESHOP_LOCK = 4202 // per-zone advisory lock (MO create uses 4201)
@@ -28,6 +30,22 @@ export class BomPreshopService {
 
   private where(scope: PreshopScope) {
     return { project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id ?? null, ...BOM_PAGE_PRESHOP }
+  }
+
+  /** A Tekla Part List (.xls/.xlsx) → parts. `no` = pieces over the zone. Not stored. */
+  partsFromPartList(buffer: Buffer): PreshopListPart[] {
+    const NOT_PART_LIST = 'Part List: ไม่พบ part ในไฟล์นี้ — ตรวจว่าเป็นไฟล์ Part List'
+    let parsed: ReturnType<XlsxParserService['parse']>
+    try {
+      parsed = this.xlsx.parse(buffer, 'PART_LIST')
+    } catch {
+      throw new BadRequestException(NOT_PART_LIST)
+    }
+    if (!parsed.parts.length) throw new BadRequestException(NOT_PART_LIST)
+    return parsed.parts.map(p => ({
+      part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '',
+      length_mm: p.length_mm ?? null, unit_weight_kg: p.weight_kg ?? null, no: p.qty ?? null,
+    }))
   }
 
   /** The zone's current BOM-page pre-shop (ACTIVE rows, parts per set), or null. */

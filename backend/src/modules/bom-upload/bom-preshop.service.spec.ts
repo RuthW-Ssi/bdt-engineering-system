@@ -97,3 +97,28 @@ describe('BomPreshopService.current', () => {
     expect(prisma.bom_assembly.findMany.mock.calls[0][0].where).toEqual({ dispatch_id: 60, status: 'ACTIVE' })
   })
 })
+
+describe('BomPreshopService.partsFromPartList', () => {
+  // real parser, sheet built in the test (same as xlsx-parser.service.spec)
+  const XLSX = require('xlsx')
+  const { XlsxParserService } = require('./xlsx-parser.service')
+  const sheet = (rows: (string | number)[][]) => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Sheet1')
+    return Buffer.from(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+  }
+  const svc = () => new BomPreshopService({} as any, {} as any, new XlsxParserService())
+
+  it('reads a Tekla Part List into parts with the zone count', () => {
+    const buf = sheet([
+      ['Mark', 'Profile', 'No.', 'Grade', 'Length(mm)', 'Area(m2)/PCS.', 'Weight(kg)/PCS.'],
+      ['DBN-B-px1', 'PL20x520', 40, 'HY370', 520, 0.58, 42.45],
+    ])
+    expect(svc().partsFromPartList(buf)).toEqual([{ part_mark: 'DBN-B-px1', profile: 'PL20x520', grade: 'HY370', length_mm: 520, unit_weight_kg: 42.45, no: 40 }])
+  })
+
+  it('refuses a file that is not a Part List', () => {
+    const buf = sheet([['No.', 'MarkNo.', 'Name', 'DrawingNumber', 'Set'], [1, 'DBN-B1-BR1', 'BRACE', 'DBN-B1-BR1', 18]])
+    expect(() => svc().partsFromPartList(buf)).toThrow('Part List: ไม่พบ part ในไฟล์นี้ — ตรวจว่าเป็นไฟล์ Part List')
+  })
+})
