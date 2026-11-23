@@ -11,6 +11,7 @@ export interface DispatchSummaryDto {
   status: DispatchStatus
   upload_mode: 'combined' | 'separate'
   revision: number
+  source: string // BOM_UPLOAD | PRE_SHOP (BOM-page pre-shop, revision ≥ 1) | BIM_PLACEHOLDER
   doc_count: number
   uploaded_at: string
   zone: { id: number; code: string; label: string }

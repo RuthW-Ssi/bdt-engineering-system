@@ -596,6 +596,9 @@ export class BomUploadService {
       ...(query.zone_id ? { zone_id: query.zone_id } : {}),
       ...(query.sub_zone_id ? { sub_zone_id: query.sub_zone_id } : {}),
       ...(query.status ? { status: query.status } : {}),
+      // MO-made pre-shop (PRE_SHOP, revision 0) belongs to the MO, not the BOM
+      // page; BOM-page pre-shop is revision ≥ 1 (2026-11-23).
+      NOT: { source: 'PRE_SHOP', revision: 0 },
     }
 
     const [total, items] = await Promise.all([
@@ -651,15 +654,18 @@ export class BomUploadService {
     // must still show whichever sibling slot is currently active, carried
     // forward from wherever it was last uploaded (possibly an earlier
     // revision), so the content view never silently drops half the BOM.
-    const effectiveGroup = await this.diffService.resolveEffectiveGroup(
+    // A pre-shop dispatch is its own whole content — the Main/Acc group walk
+    // only follows real BOM uploads (2026-11-23).
+    const preshop = d.source === 'PRE_SHOP'
+    const effectiveGroup = preshop ? null : await this.diffService.resolveEffectiveGroup(
       d.project_id, d.zone_id, d.sub_zone_id, { lte: id },
     )
-    const effectiveIds = groupToIds(effectiveGroup)
+    const effectiveIds = effectiveGroup ? groupToIds(effectiveGroup) : [id]
     // `d` itself is always a member of the walked group (it's the highest
     // id within the `{ lte: id }` bound), so this can never genuinely be
     // empty here — the null branch below is defensive only, mirroring
     // BomDiffService's own handling of slotAwareWhere()'s null case.
-    const markWhere = slotAwareWhere(effectiveGroup)
+    const markWhere = effectiveGroup ? slotAwareWhere(effectiveGroup) : { dispatch_id: id }
 
     const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
     const nos = await uploadNumbersOf(this.prisma, [id])
@@ -879,6 +885,7 @@ export class BomUploadService {
     status: string
     upload_mode: string
     revision: number
+    source: string
     uploaded_at: Date
     assembly_total: number | null
     part_total: number | null
@@ -895,6 +902,7 @@ export class BomUploadService {
       status: d.status,
       upload_mode: d.upload_mode,
       revision: d.revision,
+      source: d.source,
       upload_no: uploadNo,
       doc_count: d.doc_revisions?.length ?? 0,
       uploaded_at: d.uploaded_at.toISOString(),

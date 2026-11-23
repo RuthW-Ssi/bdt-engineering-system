@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
-import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X, Layers } from 'lucide-react'
+import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X, Layers, Pencil } from 'lucide-react'
 import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
 import { usePaintConfig } from '../hooks/usePaint'
 import type { PaintConfigResponseDto } from '../api/paint'
@@ -393,7 +393,7 @@ function VersionNode({
           fontSize: 13, fontWeight: 700, marginBottom: 5,
           color: selected ? '#185FA5' : isLatest ? '#1F1F1F' : '#555',
         }}>
-          {uploadLabel(uploadNo)}
+          {item.source === 'PRE_SHOP' ? `Pre-shop rev ${item.revision}` : uploadLabel(uploadNo)}
         </div>
 
         <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>
@@ -661,6 +661,15 @@ export function BomList() {
   }
 
   const selectedItem = allItems.find(i => i.id === selectedId)
+  // Pre-shop (2026-11-23): read-only here, edited at Upload BOM → Pre-shop; no paint config.
+  const isPreshop = selectedItem?.source === 'PRE_SHOP'
+  const preshopPath = selectedItem && `/bom/upload?${new URLSearchParams({
+    project_id: String(selectedItem.project_id),
+    zone_id: String(selectedItem.zone_id),
+    ...(selectedItem.sub_zone_id != null && { sub_zone_id: String(selectedItem.sub_zone_id) }),
+    type: 'preshop',
+  })}`
+  const contentTabs = isPreshop ? CONTENT_TABS.filter(t => t.id !== 'paint') : CONTENT_TABS
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
@@ -678,6 +687,11 @@ export function BomList() {
               <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
                 {detail.part_count ?? 0} part
               </span>
+              {isPreshop && (
+                <span style={{ background: '#FAEEDA', border: '1px solid #F0D9B5', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 600, color: '#854F0B' }}>
+                  Pre-shop rev {selectedItem!.revision}
+                </span>
+              )}
             </>
           )}
         </div>
@@ -689,7 +703,16 @@ export function BomList() {
           >
             <RefreshCw size={14} />
           </button>
-          {!canWrite ? null : allItems.length > 0 && selectedId ? (
+          {canWrite && isPreshop && preshopPath && (
+            <button
+              onClick={() => navigate(preshopPath)}
+              className="flex items-center gap-1.5 rounded-md text-white"
+              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#854F0B' }}
+            >
+              <Pencil size={14} />Edit pre-shop
+            </button>
+          )}
+          {!canWrite ? null : allItems.length > 0 && selectedId && !isPreshop ? (
             <button
               onClick={() => setShowModal(true)}
               className="flex items-center gap-1.5 rounded-md text-white"
@@ -831,7 +854,7 @@ export function BomList() {
 
             {/* Tab bar */}
             <div style={{ display: 'flex', borderBottom: '1px solid #E8E8E8', background: '#fff', flexShrink: 0 }}>
-              {CONTENT_TABS.map(tab => (
+              {contentTabs.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setContentTab(tab.id)}
@@ -888,7 +911,7 @@ export function BomList() {
                 : <PartsTable assemblies={detail?.assemblies ?? []} orphanParts={detail?.orphan_parts ?? []} />
             )}
 
-            {contentTab === 'paint' && (
+            {contentTab === 'paint' && !isPreshop && (
               <PaintTab
                 dispatchId={selectedId}
                 paintConfig={paintConfig}

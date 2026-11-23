@@ -96,7 +96,7 @@ function buildInnerPrisma(baseDispatch: any, seq: number) {
 
 function makeDispatchRow(overrides: any = {}) {
   return {
-    id: 1, project_id: 1, zone_id: 2, sub_zone_id: null,
+    id: 1, project_id: 1, zone_id: 2, sub_zone_id: null, source: 'BOM_UPLOAD', revision: 1,
     status: 'complete', uploaded_at: new Date(),
     assembly_total: 2, part_total: 3,
     zone: { id: 2, code: 'Z1', label: 'Zone 1' },
@@ -793,6 +793,14 @@ describe('BomUploadService.list()', () => {
     expect(result.part_total).toBe(7)
   })
 
+  it('carries source and hides MO-made pre-shop (PRE_SHOP revision 0) — 2026-11-23', async () => {
+    const prisma = makePrisma()
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
+    const r = await svc.list({ page: 1, limit: 20 })
+    expect(r.items[0]).toHaveProperty('source', 'BOM_UPLOAD')
+    expect(prisma.bom_dispatch.findMany.mock.calls[0][0].where).toMatchObject({ NOT: { source: 'PRE_SHOP', revision: 0 } })
+  })
+
   it('defaults page=1, limit=20 when not provided', async () => {
     const prisma = makePrisma()
     const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
@@ -827,6 +835,19 @@ describe('BomUploadService.findOne()', () => {
     const r = await svc.findOne(1)
     expect(r.assemblies!.map(a => [a.assembly_mark, a.former_marks])).toEqual([['3BR10', ['2BR10', 'BR10']], ['BR7', []]])
     expect(renames.mock.calls[0][0].where).toMatchObject({ project_id: 1, zone_id: 2, sub_zone_id: null, kind: 'ASSEMBLY', dispatch: { source: { not: 'PRE_SHOP' } } })
+  })
+
+  it('a BOM-page pre-shop dispatch shows its own rows, not the real BOM group (2026-11-23)', async () => {
+    const prisma = makePrisma({
+      bom_dispatch: { ...makePrisma().bom_dispatch, findUnique: jest.fn().mockResolvedValue({ ...makeDetailRow(), id: 94, source: 'PRE_SHOP', revision: 2 }) },
+    })
+    const diff = makeDiffService(prisma)
+    const resolve = jest.spyOn(diff, 'resolveEffectiveGroup')
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, diff as any)
+    const r = await svc.findOne(94)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(prisma.bom_assembly.findMany.mock.calls[0][0].where).toEqual({ dispatch_id: 94 })
+    expect(r.source).toBe('PRE_SHOP')
   })
 
   it('throws NotFoundException when dispatch not found', async () => {
