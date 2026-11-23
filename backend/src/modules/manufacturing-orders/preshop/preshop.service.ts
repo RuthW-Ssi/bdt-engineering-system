@@ -55,6 +55,8 @@ export class PreshopService {
     scope: { project_id: number; zone_id: number; sub_zone_id?: number | null },
     assemblies: PreshopAssembly[],
     userId: number,
+    // BOM-page pre-shop saves use revision ≥ 1 (2026-11-23); MO uploads keep 0.
+    opts: { revision?: number } = {},
   ): Promise<Map<string, number>> {
     const seen = new Set<string>()
     for (const a of assemblies) {
@@ -69,7 +71,7 @@ export class PreshopService {
     const dispatch = await tx.bom_dispatch.create({
       data: {
         project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id ?? null,
-        source: 'PRE_SHOP', status: 'ready', upload_mode: 'combined', revision: 0,
+        source: 'PRE_SHOP', status: 'ready', upload_mode: 'combined', revision: opts.revision ?? 0,
         assembly_total: assemblies.length,
         part_total: new Set(assemblies.flatMap(a => a.parts.map(p => p.part_mark))).size,
         create_uid: userId, write_uid: userId,
@@ -106,11 +108,16 @@ export class PreshopService {
         select: { id: true, part_mark: true },
       })
       const partId = new Map(partRows.map(p => [p.part_mark, p.id]))
+      // a part listed twice in one assembly → one link, qty summed (unique assembly+part)
+      const links = new Map<string, { assembly_id: number; part_id: number; qty: number; sequence: number }>()
+      for (const a of assemblies) a.parts.forEach((p, i) => {
+        const k = `${a.assembly_mark.trim()}|${p.part_mark}`
+        const cur = links.get(k)
+        if (cur) cur.qty += p.qty
+        else links.set(k, { assembly_id: asmId.get(a.assembly_mark.trim())!, part_id: partId.get(p.part_mark)!, qty: p.qty, sequence: i })
+      })
       await tx.bom_assembly_part.createMany({
-        data: assemblies.flatMap(a => a.parts.map((p, i) => ({
-          assembly_id: asmId.get(a.assembly_mark.trim())!, part_id: partId.get(p.part_mark)!,
-          qty: new Prisma.Decimal(p.qty), sequence: i, create_uid: userId,
-        }))),
+        data: [...links.values()].map(l => ({ ...l, qty: new Prisma.Decimal(l.qty), create_uid: userId })),
       })
     }
     return asmId

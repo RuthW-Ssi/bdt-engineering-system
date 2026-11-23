@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Min } from 'class-validator'
+import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator'
 import { Transform } from 'class-transformer'
 import { ApiPropertyOptional } from '@nestjs/swagger'
 
@@ -15,6 +15,10 @@ export class QueryDispatchDto {
   @ApiPropertyOptional({ enum: ['pending', 'partial', 'complete'] })
   @IsOptional() @IsString()
   status?: string
+
+  // BOM_UPLOAD | PRE_SHOP | BIM_PLACEHOLDER — the zone upload-mode lookup asks for BOM_UPLOAD only (2026-11-23)
+  @ApiPropertyOptional() @IsOptional() @IsIn(['BOM_UPLOAD', 'PRE_SHOP', 'BIM_PLACEHOLDER'])
+  source?: string
 
   @ApiPropertyOptional({ default: 1 }) @IsOptional() @Transform(({ value }) => Number(value)) @IsInt() @Min(1)
   page?: number = 1

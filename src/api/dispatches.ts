@@ -11,6 +11,7 @@ export interface DispatchSummaryDto {
   status: DispatchStatus
   upload_mode: 'combined' | 'separate'
   revision: number
+  source: string // BOM_UPLOAD | PRE_SHOP (BOM-page pre-shop, revision ≥ 1) | BIM_PLACEHOLDER
   doc_count: number
   uploaded_at: string
   zone: { id: number; code: string; label: string }
@@ -183,8 +184,14 @@ export interface RevReviewRowDto {
   rename_hint: string | null
   editable: boolean
   diff: MarkDiffDto | null
+  slot: 'MAIN' | 'ACC' | null // separate mode; renames are offered within one slot (2026-11-23)
 }
-export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; dn_only_marks: string[]; dn_warnings: string[] }
+/** A part this upload removes, or a new part (2026-11-23): removed ones are renamed or deleted before save, like marks.
+ *  `still_used` = still named by the uploaded Assembly Part List or a kept assembly → the Part List may be incomplete. */
+export interface PartReviewRowDto { mark: string; kind: 'removed' | 'added'; slot: 'MAIN' | 'ACC' | null; rename_hint: string | null; still_used: boolean }
+/** Same part mark in both MAIN and ACC Part Lists with different data — MAIN's row is kept (2026-11-23). */
+export interface PartConflictDto { mark: string; fields: { field: string; main: string | number | null; acc: string | number | null }[] }
+export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; parts?: PartReviewRowDto[]; part_conflicts?: PartConflictDto[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreviewDto extends PreviewJunctionsResult { review: RevReviewDto }
 export interface RevEdit { mark: string; rev: number }
 export interface MarkRevEntryDto {
@@ -336,7 +343,7 @@ export const dispatchesApi = {
 
   getZoneUploadMode(projectId: number, zoneId: number): Promise<'combined' | 'separate' | null> {
     return apiClient
-      .get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1 } })
+      .get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1, source: 'BOM_UPLOAD' } }) // pre-shop never locks the mode
       .then(r => {
         const items: DispatchSummaryDto[] = r.data.items ?? []
         return items.length > 0 ? items[0].upload_mode : null

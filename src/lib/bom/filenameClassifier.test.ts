@@ -39,3 +39,24 @@ describe('classifyFilename', () => {
     }
   })
 })
+
+import { separateReadiness, sharedPartListNote } from './filenameClassifier'
+
+describe('separateReadiness — one Part List shared, two = each its own (2026-11-23)', () => {
+  it('a slot with AL + APL is ready when the Part List is in either box', () => {
+    expect(separateReadiness(['MAIN_ASSEMBLY_LIST', 'MAIN_ASSEMBLY_PART_LIST'], ['ACC_PART_LIST'])).toEqual({ ready: true, sharedFrom: 'ACC' })
+    expect(separateReadiness(['MAIN_ASSEMBLY_LIST', 'MAIN_ASSEMBLY_PART_LIST', 'MAIN_PART_LIST'], ['ACC_ASSEMBLY_LIST', 'ACC_ASSEMBLY_PART_LIST'])).toEqual({ ready: true, sharedFrom: 'MAIN' })
+  })
+  it('no Part List anywhere, or a slot missing AL/APL → not ready', () => {
+    expect(separateReadiness(['MAIN_ASSEMBLY_LIST', 'MAIN_ASSEMBLY_PART_LIST'], []).ready).toBe(false)
+    expect(separateReadiness(['MAIN_ASSEMBLY_LIST'], ['ACC_PART_LIST']).ready).toBe(false)
+  })
+  it('two Part Lists → not shared', () => {
+    expect(separateReadiness(['MAIN_ASSEMBLY_LIST', 'MAIN_ASSEMBLY_PART_LIST', 'MAIN_PART_LIST'], ['ACC_PART_LIST']).sharedFrom).toBeNull()
+  })
+  it('the note shows under the borrowing box only, once it has lists of its own', () => {
+    expect(sharedPartListNote('ACC', ['ACC_ASSEMBLY_LIST'], 'MAIN')).toBe('ใช้ Part List ร่วมจากช่อง MAIN')
+    expect(sharedPartListNote('ACC', [], 'MAIN')).toBeUndefined()
+    expect(sharedPartListNote('MAIN', ['MAIN_ASSEMBLY_LIST'], 'MAIN')).toBeUndefined()
+  })
+})

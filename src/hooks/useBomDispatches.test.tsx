@@ -10,15 +10,17 @@ vi.mock('../api/dispatches', () => ({
   dispatchesApi: {
     previewUpload: vi.fn(),
     upload: vi.fn(),
+    saveRenames: vi.fn(),
   },
 }))
+vi.mock('sonner', () => ({ toast: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const mockedApi = vi.mocked(dispatchesApi)
 
 const emptyReview: RevReviewDto = { base_dispatch_id: 7, has_dn: false, rows: [], dn_only_marks: [], dn_warnings: [] }
 const cleanResult: UploadPreviewDto = { unmatchedAssemblyMarks: [], unmatchedPartMarks: [], review: emptyReview }
 const mismatchResult: UploadPreviewDto = { unmatchedAssemblyMarks: ['A9'], unmatchedPartMarks: [], review: emptyReview }
-const reviewRow = { mark: 'B1', kind: 'changed' as const, prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL' as const, dn_rev: null, dn_status: null, in_dn: false, warning: 'CHANGED_NO_REV_UP' as const, dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null }
+const reviewRow = { mark: 'B1', kind: 'changed' as const, prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL' as const, dn_rev: null, dn_status: null, in_dn: false, warning: 'CHANGED_NO_REV_UP' as const, dn_cancelled_in_files: false, rename_hint: null, editable: true, diff: null, slot: null }
 const reviewResult: UploadPreviewDto = { ...cleanResult, review: { ...emptyReview, rows: [reviewRow] } }
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -140,6 +142,30 @@ describe('useUploadBomWithPreview', () => {
     expect(sent.get('revs')).toBe('[{"mark":"B1","rev":3}]')
     expect(sent.get('base_dispatch_id')).toBe('7')
     expect(result.current.pendingReview).toBeNull()
+  })
+
+  // A missing mark renamed in the review is paired right after the upload saves (2026-11-23)
+  it('confirmReview with renames: saves, then pairs them on the new dispatch', async () => {
+    mockedApi.previewUpload.mockResolvedValue(reviewResult)
+    mockedApi.upload.mockResolvedValue({ id: 101 } as never)
+    mockedApi.saveRenames.mockResolvedValue({} as never)
+    const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
+    await act(async () => { await result.current.submit(new FormData()) })
+    let res: unknown
+    await act(async () => { res = await result.current.confirmReview([], [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }, { kind: 'PART', from_mark: 'w1', to_mark: 'w1b' }]) })
+    expect(mockedApi.saveRenames).toHaveBeenCalledWith(101, [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }, { kind: 'PART', from_mark: 'w1', to_mark: 'w1b' }])
+    expect(res).toMatchObject({ id: 101, renamesSaved: true })
+  })
+
+  it('a failed pairing does not fail the upload — it says so and the post-save dialog can pair', async () => {
+    mockedApi.previewUpload.mockResolvedValue(reviewResult)
+    mockedApi.upload.mockResolvedValue({ id: 102 } as never)
+    mockedApi.saveRenames.mockRejectedValue(new Error('x'))
+    const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
+    await act(async () => { await result.current.submit(new FormData()) })
+    let res: unknown
+    await act(async () => { res = await result.current.confirmReview([], [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }]) })
+    expect(res).toMatchObject({ id: 102, renamesSaved: false })
   })
 
   // final review fix 4: a stale-preview 409 must not leave the review open (retrying would 409 forever)

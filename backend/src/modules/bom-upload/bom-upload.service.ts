@@ -10,7 +10,7 @@ import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
 import { uploadNumbersOf } from './upload-number'
 import { parseDispatchNoteRevs } from '../manufacturing-orders/mo-part/dispatch-note-parser'
-import { decideRevs, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFromUpload, type DnRev, type PrevMark, type RevDecision, type RevEdit, type RevRow } from './mark-rev'
+import { decideParts, decideRevs, partConflicts, type PartConflict, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFromUpload, type DnRev, type PartReviewRow, type PrevMark, type PrevPart, type RevDecision, type RevEdit, type RevRow } from './mark-rev'
 import { SEPARATE_DOC_TYPES, dnSlotOf, isDispatchNote } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
 import { parseNcDetail } from './nc-parser'
@@ -48,9 +48,30 @@ export interface JunctionMismatch {
 }
 
 export interface UploadScope { projectId: number; zoneId: number; subZoneId: number | null }
-export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; dn_only_marks: string[]; dn_warnings: string[] }
+export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; parts: PartReviewRow[]; part_conflicts: PartConflict[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreview { unmatchedAssemblyMarks: string[]; unmatchedPartMarks: string[]; review: RevReview }
-interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; dn: { marks: DnRev[]; warnings: string[] } | null }
+/** `partSlots`: the slots whose ACTIVE parts this upload supersedes — null = all (combined). */
+interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; partSlots: ('MAIN' | 'ACC')[] | null; dn: { marks: DnRev[]; warnings: string[] } | null }
+
+type SlotName = 'MAIN' | 'ACC'
+/** One Part List in a separate upload is shared by MAIN and ACC (2026-11-23, Tao): each part takes the slot of
+ *  the assemblies that use it — the box it was dropped in when both slots (or none) use it. */
+export function retagSharedParts<P extends { part_mark: string; slot?: SlotName | null }>(
+  parts: P[], assemblies: { assembly_mark: string; slot?: SlotName | null }[], assemblyParts: { assembly_mark: string; part_mark: string }[], box: SlotName,
+): P[] {
+  const asmSlot = new Map(assemblies.map(a => [a.assembly_mark, a.slot ?? null]))
+  const usedBy = new Map<string, Set<SlotName>>()
+  for (const j of assemblyParts) {
+    const slot = asmSlot.get(j.assembly_mark)
+    if (!slot) continue
+    if (!usedBy.has(j.part_mark)) usedBy.set(j.part_mark, new Set())
+    usedBy.get(j.part_mark)!.add(slot)
+  }
+  return parts.map(p => {
+    const u = usedBy.get(p.part_mark)
+    return { ...p, slot: u && u.size === 1 ? [...u][0] : box }
+  })
+}
 
 /** Slots an upload supersedes — null = all (combined). Same rule as the save's deactivation. */
 export function slotsTouchedOf(rows: { slot?: 'MAIN' | 'ACC' | null }[], uploadMode: 'combined' | 'separate'): ('MAIN' | 'ACC')[] | null {
@@ -234,7 +255,7 @@ export class BomUploadService {
         }
 
         if (dedupedParts.length) {
-          const slotsTouched = slotsTouchedOf(dedupedParts, uploadMode)
+          const slotsTouched = prep.partSlots
 
           await tx.bom_part.updateMany({
             where: {
@@ -244,6 +265,15 @@ export class BomUploadService {
             },
             data: { status: 'INACTIVE' },
           })
+        }
+
+        // A real BOM replaces the zone's BOM-page pre-shop (2026-11-23). In
+        // combined mode the wipe above already covers it; separate mode only
+        // touches MAIN/ACC slots and pre-shop rows have slot null.
+        if (uploadMode === 'separate' && (asmList?.assemblies.length || dedupedParts.length)) {
+          const preshopScope = { status: 'ACTIVE', dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } }
+          await tx.bom_assembly.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
+          await tx.bom_part.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
         }
 
         // bom_assembly rows — batch insert, get IDs back in one round-trip
@@ -426,7 +456,9 @@ export class BomUploadService {
     return parsed
   }
 
-  private mergeSeparateDocTypes(parsed: Map<BomDocType, ParsedBomFile>): void {
+  /** Returns the box of a shared Part List (only one slot sent one), else null. */
+  private mergeSeparateDocTypes(parsed: Map<BomDocType, ParsedBomFile>): SlotName | null {
+    const sharedFrom: SlotName | null = parsed.has('MAIN_PART_LIST') === parsed.has('ACC_PART_LIST') ? null : parsed.has('MAIN_PART_LIST') ? 'MAIN' : 'ACC'
     const merge = (mainKey: BomDocType, accKey: BomDocType, targetKey: BomDocType) => {
       const main = parsed.get(mainKey)
       const acc = parsed.get(accKey)
@@ -454,13 +486,18 @@ export class BomUploadService {
     merge('MAIN_ASSEMBLY_LIST', 'ACC_ASSEMBLY_LIST', 'ASSEMBLY_LIST')
     merge('MAIN_ASSEMBLY_PART_LIST', 'ACC_ASSEMBLY_PART_LIST', 'ASSEMBLY_PART_LIST')
     merge('MAIN_PART_LIST', 'ACC_PART_LIST', 'PART_LIST')
+    const partList = parsed.get('PART_LIST')
+    if (sharedFrom && partList) {
+      partList.parts = retagSharedParts(partList.parts, parsed.get('ASSEMBLY_LIST')?.assemblies ?? [], parsed.get('ASSEMBLY_PART_LIST')?.assemblyParts ?? [], sharedFrom)
+    }
+    return sharedFrom
   }
 
   /** Validate + parse every file the way save stores it (NC-merged parts). Shared by preview and upload. */
   private prepare(files: FileInput[], ncFiles: NcFileInput[], uploadMode: 'combined' | 'separate'): Prepared {
     this.validateFiles(files)
     const parsed = this.parseAllFiles(files)
-    if (uploadMode === 'separate') this.mergeSeparateDocTypes(parsed)
+    const sharedFrom = uploadMode === 'separate' ? this.mergeSeparateDocTypes(parsed) : null
 
     const ncMap = new Map<string, NcDetail>()
     for (const nc of ncFiles) {
@@ -475,7 +512,12 @@ export class BomUploadService {
       if (missing.length > 0) throw new BadRequestException(`Missing NC files for part marks: ${missing.join(', ')}`)
     }
     const dedupedParts = this.buildDedupedParts(rawPartList?.parts ?? [], ncMap)
-    return { parsed, dedupedParts, dn: this.readDispatchNotes(files) }
+    // a shared Part List stands for every slot this upload sends assemblies for, plus its own box
+    const partSlots = uploadMode === 'combined' ? null : [...new Set([
+      ...(slotsTouchedOf(dedupedParts, uploadMode) ?? []),
+      ...(sharedFrom && dedupedParts.length ? [sharedFrom, ...(slotsTouchedOf(parsed.get('ASSEMBLY_LIST')?.assemblies ?? [], uploadMode) ?? [])] : []),
+    ])]
+    return { parsed, dedupedParts, partSlots, dn: this.readDispatchNotes(files) }
   }
 
   /** Every Dispatch Note of the upload, merged; each row keeps its slot (MAIN / ACC / null = combined). */
@@ -544,6 +586,33 @@ export class BomUploadService {
     return { decision, baseDispatchId: base.baseDispatchId }
   }
 
+  /** Parts this upload would remove (same supersede rule as save) and new parts — each gets a
+   *  rename-or-delete decision in the review, like marks (2026-11-23, Tao). */
+  private async partReview(prep: Prepared, uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<PartReviewRow[]> {
+    const assemblies = prep.parsed.get('ASSEMBLY_LIST')?.assemblies ?? []
+    const partSlots = prep.partSlots
+    const asmSlots = slotsTouchedOf(assemblies, uploadMode)
+    const rows = await this.prisma.bom_part.findMany({
+      where: { status: 'ACTIVE', dispatch: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' } },
+      select: { id: true, part_mark: true, slot: true, profile: true, grade: true, length_mm: true, weight_kg: true, assembly_parts: { select: { assembly: { select: { status: true, slot: true } } } } },
+    })
+    const asSlot = (v: string | null | undefined) => (v === 'MAIN' || v === 'ACC' ? v : null)
+    // an assembly the save keeps: no Assembly List in this upload, or (separate) its slot isn't uploaded
+    const kept = (a: { status: string; slot: string | null }) => a.status === 'ACTIVE' && (!assemblies.length || (asmSlots != null && !(asmSlots as string[]).includes(a.slot ?? '')))
+    const previous: PrevPart[] = rows.map(p => ({
+      id: p.id, mark: p.part_mark, slot: asSlot(p.slot), profile: p.profile, grade: p.grade,
+      length_mm: p.length_mm == null ? null : Number(p.length_mm), weight_kg: p.weight_kg == null ? null : Number(p.weight_kg),
+      used_by_kept_assembly: (p.assembly_parts ?? []).some(ap => kept(ap.assembly)),
+    }))
+    return decideParts({
+      previous,
+      current: prep.dedupedParts.map(p => ({ ...p, slot: asSlot(p.slot) })),
+      // same as the save: no Part List → nothing removed; separate → only the uploaded slot(s)
+      removable: p => prep.dedupedParts.length > 0 && (partSlots == null || (p.slot != null && (partSlots as string[]).includes(p.slot))),
+      referenced: new Set((prep.parsed.get('ASSEMBLY_PART_LIST')?.assemblyParts ?? []).map(j => j.part_mark)),
+    })
+  }
+
   /** The zone must belong to the project and the sub-zone to the zone — the client's pairing is never trusted (2026-10-28). */
   private async scopeOf({ projectId, zoneId, subZoneId }: UploadScope) {
     const zone = await this.prisma.project_zone.findUnique({
@@ -563,9 +632,10 @@ export class BomUploadService {
     const prep = this.prepare(files, ncFiles, uploadMode)
     await this.scopeOf(scope)
     const { decision, baseDispatchId } = await this.decide(prep, uploadMode, scope)
+    const parts = await this.partReview(prep, uploadMode, scope)
     return {
       ...this.junctionMismatchOf(prep.parsed),
-      review: { base_dispatch_id: baseDispatchId, has_dn: decision.has_dn, rows: reviewRows(decision), dn_only_marks: decision.dn_only_marks, dn_warnings: prep.dn?.warnings ?? [] },
+      review: { base_dispatch_id: baseDispatchId, has_dn: decision.has_dn, rows: reviewRows(decision), parts, part_conflicts: partConflicts(prep.parsed.get('PART_LIST')?.parts ?? []), dn_only_marks: decision.dn_only_marks, dn_warnings: prep.dn?.warnings ?? [] },
     }
   }
 
@@ -596,6 +666,10 @@ export class BomUploadService {
       ...(query.zone_id ? { zone_id: query.zone_id } : {}),
       ...(query.sub_zone_id ? { sub_zone_id: query.sub_zone_id } : {}),
       ...(query.status ? { status: query.status } : {}),
+      ...(query.source ? { source: query.source } : {}),
+      // MO-made pre-shop (PRE_SHOP, revision 0) belongs to the MO, not the BOM
+      // page; BOM-page pre-shop is revision ≥ 1 (2026-11-23).
+      NOT: { source: 'PRE_SHOP', revision: 0 },
     }
 
     const [total, items] = await Promise.all([
@@ -651,15 +725,18 @@ export class BomUploadService {
     // must still show whichever sibling slot is currently active, carried
     // forward from wherever it was last uploaded (possibly an earlier
     // revision), so the content view never silently drops half the BOM.
-    const effectiveGroup = await this.diffService.resolveEffectiveGroup(
+    // A pre-shop dispatch is its own whole content — the Main/Acc group walk
+    // only follows real BOM uploads (2026-11-23).
+    const preshop = d.source === 'PRE_SHOP'
+    const effectiveGroup = preshop ? null : await this.diffService.resolveEffectiveGroup(
       d.project_id, d.zone_id, d.sub_zone_id, { lte: id },
     )
-    const effectiveIds = groupToIds(effectiveGroup)
+    const effectiveIds = effectiveGroup ? groupToIds(effectiveGroup) : [id]
     // `d` itself is always a member of the walked group (it's the highest
     // id within the `{ lte: id }` bound), so this can never genuinely be
     // empty here — the null branch below is defensive only, mirroring
     // BomDiffService's own handling of slotAwareWhere()'s null case.
-    const markWhere = slotAwareWhere(effectiveGroup)
+    const markWhere = effectiveGroup ? slotAwareWhere(effectiveGroup) : { dispatch_id: id }
 
     const versionLabelById = await this.diffService.computeVersionLabels(effectiveIds)
     const nos = await uploadNumbersOf(this.prisma, [id])
@@ -879,6 +956,7 @@ export class BomUploadService {
     status: string
     upload_mode: string
     revision: number
+    source: string
     uploaded_at: Date
     assembly_total: number | null
     part_total: number | null
@@ -895,6 +973,7 @@ export class BomUploadService {
       status: d.status,
       upload_mode: d.upload_mode,
       revision: d.revision,
+      source: d.source,
       upload_no: uploadNo,
       doc_count: d.doc_revisions?.length ?? 0,
       uploaded_at: d.uploaded_at.toISOString(),

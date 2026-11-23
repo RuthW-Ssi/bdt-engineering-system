@@ -44,6 +44,26 @@ describe('PreshopService.createDispatch', () => {
     expect(tx.bom_assembly_part.createMany).not.toHaveBeenCalled()
   })
 
+  it('writes the given revision', async () => {
+    const { svc, tx } = make()
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [BUH13], 1, { revision: 3 })
+    expect(tx.bom_dispatch.create.mock.calls[0][0].data).toMatchObject({ source: 'PRE_SHOP', revision: 3 })
+  })
+
+  it('keeps revision 0 when no opts', async () => {
+    const { svc, tx } = make()
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [BUH13], 1)
+    expect(tx.bom_dispatch.create.mock.calls[0][0].data).toMatchObject({ revision: 0 })
+  })
+
+  it('merges a part listed twice in one assembly into one link', async () => {
+    const { svc, tx } = make()
+    const f1 = BUH13.parts[0]
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [{ ...BUH13, parts: [{ ...f1, qty: 2 }, { ...f1, qty: 1 }] }], 1)
+    expect(tx.bom_assembly_part.createMany.mock.calls[0][0].data.map((l: any) => [l.assembly_id, l.part_id, Number(l.qty)])).toEqual([[700, 800, 3]])
+    expect(Number(tx.bom_part.createManyAndReturn.mock.calls[0][0].data[0].qty)).toBe(6)
+  })
+
   it('rejects duplicate assembly marks and empty / non-positive sets', async () => {
     const { svc, tx } = make()
     await expect(svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [BUH13, BUH13], 1)).rejects.toThrow(BadRequestException)

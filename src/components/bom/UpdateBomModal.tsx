@@ -7,11 +7,12 @@ import { useRenameStep } from '../../hooks/useRenameStep'
 import type { DispatchDetailDto, RevEdit } from '../../api/dispatches'
 import { JunctionMismatchModal } from './JunctionMismatchModal'
 import { RenamePairDialog } from './RenamePairDialog'
-import { RevReviewDialog } from './RevReviewDialog'
+import { RevReviewDialog, type RenameChoice } from './RevReviewDialog'
+import { usePermission } from '../../hooks/usePermission'
 import { InfoTip } from './InfoTip'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
-import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../../lib/bom/filenameClassifier'
+import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES, separateReadiness, sharedPartListNote } from '../../lib/bom/filenameClassifier'
 import type { DocType } from '../../lib/bom/filenameClassifier'
 import type { FileRejection } from './FileDropzone'
 
@@ -116,6 +117,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const qc = useQueryClient()
   const uploadFlow = useUploadBomWithPreview()
   const renameStep = useRenameStep()
+  const canPair = usePermission('boms', 'update') // pairing renamed marks overwrites progress/paint
   const [files, setFiles] = useState<FileEntry[]>([])
   const [mainFiles, setMainFiles] = useState<FileEntry[]>([])
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
@@ -131,8 +133,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const validAcc = accFiles.filter(e => !e.error && e.detectedType)
 
   const hasAllCombined = REQUIRED_BOM_TYPES.every(t => validCombined.map(e => e.detectedType).includes(t))
-  const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
-  const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
+  // one Part List is shared by MAIN and ACC, two = each its own (2026-11-23, Tao)
+  const mainTypes = validMain.map(e => e.detectedType), accTypes = validAcc.map(e => e.detectedType)
+  const separate = separateReadiness(mainTypes, accTypes)
 
   // A DN picked for a slot with none of that slot's own lists is almost
   // certainly a mistake — block submit and flag it under that box rather
@@ -142,11 +145,11 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const accDnOrphan = accFiles.some(e => !e.error && e.detectedType === 'ACC_DISPATCH_NOTE')
     && !REQUIRED_ACC_TYPES.some(t => validAcc.map(e => e.detectedType).includes(t))
 
-  const bomReady = uploadMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
+  const bomReady = uploadMode === 'combined' ? hasAllCombined : separate.ready
   const canSubmit = bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
     && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
-  const handleUploadSuccess = async (res: DispatchDetailDto) => {
+  const handleUploadSuccess = async (res: DispatchDetailDto & { renamesSaved?: boolean }) => {
     qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatches'] })
@@ -155,7 +158,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
-    if (await renameStep.afterUpload(res.id)) return
+    // missing marks and parts are decided in the Rev review (2026-11-23); only if pairing them failed, offer it again here
+    if (res.renamesSaved === false && await renameStep.afterUpload(res.id)) return
     onClose()
   }
 
@@ -199,9 +203,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     }
   }
 
-  const handleConfirmReview = async (revs: RevEdit[]) => {
+  const handleConfirmReview = async (revs: RevEdit[], renames: RenameChoice[]) => {
     try {
-      const res = await uploadFlow.confirmReview(revs)
+      const res = await uploadFlow.confirmReview(revs, renames)
       if (res == null) return
       await handleUploadSuccess(res)
     } catch (err: unknown) {
@@ -211,12 +215,50 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
 
   const modeLabel = uploadMode === 'separate' ? 'Separate Main + ACC' : 'Combined'
 
+  // NC Files column — beside BOM Files (combined) or under MAIN | ACC (separate), same as Upload BOM
+  const ncSection = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+      <div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+          NC Files <span style={{ color: '#C8202A' }}>*</span>
+          <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>.nc1 files from Tekla</span>
+        </label>
+        <FileDropzone
+          maxFiles={1500}
+          currentCount={ncFiles.length}
+          acceptedFormats={NC_FORMATS}
+          hint=".nc1 · max 20 MB / file · up to 1500 files"
+          onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
+          disabled={false}
+        />
+      </div>
+
+      {ncFiles.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E' }}>NC FILES ({ncFiles.length})</span>
+            {/* remove every NC file at once (Tao 2026-11-23) */}
+            <button type="button" onClick={() => setNcFiles([])} style={{ fontSize: 11.5, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear all</button>
+          </div>
+          <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
+            {ncFiles.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
+                <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{ background: 'white', borderRadius: 12, width: '100%', maxWidth: 520, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: 'white', borderRadius: 12, width: 'calc(100% - 32px)', maxWidth: 1100, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '90vh', overflowY: 'auto' }}>
         <div className="flex items-center justify-between">
           <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>Update BOM</span>
           <button onClick={onClose} className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
@@ -232,9 +274,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           </span>
         </div>
 
-        {/* BOM Files — Combined */}
+        {/* BOM Files + NC Files side by side (2026-11-23) — same layout as Upload BOM */}
         {uploadMode === 'combined' && (
-          <BomSection
+          <div data-testid="bom-nc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, alignItems: 'start' }}>
+            <BomSection
             label="BOM Files"
             hint="3 files required"
             maxFiles={3}
@@ -244,12 +287,13 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             onRemove={combined.removeFile}
             onTypeChange={combined.updateType}
           />
+            {ncSection}
+          </div>
         )}
-
-        {/* BOM Files — Separate */}
         {uploadMode === 'separate' && (
           <>
-            <BomSection
+            <div data-testid="main-acc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, alignItems: 'start' }}>
+              <BomSection
               label="MAIN BOM Files"
               hint="MAIN Assembly List, MAIN Assembly Part List, MAIN Part List"
               maxFiles={3}
@@ -257,11 +301,12 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
               allowedTypes={REQUIRED_MAIN_TYPES}
               dnInfoText={DN_SLOT_INFO_TEXT}
               dnOrphanMessage={mainDnOrphan ? 'ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main' : undefined}
+              sharedNote={sharedPartListNote('MAIN', mainTypes, separate.sharedFrom)}
               onFilesAdded={main.onFilesAdded}
               onRemove={main.removeFile}
               onTypeChange={main.updateType}
             />
-            <BomSection
+              <BomSection
               label="ACC BOM Files"
               hint="ACC Assembly List, ACC Assembly Part List, ACC Part List"
               maxFiles={3}
@@ -269,41 +314,14 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
               allowedTypes={REQUIRED_ACC_TYPES}
               dnInfoText={DN_SLOT_INFO_TEXT}
               dnOrphanMessage={accDnOrphan ? 'ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc' : undefined}
+              sharedNote={sharedPartListNote('ACC', accTypes, separate.sharedFrom)}
               onFilesAdded={acc.onFilesAdded}
               onRemove={acc.removeFile}
               onTypeChange={acc.updateType}
             />
-          </>
-        )}
-
-        {/* NC Files */}
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            NC Files <span style={{ color: '#C8202A' }}>*</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>.nc1 files from Tekla</span>
-          </label>
-          <FileDropzone
-            maxFiles={1500}
-            currentCount={ncFiles.length}
-            acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 1500 files"
-            onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
-            disabled={false}
-          />
-        </div>
-
-        {ncFiles.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
-            <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
-              {ncFiles.map((f, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
-                  <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
-                </div>
-              ))}
             </div>
-          </div>
+            {ncSection}
+          </>
         )}
 
         {progress !== null && (
@@ -346,11 +364,12 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           isUploading={uploadFlow.uploadMutation.isPending}
           onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
           onConfirm={handleConfirmReview}
+          allowRename={canPair}
         />
       )}
 
       {renameStep.dispatchId != null && (
-        <RenamePairDialog dispatchId={renameStep.dispatchId} onClose={() => { renameStep.close(); onClose() }} />
+        <RenamePairDialog dispatchId={renameStep.dispatchId} partsOnly={renameStep.partsOnly} onClose={() => { renameStep.close(); onClose() }} />
       )}
     </div>
   )
@@ -367,12 +386,14 @@ interface BomSectionProps {
   allowedTypes: DocType[]
   dnInfoText?: string
   dnOrphanMessage?: string
+  /** this box borrows the other box's Part List */
+  sharedNote?: string
   onFilesAdded: (accepted: File[], rejected: FileRejection[]) => void
   onRemove: (i: number) => void
   onTypeChange: (i: number, type: DocType) => void
 }
 
-function BomSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, onFilesAdded, onRemove, onTypeChange }: BomSectionProps) {
+function BomSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, sharedNote, onFilesAdded, onRemove, onTypeChange }: BomSectionProps) {
   const validCount = files.filter(e => !e.error).length
   // +1 slot: a Dispatch Note can be picked here too, on top of the required files — optional.
   const capacity = maxFiles + 1
@@ -400,6 +421,7 @@ function BomSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dn
       {dnOrphanMessage && (
         <div style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{dnOrphanMessage}</div>
       )}
+      {sharedNote && <div style={{ fontSize: 12, color: '#555', marginTop: 6 }}>{sharedNote}</div>}
     </div>
   )
 }

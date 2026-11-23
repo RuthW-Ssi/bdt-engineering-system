@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+const navigate = vi.fn()
+vi.mock('react-router-dom', async (orig) => ({ ...(await orig<typeof import('react-router-dom')>()), useNavigate: () => navigate }))
 import { toast } from 'sonner'
 import { BomUpload } from './BomUpload'
 
@@ -35,15 +37,23 @@ vi.mock('../hooks/useBomDispatches', () => ({
   }),
   useZoneUploadMode: () => ({ data: undefined, isLoading: false }),
 }))
+const afterUpload = vi.hoisted(() => vi.fn())
 vi.mock('../hooks/useRenameStep', () => ({
-  useRenameStep: () => ({ dispatchId: null, afterUpload: vi.fn().mockResolvedValue(false), close: vi.fn() }),
+  useRenameStep: () => ({ dispatchId: null, partsOnly: false, afterUpload, close: vi.fn() }),
 }))
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => true }))
+const savePreshop = vi.fn().mockResolvedValue({ dispatch_id: 95, revision: 3 })
+const preshopCurrent = vi.fn().mockReturnValue({ data: null, isLoading: false })
+vi.mock('../hooks/useBomPreshop', () => ({
+  usePreshopCurrent: (scope: unknown) => preshopCurrent(scope),
+  useSavePreshop: () => ({ mutateAsync: savePreshop, isPending: false }),
+}))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 
 afterEach(() => {
   vi.clearAllMocks()
 })
+beforeEach(() => { afterUpload.mockResolvedValue(false) })
 
 function renderPage() {
   render(<MemoryRouter><BomUpload /></MemoryRouter>)
@@ -93,12 +103,24 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     fireEvent.click(screen.getByRole('button', { name: /Upload/ }))
 
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    // marks and parts are both decided in the Rev review now (2026-11-23) → no pairing dialog after save
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith('/bom/dispatch/99/paint'))
+    expect(afterUpload).not.toHaveBeenCalled()
     const formData = submit.mock.calls[0][0] as FormData
     expect(formData.getAll('doc_types')).toEqual(
       expect.arrayContaining(['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST', 'DISPATCH_NOTE']),
     )
     const sentNames = (formData.getAll('bom_files') as File[]).map(f => f.name)
     expect(sentNames).toContain('Dispatch Note.xlsx')
+  })
+
+  it('NC FILES has Clear all: removes every NC file at once', () => {
+    renderPage()
+    const [, ncInput] = fileInputs()
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1'), new File(['y'], 'b.nc1')] } })
+    expect(screen.getByText('NC FILES (2)')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+    expect(screen.queryByText(/NC FILES/)).toBeNull()
   })
 
   it('a second Dispatch Note is rejected with a toast and not added to the list', () => {
@@ -139,6 +161,31 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     expect(screen.queryByText('Dispatch Note (Main) (ไม่ใส่ก็ได้)')).toBeNull()
   })
 
+  // One Part List is shared by MAIN and ACC (2026-11-23, Tao)
+  it('separate mode: ACC with no Part List borrows MAIN\'s — Upload is enabled and the ACC box says so', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const [mainInput, accInput, ncInput] = fileInputs()
+    fireEvent.change(mainInput, { target: { files: [makeFile('MAIN Assembly List.xlsx'), makeFile('MAIN Assembly Part List.xlsx'), makeFile('MAIN Part List.xlsx')] } })
+    fireEvent.change(accInput, { target: { files: [makeFile('ACC Assembly List.xlsx'), makeFile('ACC Assembly Part List.xlsx')] } })
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1')] } })
+    expect(screen.getByText('ใช้ Part List ร่วมจากช่อง MAIN')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeEnabled()
+  })
+
+  it('separate mode: the Part List alone in ACC is shared with MAIN\'s lists', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const [mainInput, accInput, ncInput] = fileInputs()
+    fireEvent.change(mainInput, { target: { files: [makeFile('MAIN Assembly List.xlsx'), makeFile('MAIN Assembly Part List.xlsx')] } })
+    fireEvent.change(accInput, { target: { files: [makeFile('ACC Part List.xlsx')] } })
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1')] } })
+    expect(screen.getByText('ใช้ Part List ร่วมจากช่อง ACC')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeEnabled()
+  })
+
   it('separate mode: a DN with no matching lists in its slot blocks submit', () => {
     renderPage()
     selectZone()
@@ -166,5 +213,122 @@ describe('BomUpload — opened from the BOM page (2026-10-28)', () => {
     render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1']}><BomUpload /></MemoryRouter>)
     expect(screen.getByDisplayValue('Z1 — Zone 1')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('Select Zone...')).toBeNull()
+  })
+})
+
+describe('BomUpload — BOM Type', () => {
+  it('opens on Full shop with NC Files', () => {
+    renderPage()
+    selectZone()
+    expect(screen.getByRole('radio', { name: 'Full shop (BOM)' })).toBeChecked()
+    expect(screen.getByText(/^NC Files/)).toBeInTheDocument()
+  })
+
+  it('Pre-shop hides the BOM and NC sections and shows the pre-shop slots', () => {
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    expect(screen.queryByText(/^NC Files/)).toBeNull()
+    expect(screen.getByText('Part list (ถ้ามี)')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save pre-shop' })).toBeDisabled()
+  })
+
+  it('loads the saved pre-shop of the zone', () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', assemblies: [
+      { assembly_mark: 'C-01', name: 'COLUMN', qty: 4, weight_kg: 100, surface_area_m2: 2, length_mm: 8450, width_mm: 300, height_mm: 300,
+        parts: [{ part_mark: 'P101', profile: 'H300', grade: 'SS400', length_mm: 8400, unit_weight_kg: 789.6, qty: 1 }] },
+    ] } })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    expect(screen.getByText(/Pre-shop rev 2/)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('C-01')).toBeInTheDocument()
+  })
+})
+
+describe('BomUpload — pre-shop load fails', () => {
+  it('shows the error and no editor, so an empty save cannot replace the real revision', () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, isError: true, data: undefined, refetch: vi.fn() })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    expect(screen.getByText(/โหลด pre-shop ของ zone นี้ไม่ได้/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save pre-shop' })).toBeNull()
+  })
+})
+
+describe('BomUpload — Save pre-shop', () => {
+  it('opens the BOM page on the same project and zone, with the new pre-shop selected', async () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', assemblies: [
+      { assembly_mark: 'C-01', name: 'COLUMN', qty: 4, weight_kg: 100, surface_area_m2: 2, length_mm: 8450, width_mm: 300, height_mm: 300,
+        parts: [{ part_mark: 'P101', profile: 'H300', grade: 'SS400', length_mm: 8400, unit_weight_kg: 789.6, qty: 1 }] },
+    ] } })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save pre-shop' }))
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith('/bom?project_id=1&zone_id=1', { state: { selectDispatch: 95 } }))
+  })
+})
+
+describe('BomUpload — someone saved first', () => {
+  const C01 = (qty: number) => ({ assembly_mark: 'C-01', name: 'COLUMN', qty, weight_kg: 100, surface_area_m2: 2, length_mm: 8450, width_mm: 300, height_mm: 300,
+    parts: [{ part_mark: 'P101', profile: 'H300', grade: 'SS400', length_mm: 8400, unit_weight_kg: 789.6, qty: 1 }] })
+
+  it('shows who saved, what differs, and saves on top only when asked', async () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', uploader: 'Admin', assemblies: [C01(4)] } })
+    savePreshop.mockReset()
+    savePreshop
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'PRESHOP_STALE', message: 'มีผู้บันทึก pre-shop zone นี้ไปก่อนแล้ว',
+        current: { dispatch_id: 8, revision: 3, uploaded_at: '2026-11-23T04:40:00Z', uploader: 'Admin', assemblies: [C01(6)] } } } })
+      .mockResolvedValueOnce({ dispatch_id: 9, revision: 4 })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save pre-shop' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('มีผู้บันทึก pre-shop zone นี้ไปก่อนแล้ว')
+    expect(dialog).toHaveTextContent('rev 3')
+    expect(dialog).toHaveTextContent('ชุด 6 → 4')
+    expect(savePreshop.mock.calls[0][0]).toMatchObject({ base_revision: 2 })
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกทับเป็น rev 4/ }))
+    await vi.waitFor(() => expect(savePreshop).toHaveBeenCalledTimes(2))
+    expect(savePreshop.mock.calls[1][0]).toMatchObject({ base_revision: 2, overwrite: true })
+  })
+
+  it('"กลับไปแก้ต่อ" closes the warning and keeps the editor', async () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', uploader: 'Admin', assemblies: [C01(4)] } })
+    savePreshop.mockReset()
+    savePreshop.mockRejectedValueOnce({ response: { status: 409, data: { code: 'PRESHOP_STALE', message: 'x',
+      current: { dispatch_id: 8, revision: 3, uploaded_at: '2026-11-23T04:40:00Z', uploader: 'Admin', assemblies: [C01(6)] } } } })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save pre-shop' }))
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: 'กลับไปแก้ต่อ' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByDisplayValue('C-01')).toBeInTheDocument()
+    expect(savePreshop).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('BomUpload — file sections layout', () => {
+  it('Combined: BOM Files and NC Files sit in one row', () => {
+    renderPage()
+    selectZone()
+    const row = screen.getByTestId('bom-nc-row')
+    expect(row).toHaveTextContent('BOM Files')
+    expect(row).toHaveTextContent('NC Files')
+  })
+
+  it('Separate: MAIN and ACC share a row, NC Files is below on its own', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const row = screen.getByTestId('main-acc-row')
+    expect(row).toHaveTextContent('MAIN BOM Files')
+    expect(row).toHaveTextContent('ACC BOM Files')
+    expect(row).not.toHaveTextContent('NC Files')
   })
 })
