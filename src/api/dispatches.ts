@@ -186,7 +186,12 @@ export interface RevReviewRowDto {
   diff: MarkDiffDto | null
   slot: 'MAIN' | 'ACC' | null // separate mode; renames are offered within one slot (2026-11-23)
 }
-export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; dn_only_marks: string[]; dn_warnings: string[] }
+/** A part this upload removes, or a new part (2026-11-23): removed ones are renamed or deleted before save, like marks.
+ *  `still_used` = still named by the uploaded Assembly Part List or a kept assembly → the Part List may be incomplete. */
+export interface PartReviewRowDto { mark: string; kind: 'removed' | 'added'; slot: 'MAIN' | 'ACC' | null; rename_hint: string | null; still_used: boolean }
+/** Same part mark in both MAIN and ACC Part Lists with different data — MAIN's row is kept (2026-11-23). */
+export interface PartConflictDto { mark: string; fields: { field: string; main: string | number | null; acc: string | number | null }[] }
+export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; parts?: PartReviewRowDto[]; part_conflicts?: PartConflictDto[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreviewDto extends PreviewJunctionsResult { review: RevReviewDto }
 export interface RevEdit { mark: string; rev: number }
 export interface MarkRevEntryDto {

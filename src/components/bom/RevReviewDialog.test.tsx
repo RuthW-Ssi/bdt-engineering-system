@@ -1,7 +1,7 @@
 import { vi } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { RevReviewDialog } from './RevReviewDialog'
-import type { RevReviewDto, RevReviewRowDto } from '../../api/dispatches'
+import type { PartReviewRowDto, RevReviewDto, RevReviewRowDto } from '../../api/dispatches'
 
 const R = (over: Partial<RevReviewRowDto>): RevReviewRowDto => ({
   mark: 'B1', kind: 'changed', prev_rev: 1, suggested_rev: 2, suggested_source: 'MANUAL', dn_rev: null, dn_status: null, in_dn: false,
@@ -34,6 +34,7 @@ describe('RevReviewDialog', () => {
   it('one row per mark: result, Rev old → new, what changed, DN STATUS; only ⚠/changed rows are editable', () => {
     render(<RevReviewDialog review={review()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
     expect(screen.getByText('⚠ ข้อมูลเปลี่ยน แต่ไม่มีใน Dispatch Note — ตรวจ rev ใหม่')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Assembly (1)' })) // folded by default
     expect(screen.getByText('L 650 → 700')).toBeInTheDocument()
     expect((screen.getByLabelText('Rev ใหม่ของ B1') as HTMLInputElement).value).toBe('2')
     expect(screen.queryByLabelText('Rev ใหม่ของ N1')).toBeNull()
@@ -129,7 +130,7 @@ describe('RevReviewDialog — missing marks', () => {
     render(<RevReviewDialog review={rv([removed('CO1'), removed('CO2'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
     const save = screen.getByRole('button', { name: 'บันทึก' })
     expect(save).toBeDisabled()
-    expect(screen.getByText('ยังไม่ได้เลือก 2 mark (เปลี่ยน mark หรือ ลบออกจาก BOM)')).toBeInTheDocument()
+    expect(screen.getByText('ยังไม่ได้เลือก 2 mark (เปลี่ยน หรือ ลบออกจาก BOM)')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('ผลของ CO1'), { target: { value: 'delete' } })
     expect(save).toBeDisabled()
     fireEvent.change(screen.getByLabelText('ผลของ CO2'), { target: { value: 'delete' } })
@@ -144,7 +145,7 @@ describe('RevReviewDialog — missing marks', () => {
     expect(select).not.toHaveTextContent('เปลี่ยนชื่อ') // it is a mark, not a name (Tao)
     fireEvent.change(select, { target: { value: 'rename:CO1A' } })
     fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
-    expect(onConfirm).toHaveBeenCalledWith([], [{ from_mark: 'CO1', to_mark: 'CO1A' }])
+    expect(onConfirm).toHaveBeenCalledWith([], [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }])
   })
 
   it('a new mark can be picked for one missing mark only', () => {
@@ -160,16 +161,16 @@ describe('RevReviewDialog — missing marks', () => {
     fireEvent.change(screen.getByLabelText('ผลของ CO1'), { target: { value: 'rename:CO1A' } })
     fireEvent.click(screen.getByRole('button', { name: 'ที่เหลือทั้งหมด: ลบออกจาก BOM' }))
     fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
-    expect(onConfirm).toHaveBeenCalledWith([], [{ from_mark: 'CO1', to_mark: 'CO1A' }])
+    expect(onConfirm).toHaveBeenCalledWith([], [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }])
     expect((screen.getByLabelText('ผลของ CO2') as HTMLSelectElement).value).toBe('delete')
   })
 
   it('warns when marks about to be removed are still in the Dispatch Note', () => {
     render(<RevReviewDialog review={rv([removed('CO1', { in_dn: true }), removed('CO2', { in_dn: true }), removed('CO3', { in_dn: true, dn_status: 'Cancel', dn_cancelled_in_files: true })])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
     // count only — listing every mark gets unreadable (Tao, 27 already too many)
-    expect(screen.getByText('⚠ 2 mark ที่จะถูกลบยังอยู่ใน Dispatch Note')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^⚠ Assembly List อาจ export ไม่ครบ/ }))
+    expect(screen.getByText('2 mark ที่จะถูกลบยังอยู่ใน Dispatch Note')).toBeInTheDocument()
     expect(screen.queryByText(/CO1, CO2/)).toBeNull()
-    expect(screen.getByText(/Assembly List อาจ export ไม่ครบ/)).toBeInTheDocument()
   })
 
   it('without permission to pair names, only "ลบออกจาก BOM" is offered', () => {
@@ -186,3 +187,144 @@ describe('RevReviewDialog — missing marks', () => {
   })
 })
 
+
+// Missing parts get the same decision as missing marks, before save (2026-11-23, Tao)
+describe('RevReviewDialog — missing parts', () => {
+  const P = (mark: string, kind: 'removed' | 'added', over: Partial<PartReviewRowDto> = {}): PartReviewRowDto => ({ mark, kind, slot: null, rename_hint: null, still_used: false, ...over })
+  const rv = (parts: PartReviewRowDto[]) => review({ rows: [], parts })
+
+  it('lists missing parts in their own section; save waits until each is renamed or deleted', () => {
+    render(<RevReviewDialog review={rv([P('w1', 'removed'), P('w2', 'removed'), P('Xp5', 'added')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    expect(screen.getByText('Part ที่หายไป (2)')).toBeInTheDocument()
+    expect(screen.queryByLabelText('ผลของ part Xp5')).toBeNull() // new parts are targets, not rows
+    const save = screen.getByRole('button', { name: 'บันทึก' })
+    expect(save).toBeDisabled()
+    expect(screen.getByText('ยังไม่ได้เลือก 2 part (เปลี่ยน หรือ ลบออกจาก BOM)')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('ผลของ part w1'), { target: { value: 'delete' } })
+    fireEvent.change(screen.getByLabelText('ผลของ part w2'), { target: { value: 'delete' } })
+    expect(save).toBeEnabled()
+  })
+
+  it('a part rename is sent with kind PART; suggested part first; one new part per missing part', () => {
+    const onConfirm = vi.fn()
+    render(<RevReviewDialog review={rv([P('w1', 'removed', { rename_hint: 'w1b' }), P('w2', 'removed'), P('w1b', 'added', { rename_hint: 'w1' })])} isUploading={false} onCancel={vi.fn()} onConfirm={onConfirm} allowRename />)
+    const select = screen.getByLabelText('ผลของ part w1') as HTMLSelectElement
+    expect(within(select).getByRole('group', { name: 'ระบบแนะนำ' })).toHaveTextContent('เปลี่ยนเป็น w1b')
+    fireEvent.change(select, { target: { value: 'rename:w1b' } })
+    expect((within(screen.getByLabelText('ผลของ part w2')).getByRole('option', { name: /w1b/ }) as HTMLOptionElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'ที่เหลือทั้งหมด: ลบออกจาก BOM' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
+    expect(onConfirm).toHaveBeenCalledWith([], [{ kind: 'PART', from_mark: 'w1', to_mark: 'w1b' }])
+  })
+
+  it('separate mode: a missing MAIN part is offered new MAIN parts only', () => {
+    render(<RevReviewDialog review={rv([P('w1', 'removed', { slot: 'MAIN' }), P('m9', 'added', { slot: 'MAIN' }), P('a9', 'added', { slot: 'ACC' })])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    const select = screen.getByLabelText('ผลของ part w1')
+    expect(within(select).getByRole('option', { name: 'เปลี่ยนเป็น m9' })).toBeInTheDocument()
+    expect(within(select).queryByRole('option', { name: /a9/ })).toBeNull()
+  })
+
+  it('warns (count only) when parts about to be removed are still used by an assembly', () => {
+    render(<RevReviewDialog review={rv([P('w1', 'removed', { still_used: true }), P('w2', 'removed', { still_used: true }), P('w3', 'removed')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    fireEvent.click(screen.getByRole('button', { name: /^⚠ Part List อาจ export ไม่ครบ/ }))
+    expect(screen.getByText('2 part ที่จะถูกลบยังถูกใช้ใน assembly')).toBeInTheDocument()
+  })
+
+  it('marks and parts that look like an incomplete export share one warning box', () => {
+    const removedMark = R({ mark: 'CO1', kind: 'removed', prev_rev: 0, suggested_rev: null, suggested_source: null, warning: null, editable: false, diff: null, in_dn: true })
+    render(<RevReviewDialog review={review({ rows: [removedMark], parts: [P('w1', 'removed', { still_used: true })] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    expect(screen.getAllByText(/อาจ export ไม่ครบ/)).toHaveLength(1)
+    expect(screen.getByText('⚠ Assembly List / Part List อาจ export ไม่ครบ')).toBeInTheDocument()
+    // folded by default: one line with the counts
+    expect(screen.getByText('— 1 mark · 1 part')).toBeInTheDocument()
+    expect(screen.queryByText('1 mark ที่จะถูกลบยังอยู่ใน Dispatch Note')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /อาจ export ไม่ครบ/ }))
+    expect(screen.getByText('1 mark ที่จะถูกลบยังอยู่ใน Dispatch Note')).toBeInTheDocument()
+    expect(screen.getByText('1 part ที่จะถูกลบยังถูกใช้ใน assembly')).toBeInTheDocument()
+  })
+
+  it('marks and parts undecided are counted together; one button deletes the rest of both', () => {
+    const removedMark = R({ mark: 'CO1', kind: 'removed', prev_rev: 0, suggested_rev: null, suggested_source: null, warning: null, editable: false, diff: null })
+    render(<RevReviewDialog review={review({ rows: [removedMark], parts: [P('w1', 'removed')] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    expect(screen.getByText('ยังไม่ได้เลือก 1 mark, 1 part (เปลี่ยน หรือ ลบออกจาก BOM)')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'ที่เหลือทั้งหมด: ลบออกจาก BOM' }))
+    expect(screen.getByRole('button', { name: 'บันทึก' })).toBeEnabled()
+  })
+})
+
+// Filter the review by type and result (2026-11-23, Tao: the list is too long to scan)
+describe('RevReviewDialog — filters', () => {
+  const removedMark = (mark: string) => R({ mark, kind: 'removed', prev_rev: 0, suggested_rev: null, suggested_source: null, warning: null, editable: false, diff: null })
+  const P = (mark: string): PartReviewRowDto => ({ mark, kind: 'removed', slot: null, rename_hint: null, still_used: false })
+  const rv = () => review({ parts: [P('w1')], rows: [...review().rows, removedMark('CO1'), R({ mark: 'U1', kind: 'unchanged', warning: null, editable: false, diff: null })] })
+  const box = (name: RegExp) => screen.getByRole('checkbox', { name })
+
+  it('shows every type and result with counts, all ticked', () => {
+    render(<RevReviewDialog review={rv()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    for (const [n, label] of [[/^Assembly \(5\)$/, 'Assembly'], [/^Part \(1\)$/, 'Part'], [/^Added \(1\)$/, 'Added'], [/^Changed \(1\)$/, 'Changed'], [/^Deleted \(3\)$/, 'Deleted'], [/^Unchanged \(1\)$/, 'Unchanged']] as const) {
+      expect(box(n), label).toBeChecked()
+    }
+  })
+
+  it('unticking a result hides those rows; unticking Deleted also hides the missing-part section', () => {
+    render(<RevReviewDialog review={rv()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    fireEvent.click(box(/^Deleted/))
+    expect(screen.queryByLabelText('ผลของ CO1')).toBeNull()
+    expect(screen.queryByText('Part ที่หายไป (1)')).toBeNull()
+    expect(screen.getByText('B1')).toBeInTheDocument()
+    // still counted: hidden rows must be decided before save
+    expect(screen.getByText('ยังไม่ได้เลือก 2 mark, 1 part (เปลี่ยน หรือ ลบออกจาก BOM)')).toBeInTheDocument()
+  })
+
+  it('unticking Assembly leaves only parts; unticking Part hides the part section', () => {
+    render(<RevReviewDialog review={rv()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    fireEvent.click(box(/^Assembly/))
+    expect(screen.queryByText('B1')).toBeNull()
+    expect(screen.getByLabelText('ผลของ part w1')).toBeInTheDocument()
+    fireEvent.click(box(/^Part/))
+    expect(screen.queryByLabelText('ผลของ part w1')).toBeNull()
+    expect(screen.getByText('ไม่มีรายการตามตัวกรอง')).toBeInTheDocument()
+  })
+
+  it('column headers say Assembly Mark and Part Mark', () => {
+    render(<RevReviewDialog review={rv()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    expect(screen.getByRole('columnheader', { name: 'Assembly Mark' })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Part Mark' })).toBeInTheDocument()
+  })
+
+  it('no unchanged rows → no Unchanged box', () => {
+    render(<RevReviewDialog review={review()} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    expect(screen.queryByRole('checkbox', { name: /^Unchanged/ })).toBeNull()
+  })
+})
+
+describe('RevReviewDialog — what changed folds by assembly / part', () => {
+  it('both groups folded by default: assembly names the changed fields, part shows counts; both toggle', () => {
+    const diff = { fields: [{ field: 'length_mm', old: 650, new: 700 }], parts_added: [{ part_mark: 'Xp5' }], parts_removed: [{ part_mark: 'w2' }, { part_mark: 'f7' }], parts_changed: [] } as unknown as RevReviewRowDto['diff']
+    render(<RevReviewDialog review={review({ rows: [R({ diff })] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    expect(screen.getByText('เพิ่ม 1 · ลบ 2')).toBeInTheDocument()
+    expect(screen.queryByText('ลบ part w2')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Part (3)' }))
+    expect(screen.getByText('ลบ part w2')).toBeInTheDocument()
+    const asm = screen.getByRole('button', { name: 'Assembly (1)' })
+    expect(asm).toHaveAttribute('aria-expanded', 'false')
+    expect(within(asm).getByText('L')).toBeInTheDocument() // folded line names the changed field
+    fireEvent.click(asm)
+    expect(asm).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('RevReviewDialog — same part in both Part Lists with different data', () => {
+  it('a folded ⚠ box says MAIN is used; expanded, each mark lists MAIN vs ACC per field; save is not blocked', () => {
+    render(<RevReviewDialog review={review({ rows: [], part_conflicts: [
+      { mark: 'ESB-p12', fields: [{ field: 'length_mm', main: 650, acc: 700 }] },
+      { mark: 'ESB-w3', fields: [{ field: 'profile', main: 'PL6x850', acc: 'PL8x850' }] },
+    ] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const head = screen.getByRole('button', { name: '⚠ 2 part อยู่ทั้งใน Part List MAIN และ ACC แต่ข้อมูลไม่ตรงกัน — ระบบจะใช้ของ MAIN' })
+    expect(screen.queryByText('ESB-p12')).toBeNull()
+    fireEvent.click(head)
+    expect(screen.getByText('ESB-p12').parentElement).toHaveTextContent('L MAIN 650 · ACC 700')
+    expect(screen.getByText('ESB-w3').parentElement).toHaveTextContent('Profile MAIN PL6x850 · ACC PL8x850')
+    expect(screen.getByRole('button', { name: 'บันทึก' })).toBeEnabled()
+  })
+})

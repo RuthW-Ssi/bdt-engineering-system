@@ -243,3 +243,64 @@ describe('finalizeRevs — server re-check (Review Focus 5)', () => {
     expect(finalizeRevs(decision(), [{ mark: 'SAME', rev: 2 }]).get('SAME')!.rev).toBe(2)
   })
 })
+
+// Missing parts get the same decision as missing marks, before save (2026-11-23, Tao)
+import { decideParts, type PrevPart } from './mark-rev'
+
+describe('decideParts', () => {
+  const PP = (mark: string, slot: 'MAIN' | 'ACC' | null, over: Partial<PrevPart> = {}): PrevPart => ({ id: 1, mark, slot, profile: 'PL8x75', grade: 'SS400', length_mm: 194, weight_kg: 0.9, used_by_kept_assembly: false, ...over })
+  const CP = (mark: string, slot: 'MAIN' | 'ACC' | null, over: object = {}) => ({ part_mark: mark, slot, profile: 'PL8x75', grade: 'SS400', length_mm: 194, weight_kg: 0.9, ...over })
+
+  it('removed = previous parts this upload supersedes and no longer has; added = new marks', () => {
+    const d = decideParts({
+      previous: [PP('w1', 'MAIN'), PP('p12', 'MAIN'), PP('a1', 'ACC')],
+      current: [CP('p12', 'MAIN'), CP('Xp5', 'MAIN', { profile: 'PL12x84.5', length_mm: 720 })],
+      removable: p => p.slot === 'MAIN',
+      referenced: new Set(),
+    })
+    expect(d.map(r => [r.mark, r.kind, r.slot])).toEqual([['w1', 'removed', 'MAIN'], ['Xp5', 'added', 'MAIN']])
+  })
+
+  it('a removed part is "still used" when the uploaded Assembly Part List names it or a kept assembly uses it', () => {
+    const d = decideParts({
+      previous: [PP('w2', 'MAIN'), PP('p12', 'MAIN', { used_by_kept_assembly: true }), PP('f9', 'MAIN')],
+      current: [],
+      removable: () => true,
+      referenced: new Set(['w2']),
+    })
+    expect(d.map(r => [r.mark, r.still_used])).toEqual([['w2', true], ['p12', true], ['f9', false]])
+  })
+
+  it('suggests the look-alike new part of the same slot, one-to-one', () => {
+    const d = decideParts({
+      previous: [PP('p12', 'MAIN')],
+      current: [CP('p12b', 'MAIN'), CP('p12c', 'ACC')],
+      removable: () => true,
+      referenced: new Set(),
+    })
+    expect(d.find(r => r.mark === 'p12')!.rename_hint).toBe('p12b')
+    expect(d.find(r => r.mark === 'p12b')!.rename_hint).toBe('p12')
+    expect(d.find(r => r.mark === 'p12c')!.rename_hint).toBeNull()
+  })
+})
+
+// Same part mark in both MAIN and ACC Part Lists with different data → warn (2026-11-23, Tao)
+import { partConflicts } from './mark-rev'
+
+describe('partConflicts', () => {
+  const p = (part_mark: string, slot: 'MAIN' | 'ACC', over: object = {}) => ({ part_mark, slot, profile: 'PL8x75', grade: 'SS400', length_mm: 650, weight_kg: 3.06, description: 'PLATE', qty: 1, ...over })
+
+  it('lists marks in both slots whose data differ, field by field (MAIN vs ACC); qty is not compared', () => {
+    expect(partConflicts([
+      p('p12', 'MAIN'), p('w3', 'MAIN', { profile: 'PL6x850' }), p('ok', 'MAIN'), p('q', 'MAIN', { qty: 4 }),
+      p('p12', 'ACC', { length_mm: 700 }), p('w3', 'ACC', { profile: 'PL8x850' }), p('ok', 'ACC'), p('q', 'ACC', { qty: 9 }), p('only', 'ACC'),
+    ])).toEqual([
+      { mark: 'p12', fields: [{ field: 'length_mm', main: 650, acc: 700 }] },
+      { mark: 'w3', fields: [{ field: 'profile', main: 'PL6x850', acc: 'PL8x850' }] },
+    ])
+  })
+
+  it('compares at the stored scale and ignores blank-vs-missing text', () => {
+    expect(partConflicts([p('a', 'MAIN', { length_mm: 650.001, description: '' }), p('a', 'ACC', { length_mm: 650, description: undefined })])).toEqual([])
+  })
+})

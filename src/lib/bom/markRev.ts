@@ -23,13 +23,25 @@ export const showValue = (v: string | number | null | undefined) => (v == null |
 
 /** One plain line per change: "L 650 → 700", "เพิ่ม part p2", "part p1: Profile A → B". */
 export function diffLines(d: MarkDiffDto | null): string[] {
-  if (!d) return []
-  return [
-    ...d.fields.map(c => `${MARK_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`),
-    ...d.parts_added.map(p => `เพิ่ม part ${p.part_mark}`),
-    ...d.parts_removed.map(p => `ลบ part ${p.part_mark}`),
-    ...d.parts_changed.map(p => `part ${p.part_mark}: ${p.changes.map(c => `${PART_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`).join(', ')}`),
-  ]
+  const g = diffGroups(d)
+  return [...g.assembly, ...g.part]
+}
+
+/** The diff split into the mark's own fields and its parts — each folds on its own in the review (2026-11-23, Tao).
+ *  Both fold by default; the folded lines are `assemblySummary` and `partSummary` ("เพิ่ม 1 · ลบ 16"). */
+export function diffGroups(d: MarkDiffDto | null): { assembly: string[]; part: string[]; assemblySummary: string; partSummary: string } {
+  if (!d) return { assembly: [], part: [], assemblySummary: '', partSummary: '' }
+  return {
+    // folded line names the fields that changed, e.g. "W · kg/ชุด · area/ชุด"
+    assemblySummary: d.fields.map(c => MARK_FIELD_LABEL[c.field] ?? c.field).join(' · '),
+    assembly: d.fields.map(c => `${MARK_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`),
+    part: [
+      ...d.parts_added.map(p => `เพิ่ม part ${p.part_mark}`),
+      ...d.parts_removed.map(p => `ลบ part ${p.part_mark}`),
+      ...d.parts_changed.map(p => `part ${p.part_mark}: ${p.changes.map(c => `${PART_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`).join(', ')}`),
+    ],
+    partSummary: [d.parts_added.length && `เพิ่ม ${d.parts_added.length}`, d.parts_removed.length && `ลบ ${d.parts_removed.length}`, d.parts_changed.length && `เปลี่ยน ${d.parts_changed.length}`].filter(Boolean).join(' · '),
+  }
 }
 
 /** The review table's "ผล" cell. */

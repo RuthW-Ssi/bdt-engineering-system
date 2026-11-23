@@ -103,14 +103,24 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     fireEvent.click(screen.getByRole('button', { name: /Upload/ }))
 
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
-    // missing marks are decided in the Rev review now (2026-11-23) → after save only parts are left to pair
-    await vi.waitFor(() => expect(afterUpload).toHaveBeenCalledWith(99, { partsOnly: true }))
+    // marks and parts are both decided in the Rev review now (2026-11-23) → no pairing dialog after save
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith('/bom/dispatch/99/paint'))
+    expect(afterUpload).not.toHaveBeenCalled()
     const formData = submit.mock.calls[0][0] as FormData
     expect(formData.getAll('doc_types')).toEqual(
       expect.arrayContaining(['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST', 'DISPATCH_NOTE']),
     )
     const sentNames = (formData.getAll('bom_files') as File[]).map(f => f.name)
     expect(sentNames).toContain('Dispatch Note.xlsx')
+  })
+
+  it('NC FILES has Clear all: removes every NC file at once', () => {
+    renderPage()
+    const [, ncInput] = fileInputs()
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1'), new File(['y'], 'b.nc1')] } })
+    expect(screen.getByText('NC FILES (2)')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+    expect(screen.queryByText(/NC FILES/)).toBeNull()
   })
 
   it('a second Dispatch Note is rejected with a toast and not added to the list', () => {
@@ -149,6 +159,31 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     fireEvent.change(mainInput, { target: { files: [makeFile('ACC Dispatch Note.xlsx')] } })
     expect(screen.getByText('ไฟล์นี้เป็น Dispatch Note ของ Acc — ใส่ในช่อง Acc')).toBeInTheDocument()
     expect(screen.queryByText('Dispatch Note (Main) (ไม่ใส่ก็ได้)')).toBeNull()
+  })
+
+  // One Part List is shared by MAIN and ACC (2026-11-23, Tao)
+  it('separate mode: ACC with no Part List borrows MAIN\'s — Upload is enabled and the ACC box says so', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const [mainInput, accInput, ncInput] = fileInputs()
+    fireEvent.change(mainInput, { target: { files: [makeFile('MAIN Assembly List.xlsx'), makeFile('MAIN Assembly Part List.xlsx'), makeFile('MAIN Part List.xlsx')] } })
+    fireEvent.change(accInput, { target: { files: [makeFile('ACC Assembly List.xlsx'), makeFile('ACC Assembly Part List.xlsx')] } })
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1')] } })
+    expect(screen.getByText('ใช้ Part List ร่วมจากช่อง MAIN')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeEnabled()
+  })
+
+  it('separate mode: the Part List alone in ACC is shared with MAIN\'s lists', () => {
+    renderPage()
+    selectZone()
+    selectSeparateMode()
+    const [mainInput, accInput, ncInput] = fileInputs()
+    fireEvent.change(mainInput, { target: { files: [makeFile('MAIN Assembly List.xlsx'), makeFile('MAIN Assembly Part List.xlsx')] } })
+    fireEvent.change(accInput, { target: { files: [makeFile('ACC Part List.xlsx')] } })
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1')] } })
+    expect(screen.getByText('ใช้ Part List ร่วมจากช่อง ACC')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeEnabled()
   })
 
   it('separate mode: a DN with no matching lists in its slot blocks submit', () => {

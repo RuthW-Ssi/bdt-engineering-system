@@ -152,8 +152,8 @@ describe('useUploadBomWithPreview', () => {
     const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
     await act(async () => { await result.current.submit(new FormData()) })
     let res: unknown
-    await act(async () => { res = await result.current.confirmReview([], [{ from_mark: 'CO1', to_mark: 'CO1A' }]) })
-    expect(mockedApi.saveRenames).toHaveBeenCalledWith(101, [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }])
+    await act(async () => { res = await result.current.confirmReview([], [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }, { kind: 'PART', from_mark: 'w1', to_mark: 'w1b' }]) })
+    expect(mockedApi.saveRenames).toHaveBeenCalledWith(101, [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }, { kind: 'PART', from_mark: 'w1', to_mark: 'w1b' }])
     expect(res).toMatchObject({ id: 101, renamesSaved: true })
   })
 
@@ -164,7 +164,7 @@ describe('useUploadBomWithPreview', () => {
     const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
     await act(async () => { await result.current.submit(new FormData()) })
     let res: unknown
-    await act(async () => { res = await result.current.confirmReview([], [{ from_mark: 'CO1', to_mark: 'CO1A' }]) })
+    await act(async () => { res = await result.current.confirmReview([], [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }]) })
     expect(res).toMatchObject({ id: 102, renamesSaved: false })
   })
 

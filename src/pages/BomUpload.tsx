@@ -13,7 +13,7 @@ import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { RenamePairDialog } from '../components/bom/RenamePairDialog'
 import { RevReviewDialog, type RenameChoice } from '../components/bom/RevReviewDialog'
 import { InfoTip } from '../components/bom/InfoTip'
-import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
+import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES, separateReadiness, sharedPartListNote } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
 import type { DispatchDetailDto, RevEdit } from '../api/dispatches'
@@ -193,8 +193,9 @@ export function BomUpload() {
   const validAcc = accFiles.filter(e => !e.error && e.detectedType)
 
   const hasAllCombined = REQUIRED_BOM_TYPES.every(t => validCombined.map(e => e.detectedType).includes(t))
-  const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
-  const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
+  // one Part List is shared by MAIN and ACC, two = each its own (2026-11-23, Tao)
+  const mainTypes = validMain.map(e => e.detectedType), accTypes = validAcc.map(e => e.detectedType)
+  const separate = separateReadiness(mainTypes, accTypes)
 
   // A DN picked for a slot with none of that slot's own lists is almost
   // certainly a mistake (wrong zone, or the lists were forgotten) — block
@@ -205,7 +206,7 @@ export function BomUpload() {
   const accDnOrphan = accFiles.some(e => !e.error && e.detectedType === 'ACC_DISPATCH_NOTE')
     && !REQUIRED_ACC_TYPES.some(t => validAcc.map(e => e.detectedType).includes(t))
 
-  const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
+  const bomReady = effectiveMode === 'combined' ? hasAllCombined : separate.ready
   const canWrite = usePermission('boms', 'create')
   const canPair = usePermission('boms', 'update') // pairing renamed marks overwrites progress/paint
   const canSubmit = canWrite && !!zoneId && bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
@@ -244,8 +245,8 @@ export function BomUpload() {
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
-    // missing marks are decided in the Rev review now (2026-11-23); if pairing them failed, offer it again here
-    if (await renameStep.afterUpload(res.id, { partsOnly: res.renamesSaved !== false })) return
+    // missing marks and parts are decided in the Rev review (2026-11-23); only if pairing them failed, offer it again here
+    if (res.renamesSaved === false && await renameStep.afterUpload(res.id)) return
     navigate(`/bom/dispatch/${res.id}/paint`)
   }
 
@@ -317,7 +318,11 @@ export function BomUpload() {
 
       {ncFiles.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
+          <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E' }}>NC FILES ({ncFiles.length})</span>
+            {/* remove every NC file at once (Tao 2026-11-23) */}
+            <button type="button" onClick={() => setNcFiles([])} style={{ fontSize: 11.5, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear all</button>
+          </div>
           <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
             {ncFiles.map((f, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
@@ -532,6 +537,7 @@ export function BomUpload() {
               allowedTypes={REQUIRED_MAIN_TYPES}
               dnInfoText={DN_SLOT_INFO_TEXT}
               dnOrphanMessage={mainDnOrphan ? 'ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main' : undefined}
+              sharedNote={sharedPartListNote('MAIN', mainTypes, separate.sharedFrom)}
               onFilesAdded={main.onFilesAdded}
               onRemove={main.removeFile}
               onTypeChange={main.updateType}
@@ -544,6 +550,7 @@ export function BomUpload() {
               allowedTypes={REQUIRED_ACC_TYPES}
               dnInfoText={DN_SLOT_INFO_TEXT}
               dnOrphanMessage={accDnOrphan ? 'ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc' : undefined}
+              sharedNote={sharedPartListNote('ACC', accTypes, separate.sharedFrom)}
               onFilesAdded={acc.onFilesAdded}
               onRemove={acc.removeFile}
               onTypeChange={acc.updateType}
@@ -636,12 +643,14 @@ interface BomFileSectionProps {
   allowedTypes: DocType[]
   dnInfoText?: string
   dnOrphanMessage?: string
+  /** this box borrows the other box's Part List */
+  sharedNote?: string
   onFilesAdded: (accepted: File[], rejected: FileRejection[]) => void
   onRemove: (index: number) => void
   onTypeChange: (index: number, type: DocType) => void
 }
 
-function BomFileSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, onFilesAdded, onRemove, onTypeChange }: BomFileSectionProps) {
+function BomFileSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, sharedNote, onFilesAdded, onRemove, onTypeChange }: BomFileSectionProps) {
   const validCount = files.filter(e => !e.error).length
   // +1 slot: a Dispatch Note can be picked here too, on top of the required files — optional.
   const capacity = maxFiles + 1
@@ -677,6 +686,7 @@ function BomFileSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText
       {dnOrphanMessage && (
         <div style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{dnOrphanMessage}</div>
       )}
+      {sharedNote && <div style={{ fontSize: 12, color: '#555', marginTop: 6 }}>{sharedNote}</div>}
     </div>
   )
 }

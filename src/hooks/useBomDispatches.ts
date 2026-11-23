@@ -204,12 +204,12 @@ export function useUploadBomWithPreview() {
 
   /** `renames`: missing marks the user said were renamed (2026-11-23) — paired on the
    *  new dispatch right after it saves. A failed pairing never fails the upload. */
-  async function confirmReview(revs: RevEdit[], renames: { from_mark: string; to_mark: string }[] = []) {
+  async function confirmReview(revs: RevEdit[], renames: RenamePairInput[] = []) {
     if (!pending.current) return null
     const res = await save(revs)
     if (!renames.length || !res) return res
     try {
-      await dispatchesApi.saveRenames(res.id, renames.map(r => ({ kind: 'ASSEMBLY' as const, ...r })))
+      await dispatchesApi.saveRenames(res.id, renames)
       return { ...res, renamesSaved: true }
     } catch {
       toast.warning('บันทึก BOM แล้ว แต่จับคู่ชื่อไม่สำเร็จ — จับคู่ได้ในหน้าถัดไป หรือที่หน้า BOM version')

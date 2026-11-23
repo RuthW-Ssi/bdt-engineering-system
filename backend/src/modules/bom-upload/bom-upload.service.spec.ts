@@ -1395,6 +1395,68 @@ describe('BomUploadService — slot-scoped status supersession (write path)', ()
     expect(byMark('Q')[0].slot).toBe('ACC')
   })
 
+  // One Part List = shared by MAIN and ACC; two = each its own (2026-11-23, Tao)
+  it('separate mode, one Part List: shared by both slots — parts take the slot of the assemblies using them, and both slots\' old parts are superseded', async () => {
+    const store = makePersistentPrisma()
+    const storage = makeStorage()
+    const matching = makeMatching()
+    // Upload A: each slot its own Part List
+    const parserA = makeBranchingParser({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }] },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1' }] },
+      MAIN_PART_LIST: { parts: [{ part_mark: 'MP1' }] },
+      ACC_PART_LIST: { parts: [{ part_mark: 'AP1' }] },
+    })
+    await new BomUploadService(store.prisma as any, storage as any, parserA as any, matching as any, makeDiffService(store.prisma) as any).upload([
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' }),
+      makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list.xlsx' }),
+      makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_part_list.xlsx' }),
+      makeFileInput({ docType: 'ACC_PART_LIST', originalname: 'acc_part_list.xlsx' }),
+    ], [], 1, 2, null, 1, 'separate')
+
+    // Upload B: both slots, ONE Part List (in the MAIN box)
+    const parserB = makeBranchingParser({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }] },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1' }] },
+      MAIN_ASSEMBLY_PART_LIST: { assemblyParts: [{ assembly_mark: 'M1', part_mark: 'MP1', qty: 1 }, { assembly_mark: 'M1', part_mark: 'SH', qty: 1 }] as any },
+      ACC_ASSEMBLY_PART_LIST: { assemblyParts: [{ assembly_mark: 'A1', part_mark: 'AP2', qty: 1 }, { assembly_mark: 'A1', part_mark: 'SH', qty: 1 }] as any },
+      MAIN_PART_LIST: { parts: [{ part_mark: 'MP1' }, { part_mark: 'AP2' }, { part_mark: 'SH' }] },
+    })
+    await new BomUploadService(store.prisma as any, storage as any, parserB as any, matching as any, makeDiffService(store.prisma) as any).upload([
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main_al_2.xlsx' }),
+      makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_al_2.xlsx' }),
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_PART_LIST', originalname: 'main_apl_2.xlsx' }),
+      makeFileInput({ docType: 'ACC_ASSEMBLY_PART_LIST', originalname: 'acc_apl_2.xlsx' }),
+      makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_pl_2.xlsx' }),
+    ], [], 1, 2, null, 1, 'separate')
+
+    const active = (mark: string) => store.parts.find(p => p.part_mark === mark && p.status === 'ACTIVE')
+    expect(active('MP1')?.slot).toBe('MAIN')   // used by MAIN only
+    expect(active('AP2')?.slot).toBe('ACC')    // used by ACC only — though the file sat in the MAIN box
+    expect(active('SH')?.slot).toBe('MAIN')    // used by both → the box it was dropped in
+    expect(active('AP1')).toBeUndefined()      // ACC's old part: superseded by the shared list
+  })
+
+  it('separate mode, two Part Lists: each slot keeps its own (no sharing)', async () => {
+    const store = makePersistentPrisma()
+    const parser = makeBranchingParser({
+      MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'M1' }] },
+      ACC_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'A1' }] },
+      MAIN_ASSEMBLY_PART_LIST: { assemblyParts: [{ assembly_mark: 'M1', part_mark: 'AP9', qty: 1 }] as any },
+      MAIN_PART_LIST: { parts: [{ part_mark: 'AP9' }] },
+      ACC_PART_LIST: { parts: [{ part_mark: 'AC1' }] },
+    })
+    await new BomUploadService(store.prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(store.prisma) as any).upload([
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' }),
+      makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc_assembly_list.xlsx' }),
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_PART_LIST', originalname: 'main_apl.xlsx' }),
+      makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main_part_list.xlsx' }),
+      makeFileInput({ docType: 'ACC_PART_LIST', originalname: 'acc_part_list.xlsx' }),
+    ], [], 1, 2, null, 1, 'separate')
+    expect(store.parts.find(p => p.part_mark === 'AP9')?.slot).toBe('MAIN')
+    expect(store.parts.find(p => p.part_mark === 'AC1')?.slot).toBe('ACC')
+  })
+
   it('separate-mode Main+Acc submitted together: both slots stamped correctly on assemblies AND parts in one transaction', async () => {
     const store = makePersistentPrisma()
     const storage = makeStorage()
@@ -1822,15 +1884,32 @@ describe('BomUploadService.preview() — rev review', () => {
     const prisma = makePrisma({
       bom_assembly: { findMany: jest.fn().mockResolvedValue(activeRows) } as any,
       bom_dispatch: { ...base.bom_dispatch, findFirst: jest.fn().mockResolvedValue(latestId == null ? null : { id: latestId }) },
+      // the ACTIVE part behind active()'s p1, as Prisma returns it
+      bom_part: { ...base.bom_part, findMany: jest.fn().mockResolvedValue(activeRows.length ? [{ id: 7, part_mark: 'p1', slot: null, profile: 'L50x50', grade: 'SS400', length_mm: '650.00', weight_kg: '5.800', assembly_parts: [] }] : []) } as any,
     })
     return { svc: new BomUploadService(prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(prisma) as any), prisma }
   }
   const scope = { projectId: 1, zoneId: 2, subZoneId: null }
 
+  // Same part mark in both Part Lists with different data → the review warns (2026-11-23, Tao)
+  it('separate mode: a part in both MAIN and ACC Part Lists with different data is a part conflict', async () => {
+    const { svc } = svcWith(parserBy({
+      MAIN_ASSEMBLY_LIST: { assemblies: [fileAsm('B1')] as any },
+      MAIN_PART_LIST: { parts: [{ part_mark: 'p1', profile: 'L50x50', grade: 'SS400', qty: 18, length_mm: 650, weight_kg: 5.8 }] },
+      ACC_PART_LIST: { parts: [{ part_mark: 'p1', profile: 'L50x50', grade: 'SS400', qty: 2, length_mm: 700, weight_kg: 5.8 }] },
+    }), [])
+    const r = await svc.preview([
+      makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'MAIN AL.xlsx' }),
+      makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'MAIN PL.xlsx' }),
+      makeFileInput({ docType: 'ACC_PART_LIST', originalname: 'ACC PL.xlsx' }),
+    ], [], 'separate', scope)
+    expect(r.review.part_conflicts).toEqual([{ mark: 'p1', fields: [{ field: 'length_mm', main: 650, acc: 700 }] }])
+  })
+
   it('identical re-upload (file decimals vs stored scale) → no review rows (Review Focus 1)', async () => {
     const { svc } = svcWith(parserBy(combinedParsed([fileAsm('B1')])), [active('B1', 2)])
     const r = await svc.preview(combinedFiles(), [], 'combined', scope)
-    expect(r.review).toEqual({ base_dispatch_id: 7, has_dn: false, rows: [], dn_only_marks: [], dn_warnings: [] })
+    expect(r.review).toEqual({ base_dispatch_id: 7, has_dn: false, rows: [], parts: [], part_conflicts: [], dn_only_marks: [], dn_warnings: [] })
     expect(r.unmatchedAssemblyMarks).toEqual([])
   })
 
@@ -1841,6 +1920,21 @@ describe('BomUploadService.preview() — rev review', () => {
     const { svc } = svcWith(parserBy(parsed), [active('B1', 2)])
     const r = await svc.preview([makeFileInput({ docType: 'ASSEMBLY_LIST' }), makeFileInput({ docType: 'ASSEMBLY_PART_LIST', originalname: 'assembly_part_list.xlsx' })], [], 'combined', scope)
     expect(r.review.rows).toEqual([])
+  })
+
+  // Missing parts get a decision before save too (2026-11-23, Tao)
+  it('lists parts that would be removed and new parts; a removed part the upload still names is "still used"', async () => {
+    const parsed = combinedParsed([fileAsm('B1')]) as any
+    parsed.ASSEMBLY_PART_LIST.assemblyParts.push({ assembly_mark: 'B1', part_mark: 'w2', qty: 1 })
+    const { svc, prisma } = svcWith(parserBy(parsed), [active('B1', 2)])
+    prisma.bom_part.findMany = jest.fn().mockResolvedValue([
+      { id: 5, part_mark: 'w1', slot: null, profile: 'PL6x850', grade: 'HY370', length_mm: '6315.00', weight_kg: '190.250', assembly_parts: [] },
+      { id: 6, part_mark: 'w2', slot: null, profile: 'PL6x850', grade: 'HY370', length_mm: '6315.00', weight_kg: '190.250', assembly_parts: [] },
+      { id: 7, part_mark: 'p1', slot: null, profile: 'L50x50', grade: 'SS400', length_mm: '650.00', weight_kg: '5.800', assembly_parts: [] },
+    ]) as any
+    const r = await svc.preview(combinedFiles(), [], 'combined', scope)
+    expect(r.review.parts.map(p => [p.mark, p.kind, p.still_used])).toEqual([['w1', 'removed', false], ['w2', 'removed', true]])
+    expect((prisma.bom_part.findMany as jest.Mock).mock.calls[0][0].where).toEqual({ status: 'ACTIVE', dispatch: { project_id: 1, zone_id: 2, sub_zone_id: null, source: 'BOM_UPLOAD' } })
   })
 
   it('reads the zone\'s ACTIVE real-upload rows as the previous state', async () => {

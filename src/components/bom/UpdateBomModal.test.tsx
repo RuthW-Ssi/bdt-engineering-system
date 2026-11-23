@@ -23,6 +23,7 @@ vi.mock('../../hooks/useBomDispatches', () => ({
 }))
 vi.mock('../../hooks/usePermission', () => ({ usePermission: () => true }))
 const afterUpload = vi.hoisted(() => vi.fn())
+const onClose = vi.hoisted(() => vi.fn())
 vi.mock('../../hooks/useRenameStep', () => ({
   useRenameStep: () => ({ dispatchId: null, partsOnly: false, afterUpload, close: vi.fn() }),
 }))
@@ -37,7 +38,7 @@ function renderModal(uploadMode: 'combined' | 'separate' = 'combined') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   render(
     <QueryClientProvider client={qc}>
-      <UpdateBomModal dispatchId={7} projectId={1} zoneId={1} subZoneId={null} uploadMode={uploadMode} onClose={vi.fn()} />
+      <UpdateBomModal dispatchId={7} projectId={1} zoneId={1} subZoneId={null} uploadMode={uploadMode} onClose={onClose} />
     </QueryClientProvider>,
   )
 }
@@ -55,6 +56,15 @@ function makeFile(name: string) {
 }
 
 describe('UpdateBomModal — Dispatch Note in the same picker', () => {
+  it('NC FILES has Clear all: removes every NC file at once', () => {
+    renderModal('combined')
+    const [, ncInput] = fileInputs()
+    fireEvent.change(ncInput, { target: { files: [new File(['x'], 'a.nc1'), new File(['y'], 'b.nc1')] } })
+    expect(screen.getByText('NC FILES (2)')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+    expect(screen.queryByText(/NC FILES/)).toBeNull()
+  })
+
   it('combined mode: a DN among the files lands in the list and is sent as DISPATCH_NOTE', async () => {
     renderModal('combined')
     const [bomInput, ncInput] = fileInputs()
@@ -74,7 +84,9 @@ describe('UpdateBomModal — Dispatch Note in the same picker', () => {
     fireEvent.click(screen.getByRole('button', { name: /Upload/ }))
 
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
-    await vi.waitFor(() => expect(afterUpload).toHaveBeenCalledWith(99, { partsOnly: true }))
+    // marks and parts are both decided in the Rev review now (2026-11-23) → no pairing dialog after save
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled())
+    expect(afterUpload).not.toHaveBeenCalled()
     const formData = submit.mock.calls[0][0] as FormData
     expect(formData.getAll('doc_types')).toEqual(
       expect.arrayContaining(['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST', 'DISPATCH_NOTE']),
