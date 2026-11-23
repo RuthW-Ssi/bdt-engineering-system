@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { importDispatchNote, importPartList, type PreshopAssembly } from '../../../api/bomPreshop'
@@ -27,6 +27,11 @@ export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
   const [pl, setPl] = useState<SlotState>({ file: null, loading: false })
   const [dragging, setDragging] = useState<string | null>(null)
   const [pending, setPending] = useState<{ file: string; result: MergeResult; slot: 'dn' | 'pl' } | null>(null)
+  // File reads are async: merge into the state as it is when the file comes
+  // back, not as it was when it was picked (drags made meanwhile must stay).
+  const latest = useRef(state)
+  useEffect(() => { latest.current = state }, [state])
+  const reading = dn.loading || pl.loading
 
   const take = (file: string, slot: 'dn' | 'pl', result: MergeResult) => {
     if (result.conflicts.length || result.missing.length) { setPending({ file, result, slot }); return }
@@ -39,7 +44,8 @@ export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
     try {
       const res = await importDispatchNote(file)
       res.warnings?.forEach(w => toast.warning(w))
-      take(res.filename, 'dn', mergeDispatchNote(dn.file ? removeFileRows(state, 'dn') : state, res.assemblies))
+      // a re-picked file merges like any other: same marks keep their links (2026-11-23 review)
+      take(res.filename, 'dn', mergeDispatchNote(latest.current, res.assemblies))
     } catch (err) {
       toast.error(errText(err, 'อ่าน Dispatch Note ไม่ได้'))
     } finally {
@@ -51,7 +57,7 @@ export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
     setPl(s => ({ ...s, loading: true }))
     try {
       const res = await importPartList(file)
-      take(res.filename, 'pl', mergePartList(pl.file ? removeFileRows(state, 'pl') : state, res.parts))
+      take(res.filename, 'pl', mergePartList(latest.current, res.parts))
     } catch (err) {
       toast.error(errText(err, 'อ่าน Part List ไม่ได้'))
     } finally {
@@ -71,7 +77,7 @@ export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <PreshopFileSlots dn={dn} pl={pl} disabled={!canWrite}
+      <PreshopFileSlots dn={dn} pl={pl} disabled={!canWrite || reading}
         onDispatchNote={onDispatchNote} onPartList={onPartList}
         onRemoveDn={() => { setState(s => removeFileRows(s, 'dn')); setDn({ file: null, loading: false }) }}
         onRemovePl={() => { setState(s => removeFileRows(s, 'pl')); setPl({ file: null, loading: false }) }} />

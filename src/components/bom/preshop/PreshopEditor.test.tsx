@@ -73,4 +73,48 @@ describe('PreshopEditor', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(within(screen.getByTestId('asm-row-C-01')).getByLabelText('ชุด')).toHaveValue(6)
   })
+
+  it('keeps a drag made while a file is still reading', async () => {
+    let resolve: (v: unknown) => void = () => {}
+    importPartList.mockReturnValue(new Promise(r => { resolve = r }))
+    render(<PreshopEditor initial={twoAsmWithParts()} onSave={vi.fn()} saving={false} />)
+    const input = screen.getByTestId('slot-pl').querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'PL.xls')] } })
+    drag('P103', 'B-01')
+    resolve({ filename: 'PL.xls', parts: [P('P999')] })
+    await screen.findByTestId('part-card-P999')
+    expect(within(screen.getByTestId('asm-row-B-01')).getByTestId('asm-part-count')).toHaveTextContent('1')
+  })
+
+  it('does not take a second file while one is reading', () => {
+    importDispatchNote.mockReturnValue(new Promise(() => {}))
+    render(<PreshopEditor initial={twoAsmWithParts()} onSave={vi.fn()} saving={false} />)
+    const dnInput = screen.getByTestId('slot-dn').querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(dnInput, { target: { files: [new File(['x'], 'DN.xls')] } })
+    expect(screen.getByTestId('slot-pl').querySelector('input[type="file"]')).toBeNull()
+  })
+
+  it('re-picking a Dispatch Note keeps the parts already put into its assemblies', async () => {
+    importDispatchNote.mockResolvedValueOnce({ filename: 'DN1.xls', assemblies: [asm('C-01', 4), asm('B-01', 6)], warnings: [] })
+    importPartList.mockResolvedValueOnce({ filename: 'PL.xls', parts: [P('P103')] })
+    render(<PreshopEditor initial={EMPTY_STATE} onSave={vi.fn()} saving={false} />)
+    const pick = async (slot: string, name: string) => {
+      const input = screen.getByTestId(slot).querySelector('input[type="file"]') as HTMLInputElement
+      fireEvent.change(input, { target: { files: [new File(['x'], name)] } })
+    }
+    await pick('slot-dn', 'DN1.xls')
+    await screen.findByTestId('asm-row-C-01')
+    await pick('slot-pl', 'PL.xls')
+    await screen.findByTestId('part-card-P103')
+    drag('P103', 'C-01')
+    importDispatchNote.mockResolvedValueOnce({ filename: 'DN2.xls', assemblies: [asm('C-01', 6), asm('B-01', 6)], warnings: [] })
+    await pick('slot-dn', 'DN2.xls')
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: /ใหม่ \(จากไฟล์\).*6/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'OK' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(within(screen.getByTestId('asm-row-C-01')).getByTestId('asm-part-count')).toHaveTextContent('1')
+    expect(within(screen.getByTestId('asm-row-C-01')).getByLabelText('ชุด')).toHaveValue(6)
+  })
 })
+
