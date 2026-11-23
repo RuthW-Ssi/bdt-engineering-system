@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PreshopAssembly, PreshopListPart } from '../api/bomPreshop'
 import {
-  addLink, applyMerge, canSave, fromSaved, mergeDispatchNote, mergePartList, removeFileRows, saveErrors, toPayload, usage,
+  addLink, applyMerge, canSave, diffAssemblies, fromSaved, mergeDispatchNote, mergePartList, removeFileRows, saveErrors, toPayload, usage,
   type EditorState,
 } from './bomPreshop'
 
@@ -170,5 +170,22 @@ describe('toPayload', () => {
       ['C-01', 4, [['P102', 2, 31.4]]],
       ['C-02', 2, [['P102', 1, 31.4]]],
     ])
+  })
+})
+
+describe('diffAssemblies (latest saved → what I am about to save)', () => {
+  it('lists changed, removed and added marks and part changes', () => {
+    const theirs = [asm('C-01', 6, { parts: [P101, P102] }), asm('C-02', 2, { parts: [P102] }), asm('C-03', 1, { parts: [P101] })]
+    const mine = [asm('C-01', 4, { parts: [P101, P102] }), asm('C-02', 2, { parts: [{ ...P102, qty: 3 }] }), asm('B-02', 1, { parts: [P101] })]
+    expect(diffAssemblies(theirs, mine)).toEqual([
+      { mark: 'C-01', kind: 'changed', changes: ['ชุด 6 → 4'] },
+      { mark: 'C-02', kind: 'changed', changes: ['P102 ต่อชุด 2 → 3'] },
+      { mark: 'C-03', kind: 'removed', changes: [] },
+      { mark: 'B-02', kind: 'added', changes: [] },
+    ])
+  })
+
+  it('is empty when nothing differs', () => {
+    expect(diffAssemblies(SAVED, SAVED)).toEqual([])
   })
 })

@@ -22,8 +22,12 @@ export interface PreshopCurrent {
   dispatch_id: number
   revision: number
   uploaded_at: string
+  uploader: string | null
   assemblies: PreshopAssembly[]
 }
+
+/** 409 body when someone saved after the editor opened (code PRESHOP_STALE). */
+export interface PreshopStale { code: 'PRESHOP_STALE'; message: string; current: PreshopCurrent }
 
 const multipart = (file: File) => {
   const form = new FormData()
@@ -49,6 +53,6 @@ export async function getPreshop(scope: PreshopScope): Promise<PreshopCurrent | 
 }
 
 /** POST /bom/preshop — save as a new pre-shop revision. */
-export async function savePreshop(body: PreshopScope & { assemblies: PreshopAssembly[] }): Promise<{ dispatch_id: number; revision: number }> {
+export async function savePreshop(body: PreshopScope & { assemblies: PreshopAssembly[]; base_revision: number | null; overwrite?: boolean }): Promise<{ dispatch_id: number; revision: number }> {
   return (await apiClient.post('/bom/preshop', body)).data
 }

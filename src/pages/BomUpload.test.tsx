@@ -231,3 +231,45 @@ describe('BomUpload — Save pre-shop', () => {
     await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith('/bom?project_id=1&zone_id=1', { state: { selectDispatch: 95 } }))
   })
 })
+
+describe('BomUpload — someone saved first', () => {
+  const C01 = (qty: number) => ({ assembly_mark: 'C-01', name: 'COLUMN', qty, weight_kg: 100, surface_area_m2: 2, length_mm: 8450, width_mm: 300, height_mm: 300,
+    parts: [{ part_mark: 'P101', profile: 'H300', grade: 'SS400', length_mm: 8400, unit_weight_kg: 789.6, qty: 1 }] })
+
+  it('shows who saved, what differs, and saves on top only when asked', async () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', uploader: 'Admin', assemblies: [C01(4)] } })
+    savePreshop.mockReset()
+    savePreshop
+      .mockRejectedValueOnce({ response: { status: 409, data: { code: 'PRESHOP_STALE', message: 'มีผู้บันทึก pre-shop zone นี้ไปก่อนแล้ว',
+        current: { dispatch_id: 8, revision: 3, uploaded_at: '2026-11-23T04:40:00Z', uploader: 'Admin', assemblies: [C01(6)] } } } })
+      .mockResolvedValueOnce({ dispatch_id: 9, revision: 4 })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save pre-shop' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toHaveTextContent('มีผู้บันทึก pre-shop zone นี้ไปก่อนแล้ว')
+    expect(dialog).toHaveTextContent('rev 3')
+    expect(dialog).toHaveTextContent('ชุด 6 → 4')
+    expect(savePreshop.mock.calls[0][0]).toMatchObject({ base_revision: 2 })
+    fireEvent.click(screen.getByRole('button', { name: /บันทึกทับเป็น rev 4/ }))
+    await vi.waitFor(() => expect(savePreshop).toHaveBeenCalledTimes(2))
+    expect(savePreshop.mock.calls[1][0]).toMatchObject({ base_revision: 2, overwrite: true })
+  })
+
+  it('"กลับไปแก้ต่อ" closes the warning and keeps the editor', async () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', uploader: 'Admin', assemblies: [C01(4)] } })
+    savePreshop.mockReset()
+    savePreshop.mockRejectedValueOnce({ response: { status: 409, data: { code: 'PRESHOP_STALE', message: 'x',
+      current: { dispatch_id: 8, revision: 3, uploaded_at: '2026-11-23T04:40:00Z', uploader: 'Admin', assemblies: [C01(6)] } } } })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save pre-shop' }))
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: 'กลับไปแก้ต่อ' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByDisplayValue('C-01')).toBeInTheDocument()
+    expect(savePreshop).toHaveBeenCalledTimes(1)
+  })
+})

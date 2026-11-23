@@ -180,3 +180,40 @@ export function toPayload(s: EditorState): PreshopAssembly[] {
     }),
   }))
 }
+
+// ── Someone saved first (2026-11-23, Tao): latest saved revision → what I am about to save ──
+const ASM_LABEL: Record<AsmField, string> = { qty: 'ชุด', name: 'Name', length_mm: 'L', width_mm: 'W', height_mm: 'H', weight_kg: 'kg/ชุด', surface_area_m2: 'area/ชุด' }
+const show = (v: unknown) => (v == null || v === '' ? '—' : String(v))
+
+export interface AsmDiff { mark: string; kind: 'changed' | 'removed' | 'added'; changes: string[] }
+
+export function diffAssemblies(theirs: PreshopAssembly[], mine: PreshopAssembly[]): AsmDiff[] {
+  const out: AsmDiff[] = []
+  const mineBy = new Map(mine.map(a => [a.assembly_mark, a]))
+  const theirsBy = new Map(theirs.map(a => [a.assembly_mark, a]))
+  for (const t of theirs) {
+    const m = mineBy.get(t.assembly_mark)
+    if (!m) { out.push({ mark: t.assembly_mark, kind: 'removed', changes: [] }); continue }
+    const changes: string[] = []
+    for (const f of ASM_FIELDS) {
+      const a = (t as unknown as Record<string, unknown>)[f] ?? null
+      const b = (m as unknown as Record<string, unknown>)[f] ?? null
+      if (!same(a, b)) changes.push(`${ASM_LABEL[f]} ${show(a)} → ${show(b)}`)
+    }
+    const tp = new Map(t.parts.map(p => [p.part_mark, p]))
+    const mp = new Map(m.parts.map(p => [p.part_mark, p]))
+    for (const [mark, p] of tp) {
+      const q = mp.get(mark)
+      if (!q) { changes.push(`ไม่มี part ${mark}`); continue }
+      if (p.qty !== q.qty) changes.push(`${mark} ต่อชุด ${p.qty} → ${q.qty}`)
+      if (p.profile !== q.profile) changes.push(`${mark} Profile ${p.profile} → ${q.profile}`)
+      if (p.grade !== q.grade) changes.push(`${mark} Grade ${show(p.grade)} → ${show(q.grade)}`)
+      if (p.length_mm !== q.length_mm) changes.push(`${mark} L ${p.length_mm} → ${q.length_mm}`)
+      if (p.unit_weight_kg !== q.unit_weight_kg) changes.push(`${mark} kg/ชิ้น ${p.unit_weight_kg} → ${q.unit_weight_kg}`)
+    }
+    for (const mark of mp.keys()) if (!tp.has(mark)) changes.push(`part ใหม่ ${mark}`)
+    if (changes.length) out.push({ mark: t.assembly_mark, kind: 'changed', changes })
+  }
+  for (const m of mine) if (!theirsBy.has(m.assembly_mark)) out.push({ mark: m.assembly_mark, kind: 'added', changes: [] })
+  return out
+}

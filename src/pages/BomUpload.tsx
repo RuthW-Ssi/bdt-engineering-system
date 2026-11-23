@@ -20,8 +20,9 @@ import type { DispatchDetailDto, RevEdit } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
 import { usePreshopCurrent, useSavePreshop } from '../hooks/useBomPreshop'
 import { PreshopEditor } from '../components/bom/preshop/PreshopEditor'
+import { PreshopConflictDialog } from '../components/bom/preshop/PreshopConflictDialog'
 import { EMPTY_STATE, fromSaved } from '../lib/bomPreshop'
-import type { PreshopAssembly } from '../api/bomPreshop'
+import type { PreshopAssembly, PreshopCurrent, PreshopStale } from '../api/bomPreshop'
 
 const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 const NC_FORMATS = ['.nc1']
@@ -151,6 +152,7 @@ export function BomUpload() {
     : null
   const preshopCurrent = usePreshopCurrent(bomType === 'preshop' ? preshopScope : null)
   const savePreshop = useSavePreshop()
+  const [conflict, setConflict] = useState<{ current: PreshopCurrent; assemblies: PreshopAssembly[] } | null>(null)
   const renameStep = useRenameStep()
 
   const combined = makeFileHandlers(files, setFiles)
@@ -208,16 +210,23 @@ export function BomUpload() {
   const canSubmit = canWrite && !!zoneId && bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
     && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
-  const handleSavePreshop = async (assemblies: PreshopAssembly[]) => {
+  const handleSavePreshop = async (assemblies: PreshopAssembly[], overwrite = false) => {
     if (!preshopScope) return
     try {
-      const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies })
+      // base_revision: the revision this editor started from — the server refuses (409) if someone saved since
+      const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies, base_revision: preshopCurrent.data?.revision ?? null, ...(overwrite && { overwrite: true }) })
+      setConflict(null)
       toast.success(`Pre-shop saved (rev ${res.revision})`)
       // the BOM page remembers its own project — pass the one just saved so the new rev is on screen
       const q = new URLSearchParams({ project_id: String(preshopScope.project_id), zone_id: String(preshopScope.zone_id), ...(preshopScope.sub_zone_id != null && { sub_zone_id: String(preshopScope.sub_zone_id) }) })
       navigate(`/bom?${q}`, { state: { selectDispatch: res.dispatch_id } })
     } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
+      const res = (err as { response?: { status?: number; data?: Partial<PreshopStale> & { message?: string | string[] } } })?.response
+      if (res?.status === 409 && res.data?.code === 'PRESHOP_STALE' && res.data.current) {
+        setConflict({ current: res.data.current, assemblies })
+        return
+      }
+      const msg = res?.data?.message
       toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Save pre-shop failed — please try again'))
     }
   }
@@ -564,6 +573,17 @@ export function BomUpload() {
         </div>
         </>)}
       </div>
+
+      {conflict && (
+        <PreshopConflictDialog
+          current={conflict.current}
+          baseRevision={preshopCurrent.data?.revision ?? null}
+          mine={conflict.assemblies}
+          saving={savePreshop.isPending}
+          onBack={() => setConflict(null)}
+          onOverwrite={() => handleSavePreshop(conflict.assemblies, true)}
+        />
+      )}
 
       {uploadFlow.pendingMismatch && (
         <JunctionMismatchModal
