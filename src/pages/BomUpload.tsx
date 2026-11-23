@@ -356,8 +356,9 @@ export function BomUpload() {
           </select>
         </div>
 
-        {/* BOM Type */}
+        {/* BOM Type + Upload Mode on one row */}
         {zoneId && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 48, rowGap: 16 }}>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>BOM Type</div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -377,36 +378,8 @@ export function BomUpload() {
               </div>
             )}
           </div>
-        )}
-
-        {/* Pre-shop editor */}
-        {bomType === 'preshop' && zoneId && (
-          preshopCurrent.isLoading
-            ? <div className="flex items-center gap-2" style={{ fontSize: 13, color: '#8E8E8E' }}><Loader2 size={14} className="animate-spin" />Loading pre-shop…</div>
-            : (
-              <>
-                {preshopCurrent.data && (
-                  <div style={{ fontSize: 12.5, color: '#555' }}>
-                    Pre-shop rev {preshopCurrent.data.revision} · saved {new Date(preshopCurrent.data.uploaded_at).toLocaleString('en-GB')} — แก้ด้วยมือหรืออัปไฟล์ใหม่เพื่อเทียบกับค่าเดิม
-                  </div>
-                )}
-                <PreshopEditor
-                  key={`${zoneId}-${subZoneId}-${preshopCurrent.data?.dispatch_id ?? 'new'}`}
-                  initial={preshopCurrent.data ? fromSaved(preshopCurrent.data.assemblies) : EMPTY_STATE}
-                  onSave={handleSavePreshop}
-                  saving={savePreshop.isPending}
-                  canWrite={canWrite}
-                />
-                <div>
-                  <button onClick={() => navigate('/bom')} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
-                </div>
-              </>
-            )
-        )}
-
-        {bomType === 'full' && (<>
-        {/* Upload Mode Radio */}
-        {zoneId && !zoneModeLoading && (
+        {/* Upload Mode Radio — Full shop only, beside BOM Type (2026-11-23) */}
+        {bomType === 'full' && !zoneModeLoading && (
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 8 }}>
               BOM Upload Mode
@@ -448,7 +421,35 @@ export function BomUpload() {
             </div>
           </div>
         )}
+          </div>
+        )}
 
+        {/* Pre-shop editor */}
+        {bomType === 'preshop' && zoneId && (
+          preshopCurrent.isLoading
+            ? <div className="flex items-center gap-2" style={{ fontSize: 13, color: '#8E8E8E' }}><Loader2 size={14} className="animate-spin" />Loading pre-shop…</div>
+            : (
+              <>
+                {preshopCurrent.data && (
+                  <div style={{ fontSize: 12.5, color: '#555' }}>
+                    Pre-shop rev {preshopCurrent.data.revision} · saved {new Date(preshopCurrent.data.uploaded_at).toLocaleString('en-GB')} — แก้ด้วยมือหรืออัปไฟล์ใหม่เพื่อเทียบกับค่าเดิม
+                  </div>
+                )}
+                <PreshopEditor
+                  key={`${zoneId}-${subZoneId}-${preshopCurrent.data?.dispatch_id ?? 'new'}`}
+                  initial={preshopCurrent.data ? fromSaved(preshopCurrent.data.assemblies) : EMPTY_STATE}
+                  onSave={handleSavePreshop}
+                  saving={savePreshop.isPending}
+                  canWrite={canWrite}
+                />
+                <div>
+                  <button onClick={() => navigate('/bom')} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+                </div>
+              </>
+            )
+        )}
+
+        {bomType === 'full' && (<>
         {/* BOM Files — Combined */}
         {effectiveMode === 'combined' && (
           <BomFileSection
