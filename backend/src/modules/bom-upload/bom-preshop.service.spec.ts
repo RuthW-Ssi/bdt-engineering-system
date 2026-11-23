@@ -1,7 +1,7 @@
 // Pre-shop at the BOM page (2026-11-23, wiki features/bom-preshop-upload-plan):
 // each save is a new PRE_SHOP dispatch with revision ≥ 1; the previous
 // BOM-page revision goes INACTIVE. MO-made pre-shop (revision 0) is never touched.
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, ConflictException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { BomPreshopService } from './bom-preshop.service'
 
@@ -88,6 +88,30 @@ describe('BomPreshopService.save', () => {
     await expect(svc.save({ ...SCOPE, zone_id: 80, sub_zone_id: 5 }, [C01], 1)).rejects.toThrow('Sub-zone นี้ไม่ได้อยู่ใน zone ที่เลือก')
   })
 
+  it('refuses with 409 and the latest revision when someone saved after this editor opened', async () => {
+    const { svc, preshop, prisma } = make({ prev: { id: 55, revision: 5 } })
+    prisma.bom_dispatch.findFirst.mockResolvedValue({ id: 55, revision: 5, uploaded_at: new Date('2026-11-23T04:40:00Z'), create_user: { name: 'Admin' } })
+    prisma.bom_assembly.findMany.mockResolvedValue([])
+    const err = await svc.save(SCOPE, [C01], 1, { baseRevision: 4 }).catch(e => e)
+    expect(err).toBeInstanceOf(ConflictException)
+    expect(err.getResponse()).toMatchObject({ code: 'PRESHOP_STALE', current: { revision: 5, uploader: 'Admin', assemblies: [] } })
+    expect(preshop.createDispatch).not.toHaveBeenCalled()
+  })
+
+  it('saves on top when the Engineer chose to overwrite', async () => {
+    const { svc, preshop } = make({ prev: { id: 55, revision: 5 } })
+    const r = await svc.save(SCOPE, [C01], 1, { baseRevision: 4, overwrite: true })
+    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 6 })
+    expect(r.revision).toBe(6)
+  })
+
+  it('an editor that started empty conflicts with a pre-shop saved meanwhile', async () => {
+    const { svc, prisma } = make({ prev: { id: 55, revision: 1 } })
+    prisma.bom_dispatch.findFirst.mockResolvedValue({ id: 55, revision: 1, uploaded_at: new Date(), create_user: { name: 'Admin' } })
+    prisma.bom_assembly.findMany.mockResolvedValue([])
+    await expect(svc.save(SCOPE, [C01], 1, { baseRevision: null })).rejects.toBeInstanceOf(ConflictException)
+  })
+
   it('takes the per-zone lock before reading the previous revision', async () => {
     const { svc, calls } = make()
     await svc.save(SCOPE, [C01], 1)
@@ -115,7 +139,7 @@ describe('BomPreshopService.current', () => {
         assembly_parts: [{ qty: d(2), part: part(P102) }] },
     ])
     const r = await svc.current(SCOPE)
-    expect(r).toEqual({ dispatch_id: 60, revision: 2, uploaded_at: '2026-11-23T03:00:00.000Z', assemblies: [C01, C02] })
+    expect(r).toEqual({ dispatch_id: 60, revision: 2, uploaded_at: '2026-11-23T03:00:00.000Z', uploader: null, assemblies: [C01, C02] })
     expect(prisma.bom_assembly.findMany.mock.calls[0][0].where).toEqual({ dispatch_id: 60, status: 'ACTIVE' })
   })
 })

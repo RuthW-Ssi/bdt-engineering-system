@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../../prisma/prisma.service'
 import { PreshopService } from '../manufacturing-orders/preshop/preshop.service'
@@ -59,8 +59,8 @@ export class BomPreshopService {
   }
 
   /** The zone's current BOM-page pre-shop (ACTIVE rows, parts per set), or null. */
-  async current(scope: PreshopScope): Promise<{ dispatch_id: number; revision: number; uploaded_at: string; assemblies: PreshopAssembly[] } | null> {
-    const d = await this.prisma.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true, uploaded_at: true } })
+  async current(scope: PreshopScope): Promise<{ dispatch_id: number; revision: number; uploaded_at: string; uploader: string | null; assemblies: PreshopAssembly[] } | null> {
+    const d = await this.prisma.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true, uploaded_at: true, create_user: { select: { name: true } } } })
     if (!d) return null
     const rows = await this.prisma.bom_assembly.findMany({
       where: { dispatch_id: d.id, status: 'ACTIVE' },
@@ -77,6 +77,7 @@ export class BomPreshopService {
       dispatch_id: d.id,
       revision: d.revision,
       uploaded_at: d.uploaded_at.toISOString(),
+      uploader: d.create_user?.name ?? null,
       assemblies: rows.map(a => ({
         assembly_mark: a.assembly_mark, name: a.name, qty: Number(a.qty ?? 0),
         weight_kg: n(a.weight_kg), surface_area_m2: n(a.surface_area_m2), length_mm: n(a.length_mm), width_mm: n(a.width_mm), height_mm: n(a.height_mm),
@@ -89,7 +90,13 @@ export class BomPreshopService {
   }
 
   /** Save as a new BOM-page pre-shop revision; the previous one goes INACTIVE. */
-  async save(scope: PreshopScope, assemblies: PreshopAssembly[], userId: number): Promise<{ dispatch_id: number; revision: number }> {
+  /** `baseRevision` = the revision the editor started from (null = started empty). If someone saved
+   *  after that, refuse with 409 + the latest revision so the Engineer sees what changed and decides;
+   *  `overwrite` = they saw it and chose to save on top (2026-11-23, Tao). */
+  async save(
+    scope: PreshopScope, assemblies: PreshopAssembly[], userId: number,
+    opts: { baseRevision?: number | null; overwrite?: boolean } = {},
+  ): Promise<{ dispatch_id: number; revision: number }> {
     const noParts = assemblies.filter(a => !a.parts.length).map(a => a.assembly_mark)
     if (noParts.length) throw new BadRequestException(`ใส่ part ให้ครบทุก mark ก่อนบันทึก: ${noParts.join(', ')}`)
     // one bom_part per mark ("first spec wins" in createDispatch) — refuse instead of silently dropping a size
@@ -116,6 +123,13 @@ export class BomPreshopService {
       const prev = await tx.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true } })
       const realBom = await tx.bom_assembly.count({ where: { status: 'ACTIVE', dispatch: { zone_id: scope.zone_id, source: 'BOM_UPLOAD' } } })
       if (realBom > 0) throw new BadRequestException('Zone นี้มี BOM แล้ว — ใช้ BOM จริงแทน pre-shop')
+      if (opts.baseRevision !== undefined && !opts.overwrite && (prev?.revision ?? null) !== opts.baseRevision) {
+        throw new ConflictException({
+          statusCode: 409, code: 'PRESHOP_STALE',
+          message: 'มีผู้บันทึก pre-shop zone นี้ไปก่อนแล้ว',
+          current: await this.current(scope),
+        })
+      }
 
       if (prev) {
         await tx.bom_assembly.updateMany({ where: { dispatch_id: prev.id }, data: { status: 'INACTIVE' } })

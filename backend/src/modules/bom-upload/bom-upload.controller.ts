@@ -95,7 +95,7 @@ export class BomUploadController {
   @RequiresPermission('boms', 'create')
   @ApiOperation({ summary: 'Pre-shop · save as a new revision (previous BOM-page revision goes INACTIVE)' })
   savePreshop(@Body() dto: SaveBomPreshopDto, @CurrentUser() user: JwtPayload) {
-    return this.bomPreshop.save({ project_id: dto.project_id, zone_id: dto.zone_id, sub_zone_id: dto.sub_zone_id ?? null }, dto.assemblies, user.sub)
+    return this.bomPreshop.save({ project_id: dto.project_id, zone_id: dto.zone_id, sub_zone_id: dto.sub_zone_id ?? null }, dto.assemblies, user.sub, { baseRevision: dto.base_revision, overwrite: dto.overwrite })
   }
 
   @Post('bom/upload')
