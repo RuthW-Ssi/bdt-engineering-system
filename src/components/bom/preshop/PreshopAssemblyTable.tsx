@@ -3,7 +3,7 @@ import { ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import { addLink, newKey, type EdAsm, type EditorState } from '../../../lib/bomPreshop'
 
 const COLS = '22px minmax(0,1.3fr) 64px minmax(0,1fr) 76px 64px 64px 80px 84px 56px 30px'
-const MEMBER_COLS = 'minmax(0,1.2fr) minmax(0,1.2fr) 80px 80px 70px 60px 80px 26px'
+const MEMBER_COLS = 'minmax(0,1.2fr) minmax(0,1.2fr) 64px 64px 64px 52px 64px 26px'
 const HD: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#767676', textTransform: 'uppercase', letterSpacing: '.04em' }
 const IN: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '4px 6px', fontSize: 12.5, border: '1px solid #D4D4D4', borderRadius: 5, background: '#fff', color: '#1F1F1F' }
 const MONO: React.CSSProperties = { ...IN, fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }
@@ -41,7 +41,7 @@ export function PreshopAssemblyTable({ state, onChange, dragging }: { state: Edi
         <div style={{ fontSize: 11.5, color: '#767676' }}>ลาก part จากด้านขวามาวางที่ assembly</div>
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <div style={{ minWidth: 860 }}>
+        <div style={{ minWidth: 760 }}>
           <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 6, padding: '6px 0', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
             <span /><span style={HD}>Assembly mark</span><span style={HD}>ชุด</span><span style={HD}>Name</span><span style={HD}>L (mm)</span><span style={HD}>W (mm)</span>
             <span style={HD}>H (mm)</span><span style={HD}>kg / ชุด</span><span style={HD}>area / ชุด</span><span style={HD}>Part</span><span />

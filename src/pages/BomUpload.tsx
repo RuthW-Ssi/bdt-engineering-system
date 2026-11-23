@@ -213,7 +213,9 @@ export function BomUpload() {
     try {
       const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies })
       toast.success(`Pre-shop saved (rev ${res.revision})`)
-      navigate('/bom', { state: { selectDispatch: res.dispatch_id } })
+      // the BOM page remembers its own project — pass the one just saved so the new rev is on screen
+      const q = new URLSearchParams({ project_id: String(preshopScope.project_id), zone_id: String(preshopScope.zone_id), ...(preshopScope.sub_zone_id != null && { sub_zone_id: String(preshopScope.sub_zone_id) }) })
+      navigate(`/bom?${q}`, { state: { selectDispatch: res.dispatch_id } })
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data?.message
       toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Save pre-shop failed — please try again'))

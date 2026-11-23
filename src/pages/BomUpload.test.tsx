@@ -1,6 +1,8 @@
 import { vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+const navigate = vi.fn()
+vi.mock('react-router-dom', async (orig) => ({ ...(await orig<typeof import('react-router-dom')>()), useNavigate: () => navigate }))
 import { toast } from 'sonner'
 import { BomUpload } from './BomUpload'
 
@@ -39,10 +41,11 @@ vi.mock('../hooks/useRenameStep', () => ({
   useRenameStep: () => ({ dispatchId: null, afterUpload: vi.fn().mockResolvedValue(false), close: vi.fn() }),
 }))
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => true }))
+const savePreshop = vi.fn().mockResolvedValue({ dispatch_id: 95, revision: 3 })
 const preshopCurrent = vi.fn().mockReturnValue({ data: null, isLoading: false })
 vi.mock('../hooks/useBomPreshop', () => ({
   usePreshopCurrent: (scope: unknown) => preshopCurrent(scope),
-  useSavePreshop: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSavePreshop: () => ({ mutateAsync: savePreshop, isPending: false }),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 
@@ -201,5 +204,19 @@ describe('BomUpload — BOM Type', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
     expect(screen.getByText(/Pre-shop rev 2/)).toBeInTheDocument()
     expect(screen.getByDisplayValue('C-01')).toBeInTheDocument()
+  })
+})
+
+describe('BomUpload — Save pre-shop', () => {
+  it('opens the BOM page on the same project and zone, with the new pre-shop selected', async () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', assemblies: [
+      { assembly_mark: 'C-01', name: 'COLUMN', qty: 4, weight_kg: 100, surface_area_m2: 2, length_mm: 8450, width_mm: 300, height_mm: 300,
+        parts: [{ part_mark: 'P101', profile: 'H300', grade: 'SS400', length_mm: 8400, unit_weight_kg: 789.6, qty: 1 }] },
+    ] } })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save pre-shop' }))
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith('/bom?project_id=1&zone_id=1', { state: { selectDispatch: 95 } }))
   })
 })
