@@ -428,6 +428,14 @@ export function BomUpload() {
         {bomType === 'preshop' && zoneId && (
           preshopCurrent.isLoading
             ? <div className="flex items-center gap-2" style={{ fontSize: 13, color: '#8E8E8E' }}><Loader2 size={14} className="animate-spin" />Loading pre-shop…</div>
+            : preshopCurrent.isError
+            // an empty editor saved from here would replace the real current revision
+            ? (
+              <div className="flex items-center gap-3" style={{ fontSize: 13, color: '#A01A22', border: '1px solid #F3C7C9', background: '#FDF1F1', borderRadius: 8, padding: '8px 12px' }}>
+                โหลด pre-shop ของ zone นี้ไม่ได้ — ลองใหม่อีกครั้ง
+                <button type="button" onClick={() => preshopCurrent.refetch()} style={{ fontSize: 12.5, fontWeight: 600, color: '#C8202A', background: '#fff', border: '1px solid #E8A0A0', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>Retry</button>
+              </div>
+            )
             : (
               <>
                 {preshopCurrent.data && (

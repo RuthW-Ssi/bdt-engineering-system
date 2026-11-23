@@ -33,4 +33,10 @@ describe('BomList — pre-shop dispatch', () => {
     fireEvent.click(screen.getByRole('button', { name: /Edit pre-shop/ }))
     expect(navigate).toHaveBeenCalledWith('/bom/upload?project_id=43&zone_id=80&type=preshop')
   })
+
+  it('opened with the Paint tab asked for, a pre-shop falls back to Tree', () => {
+    render(<MemoryRouter initialEntries={[{ pathname: '/bom', state: { selectDispatch: 94, tab: 'paint' } }]}><BomList /></MemoryRouter>)
+    expect(screen.getByRole('button', { name: 'Tree' })).toHaveStyle({ fontWeight: '600' })
+  })
 })
+

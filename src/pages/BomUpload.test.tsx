@@ -207,6 +207,17 @@ describe('BomUpload — BOM Type', () => {
   })
 })
 
+describe('BomUpload — pre-shop load fails', () => {
+  it('shows the error and no editor, so an empty save cannot replace the real revision', () => {
+    preshopCurrent.mockReturnValue({ isLoading: false, isError: true, data: undefined, refetch: vi.fn() })
+    renderPage()
+    selectZone()
+    fireEvent.click(screen.getByRole('radio', { name: 'Pre-shop' }))
+    expect(screen.getByText(/โหลด pre-shop ของ zone นี้ไม่ได้/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save pre-shop' })).toBeNull()
+  })
+})
+
 describe('BomUpload — Save pre-shop', () => {
   it('opens the BOM page on the same project and zone, with the new pre-shop selected', async () => {
     preshopCurrent.mockReturnValue({ isLoading: false, data: { dispatch_id: 7, revision: 2, uploaded_at: '2026-11-23T03:00:00Z', assemblies: [
