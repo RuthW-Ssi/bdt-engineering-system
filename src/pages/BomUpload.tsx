@@ -293,6 +293,42 @@ export function BomUpload() {
     }
   }
 
+  // NC Files column — beside BOM Files (combined) or under MAIN | ACC (separate)
+  const ncSection = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+      <div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+          NC Files <span style={{ color: '#C8202A' }}>*</span>
+          <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
+            .nc1 files from Tekla (canonical source for qty + dimensions)
+          </span>
+        </label>
+        <FileDropzone
+          maxFiles={1500}
+          currentCount={ncFiles.length}
+          acceptedFormats={NC_FORMATS}
+          hint=".nc1 · max 20 MB / file · up to 1500 files"
+          onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
+          disabled={false}
+        />
+      </div>
+
+      {ncFiles.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
+          <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
+            {ncFiles.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
+                <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      </div>
+  )
+
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflowY: 'auto' }}>
       {/* Header */}
@@ -467,9 +503,10 @@ export function BomUpload() {
         )}
 
         {bomType === 'full' && (<>
-        {/* BOM Files — Combined */}
+        {/* BOM Files + NC Files side by side (2026-11-23, Tao) — like Dispatch Note + Part list in Pre-shop */}
         {effectiveMode === 'combined' && (
-          <BomFileSection
+          <div data-testid="bom-nc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20, alignItems: 'start' }}>
+            <BomFileSection
             label="BOM Files"
             hint="Assembly List, Assembly Part List, Part List (3 files required)"
             maxFiles={3}
@@ -479,12 +516,13 @@ export function BomUpload() {
             onRemove={combined.removeFile}
             onTypeChange={combined.updateType}
           />
+            {ncSection}
+          </div>
         )}
-
-        {/* BOM Files — Separate */}
         {effectiveMode === 'separate' && (
           <>
-            <BomFileSection
+            <div data-testid="main-acc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20, alignItems: 'start' }}>
+              <BomFileSection
               label="MAIN BOM Files"
               hint="MAIN Assembly List, MAIN Assembly Part List, MAIN Part List"
               maxFiles={3}
@@ -496,7 +534,7 @@ export function BomUpload() {
               onRemove={main.removeFile}
               onTypeChange={main.updateType}
             />
-            <BomFileSection
+              <BomFileSection
               label="ACC BOM Files"
               hint="ACC Assembly List, ACC Assembly Part List, ACC Part List"
               maxFiles={3}
@@ -508,39 +546,9 @@ export function BomUpload() {
               onRemove={acc.removeFile}
               onTypeChange={acc.updateType}
             />
-          </>
-        )}
-
-        {/* NC Files */}
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            NC Files <span style={{ color: '#C8202A' }}>*</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              .nc1 files from Tekla (canonical source for qty + dimensions)
-            </span>
-          </label>
-          <FileDropzone
-            maxFiles={1500}
-            currentCount={ncFiles.length}
-            acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 1500 files"
-            onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
-            disabled={false}
-          />
-        </div>
-
-        {ncFiles.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
-            <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
-              {ncFiles.map((f, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
-                  <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
-                </div>
-              ))}
             </div>
-          </div>
+            {ncSection}
+          </>
         )}
 
         {/* Progress */}
