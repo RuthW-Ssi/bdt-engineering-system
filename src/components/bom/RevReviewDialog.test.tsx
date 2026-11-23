@@ -166,7 +166,9 @@ describe('RevReviewDialog — missing marks', () => {
 
   it('warns when marks about to be removed are still in the Dispatch Note', () => {
     render(<RevReviewDialog review={rv([removed('CO1', { in_dn: true }), removed('CO2', { in_dn: true }), removed('CO3', { in_dn: true, dn_status: 'Cancel', dn_cancelled_in_files: true })])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
-    expect(screen.getByText(/2 mark ที่จะถูกลบยังอยู่ใน Dispatch Note/)).toHaveTextContent('CO1, CO2')
+    // count only — listing every mark gets unreadable (Tao, 27 already too many)
+    expect(screen.getByText('⚠ 2 mark ที่จะถูกลบยังอยู่ใน Dispatch Note')).toBeInTheDocument()
+    expect(screen.queryByText(/CO1, CO2/)).toBeNull()
     expect(screen.getByText(/Assembly List อาจ export ไม่ครบ/)).toBeInTheDocument()
   })
 

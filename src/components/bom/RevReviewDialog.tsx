@@ -66,7 +66,8 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
         )}
         {stillInDn.length > 0 && (
           <div style={warnBox}>
-            {`⚠ ${stillInDn.length} mark ที่จะถูกลบยังอยู่ใน Dispatch Note: ${stillInDn.join(', ')}`}
+            {/* count only — the rows below show which marks (Tao: a list of 27+ is unreadable) */}
+            <div>{`⚠ ${stillInDn.length} mark ที่จะถูกลบยังอยู่ใน Dispatch Note`}</div>
             <div style={{ marginTop: 2 }}>Assembly List อาจ export ไม่ครบ — ตรวจไฟล์ก่อน หรือกด ยกเลิก แล้ว export ใหม่</div>
           </div>
         )}
