@@ -47,9 +47,9 @@ describe('review helpers', () => {
     expect(cancelledNote(row())).toBeNull()
   })
 
-  it('renameNote: new mark → "อาจเปลี่ยนชื่อจาก …", removed → "อาจเปลี่ยนชื่อเป็น …", else nothing', () => {
-    expect(renameNote(row({ kind: 'added', rename_hint: 'DBN-B1-BR10' }))).toBe('อาจเปลี่ยนชื่อจาก DBN-B1-BR10 — จับคู่ชื่อได้หลังบันทึก')
-    expect(renameNote(row({ kind: 'removed', rename_hint: '3DBN-B1-BR10' }))).toBe('อาจเปลี่ยนชื่อเป็น 3DBN-B1-BR10')
+  it('renameNote: new mark → "อาจเปลี่ยน mark จาก …", removed → "อาจเปลี่ยนเป็น …", else nothing', () => {
+    expect(renameNote(row({ kind: 'added', rename_hint: 'DBN-B1-BR10' }))).toBe('อาจเปลี่ยน mark จาก DBN-B1-BR10')
+    expect(renameNote(row({ kind: 'removed', rename_hint: '3DBN-B1-BR10' }))).toBe('อาจเปลี่ยนเป็น 3DBN-B1-BR10')
     expect(renameNote(row())).toBeNull()
   })
 

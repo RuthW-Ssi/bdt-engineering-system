@@ -53,8 +53,8 @@ export const cancelledNote = (r: RevReviewRowDto): string | null =>
 /** Rename hint line (server pairs a new and a removed mark that look like one piece). Pairing itself stays after save. */
 export function renameNote(r: RevReviewRowDto): string | null {
   if (!r.rename_hint) return null
-  if (r.kind === 'added') return `อาจเปลี่ยนชื่อจาก ${r.rename_hint} — จับคู่ชื่อได้หลังบันทึก`
-  return r.kind === 'removed' ? `อาจเปลี่ยนชื่อเป็น ${r.rename_hint}` : null
+  if (r.kind === 'added') return `อาจเปลี่ยน mark จาก ${r.rename_hint}`
+  return r.kind === 'removed' ? `อาจเปลี่ยนเป็น ${r.rename_hint}` : null
 }
 
 /** Review order: a hinted removed row moves right under its new mark; everything else keeps its order. */

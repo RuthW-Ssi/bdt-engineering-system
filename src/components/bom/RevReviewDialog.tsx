@@ -102,10 +102,10 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
                           style={{ display: 'block', width: '100%', marginTop: 6, fontSize: 12.5, padding: '3px 4px', color: '#1F1F1F', border: `1px solid ${decisions[r.mark] ? '#C2C2C2' : '#C8202A'}`, borderRadius: 4, background: 'white' }}>
                           <option value="">— เลือก —</option>
                           <option value="delete">ลบออกจาก BOM</option>
-                          {hint && <optgroup label="ระบบแนะนำ"><option value={`rename:${hint}`} disabled={taken.has(hint)}>{`เปลี่ยนชื่อเป็น ${hint}`}</option></optgroup>}
+                          {hint && <optgroup label="ระบบแนะนำ"><option value={`rename:${hint}`} disabled={taken.has(hint)}>{`เปลี่ยนเป็น ${hint}`}</option></optgroup>}
                           {others.length > 0 && (
-                            <optgroup label="เปลี่ยนชื่อเป็น…">
-                              {others.map(m => <option key={m} value={`rename:${m}`} disabled={taken.has(m)}>{`เปลี่ยนชื่อเป็น ${m}`}</option>)}
+                            <optgroup label="เปลี่ยนเป็น mark…">
+                              {others.map(m => <option key={m} value={`rename:${m}`} disabled={taken.has(m)}>{`เปลี่ยนเป็น ${m}`}</option>)}
                             </optgroup>
                           )}
                         </select>
@@ -134,7 +134,7 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
         <div className="flex items-center justify-end" style={{ gap: 8, padding: '14px 20px', borderTop: '1px solid #EEE' }}>
           {undecided.length > 0 && (
             <>
-              <span style={{ marginRight: 'auto', fontSize: 12.5, color: '#991B1B' }}>{`ยังไม่ได้เลือก ${undecided.length} mark (เปลี่ยนชื่อ หรือ ลบออกจาก BOM)`}</span>
+              <span style={{ marginRight: 'auto', fontSize: 12.5, color: '#991B1B' }}>{`ยังไม่ได้เลือก ${undecided.length} mark (เปลี่ยน mark หรือ ลบออกจาก BOM)`}</span>
               <button onClick={deleteRest} disabled={isUploading} style={{ fontSize: 13, padding: '6px 12px', borderRadius: 6, border: '1px solid #F3C7C9', background: '#FDF1F1', color: '#991B1B' }}>ที่เหลือทั้งหมด: ลบออกจาก BOM</button>
             </>
           )}

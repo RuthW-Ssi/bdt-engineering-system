@@ -94,8 +94,8 @@ describe('RevReviewDialog', () => {
       R({ mark: 'G1', kind: 'removed', suggested_rev: null, warning: null, editable: false, diff: null, rename_hint: 'N1' }),
     ]
     render(<RevReviewDialog review={review({ rows })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
-    expect(screen.getByText('อาจเปลี่ยนชื่อจาก G1 — จับคู่ชื่อได้หลังบันทึก')).toBeInTheDocument()
-    expect(screen.getByText('อาจเปลี่ยนชื่อเป็น N1')).toBeInTheDocument()
+    expect(screen.getByText('อาจเปลี่ยน mark จาก G1')).toBeInTheDocument()
+    expect(screen.getByText('อาจเปลี่ยนเป็น N1')).toBeInTheDocument()
     expect(screen.getAllByRole('row').slice(1).map(tr => tr.querySelector('td')!.textContent)).toEqual(['N1', 'G1', 'U1'])
   })
 
@@ -129,7 +129,7 @@ describe('RevReviewDialog — missing marks', () => {
     render(<RevReviewDialog review={rv([removed('CO1'), removed('CO2'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
     const save = screen.getByRole('button', { name: 'บันทึก' })
     expect(save).toBeDisabled()
-    expect(screen.getByText(/ยังไม่ได้เลือก 2 mark/)).toBeInTheDocument()
+    expect(screen.getByText('ยังไม่ได้เลือก 2 mark (เปลี่ยน mark หรือ ลบออกจาก BOM)')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('ผลของ CO1'), { target: { value: 'delete' } })
     expect(save).toBeDisabled()
     fireEvent.change(screen.getByLabelText('ผลของ CO2'), { target: { value: 'delete' } })
@@ -140,7 +140,8 @@ describe('RevReviewDialog — missing marks', () => {
     const onConfirm = vi.fn()
     render(<RevReviewDialog review={rv([removed('CO1', { rename_hint: 'CO1A' }), added('CO1A'), added('CO9')])} isUploading={false} onCancel={vi.fn()} onConfirm={onConfirm} allowRename />)
     const select = screen.getByLabelText('ผลของ CO1') as HTMLSelectElement
-    expect(within(select).getByRole('group', { name: 'ระบบแนะนำ' })).toHaveTextContent('CO1A')
+    expect(within(select).getByRole('group', { name: 'ระบบแนะนำ' })).toHaveTextContent('เปลี่ยนเป็น CO1A')
+    expect(select).not.toHaveTextContent('เปลี่ยนชื่อ') // it is a mark, not a name (Tao)
     fireEvent.change(select, { target: { value: 'rename:CO1A' } })
     fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
     expect(onConfirm).toHaveBeenCalledWith([], [{ from_mark: 'CO1', to_mark: 'CO1A' }])
