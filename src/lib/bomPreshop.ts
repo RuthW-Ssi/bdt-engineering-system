@@ -16,7 +16,7 @@ export interface EdLink { asmKey: string; partKey: string; qty: number } // qty 
 export interface EditorState { asm: EdAsm[]; parts: EdPart[]; links: EdLink[] }
 export interface Conflict { id: string; kind: 'asm' | 'part'; key: string; mark: string; field: AsmField | PartField; old: string | number | null; new: string | number | null }
 export interface MergeResult { state: EditorState; conflicts: Conflict[]; missing: string[] }
-export type Pick = 'old' | 'new'
+export type Pick = 'old' | 'new' | { own: string | number | null } // own = typed by the Engineer (กำหนดเอง)
 
 export const ASM_FIELDS: AsmField[] = ['qty', 'name', 'length_mm', 'width_mm', 'height_mm', 'weight_kg', 'surface_area_m2']
 export const PART_FIELDS: PartField[] = ['profile', 'grade', 'length_mm', 'unit_weight_kg', 'no']
@@ -78,7 +78,7 @@ export function mergeDispatchNote(s: EditorState, incoming: PreshopAssembly[]): 
 
 export function mergePartList(s: EditorState, incoming: PreshopListPart[]): MergeResult {
   const conflicts: Conflict[] = []
-  const parts = [...s.parts]
+  const parts = s.parts.map(p => ({ ...p })) // copies — a cancelled dialog must leave the current state as it was
   for (const p of incoming) {
     const mark = p.part_mark.trim()
     const cur = parts.find(x => x.part_mark === mark)
@@ -94,20 +94,22 @@ export function mergePartList(s: EditorState, incoming: PreshopListPart[]): Merg
       conflicts.push({ id: `part:${cur.key}:${f}`, kind: 'part', key: cur.key, mark, field: f, old: cur[f], new: v })
     }
   }
-  return { state: { ...s, parts: parts.map(p => ({ ...p })) }, conflicts, missing: [] }
+  return { state: { ...s, parts }, conflicts, missing: [] }
 }
 
 export function applyMerge(r: MergeResult, picks: Record<string, Pick>, remove: string[]): EditorState {
-  const take = (c: Conflict) => picks[c.id] === 'new'
+  const pick = (c: Conflict) => picks[c.id]
+  const take = (c: Conflict) => { const p = pick(c); return p === 'new' || (typeof p === 'object' && p != null) }
+  const valueOf = (c: Conflict) => { const p = pick(c); return typeof p === 'object' && p != null ? p.own : c.new }
   const asm = r.state.asm
     .filter(a => !(a.src !== 'own' && remove.includes(a.mark)))
     .map(a => {
       const mine = r.conflicts.filter(c => c.kind === 'asm' && c.key === a.key && take(c))
-      return mine.length ? mine.reduce((acc, c) => ({ ...acc, [c.field]: c.new }), a) : a
+      return mine.length ? mine.reduce((acc, c) => ({ ...acc, [c.field]: valueOf(c) }), a) : a
     })
   const parts = r.state.parts.map(p => {
     const mine = r.conflicts.filter(c => c.kind === 'part' && c.key === p.key && take(c))
-    return mine.length ? mine.reduce((acc, c) => ({ ...acc, [c.field]: c.new }), p) : p
+    return mine.length ? mine.reduce((acc, c) => ({ ...acc, [c.field]: valueOf(c) }), p) : p
   })
   const keep = new Set(asm.map(a => a.key))
   return { asm, parts, links: r.state.links.filter(l => keep.has(l.asmKey)) }

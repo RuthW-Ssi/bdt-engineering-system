@@ -75,6 +75,22 @@ describe('mergePartList', () => {
   })
 })
 
+describe('merge leaves the current state untouched', () => {
+  it('a cancelled Part List merge does not change saved parts', () => {
+    const s = fromSaved(SAVED)
+    const before = JSON.stringify(s)
+    mergePartList(s, [listPart('P102', { profile: 'PL25x400', length_mm: 400, unit_weight_kg: 31.4, no: 12 })])
+    expect(JSON.stringify(s)).toBe(before)
+  })
+})
+
+describe('applyMerge with a typed value', () => {
+  it('uses the value the Engineer typed (กำหนดเอง)', () => {
+    const r = mergeDispatchNote(fromSaved(SAVED), [asm('C-01', 6), asm('C-02', 2), asm('B-01', 6, { name: 'BEAM' })])
+    expect(applyMerge(r, { [r.conflicts[0].id]: { own: 5 } }, []).asm.find(a => a.mark === 'C-01')!.qty).toBe(5)
+  })
+})
+
 describe('addLink and usage', () => {
   it('links a part once per assembly', () => {
     const s = mergePartList(mergeDispatchNote(empty, DN).state, [listPart('P103')]).state

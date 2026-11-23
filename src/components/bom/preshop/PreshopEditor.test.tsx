@@ -135,5 +135,17 @@ describe('PreshopEditor', () => {
     fireEvent.click(within(screen.getByTestId('part-card-P201')).getByRole('button', { name: 'Delete P201' }))
     expect(screen.queryByTestId('part-card-P201')).toBeNull()
   })
+
+  it('takes a value the Engineer types in the compare dialog (กำหนดเอง)', async () => {
+    importDispatchNote.mockResolvedValue({ filename: 'DN.xls', assemblies: [asm('C-01', 6)], warnings: [] })
+    render(<PreshopEditor initial={fromSaved([asm('C-01', 4, { parts: [{ ...P('P103'), qty: 1 }] })])} onSave={vi.fn()} saving={false} />)
+    const input = screen.getByTestId('slot-dn').querySelector('input[type="file"]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'DN.xls')] } })
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('กำหนดเอง ชุด C-01'), { target: { value: '5' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'OK' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(within(screen.getByTestId('asm-row-C-01')).getByLabelText('ชุด')).toHaveValue(5)
+  })
 })
 

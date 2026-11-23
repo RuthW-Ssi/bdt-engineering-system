@@ -11,10 +11,13 @@ const LABEL: Record<AsmField | PartField, string> = {
 const TAG = {
   old: { bg: '#F0F0F0', fg: '#555', text: 'เดิม' },
   new: { bg: '#E6F1FB', fg: '#0C447C', text: 'ใหม่ (จากไฟล์)' },
+  own: { bg: '#FAEEDA', fg: '#854F0B', text: 'กำหนดเอง' },
 }
+// text fields stay text, the rest are numbers
+const TEXT_FIELDS = new Set<string>(['name', 'profile', 'grade'])
 const show = (v: string | number | null) => (v == null || v === '' ? '—' : typeof v === 'number' ? v.toLocaleString('en-US', { maximumFractionDigits: 3 }) : v)
 
-function Card({ kind, value, active, onClick }: { kind: Pick; value: string | number | null; active: boolean; onClick: () => void }) {
+function Card({ kind, value, active, onClick }: { kind: 'old' | 'new'; value: string | number | null; active: boolean; onClick: () => void }) {
   const t = TAG[kind]
   return (
     <button type="button" onClick={onClick} aria-pressed={active}
@@ -28,6 +31,20 @@ function Card({ kind, value, active, onClick }: { kind: Pick; value: string | nu
       </div>
       <div style={{ fontSize: 14, fontWeight: 700 }}>{show(value)}</div>
     </button>
+  )
+}
+
+function OwnCard({ field, mark, pick, onChange }: { field: string; mark: string; pick: Pick | undefined; onChange: (p: Pick) => void }) {
+  const active = typeof pick === 'object' && pick != null
+  const text = active ? String(pick.own ?? '') : ''
+  const isText = TEXT_FIELDS.has(field)
+  return (
+    <div style={{ flex: 1, minWidth: 140, padding: '8px 10px', borderRadius: 8, background: '#fff', border: active ? '2px solid #C8202A' : '1px solid #D4D4D4', boxShadow: active ? '0 0 0 3px #FCEBEB' : 'none' }}>
+      <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: TAG.own.bg, color: TAG.own.fg }}>{TAG.own.text}</span>
+      <input aria-label={`กำหนดเอง ${LABEL[field as AsmField | PartField]} ${mark}`} type={isText ? 'text' : 'number'} value={text} placeholder="พิมพ์ค่า"
+        onChange={e => onChange({ own: e.target.value.trim() === '' ? null : isText ? e.target.value : Number(e.target.value) })}
+        style={{ display: 'block', width: '100%', boxSizing: 'border-box', marginTop: 6, padding: '4px 6px', fontSize: 13, fontWeight: 700, border: '1px solid #D4D4D4', borderRadius: 5 }} />
+    </div>
   )
 }
 
@@ -60,6 +77,7 @@ export function PreshopMergeDialog({ file, result, onCancel, onConfirm }: {
                 <div className="flex flex-wrap" style={{ gap: 8 }}>
                   <Card kind="old" value={c.old} active={picks[c.id] === 'old'} onClick={() => setPicks(p => ({ ...p, [c.id]: 'old' }))} />
                   <Card kind="new" value={c.new} active={picks[c.id] === 'new'} onClick={() => setPicks(p => ({ ...p, [c.id]: 'new' }))} />
+                  <OwnCard field={c.field} mark={c.mark} pick={picks[c.id]} onChange={v => setPicks(p => ({ ...p, [c.id]: v }))} />
                 </div>
               </div>
             ))}
