@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { X, Loader2 } from 'lucide-react'
 import type { RevEdit, RevReviewDto } from '../../api/dispatches'
-import { cancelledNote, diffLines, orderReviewRows, renameNote, revError, rowResult } from '../../lib/bom/markRev'
+import { cancelledNote, diffLines, missingDecisions, orderReviewRows, removedStillInDn, renameNote, renamesFrom, revError, rowResult, type MissingDecision } from '../../lib/bom/markRev'
 import { InfoTip } from './InfoTip'
 
 // Per-mark Rev review before save (2026-10-26, spec decision 5) — in the style
@@ -16,13 +16,30 @@ const td: CSSProperties = { padding: '6px 10px', verticalAlign: 'top', fontSize:
 // BOM diff badges' #D1FAE5 / #FEE2E2, text #065F46 / #991B1B).
 const ROW_TINT = { warn: { bg: '#FFFBEB', fg: '#8A5A00' }, added: { bg: '#F0FDF4', fg: '#065F46' }, removed: { bg: '#FEF2F2', fg: '#991B1B' } }
 
-interface Props { review: RevReviewDto; isUploading: boolean; onCancel: () => void; onConfirm: (revs: RevEdit[]) => void }
+// A missing mark is deleted or renamed — the user says which before save (2026-11-23, Tao):
+// no default, save waits until every removed row has a choice. Renames go to the
+// rename-pair endpoint right after the upload (needs boms:update → `allowRename`).
+export type RenameChoice = { from_mark: string; to_mark: string }
+interface Props { review: RevReviewDto; isUploading: boolean; onCancel: () => void; onConfirm: (revs: RevEdit[], renames: RenameChoice[]) => void; allowRename?: boolean }
 
-export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Props) {
+export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allowRename = false }: Props) {
   const editable = review.rows.filter(r => r.editable)
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(editable.map(r => [r.mark, String(r.suggested_rev ?? '')])))
   const errors = Object.fromEntries(editable.map(r => [r.mark, revError(r, values[r.mark] ?? '')]))
-  const blocked = Object.values(errors).some(Boolean) || isUploading
+  const [decisions, setDecisions] = useState<Record<string, MissingDecision>>({})
+  const addedMarks = review.rows.filter(r => r.kind === 'added').map(r => r.mark)
+  const undecided = missingDecisions(review.rows, decisions)
+  const stillInDn = removedStillInDn(review.rows)
+  const takenBy = (except: string) => new Set(Object.entries(decisions).filter(([m, d]) => m !== except && typeof d === 'object').map(([, d]) => (d as { rename: string }).rename))
+  const valueOf = (mark: string) => { const d = decisions[mark]; return !d ? '' : d === 'delete' ? 'delete' : `rename:${d.rename}` }
+  const choose = (mark: string, v: string) => setDecisions(ds => {
+    const next = { ...ds }
+    if (!v) delete next[mark]
+    else next[mark] = v === 'delete' ? 'delete' : { rename: v.slice('rename:'.length) }
+    return next
+  })
+  const deleteRest = () => setDecisions(ds => ({ ...ds, ...Object.fromEntries(undecided.map(m => [m, 'delete' as const])) }))
+  const blocked = Object.values(errors).some(Boolean) || isUploading || undecided.length > 0
   const warns = (r: RevReviewDto['rows'][number]) => !!r.warning || r.dn_cancelled_in_files
   const warnCount = review.rows.filter(warns).length
   const tintOf = (r: RevReviewDto['rows'][number]) => (warns(r) ? ROW_TINT.warn : r.kind === 'added' ? ROW_TINT.added : r.kind === 'removed' ? ROW_TINT.removed : null)
@@ -45,6 +62,12 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
         {review.dn_only_marks.length > 0 && (
           <div style={warnBox}>
             {`⚠ มี mark ใน Dispatch Note แต่ไม่มีในไฟล์ BOM: ${review.dn_only_marks.join(', ')} — ส่งไฟล์ไม่ครบ หรือผิดชุด?`}
+          </div>
+        )}
+        {stillInDn.length > 0 && (
+          <div style={warnBox}>
+            {`⚠ ${stillInDn.length} mark ที่จะถูกลบยังอยู่ใน Dispatch Note: ${stillInDn.join(', ')}`}
+            <div style={{ marginTop: 2 }}>Assembly List อาจ export ไม่ครบ — ตรวจไฟล์ก่อน หรือกด ยกเลิก แล้ว export ใหม่</div>
           </div>
         )}
         {review.dn_warnings.map(w => (
@@ -70,6 +93,24 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
                     {rowResult(r, review.has_dn)}
                     {cancelledNote(r) && <div style={{ color: '#8A5A00', marginTop: 4, fontSize: 12, lineHeight: 1.4 }}>{cancelledNote(r)}</div>}
                     {renameNote(r) && <div style={{ color: '#555', marginTop: 4, fontSize: 12, lineHeight: 1.4 }}>{renameNote(r)}</div>}
+                    {r.kind === 'removed' && (() => {
+                      const taken = takenBy(r.mark)
+                      const hint = allowRename && r.rename_hint && addedMarks.includes(r.rename_hint) ? r.rename_hint : null
+                      const others = allowRename ? addedMarks.filter(m => m !== hint) : []
+                      return (
+                        <select aria-label={`ผลของ ${r.mark}`} value={valueOf(r.mark)} onChange={e => choose(r.mark, e.target.value)}
+                          style={{ display: 'block', width: '100%', marginTop: 6, fontSize: 12.5, padding: '3px 4px', color: '#1F1F1F', border: `1px solid ${decisions[r.mark] ? '#C2C2C2' : '#C8202A'}`, borderRadius: 4, background: 'white' }}>
+                          <option value="">— เลือก —</option>
+                          <option value="delete">ลบออกจาก BOM</option>
+                          {hint && <optgroup label="ระบบแนะนำ"><option value={`rename:${hint}`} disabled={taken.has(hint)}>{`เปลี่ยนชื่อเป็น ${hint}`}</option></optgroup>}
+                          {others.length > 0 && (
+                            <optgroup label="เปลี่ยนชื่อเป็น…">
+                              {others.map(m => <option key={m} value={`rename:${m}`} disabled={taken.has(m)}>{`เปลี่ยนชื่อเป็น ${m}`}</option>)}
+                            </optgroup>
+                          )}
+                        </select>
+                      )
+                    })()}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
                     <span style={{ color: '#888' }}>{r.prev_rev ?? '—'}</span>{' → '}
@@ -91,8 +132,14 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm }: Pr
         </div>
 
         <div className="flex items-center justify-end" style={{ gap: 8, padding: '14px 20px', borderTop: '1px solid #EEE' }}>
+          {undecided.length > 0 && (
+            <>
+              <span style={{ marginRight: 'auto', fontSize: 12.5, color: '#991B1B' }}>{`ยังไม่ได้เลือก ${undecided.length} mark (เปลี่ยนชื่อ หรือ ลบออกจาก BOM)`}</span>
+              <button onClick={deleteRest} disabled={isUploading} style={{ fontSize: 13, padding: '6px 12px', borderRadius: 6, border: '1px solid #F3C7C9', background: '#FDF1F1', color: '#991B1B' }}>ที่เหลือทั้งหมด: ลบออกจาก BOM</button>
+            </>
+          )}
           <button onClick={onCancel} disabled={isUploading} className="disabled:opacity-40" style={{ fontSize: 13, padding: '6px 16px', borderRadius: 6, border: '1px solid #E0E0E0', background: 'white' }}>ยกเลิก</button>
-          <button onClick={() => onConfirm(editable.map(r => ({ mark: r.mark, rev: Number(values[r.mark]) })))} disabled={blocked}
+          <button onClick={() => onConfirm(editable.map(r => ({ mark: r.mark, rev: Number(values[r.mark]) })), renamesFrom(decisions))} disabled={blocked}
             className="flex items-center gap-1.5 rounded-md text-white disabled:opacity-40" style={{ height: 34, padding: '0 20px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}>
             {isUploading && <Loader2 size={13} className="animate-spin" />}บันทึก
           </button>

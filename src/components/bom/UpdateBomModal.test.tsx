@@ -21,14 +21,17 @@ vi.mock('../../hooks/useBomDispatches', () => ({
     isPreviewing: false,
   }),
 }))
+vi.mock('../../hooks/usePermission', () => ({ usePermission: () => true }))
+const afterUpload = vi.hoisted(() => vi.fn())
 vi.mock('../../hooks/useRenameStep', () => ({
-  useRenameStep: () => ({ dispatchId: null, afterUpload: vi.fn().mockResolvedValue(false), close: vi.fn() }),
+  useRenameStep: () => ({ dispatchId: null, partsOnly: false, afterUpload, close: vi.fn() }),
 }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn(), info: vi.fn() } }))
 
 afterEach(() => {
   vi.clearAllMocks()
 })
+beforeEach(() => { afterUpload.mockResolvedValue(false) })
 
 function renderModal(uploadMode: 'combined' | 'separate' = 'combined') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
@@ -71,6 +74,7 @@ describe('UpdateBomModal — Dispatch Note in the same picker', () => {
     fireEvent.click(screen.getByRole('button', { name: /Upload/ }))
 
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(afterUpload).toHaveBeenCalledWith(99, { partsOnly: true }))
     const formData = submit.mock.calls[0][0] as FormData
     expect(formData.getAll('doc_types')).toEqual(
       expect.arrayContaining(['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST', 'DISPATCH_NOTE']),

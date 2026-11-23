@@ -10,8 +10,10 @@ vi.mock('../api/dispatches', () => ({
   dispatchesApi: {
     previewUpload: vi.fn(),
     upload: vi.fn(),
+    saveRenames: vi.fn(),
   },
 }))
+vi.mock('sonner', () => ({ toast: { warning: vi.fn(), success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 
 const mockedApi = vi.mocked(dispatchesApi)
 
@@ -140,6 +142,30 @@ describe('useUploadBomWithPreview', () => {
     expect(sent.get('revs')).toBe('[{"mark":"B1","rev":3}]')
     expect(sent.get('base_dispatch_id')).toBe('7')
     expect(result.current.pendingReview).toBeNull()
+  })
+
+  // A missing mark renamed in the review is paired right after the upload saves (2026-11-23)
+  it('confirmReview with renames: saves, then pairs them on the new dispatch', async () => {
+    mockedApi.previewUpload.mockResolvedValue(reviewResult)
+    mockedApi.upload.mockResolvedValue({ id: 101 } as never)
+    mockedApi.saveRenames.mockResolvedValue({} as never)
+    const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
+    await act(async () => { await result.current.submit(new FormData()) })
+    let res: unknown
+    await act(async () => { res = await result.current.confirmReview([], [{ from_mark: 'CO1', to_mark: 'CO1A' }]) })
+    expect(mockedApi.saveRenames).toHaveBeenCalledWith(101, [{ kind: 'ASSEMBLY', from_mark: 'CO1', to_mark: 'CO1A' }])
+    expect(res).toMatchObject({ id: 101, renamesSaved: true })
+  })
+
+  it('a failed pairing does not fail the upload — it says so and the post-save dialog can pair', async () => {
+    mockedApi.previewUpload.mockResolvedValue(reviewResult)
+    mockedApi.upload.mockResolvedValue({ id: 102 } as never)
+    mockedApi.saveRenames.mockRejectedValue(new Error('x'))
+    const { result } = renderHook(() => useUploadBomWithPreview(), { wrapper })
+    await act(async () => { await result.current.submit(new FormData()) })
+    let res: unknown
+    await act(async () => { res = await result.current.confirmReview([], [{ from_mark: 'CO1', to_mark: 'CO1A' }]) })
+    expect(res).toMatchObject({ id: 102, renamesSaved: false })
   })
 
   // final review fix 4: a stale-preview 409 must not leave the review open (retrying would 409 forever)

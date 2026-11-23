@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { RevReviewDialog } from './RevReviewDialog'
 import type { RevReviewDto, RevReviewRowDto } from '../../api/dispatches'
 
@@ -60,8 +60,9 @@ describe('RevReviewDialog', () => {
     const onConfirm = vi.fn()
     render(<RevReviewDialog review={review()} isUploading={false} onCancel={vi.fn()} onConfirm={onConfirm} />)
     fireEvent.change(screen.getByLabelText('Rev ใหม่ของ B1'), { target: { value: '4' } })
+    fireEvent.change(screen.getByLabelText('ผลของ G1'), { target: { value: 'delete' } })
     fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
-    expect(onConfirm).toHaveBeenCalledWith([{ mark: 'B1', rev: 4 }])
+    expect(onConfirm).toHaveBeenCalledWith([{ mark: 'B1', rev: 4 }], [])
   })
 
   it('DN says cancelled but the mark is still in the Tekla lists → the row shows the ⚠ and counts as a ⚠ row', () => {
@@ -114,5 +115,62 @@ describe('RevReviewDialog', () => {
   it('marks in the Dispatch Note but not in the BOM files → a file-level ⚠', () => {
     render(<RevReviewDialog review={review({ dn_only_marks: ['X9', 'X10'] })} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
     expect(screen.getByText('⚠ มี mark ใน Dispatch Note แต่ไม่มีในไฟล์ BOM: X9, X10 — ส่งไฟล์ไม่ครบ หรือผิดชุด?')).toBeInTheDocument()
+  })
+})
+
+// A missing mark is deleted or renamed — the user says which, before save (2026-11-23, Tao)
+describe('RevReviewDialog — missing marks', () => {
+  const removed = (mark: string, over: Partial<RevReviewRowDto> = {}) =>
+    R({ mark, kind: 'removed', prev_rev: 0, suggested_rev: null, suggested_source: null, warning: null, editable: false, diff: null, ...over })
+  const added = (mark: string) => R({ mark, kind: 'added', prev_rev: null, suggested_rev: 0, suggested_source: 'NEW', warning: null, editable: false, diff: null })
+  const rv = (rows: RevReviewRowDto[]) => review({ rows })
+
+  it('save stays disabled until every missing mark is renamed or deleted', () => {
+    render(<RevReviewDialog review={rv([removed('CO1'), removed('CO2'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    const save = screen.getByRole('button', { name: 'บันทึก' })
+    expect(save).toBeDisabled()
+    expect(screen.getByText(/ยังไม่ได้เลือก 2 mark/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('ผลของ CO1'), { target: { value: 'delete' } })
+    expect(save).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('ผลของ CO2'), { target: { value: 'delete' } })
+    expect(save).toBeEnabled()
+  })
+
+  it('a rename is sent as a pair; the suggested new mark comes first', () => {
+    const onConfirm = vi.fn()
+    render(<RevReviewDialog review={rv([removed('CO1', { rename_hint: 'CO1A' }), added('CO1A'), added('CO9')])} isUploading={false} onCancel={vi.fn()} onConfirm={onConfirm} allowRename />)
+    const select = screen.getByLabelText('ผลของ CO1') as HTMLSelectElement
+    expect(within(select).getByRole('group', { name: 'ระบบแนะนำ' })).toHaveTextContent('CO1A')
+    fireEvent.change(select, { target: { value: 'rename:CO1A' } })
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
+    expect(onConfirm).toHaveBeenCalledWith([], [{ from_mark: 'CO1', to_mark: 'CO1A' }])
+  })
+
+  it('a new mark can be picked for one missing mark only', () => {
+    render(<RevReviewDialog review={rv([removed('CO1'), removed('CO2'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    fireEvent.change(screen.getByLabelText('ผลของ CO1'), { target: { value: 'rename:CO1A' } })
+    const opt = within(screen.getByLabelText('ผลของ CO2')).getByRole('option', { name: /CO1A/ }) as HTMLOptionElement
+    expect(opt.disabled).toBe(true)
+  })
+
+  it('"ที่เหลือทั้งหมด: ลบออกจาก BOM" sets only the undecided rows', () => {
+    const onConfirm = vi.fn()
+    render(<RevReviewDialog review={rv([removed('CO1'), removed('CO2'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={onConfirm} allowRename />)
+    fireEvent.change(screen.getByLabelText('ผลของ CO1'), { target: { value: 'rename:CO1A' } })
+    fireEvent.click(screen.getByRole('button', { name: 'ที่เหลือทั้งหมด: ลบออกจาก BOM' }))
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }))
+    expect(onConfirm).toHaveBeenCalledWith([], [{ from_mark: 'CO1', to_mark: 'CO1A' }])
+    expect((screen.getByLabelText('ผลของ CO2') as HTMLSelectElement).value).toBe('delete')
+  })
+
+  it('warns when marks about to be removed are still in the Dispatch Note', () => {
+    render(<RevReviewDialog review={rv([removed('CO1', { in_dn: true }), removed('CO2', { in_dn: true }), removed('CO3', { in_dn: true, dn_status: 'Cancel', dn_cancelled_in_files: true })])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename />)
+    expect(screen.getByText(/2 mark ที่จะถูกลบยังอยู่ใน Dispatch Note/)).toHaveTextContent('CO1, CO2')
+    expect(screen.getByText(/Assembly List อาจ export ไม่ครบ/)).toBeInTheDocument()
+  })
+
+  it('without permission to pair names, only "ลบออกจาก BOM" is offered', () => {
+    render(<RevReviewDialog review={rv([removed('CO1'), added('CO1A')])} isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} allowRename={false} />)
+    expect(within(screen.getByLabelText('ผลของ CO1')).queryByRole('option', { name: /CO1A/ })).toBeNull()
   })
 })

@@ -88,3 +88,24 @@ describe('review helpers', () => {
     expect(revError(row({ kind: 'unchanged', warning: 'DN_REV_LOWER', dn_rev: 0 }), '1')).toBeNull()
   })
 })
+
+// Every missing mark gets a decision before save (2026-11-23, Tao)
+import { missingDecisions, removedStillInDn, renamesFrom } from './markRev'
+
+describe('missing-mark decisions', () => {
+  const removed = (mark: string, over: Partial<RevReviewRowDto> = {}) => row({ mark, kind: 'removed', warning: null, editable: false, ...over })
+  const rows = [removed('ESB-CO1', { in_dn: true }), removed('ESB-CO2', { in_dn: true, dn_status: 'Cancel', dn_cancelled_in_files: true }), removed('ESB-CO3'), row({ mark: 'ESB-RF5' })]
+
+  it('lists removed marks the uploaded Dispatch Note still has (not cancelled)', () => {
+    expect(removedStillInDn(rows)).toEqual(['ESB-CO1'])
+  })
+
+  it('lists removed marks with no decision yet', () => {
+    expect(missingDecisions(rows, { 'ESB-CO1': 'delete' })).toEqual(['ESB-CO2', 'ESB-CO3'])
+    expect(missingDecisions(rows, { 'ESB-CO1': 'delete', 'ESB-CO2': 'delete', 'ESB-CO3': { rename: 'ESB-CO3A' } })).toEqual([])
+  })
+
+  it('turns rename decisions into pairs', () => {
+    expect(renamesFrom({ 'ESB-CO1': 'delete', 'ESB-CO3': { rename: 'ESB-CO3A' } })).toEqual([{ from_mark: 'ESB-CO3', to_mark: 'ESB-CO3A' }])
+  })
+})

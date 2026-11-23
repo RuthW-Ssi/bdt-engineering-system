@@ -11,7 +11,7 @@ import { useUploadBomWithPreview, useZoneUploadMode } from '../hooks/useBomDispa
 import { useRenameStep } from '../hooks/useRenameStep'
 import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { RenamePairDialog } from '../components/bom/RenamePairDialog'
-import { RevReviewDialog } from '../components/bom/RevReviewDialog'
+import { RevReviewDialog, type RenameChoice } from '../components/bom/RevReviewDialog'
 import { InfoTip } from '../components/bom/InfoTip'
 import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
@@ -207,6 +207,7 @@ export function BomUpload() {
 
   const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
   const canWrite = usePermission('boms', 'create')
+  const canPair = usePermission('boms', 'update') // pairing renamed marks overwrites progress/paint
   const canSubmit = canWrite && !!zoneId && bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
     && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
@@ -239,11 +240,12 @@ export function BomUpload() {
 
   // WO BOM-Version Hold (Sprint 20, T10): surface WOs the upload put on hold,
   // mirroring UpdateBomModal.tsx's handleUploadSuccess (same condition, same copy).
-  const handleUploadSuccess = async (res: DispatchDetailDto) => {
+  const handleUploadSuccess = async (res: DispatchDetailDto & { renamesSaved?: boolean }) => {
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
-    if (await renameStep.afterUpload(res.id)) return
+    // missing marks are decided in the Rev review now (2026-11-23); if pairing them failed, offer it again here
+    if (await renameStep.afterUpload(res.id, { partsOnly: res.renamesSaved !== false })) return
     navigate(`/bom/dispatch/${res.id}/paint`)
   }
 
@@ -283,9 +285,9 @@ export function BomUpload() {
     }
   }
 
-  const handleConfirmReview = async (revs: RevEdit[]) => {
+  const handleConfirmReview = async (revs: RevEdit[], renames: RenameChoice[]) => {
     try {
-      const res = await uploadFlow.confirmReview(revs)
+      const res = await uploadFlow.confirmReview(revs, renames)
       if (res == null) return
       await handleUploadSuccess(res)
     } catch (err: unknown) {
@@ -608,12 +610,14 @@ export function BomUpload() {
           isUploading={uploadFlow.uploadMutation.isPending}
           onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
           onConfirm={handleConfirmReview}
+          allowRename={canPair}
         />
       )}
 
       {renameStep.dispatchId != null && (
         <RenamePairDialog
           dispatchId={renameStep.dispatchId}
+          partsOnly={renameStep.partsOnly}
           onClose={() => { const id = renameStep.dispatchId!; renameStep.close(); navigate(`/bom/dispatch/${id}/paint`) }}
         />
       )}

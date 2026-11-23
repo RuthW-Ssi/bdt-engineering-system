@@ -37,8 +37,9 @@ vi.mock('../hooks/useBomDispatches', () => ({
   }),
   useZoneUploadMode: () => ({ data: undefined, isLoading: false }),
 }))
+const afterUpload = vi.hoisted(() => vi.fn())
 vi.mock('../hooks/useRenameStep', () => ({
-  useRenameStep: () => ({ dispatchId: null, afterUpload: vi.fn().mockResolvedValue(false), close: vi.fn() }),
+  useRenameStep: () => ({ dispatchId: null, partsOnly: false, afterUpload, close: vi.fn() }),
 }))
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => true }))
 const savePreshop = vi.fn().mockResolvedValue({ dispatch_id: 95, revision: 3 })
@@ -52,6 +53,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: v
 afterEach(() => {
   vi.clearAllMocks()
 })
+beforeEach(() => { afterUpload.mockResolvedValue(false) })
 
 function renderPage() {
   render(<MemoryRouter><BomUpload /></MemoryRouter>)
@@ -101,6 +103,8 @@ describe('BomUpload — Dispatch Note in the same picker', () => {
     fireEvent.click(screen.getByRole('button', { name: /Upload/ }))
 
     await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(1))
+    // missing marks are decided in the Rev review now (2026-11-23) → after save only parts are left to pair
+    await vi.waitFor(() => expect(afterUpload).toHaveBeenCalledWith(99, { partsOnly: true }))
     const formData = submit.mock.calls[0][0] as FormData
     expect(formData.getAll('doc_types')).toEqual(
       expect.arrayContaining(['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST', 'DISPATCH_NOTE']),

@@ -98,3 +98,11 @@ describe('RenamePairDialog', () => {
     expect(screen.getByRole('button', { name: 'ข้ามทั้งหมด' })).toBeDisabled()
   })
 })
+
+describe('RenamePairDialog — partsOnly (marks decided in the review, 2026-11-23)', () => {
+  it('shows the part section only', () => {
+    render(<RenamePairDialog dispatchId={9} partsOnly onClose={vi.fn()} />)
+    expect(screen.queryByText(/mark ที่หายไป/)).toBeNull()
+    expect(screen.getByText(/part ที่หายไป/)).toBeInTheDocument()
+  })
+})

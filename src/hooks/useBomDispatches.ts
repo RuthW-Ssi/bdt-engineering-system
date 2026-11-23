@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { dispatchesApi } from '../api/dispatches'
 import type { RevEdit, RevReviewDto, UploadPreviewDto, RenamePairInput } from '../api/dispatches'
@@ -201,9 +202,19 @@ export function useUploadBomWithPreview() {
     return next()
   }
 
-  async function confirmReview(revs: RevEdit[]) {
+  /** `renames`: missing marks the user said were renamed (2026-11-23) — paired on the
+   *  new dispatch right after it saves. A failed pairing never fails the upload. */
+  async function confirmReview(revs: RevEdit[], renames: { from_mark: string; to_mark: string }[] = []) {
     if (!pending.current) return null
-    return save(revs)
+    const res = await save(revs)
+    if (!renames.length || !res) return res
+    try {
+      await dispatchesApi.saveRenames(res.id, renames.map(r => ({ kind: 'ASSEMBLY' as const, ...r })))
+      return { ...res, renamesSaved: true }
+    } catch {
+      toast.warning('บันทึก BOM แล้ว แต่จับคู่ชื่อไม่สำเร็จ — จับคู่ได้ในหน้าถัดไป หรือที่หน้า BOM version')
+      return { ...res, renamesSaved: false }
+    }
   }
 
   return { submit, confirm, confirmReview, cancel: clear, pendingMismatch, pendingReview, isPreviewing: previewMutation.isPending, uploadMutation }

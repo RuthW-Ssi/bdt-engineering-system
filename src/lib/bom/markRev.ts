@@ -87,3 +87,20 @@ export function revError(r: RevReviewRowDto, text: string): string | null {
   if (r.kind === 'changed' && r.prev_rev != null && n <= r.prev_rev) return `ข้อมูลของ mark นี้เปลี่ยน ต้องใส่ rev มากกว่า ${r.prev_rev}`
   return null
 }
+
+// ── A missing mark is deleted or renamed — the user says which, before save (2026-11-23, Tao) ──
+export type MissingDecision = 'delete' | { rename: string }
+
+/** Removed marks the uploaded Dispatch Note still lists (not cancelled) — the Assembly List may be an incomplete export. */
+export function removedStillInDn(rows: Pick<RevReviewRowDto, 'mark' | 'kind' | 'in_dn' | 'dn_cancelled_in_files'>[]): string[] {
+  return rows.filter(r => r.kind === 'removed' && r.in_dn && !r.dn_cancelled_in_files).map(r => r.mark)
+}
+
+/** Removed marks with no decision yet — save stays disabled while any are left. */
+export function missingDecisions(rows: Pick<RevReviewRowDto, 'mark' | 'kind'>[], decisions: Record<string, MissingDecision>): string[] {
+  return rows.filter(r => r.kind === 'removed' && !decisions[r.mark]).map(r => r.mark)
+}
+
+export function renamesFrom(decisions: Record<string, MissingDecision>): { from_mark: string; to_mark: string }[] {
+  return Object.entries(decisions).flatMap(([from, d]) => (typeof d === 'object' ? [{ from_mark: from, to_mark: d.rename }] : []))
+}

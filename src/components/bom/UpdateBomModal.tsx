@@ -7,7 +7,8 @@ import { useRenameStep } from '../../hooks/useRenameStep'
 import type { DispatchDetailDto, RevEdit } from '../../api/dispatches'
 import { JunctionMismatchModal } from './JunctionMismatchModal'
 import { RenamePairDialog } from './RenamePairDialog'
-import { RevReviewDialog } from './RevReviewDialog'
+import { RevReviewDialog, type RenameChoice } from './RevReviewDialog'
+import { usePermission } from '../../hooks/usePermission'
 import { InfoTip } from './InfoTip'
 import { FileDropzone } from './FileDropzone'
 import { FilePreviewItem } from './FilePreviewItem'
@@ -116,6 +117,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const qc = useQueryClient()
   const uploadFlow = useUploadBomWithPreview()
   const renameStep = useRenameStep()
+  const canPair = usePermission('boms', 'update') // pairing renamed marks overwrites progress/paint
   const [files, setFiles] = useState<FileEntry[]>([])
   const [mainFiles, setMainFiles] = useState<FileEntry[]>([])
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
@@ -146,7 +148,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
   const canSubmit = bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
     && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
 
-  const handleUploadSuccess = async (res: DispatchDetailDto) => {
+  const handleUploadSuccess = async (res: DispatchDetailDto & { renamesSaved?: boolean }) => {
     qc.invalidateQueries({ queryKey: ['dispatch', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatch-history', dispatchId] })
     qc.invalidateQueries({ queryKey: ['dispatches'] })
@@ -155,7 +157,8 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
-    if (await renameStep.afterUpload(res.id)) return
+    // missing marks are decided in the Rev review now (2026-11-23); if pairing them failed, offer it again here
+    if (await renameStep.afterUpload(res.id, { partsOnly: res.renamesSaved !== false })) return
     onClose()
   }
 
@@ -199,9 +202,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
     }
   }
 
-  const handleConfirmReview = async (revs: RevEdit[]) => {
+  const handleConfirmReview = async (revs: RevEdit[], renames: RenameChoice[]) => {
     try {
-      const res = await uploadFlow.confirmReview(revs)
+      const res = await uploadFlow.confirmReview(revs, renames)
       if (res == null) return
       await handleUploadSuccess(res)
     } catch (err: unknown) {
@@ -354,11 +357,12 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           isUploading={uploadFlow.uploadMutation.isPending}
           onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
           onConfirm={handleConfirmReview}
+          allowRename={canPair}
         />
       )}
 
       {renameStep.dispatchId != null && (
-        <RenamePairDialog dispatchId={renameStep.dispatchId} onClose={() => { renameStep.close(); onClose() }} />
+        <RenamePairDialog dispatchId={renameStep.dispatchId} partsOnly={renameStep.partsOnly} onClose={() => { renameStep.close(); onClose() }} />
       )}
     </div>
   )
