@@ -162,3 +162,21 @@ describe('UpdateBomModal — Dispatch Note in the same picker', () => {
     expect(submit).not.toHaveBeenCalled()
   })
 })
+
+// Same layout as Upload BOM (2026-11-23, Tao: "update bom ควรเปลี่ยนตามด้วย")
+describe('UpdateBomModal — file sections layout', () => {
+  it('Combined: BOM Files and NC Files sit in one row', () => {
+    renderModal('combined')
+    const row = screen.getByTestId('bom-nc-row')
+    expect(row).toHaveTextContent('BOM Files')
+    expect(row).toHaveTextContent('NC Files')
+  })
+
+  it('Separate: MAIN and ACC share a row, NC Files is below on its own', () => {
+    renderModal('separate')
+    const row = screen.getByTestId('main-acc-row')
+    expect(row).toHaveTextContent('MAIN BOM Files')
+    expect(row).toHaveTextContent('ACC BOM Files')
+    expect(row).not.toHaveTextContent('NC Files')
+  })
+})

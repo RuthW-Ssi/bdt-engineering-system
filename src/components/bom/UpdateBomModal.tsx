@@ -211,12 +211,46 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
 
   const modeLabel = uploadMode === 'separate' ? 'Separate Main + ACC' : 'Combined'
 
+  // NC Files column — beside BOM Files (combined) or under MAIN | ACC (separate), same as Upload BOM
+  const ncSection = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+      <div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+          NC Files <span style={{ color: '#C8202A' }}>*</span>
+          <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>.nc1 files from Tekla</span>
+        </label>
+        <FileDropzone
+          maxFiles={1500}
+          currentCount={ncFiles.length}
+          acceptedFormats={NC_FORMATS}
+          hint=".nc1 · max 20 MB / file · up to 1500 files"
+          onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
+          disabled={false}
+        />
+      </div>
+
+      {ncFiles.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
+          <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
+            {ncFiles.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
+                <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
       onClick={e => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div style={{ background: 'white', borderRadius: 12, width: '100%', maxWidth: 520, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ background: 'white', borderRadius: 12, width: 'calc(100% - 32px)', maxWidth: 1100, padding: 24, display: 'flex', flexDirection: 'column', gap: 16, maxHeight: '90vh', overflowY: 'auto' }}>
         <div className="flex items-center justify-between">
           <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>Update BOM</span>
           <button onClick={onClose} className="flex items-center justify-center rounded hover:bg-chrome-50" style={{ width: 28, height: 28, color: '#8E8E8E' }}>
@@ -232,9 +266,10 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
           </span>
         </div>
 
-        {/* BOM Files — Combined */}
+        {/* BOM Files + NC Files side by side (2026-11-23) — same layout as Upload BOM */}
         {uploadMode === 'combined' && (
-          <BomSection
+          <div data-testid="bom-nc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, alignItems: 'start' }}>
+            <BomSection
             label="BOM Files"
             hint="3 files required"
             maxFiles={3}
@@ -244,12 +279,13 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
             onRemove={combined.removeFile}
             onTypeChange={combined.updateType}
           />
+            {ncSection}
+          </div>
         )}
-
-        {/* BOM Files — Separate */}
         {uploadMode === 'separate' && (
           <>
-            <BomSection
+            <div data-testid="main-acc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 20, alignItems: 'start' }}>
+              <BomSection
               label="MAIN BOM Files"
               hint="MAIN Assembly List, MAIN Assembly Part List, MAIN Part List"
               maxFiles={3}
@@ -261,7 +297,7 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
               onRemove={main.removeFile}
               onTypeChange={main.updateType}
             />
-            <BomSection
+              <BomSection
               label="ACC BOM Files"
               hint="ACC Assembly List, ACC Assembly Part List, ACC Part List"
               maxFiles={3}
@@ -273,37 +309,9 @@ export function UpdateBomModal({ dispatchId, projectId, zoneId, subZoneId, uploa
               onRemove={acc.removeFile}
               onTypeChange={acc.updateType}
             />
-          </>
-        )}
-
-        {/* NC Files */}
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            NC Files <span style={{ color: '#C8202A' }}>*</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>.nc1 files from Tekla</span>
-          </label>
-          <FileDropzone
-            maxFiles={1500}
-            currentCount={ncFiles.length}
-            acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 1500 files"
-            onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
-            disabled={false}
-          />
-        </div>
-
-        {ncFiles.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
-            <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
-              {ncFiles.map((f, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
-                  <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
-                </div>
-              ))}
             </div>
-          </div>
+            {ncSection}
+          </>
         )}
 
         {progress !== null && (
