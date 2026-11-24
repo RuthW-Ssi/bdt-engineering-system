@@ -322,7 +322,7 @@ Expected: a red toast reading "Cannot connect to server. Please check your conne
 
 - [ ] **Step 6: Manual verification — successful login**
 
-Submit `admin` / `BdtDev2026!` (per `CLAUDE.md` dev credentials) on `/login`.
+Submit `admin` / the local admin password (`ADMIN_SEED_PASSWORD` used when seeding) on `/login`.
 Expected: a green toast reading "Welcome, <name>!", immediate redirect to `/`, and no `warn` log line in the backend terminal for this request.
 
 - [ ] **Step 7: Manual verification — short password (validation error)**

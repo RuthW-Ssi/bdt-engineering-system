@@ -15,7 +15,7 @@ light/dark shades, bulk set-full flags.
 # Postgres (Docker) + backend + frontend must be up
 docker ps --format '{{.Names}} {{.Status}}' | grep bdt-postgres
 curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/v1/auth/login \
-  -H "Content-Type: application/json" -d '{"login":"admin","password":"BdtDev2026!"}'   # expect 200/201
+  -H "Content-Type: application/json" -d "{\"login\":\"admin\",\"password\":\"$BDT_ADMIN_PASSWORD\"}"   # expect 200/201
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/                            # expect 200
 ```
 
@@ -64,7 +64,7 @@ const API = 'http://localhost:3000/api/v1'
 const ALL100 = Object.fromEntries(['cut','buildup','weld1','fitup_drill','weld2','qc_inspection','primer','fireproof','top_coat','qc_final'].map(s => [s, 100]))
 const assert = (name, cond) => { if (!cond) { console.error('FAIL:', name); process.exitCode = 1 } else console.log('PASS:', name) }
 const main = async () => {
-  const { access_token } = await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'admin', password: 'BdtDev2026!' }) })).json()
+  const { access_token } = await (await fetch(`${API}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'admin', password: process.env.BDT_ADMIN_PASSWORD }) })).json()
   const H = { 'Content-Type': 'application/json', Authorization: `Bearer ${access_token}` }
   const patch = async (id, b) => (await fetch(`${API}/projects/0X220/progress/assemblies/${id}`, { method: 'PATCH', headers: H, body: JSON.stringify(b) })).json()
   const rows = await (await fetch(`${API}/projects/0X220/progress/rows`, { headers: H })).json()

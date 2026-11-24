@@ -40,7 +40,7 @@ Open `http://localhost:5173` in browser. Follow each case in order.
 1. Clear cookies / open incognito
 2. Navigate to `http://localhost:5173`
 3. Redirected to `/login` ✓
-4. Login with `admin / BdtDev2026!`
+4. Login as `admin` with the password in `$BDT_ADMIN_PASSWORD`
 5. **Expected:** lands at `/dashboard` (not `/materials`)
 
 ### T-002 · Default project + localStorage restore (US-002)

@@ -205,7 +205,7 @@ gcloud run services update-traffic staging-bdt-engineering-service \
 ```bash
 curl -X POST https://<staging-url>/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"login":"admin","password":"BdtDev2026!"}'
+  -d "{\"login\":\"admin\",\"password\":\"$BDT_ADMIN_PASSWORD\"}"
 # Expected: HTTP 200 + access_token
 ```
 

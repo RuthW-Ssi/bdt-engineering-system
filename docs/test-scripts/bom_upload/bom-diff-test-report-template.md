@@ -31,7 +31,7 @@
 - [ ] Frontend running (`pnpm dev` → :5173)
 - [ ] Backend running (`pnpm --filter backend dev` → :3000)
 - [ ] Cloud SQL proxy running (หรือ local Postgres)
-- [ ] Login สำเร็จ (admin / BdtDev2026!)
+- [ ] Login สำเร็จ (admin / รหัสผ่านจาก `$BDT_ADMIN_PASSWORD`)
 - [ ] Project selected ใน header
 - [ ] ทั้ง 3 Rev.0 files พร้อม
 - [ ] ทั้ง 3 Rev.1 files พร้อม

@@ -18,7 +18,8 @@ Cloud Run (backend) · Supabase Postgres (db).
 **Run locally:**
 - Frontend (repo root): `pnpm dev` → http://localhost:5173
 - Backend (`backend/`): `pnpm start:dev` → http://localhost:3000
-- Auth (dev): JWT, `admin / BdtDev2026!`, `POST /api/v1/auth/login`
+- Auth (dev): JWT, user `admin`, `POST /api/v1/auth/login`. The password is whatever you set as
+  `ADMIN_SEED_PASSWORD` when seeding (`backend/.env`, never committed); test scripts read it from `$BDT_ADMIN_PASSWORD`.
 
 ---
 
