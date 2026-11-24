@@ -35,8 +35,9 @@ vi.mock('../hooks/useBomDispatches', () => ({
     uploadMutation: { isPending: false },
     isPreviewing: false,
   }),
-  useZoneUploadMode: () => ({ data: undefined, isLoading: false }),
+  useZoneUploadMode: () => ({ data: zoneMode.value, isLoading: false }),
 }))
+const zoneMode = vi.hoisted(() => ({ value: undefined as 'combined' | 'separate' | undefined }))
 const afterUpload = vi.hoisted(() => vi.fn())
 vi.mock('../hooks/useRenameStep', () => ({
   useRenameStep: () => ({ dispatchId: null, partsOnly: false, afterUpload, close: vi.fn() }),
@@ -52,6 +53,7 @@ vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn(), success: v
 
 afterEach(() => {
   vi.clearAllMocks()
+  zoneMode.value = undefined
 })
 beforeEach(() => { afterUpload.mockResolvedValue(false) })
 
@@ -330,5 +332,36 @@ describe('BomUpload — file sections layout', () => {
     expect(row).toHaveTextContent('MAIN BOM Files')
     expect(row).toHaveTextContent('ACC BOM Files')
     expect(row).not.toHaveTextContent('NC Files')
+  })
+})
+
+// A zone with a real (Full shop) BOM can't take a pre-shop — the BOM Type offers Full shop only (2026-11-24, Tao)
+describe('BomUpload — BOM Type on a Full shop zone', () => {
+  it('a zone without a real BOM offers Full shop and Pre-shop', () => {
+    renderPage()
+    selectZone()
+    expect(screen.getByRole('radio', { name: 'Pre-shop' })).toBeInTheDocument()
+  })
+
+  it('a zone with a real BOM hides Pre-shop, even when the link asks for it', () => {
+    zoneMode.value = 'combined'
+    render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1&type=preshop']}><BomUpload /></MemoryRouter>)
+    expect(screen.queryByRole('radio', { name: 'Pre-shop' })).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Full shop (BOM)' })).toBeChecked()
+  })
+})
+
+// Opened from Update BOM: the project / zone / sub-zone stay fixed (2026-11-24, Tao)
+describe('BomUpload — opened from Update BOM', () => {
+  it('locks Project, Zone and Sub-zone and says Update BOM', () => {
+    render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1&type=preshop&update=1']}><BomUpload /></MemoryRouter>)
+    for (const s of screen.getAllByRole('combobox').slice(0, 3)) expect(s).toBeDisabled()
+    expect(screen.getByText('Update BOM')).toBeInTheDocument()
+  })
+  it('a plain Upload BOM keeps Project and Zone selectable', () => {
+    renderPage()
+    const [project, zone] = screen.getAllByRole('combobox')
+    expect(project).toBeEnabled()
+    expect(zone).toBeEnabled()
   })
 })
