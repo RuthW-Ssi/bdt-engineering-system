@@ -3,6 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Box, Download, Loader2, Scissors, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useCuttingPlan, useBulkAssignOrderPartProjectCode, useDeleteCuttingPlan } from '../hooks/useCuttingPlan'
+import { useSheetTraces } from '../hooks/useTraceability'
+import { AssignHeatModal } from '../components/traceability/AssignHeatModal'
+import type { SheetTrace } from '../api/traceability'
 import { useConfirm } from '../components/ui/ConfirmDialog'
 import { getErrorMessage } from '../lib/getErrorMessage'
 import { usePermission } from '../hooks/usePermission'
@@ -93,17 +96,25 @@ function TD({ children, style }: { children: React.ReactNode; style?: React.CSSP
 }
 
 // Each plate (Charge) opens its own page with 3D / 2D / cut simulation when its .dxf is stored.
-function NestingTable({ rows, sheetKg, viewable, onView }: { rows: CuttingPlanNestingRow[]; sheetKg: Map<string, number>; viewable: Set<string>; onView: (plate: string) => void }) {
+// Heat no.: the heat number(s) assigned to the sheet, with the "assign heat no." action.
+function NestingTable({ rows, sheetKg, viewable, onView, traces, canAssign, onAssign, picked, onPick }: {
+  rows: CuttingPlanNestingRow[]; sheetKg: Map<string, number>; viewable: Set<string>; onView: (plate: string) => void
+  traces: Map<number, SheetTrace>; canAssign: boolean; onAssign: (row: CuttingPlanNestingRow) => void
+  picked: Set<number>; onPick: (id: number) => void // tick several sheets to give them one heat number
+}) {
   if (rows.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No plates</div>
   return (
-    <TableGrid columns="0.9fr 1fr 1.5fr 1fr 1fr 0.9fr 0.6fr 0.5fr">
+    <TableGrid columns="0.9fr 1fr 1.5fr 1fr 1fr 0.9fr 0.6fr 1.2fr 0.5fr">
       <TH>Plate Number</TH><TH>Mark (Charge)</TH><TH>Quality / Dimensions</TH>
       {/* the report's plate weight is only the nested area (2026-11-07: 452 kg of a 1,394 kg sheet) */}
       <TH><span className="inline-flex items-center gap-1">Nested weight (kg) <InfoTip label="What is nested weight" text="Weight of the part of the sheet used for nesting (Nesting Dim.). The rest of the sheet becomes remnants." /></span></TH>
       <TH><span className="inline-flex items-center gap-1">Sheet weight (kg) <InfoTip label="What is sheet weight" text="Whole sheet = nested weight + this plate's remnants." /></span></TH>
-      <TH>Nesting %</TH><TH>Parts</TH><TH>3D</TH>
+      <TH>Nesting %</TH><TH>Parts</TH>
+      <TH><span className="inline-flex items-center gap-1">Heat no. <InfoTip label="What is the heat number" text="The heat number of the plate this sheet is cut from, as on the mill test certificate. It is passed on to every part on the sheet." /></span></TH>
+      <TH>3D</TH>
       {rows.map(r => {
         const can = viewable.has(r.cuttingplan_number)
+        const cuts = traces.get(r.id)?.plate_cuts ?? []
         return (
           <div key={r.id} style={{ display: 'contents' }}>
             <TD>{r.plate_number ?? '—'}</TD>
@@ -113,6 +124,40 @@ function NestingTable({ rows, sheetKg, viewable, onView }: { rows: CuttingPlanNe
             <TD>{fmt(sheetKg.get(r.cuttingplan_number) ?? null)}</TD>
             <TD>{r.nesting_percent != null ? `${fmt(r.nesting_percent)}%` : '—'}</TD>
             <TD>{r.count ?? '—'}</TD>
+            <TD>
+              <div className="inline-flex items-center gap-2" style={{ flexWrap: 'wrap' }}>
+                {cuts.map(c => (
+                  <span key={c.id} title={[c.heat_lot.mill, c.heat_lot.cert_no && `cert ${c.heat_lot.cert_no}`, c.plate_no && `plate ${c.plate_no}`].filter(Boolean).join(' · ') || undefined}
+                    style={{ fontFamily: 'monospace', fontSize: 12, padding: '1px 6px', borderRadius: 4, background: '#DCFCE7', color: '#166534' }}>
+                    {c.heat_lot.heat_no}
+                  </span>
+                ))}
+                {cuts.length === 0 && (traces.get(r.id)?.previous_cuts ?? []).slice(0, 1).map(c => (
+                  <span key={`prev-${c.plate_cut_id}`} title="Heat no. of an earlier upload of this plate — not counted until it is assigned to this version"
+                    style={{ fontFamily: 'monospace', fontSize: 12, padding: '1px 6px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}>
+                    was {c.heat_lot.heat_no}
+                  </span>
+                ))}
+                {cuts.length === 0 && !(traces.get(r.id)?.previous_cuts ?? []).length && (traces.get(r.id)?.parent_cuts ?? []).slice(0, 1).map(c => (
+                  <span key={`parent-${c.plate_cut_id}`} title={`The report's Charge names plate ${c.sheet} — this sheet may be cut from its remnant. Not counted until assigned.`}
+                    style={{ fontFamily: 'monospace', fontSize: 12, padding: '1px 6px', borderRadius: 4, background: '#FEF3C7', color: '#92400E' }}>
+                    ↳ {c.heat_lot.heat_no}?
+                  </span>
+                ))}
+                {cuts.length === 0 && !canAssign && <span style={{ color: '#9CA3AF' }}>—</span>}
+                {canAssign && (
+                  <input type="checkbox" checked={picked.has(r.id)} onChange={() => onPick(r.id)}
+                    aria-label={`Pick plate ${r.cuttingplan_number} for one heat no. for several plates`} />
+                )}
+                {canAssign && (
+                  <button onClick={() => onAssign(r)} aria-label={`Assign heat no. to plate ${r.cuttingplan_number}`}
+                    className="hover:bg-red-50"
+                    style={{ fontSize: 12, fontWeight: 600, color: '#C8202A', background: 'none', border: '1px solid #F3C5C8', borderRadius: 6, padding: '2px 8px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {cuts.length ? 'Change' : 'Assign heat no.'}
+                  </button>
+                )}
+              </div>
+            </TD>
             <TD>
               <button onClick={() => can && onView(r.cuttingplan_number)} disabled={!can}
                 aria-label={`View plate ${r.cuttingplan_number} in 3D`}
@@ -309,6 +354,13 @@ export function CuttingPlanDetail() {
   const confirm = useConfirm()
   const canDelete = usePermission('cutting-plan', 'delete')
   const canWrite = usePermission('cutting-plan', 'update')
+  // Traceability: heat number per sheet. Plate plans only — a shape (1D) plan has no sheets.
+  const { data: sheetTraces } = useSheetTraces(cuttingPlanId, detail?.plan_type === 'PLATE')
+  const traceBySheet = useMemo(() => new Map<number, SheetTrace>((sheetTraces ?? []).map(s => [s.nesting_id, s])), [sheetTraces])
+  const [assignFor, setAssignFor] = useState<CuttingPlanNestingRow | null>(null)
+  const [picked, setPicked] = useState<Set<number>>(new Set())
+  const [assignPicked, setAssignPicked] = useState(false)
+  const togglePicked = (id: number) => setPicked(prev => { const next = new Set(prev); if (!next.delete(id)) next.add(id); return next })
 
   async function handleDelete() {
     if (!detail) return
@@ -399,16 +451,47 @@ export function CuttingPlanDetail() {
 
         <DataTabsCard tab={dataTab} onTabChange={setDataTab}
           counts={{ nesting: shown.nestings.length, order_parts: shown.order_parts.length, plate_usage: shown.plate_usages.length, remnants: shown.remnants.length, files: shown.files.length }}>
+          {dataTab === 'nesting' && picked.size > 0 && (
+            <div className="flex items-center gap-3" style={{ padding: '8px 16px', background: '#FEF2F2', borderBottom: '1px solid #F3C5C8', fontSize: 12, color: '#1F1F1F' }}>
+              <span>{picked.size} plate(s) picked</span>
+              <button onClick={() => setAssignPicked(true)}
+                style={{ fontSize: 12, fontWeight: 600, color: 'white', background: '#C8202A', border: 'none', borderRadius: 6, padding: '4px 12px', cursor: 'pointer' }}>
+                Assign one heat no. to the picked plates
+              </button>
+              <button onClick={() => setPicked(new Set())} style={{ fontSize: 12, color: '#555', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>Clear</button>
+            </div>
+          )}
           {dataTab === 'nesting' && (
             <NestingTable rows={shown.nestings} sheetKg={sheetKg}
               viewable={new Set((detail.files ?? []).filter(f => f.kind === 'DXF').map(f => f.plate_name))}
-              onView={plate => navigate(`/cutting-plan/${detail.id}/plate/${encodeURIComponent(plate)}`)} />
+              onView={plate => navigate(`/cutting-plan/${detail.id}/plate/${encodeURIComponent(plate)}`)}
+              traces={traceBySheet} canAssign={canWrite} onAssign={setAssignFor} picked={picked} onPick={togglePicked} />
           )}
           {dataTab === 'order_parts' && <OrderPartTable key={thickness ?? 'all'} rows={shown.order_parts} canWrite={canWrite} />}
           {dataTab === 'plate_usage' && <PlateUsageTable rows={shown.plate_usages} />}
           {dataTab === 'remnants' && <RemnantTable rows={shown.remnants} />}
           {dataTab === 'files' && <FileTable files={shown.files} />}
         </DataTabsCard>
+        {assignFor && (
+          <AssignHeatModal
+            sheetLabel={assignFor.cuttingplan_number}
+            sheet={traceBySheet.get(assignFor.id) ?? {
+              nesting_id: assignFor.id, plate_cuts: [], plates_in_report: assignFor.count,
+              parts: detail.order_parts.filter(p => p.nesting_id === assignFor.id).length,
+            }}
+            onClose={() => setAssignFor(null)} />
+        )}
+        {assignPicked && picked.size > 0 && (
+          <AssignHeatModal
+            sheetLabel={picked.size === 1 ? (detail.nestings.find(n => picked.has(n.id))?.cuttingplan_number ?? '') : `${picked.size} plates`}
+            nestingIds={[...picked]}
+            replacing={[...picked].filter(id => (traceBySheet.get(id)?.plate_cuts ?? []).some(c => c.plate_seq === 1)).length}
+            sheet={(picked.size === 1 ? traceBySheet.get([...picked][0]) : undefined) ?? {
+              nesting_id: [...picked][0], plate_cuts: [], plates_in_report: null,
+              parts: detail.order_parts.filter(p => p.nesting_id != null && picked.has(p.nesting_id)).length,
+            }}
+            onClose={() => { setAssignPicked(false); setPicked(new Set()) }} />
+        )}
         </>)}
       </div>
     </div>
