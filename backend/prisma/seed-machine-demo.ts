@@ -15,6 +15,13 @@ export async function seedMachineDemo(prisma: PrismaClient) {
     'MC-0004','MC-0005','MC-0008','MC-0009','MC-0010',
     'MC-0012','MC-0016','MC-0017','MC-0022','MC-0019','MC-0020']
   const machines = await prisma.equipment_resource.findMany({ where: { code: { in: keyCodes } } })
+  // The demo needs all of these machines; only 8 come from seed-machine-tracker, the rest from the plant
+  // equipment import. On a fresh database (no import) skip the demo instead of failing the whole seed.
+  const missing = keyCodes.filter(c => !machines.some(m => m.code === c))
+  if (missing.length) {
+    console.log(`  - Machine Demo skipped: ${missing.length} of ${keyCodes.length} machines not found (${missing.join(', ')}) - they come from the equipment import`)
+    return
+  }
   const ids = machines.map(m => m.id)
   await prisma.machine_status_history.deleteMany({ where: { machine_id: { in: ids } } })
   await prisma.repair_ticket.deleteMany({ where: { machine_id: { in: ids } } })
