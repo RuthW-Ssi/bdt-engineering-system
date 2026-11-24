@@ -26,7 +26,7 @@ function ymd(d: Date | null | undefined): string | null {
 }
 
 /** A heat assignment shown as a suggestion (earlier upload of the same plate, or the plate a remnant came from). */
-interface PlateCutHint {
+export interface PlateCutHint {
   plate_cut_id: number; upload_id: number | null; sheet: string; plate_seq: number; plate_no: string | null
   heat_lot: { id: number; heat_no: string; mill: string; cert_no: string | null }
 }
