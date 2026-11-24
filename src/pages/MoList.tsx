@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Loader2, Package, ChevronRight } from 'lucide-react'
+import { Search, Loader2, Package, ChevronRight, Printer } from 'lucide-react'
 import { useMos } from '../hooks/useMo'
 import { MoStatusPill } from '../components/mo/MoStatusPill'
 import { PaginationBar } from '../components/PaginationBar'
+import { JobSheetModal } from '../components/mo/JobSheetModal'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import type { MoStatus } from '../api/mo'
 
@@ -25,6 +26,8 @@ export function MoList() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<MoStatus | 'ALL'>('ALL')
   const [page, setPage] = useState(1)
+  // Per-piece job sheets for a whole MO, straight from the list.
+  const [jobSheetMo, setJobSheetMo] = useState<{ id: number; code: string } | null>(null)
 
   const { data, isLoading } = useMos({
     search: search || undefined,
@@ -112,12 +115,22 @@ export function MoList() {
                 <span>Plan: <strong style={{ color: '#333' }}>{fmtDate(mo.plan_start)} – {fmtDate(mo.plan_finish)}</strong> <DaysRemainingBadge planFinish={mo.plan_finish} /></span>
               </div>
               <MoStatusPill status={mo.status} />
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setJobSheetMo({ id: mo.id, code: mo.mo_code }) }}
+                title="พิมพ์ใบงานต่อชิ้น — ทุกชิ้นงานของ MO นี้"
+                aria-label={`พิมพ์ใบงานต่อชิ้น ${mo.mo_code}`}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', padding: 2, display: 'inline-flex', flexShrink: 0 }}
+              >
+                <Printer size={15} />
+              </button>
               <ChevronRight size={16} style={{ color: '#C2C2C2', flexShrink: 0 }} />
             </div>
           ))
         )}
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
+      {jobSheetMo && <JobSheetModal moId={jobSheetMo.id} moCode={jobSheetMo.code} onClose={() => setJobSheetMo(null)} />}
     </div>
   )
 }

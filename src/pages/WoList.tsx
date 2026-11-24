@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Loader2, AlertTriangle } from 'lucide-react'
+import { Search, Loader2, AlertTriangle, Printer } from 'lucide-react'
 import { useWos } from '../hooks/useWo'
 import { WoStatusPill } from '../components/wo/WoStatusPill'
 import { PaginationBar } from '../components/PaginationBar'
+import { JobSheetModal } from '../components/mo/JobSheetModal'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import type { WoStatus } from '../api/wo'
 
@@ -41,6 +42,8 @@ export function WoList() {
   const [workCenterId, setWorkCenterId] = useState<number | ''>('')
   const [moId, setMoId] = useState<number | ''>('')
   const [page, setPage] = useState(1)
+  // Per-piece job sheets for one WO's assemblies, straight from the list.
+  const [jobSheetWo, setJobSheetWo] = useState<{ id: number; code: string; moId: number; moCode: string } | null>(null)
 
   // Unfiltered universe for dropdown options (one query); the list below is server-filtered.
   const { data: all } = useWos({})
@@ -128,7 +131,18 @@ export function WoList() {
               onMouseEnter={(e) => (e.currentTarget.style.background = '#FAFAFA')}
               onMouseLeave={(e) => (e.currentTarget.style.background = '#fff')}
             >
-              <div style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#1A1A1A' }}>{w.wo_code}</div>
+              <div style={{ padding: '10px 12px', fontFamily: 'monospace', fontWeight: 700, color: '#1A1A1A', display: 'flex', alignItems: 'center', gap: 6 }}>
+                {w.wo_code}
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setJobSheetWo({ id: w.id, code: w.wo_code, moId: w.mo.id, moCode: w.mo.mo_code }) }}
+                  title="พิมพ์ใบงานต่อชิ้น — ชิ้นงานของ WO นี้"
+                  aria-label={`พิมพ์ใบงานต่อชิ้น ${w.wo_code}`}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', padding: 0, display: 'inline-flex' }}
+                >
+                  <Printer size={13} />
+                </button>
+              </div>
               <div style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12, color: '#555' }}>{w.mo.mo_code}</div>
               <div style={{ padding: '10px 12px', color: '#999' }}>{String(w.sequence).padStart(3, '0')}</div>
               <div style={{ padding: '10px 12px' }}>
@@ -157,6 +171,15 @@ export function WoList() {
         )}
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
+      {jobSheetWo && (
+        <JobSheetModal
+          moId={jobSheetWo.moId}
+          moCode={jobSheetWo.moCode}
+          woIds={[jobSheetWo.id]}
+          scopeLabel={`เฉพาะชิ้นงานของ ${jobSheetWo.code}`}
+          onClose={() => setJobSheetWo(null)}
+        />
+      )}
     </div>
   )
 }

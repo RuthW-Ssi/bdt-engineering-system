@@ -11,11 +11,13 @@ import { MoAllocationService } from './mo-allocation.service'
 import { MoPrintService } from './mo-print/mo-print.service'
 import { PreshopService } from './preshop/preshop.service'
 import { MoPartService } from './mo-part/mo-part.service'
+import { JobSheetController } from './job-sheet/job-sheet.controller'
+import { JobSheetService } from './job-sheet/job-sheet.service'
 
 @Module({
   imports: [MailModule, WorkOrdersModule, DrawingsModule, FileStorageModule, MarkRenameModule],
-  controllers: [ManufacturingOrderController],
-  providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService, MoPrintService, MoPartService, PreshopService],
+  controllers: [ManufacturingOrderController, JobSheetController],
+  providers: [ManufacturingOrderService, MoCodeGenerator, MoAllocationService, MoPrintService, MoPartService, PreshopService, JobSheetService],
   exports: [ManufacturingOrderService, MoAllocationService],
 })
 export class ManufacturingOrdersModule {}

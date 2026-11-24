@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { WoHistoryTimeline } from '../components/wo/WoHistoryTimeline'
-import { AlertTriangle, ArrowLeft, Loader2, Cpu, Wrench, FlaskConical, Users } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Loader2, Cpu, Wrench, FlaskConical, Users, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   useWo, useWoEvents, useWoSchedule, useBomVersionStatus,
@@ -21,6 +21,7 @@ import { siblingQtyDone } from '../api/wo'
 import type { DrawingRevStatusItem } from '../api/mo'
 import { usePermission } from '../hooks/usePermission'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import { JobSheetModal } from '../components/mo/JobSheetModal'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 
@@ -120,6 +121,7 @@ export function WoDetail() {
   // ?rev= comes from the traveler's QR (2026-10-09): the MO Rev that paper was printed at
   const printedRev = useSearchParams()[0].get('rev')
   const [tab, setTab] = useState<Tab>('Overview')
+  const [jobSheetOpen, setJobSheetOpen] = useState(false) // per-piece job sheets
 
   const [reasonModal, setReasonModal] = useState<{ action: ReasonModalAction } | null>(null)
   const [reason, setReason] = useState('')
@@ -246,6 +248,15 @@ export function WoDetail() {
         <WoStatusPill status={wo.status} />
         <div style={{ flex: 1 }} />
         <div className="flex items-center gap-2">
+          {/* Per-piece job sheets for the assemblies on this WO (view permission is enough — it only prints) */}
+          <button
+            onClick={() => setJobSheetOpen(true)}
+            className="flex items-center gap-1.5"
+            style={{ height: 32, padding: '0 12px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: '1px solid #C2C2C2', background: '#fff', color: '#333' }}
+          >
+            <Printer size={14} /> พิมพ์ใบงานต่อชิ้น
+          </button>
+          {jobSheetOpen && <JobSheetModal moId={wo.mo_id} moCode={wo.manufacturing_order.mo_code} woIds={[woId]} scopeLabel={`เฉพาะชิ้นงานของ ${wo.wo_code}`} onClose={() => setJobSheetOpen(false)} />}
           {canWrite && headerActions.map(a => (
             <button
               key={a.action}

@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased] — Per-piece job sheet ("ใบงานต่อชิ้น")
+Needs code review + production / QA sign-off on the form layout before merge (draft wording - pending production / QA review).
+Test script: `docs/test-scripts/job-sheet/` (or `/test-job-sheet`)
+
+### Schema (Prisma)
+- None. Heat number / plate id are read from `bom_part.attributes.heat_no|plate_id` when present (null = blank hand-fill box until plate heat traceability is added).
+
+### Backend
+- `GET /mo/:id/job-sheets/preview` (JSON) + `GET /mo/:id/job-sheets` (PDF, one A4 page per piece or per part mark) — scope `wo_ids`, `zone_id`, `sub_zone_id`, `assembly_marks`, `part_marks`, `mode=piece|part`, `lang=th|en`; `orders:view`
+- `GET /mo/job-sheets/zone/:zoneId/preview` + `GET /mo/job-sheets/zone/:zoneId` — zone batch over every CONFIRMED / IN_PROGRESS MO with work in the zone (`sub_zone_id`, marks, `mode`, `lang`)
+- Caps: 500 sheets per batch (409 `JOB_SHEET_TOO_MANY`), 50 MOs per zone batch (409 `JOB_SHEET_TOO_MANY_MOS`); nothing matching → 409 `JOB_SHEET_EMPTY`; unknown zone → 404 `ZONE_NOT_FOUND`
+- Reuses the print packet's plan (`MoPrintService.buildPlan`), fonts, QR and worker render slots (`slot` exported from `mo-print-render.ts`)
+- Fix inside the feature: a size-based MO Part now honours `zone_id` / `sub_zone_id` (all or nothing)
+- A size-based MO Part prints its own project / zone / sub-zone (the packet derives them from assembly lines, so they were blank)
+- Due date = MO `plan_finish`, else the latest planned end of the assembly's WOs (was blank when the MO had no plan finish)
+- Repeated list query keys (`?wo_ids=1&wo_ids=2`, marks) are joined instead of dropped (dropping widened the batch)
+
+### Frontend
+- `JobSheetModal` (list preview + totals + missing-data warning + inline PDF + print) and "พิมพ์ใบงานต่อชิ้น" entry points: MO detail header, WO detail header, MO Assemblies tab (per assembly), MO Parts tab (per part mark), MO list and WO list rows, Zones page rows (zone batch, with a Sub-zone picker in the modal so a zone over the caps can be printed sub-zone by sub-zone)
+
+---
+
 ## [Sprint 6] — 2026-05-08
 Sprint theme: Auth dev mode + Project Management Foundation
 Full task list: Notion Sprint 6 | Feature docs: wiki/features/jwt-rbac + customers-projects
