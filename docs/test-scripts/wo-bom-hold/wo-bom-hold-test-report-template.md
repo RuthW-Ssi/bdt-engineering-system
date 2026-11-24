@@ -33,7 +33,7 @@
 
 - [ ] Backend running (`pnpm --filter backend dev` → :3000)
 - [ ] All 12 tasks in `wo-bom-hold-plan.md` implemented + migrated
-- [ ] Login สำเร็จ (admin / BdtDev2026!)
+- [ ] Login สำเร็จ (admin / รหัสผ่านจาก `$BDT_ADMIN_PASSWORD`)
 - [ ] Project + zone เลือกแล้ว (ควรใช้ scratch zone ที่ไม่มี WO ค้างอยู่)
 - [ ] Baseline BOM fixture (3+ marks) พร้อม
 - [ ] Rev.2 fixture (mark ถูกลบ 1 / qty ลด 1 / qty เพิ่ม 1) พร้อม

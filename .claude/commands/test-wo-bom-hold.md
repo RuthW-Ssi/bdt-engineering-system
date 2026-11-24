@@ -24,7 +24,7 @@ Run the WO BOM-Version Hold feature (Sprint 20 / F-WO BOM-Version Hold) end-to-e
 ```bash
 curl -s http://localhost:3000/api/v1/auth/login \
   -X POST -H "Content-Type: application/json" \
-  -d '{"login":"admin","password":"BdtDev2026!"}' | python3 -c "import sys,json; d=json.load(sys.stdin); print('TOKEN:', d['access_token'][:30]+'...')"
+  -d "{\"login\":\"admin\",\"password\":\"$BDT_ADMIN_PASSWORD\"}" | python3 -c "import sys,json; d=json.load(sys.stdin); print('TOKEN:', d['access_token'][:30]+'...')"
 ```
 
 If this fails → tell the user to start the backend first (`pnpm --filter backend dev`).
@@ -36,7 +36,7 @@ If this fails → tell the user to start the backend first (`pnpm --filter backe
 ```bash
 TOKEN=$(curl -s http://localhost:3000/api/v1/auth/login \
   -X POST -H "Content-Type: application/json" \
-  -d '{"login":"admin","password":"BdtDev2026!"}' \
+  -d "{\"login\":\"admin\",\"password\":\"$BDT_ADMIN_PASSWORD\"}" \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 
 curl -s "http://localhost:3000/api/v1/projects?limit=5" \

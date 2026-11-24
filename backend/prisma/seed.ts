@@ -5,10 +5,17 @@ import { seedMachineDemo } from './seed-machine-demo'
 
 const prisma = new PrismaClient()
 
+// No default: a known fallback password ends up on every database seeded without the env var.
+function requiredEnv(name: string): string {
+  const v = process.env[name]
+  if (!v) throw new Error(`${name} is not set - put it in backend/.env (never commit it) and run the seed again`)
+  return v
+}
+
 async function main() {
   // ── res_users: admin ──────────────────────────────────────
   const adminPassword = await bcryptjs.hash(
-    process.env.ADMIN_SEED_PASSWORD ?? 'BdtDev2026!',
+    requiredEnv('ADMIN_SEED_PASSWORD'),
     12,
   )
   await prisma.res_users.upsert({

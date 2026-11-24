@@ -31,7 +31,7 @@ not in `ALL_MODULES` at all — no toggle for them exists in the Admin UI);
 ```bash
 docker ps --format '{{.Names}} {{.Status}}' | grep bdt-postgres
 curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/api/v1/auth/login \
-  -H "Content-Type: application/json" -d '{"login":"admin","password":"BdtDev2026!"}'   # expect 200/201
+  -H "Content-Type: application/json" -d "{\"login\":\"admin\",\"password\":\"$BDT_ADMIN_PASSWORD\"}"   # expect 200/201
 curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/                            # expect 200
 ```
 
