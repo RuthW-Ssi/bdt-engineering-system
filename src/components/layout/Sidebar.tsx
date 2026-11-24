@@ -4,7 +4,7 @@ import {
   LayoutDashboard, FolderOpen, Package, GitBranch,
   Workflow, FileWarning, ShieldCheck, BarChart3,
   ChevronLeft, ChevronRight, ChevronDown, Boxes, MapPin, Users, BookOpen, Puzzle, Activity, Cog,
-  ClipboardList, Scissors, Cuboid, UserCog, FileText, CalendarClock, LifeBuoy,
+  ClipboardList, Scissors, Cuboid, UserCog, FileText, CalendarClock, LifeBuoy, History,
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { canViewAny, customerCanOpen, isCustomer } from '../../lib/moduleAccess'
@@ -63,6 +63,7 @@ export const SECTIONS: { title: string; items: NavItem[] }[] = [
     title: 'Supply Chain',
     items: [
       { label: 'Cutting Plan', icon: <Scissors size={18} />, path: '/cutting-plan', viewModules: ['cutting-plan'] },
+      { label: 'Traceability', icon: <History size={18} />, path: '/traceability', viewModules: ['cutting-plan'] },
     ],
   },
   {

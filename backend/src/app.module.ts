@@ -38,6 +38,7 @@ import { WorkOrdersModule } from './modules/work-orders/work-orders.module'
 // Cutting Plan
 import { CuttingPlanModule } from './modules/cutting-plan/cutting-plan.module'
 import { CuttingPlanTestModule } from './modules/cutting-plan-test/cutting-plan-test.module'
+import { TraceabilityModule } from './modules/traceability/traceability.module'
 // Sprint 23
 import { BimModule } from './modules/bim/bim.module'
 // Sprint 27
@@ -84,6 +85,7 @@ import { DocumentsModule } from './modules/documents/documents.module'
     // Cutting Plan
     CuttingPlanModule,
     CuttingPlanTestModule,
+    TraceabilityModule,
     // Sprint 23
     BimModule,
     // Sprint 27

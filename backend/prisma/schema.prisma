@@ -94,6 +94,12 @@ model res_users {
   // Cutting Plan audit
   cutting_plan_uploads_created cutting_plan_upload[] @relation("cutting_plan_upload_create")
 
+  // Traceability audit
+  heat_lots_created         heat_lot[]         @relation("heat_lot_create")
+  heat_lots_written         heat_lot[]         @relation("heat_lot_write")
+  plate_cut_records_created plate_cut_record[] @relation("plate_cut_record_create")
+  plate_cut_records_written plate_cut_record[] @relation("plate_cut_record_write")
+
   // Sprint 23: BIM Viewer audit
   bim_models_created bim_model[] @relation("bim_model_create")
 
@@ -1063,6 +1069,7 @@ model bom_part {
   write_date   DateTime     @default(now()) @db.Timestamptz
 
   assembly_parts bom_assembly_part[]
+  part_traces    part_trace[] // Traceability
 
   @@unique([dispatch_id, part_mark])
   @@index([dispatch_id])
@@ -2318,6 +2325,7 @@ model cutting_plan_nesting {
   order_parts  cutting_plan_order_part[]
   plate_usages cutting_plan_plate_usage[]
   remnants     cutting_plan_remnant[]
+  plate_cuts   plate_cut_record[] // Traceability
 
   @@index([upload_id])
   @@index([cuttingplan_number])
@@ -2343,6 +2351,8 @@ model cutting_plan_order_part {
   length_mm                  Decimal? @db.Decimal(10, 2)
   width_mm                   Decimal? @db.Decimal(10, 2)
   weight_kg                  Decimal? @db.Decimal(12, 3)
+
+  part_traces part_trace[] // Traceability
 
   @@index([upload_id])
   @@index([nesting_id])
@@ -2448,4 +2458,114 @@ model bim_element {
   properties Json // raw Forge property-tree dump for this element — everything not promoted to a column above
 
   @@index([model_id])
+}
+
+// ── 🟦 Traceability: heat lot ↔ plate ↔ nesting sheet ↔ parts ──
+// Additive only. A heat number (from the mill test certificate) is assigned to a
+// nesting sheet of a stored cutting plan (`cutting_plan_nesting`); the assignment
+// is one `plate_cut_record` and is propagated to every part nested on that sheet
+// as `part_trace` rows. Forward query = heat → plates → parts; backward = part →
+// plates → heats. DRAFT: the rules for what must be traced (which parts are
+// "main parts", when a record may be voided) need QA sign-off before production use.
+
+// One heat (melt) of plate from one mill. Heat numbers are only unique per mill,
+// so the key is (heat_no, mill); mill "" = not recorded.
+model heat_lot {
+  id            Int       @id @default(autoincrement())
+  heat_no       String    @db.VarChar(60) // normalised: trimmed, inner blanks removed, upper-case
+  mill          String    @default("") @db.VarChar(120)
+  grade         String?   @db.VarChar(30)
+  thick_mm      Decimal?  @db.Decimal(10, 2)
+  cert_no       String?   @db.VarChar(100) // mill test certificate (MTC) number
+  cert_file_key String?   @db.VarChar(500) // optional: the MTC scan in file storage (not wired yet)
+  supplier      String?   @db.VarChar(200)
+  received_date DateTime? @db.Date
+  note          String?   @db.VarChar(500)
+  active        Boolean   @default(true)
+
+  create_uid  Int
+  create_user res_users @relation("heat_lot_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_user  res_users @relation("heat_lot_write", fields: [write_uid], references: [id])
+  write_date  DateTime  @default(now()) @db.Timestamptz
+
+  plate_cuts  plate_cut_record[]
+  part_traces part_trace[]
+
+  @@unique([heat_no, mill])
+  @@index([heat_no])
+}
+
+// One physical plate cut with one nesting sheet. A nest cut on several plates
+// (`cutting_plan_nesting.count` > 1) gets one record per plate (`plate_seq`).
+// Records are never deleted: a wrong assignment is set to VOID and a new one is
+// made, so the history stays. At most one ACTIVE record per (nesting_id, plate_seq)
+// — enforced by a hand-written partial unique index in the migration.
+// The sheet columns are a snapshot, so the record survives when the cutting plan
+// upload is deleted (nesting_id then goes NULL).
+model plate_cut_record {
+  id                 Int                   @id @default(autoincrement())
+  nesting_id         Int?
+  nesting            cutting_plan_nesting? @relation(fields: [nesting_id], references: [id], onDelete: SetNull)
+  heat_lot_id        Int
+  heat_lot           heat_lot              @relation(fields: [heat_lot_id], references: [id], onDelete: Restrict)
+  plate_seq          Int                   @default(1)
+  plate_no           String?               @db.VarChar(60) // the plate's own id as stamped / labelled in the yard
+  // snapshot of the sheet at assignment time
+  upload_id          Int?
+  cuttingplan_number String                @db.VarChar(100)
+  nc_file            String?               @db.VarChar(100)
+  quality            String?               @db.VarChar(30)
+  thick_mm           Decimal?              @db.Decimal(10, 2)
+  cut_date           DateTime?             @db.Date
+  machine            String?               @db.VarChar(60)
+  note               String?               @db.VarChar(500)
+  status             String                @default("ACTIVE") @db.VarChar(10) // ACTIVE | VOID
+  void_reason        String?               @db.VarChar(300)
+
+  create_uid  Int
+  create_user res_users @relation("plate_cut_record_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+  write_uid   Int
+  write_user  res_users @relation("plate_cut_record_write", fields: [write_uid], references: [id])
+  write_date  DateTime  @default(now()) @db.Timestamptz
+
+  part_traces part_trace[]
+
+  @@index([nesting_id])
+  @@index([heat_lot_id])
+  @@index([nc_file])
+  @@index([cuttingplan_number]) // remnant-parent hint looks plates up by name
+  @@index([status])
+}
+
+// One part (order_part row of the nesting report) cut from one plate_cut_record.
+// Written automatically when a heat is assigned to the sheet (source AUTO).
+// part_mark / project_code / qty / is_main_part are snapshots taken at that time.
+model part_trace {
+  id            Int                      @id @default(autoincrement())
+  plate_cut_id  Int
+  plate_cut     plate_cut_record         @relation(fields: [plate_cut_id], references: [id], onDelete: Cascade)
+  heat_lot_id   Int // same as plate_cut.heat_lot_id, kept here for the backward query
+  heat_lot      heat_lot                 @relation(fields: [heat_lot_id], references: [id], onDelete: Restrict)
+  order_part_id Int?
+  order_part    cutting_plan_order_part? @relation(fields: [order_part_id], references: [id], onDelete: SetNull)
+  bom_part_id   Int?
+  bom_part      bom_part?                @relation(fields: [bom_part_id], references: [id], onDelete: SetNull)
+  part_mark     String                   @db.VarChar(100) // as on the nesting report, trimmed
+  project_code  String?                  @db.VarChar(20)
+  qty           Int?
+  weight_kg     Decimal?                 @db.Decimal(12, 3)
+  is_main_part  Boolean? // true = BOM slot MAIN, false = ACC, null = not known when assigned
+  source        String                   @default("AUTO") @db.VarChar(10) // AUTO | MANUAL
+  create_date   DateTime                 @default(now()) @db.Timestamptz
+
+  @@unique([plate_cut_id, order_part_id])
+  @@index([plate_cut_id])
+  @@index([heat_lot_id])
+  @@index([order_part_id])
+  @@index([bom_part_id])
+  @@index([part_mark])
+  @@index([project_code])
 }

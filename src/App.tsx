@@ -37,6 +37,7 @@ import { WoDetail } from './pages/WoDetail'
 import { CuttingPlanList } from './pages/CuttingPlanList'
 import { CuttingPlanDetail } from './pages/CuttingPlanDetail'
 import { CuttingPlanPlate } from './pages/CuttingPlanPlate'
+import { Traceability } from './pages/Traceability'
 import { BimViewer } from './pages/BimViewer'
 import { DrawingList } from './pages/DrawingList'
 import { UsersPage } from './pages/UsersPage'
@@ -168,6 +169,8 @@ export default function App() {
             <Route path="/cutting-plan" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanList /></ProtectedRoute>} />
             <Route path="/cutting-plan/:id" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanDetail /></ProtectedRoute>} />
             <Route path="/cutting-plan/:id/plate/:plate" element={<ProtectedRoute viewModules={['cutting-plan']}><CuttingPlanPlate /></ProtectedRoute>} />
+            {/* Traceability: gated by the cutting-plan module, like the sheets it is entered on */}
+            <Route path="/traceability" element={<ProtectedRoute viewModules={['cutting-plan']}><Traceability /></ProtectedRoute>} />
           </Route>
         </Routes>
       </BrowserRouter>
