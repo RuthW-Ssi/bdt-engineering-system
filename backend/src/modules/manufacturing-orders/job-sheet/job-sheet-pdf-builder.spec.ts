@@ -81,7 +81,7 @@ describe('buildJobSheetPdf', () => {
       holes: Array.from({ length: 12 }, (_, i) => ({ diameter_mm: 10 + i, count: i + 1 })),
     })
     await expect(buildJobSheetPdf(plan([long]), 'en')).resolves.toBeInstanceOf(Uint8Array)
-  })
+  }, 20_000) // ~4 s alone (many long rows); headroom so a loaded CI runner does not hit the 5 s default
 
   it('zone batch (mo = null): builds every sheet and titles the file after the zone', async () => {
     const zonePlan: JobSheetPlan = {
