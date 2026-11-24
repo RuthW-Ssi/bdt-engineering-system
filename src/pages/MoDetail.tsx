@@ -21,6 +21,7 @@ import { fetchMoPrintPacketBlob, SHOP_TYPE_LABEL, type PrintLang, type MoStatus,
 import { usePermission } from '../hooks/usePermission'
 import { ASM_FIELDS, norm, showValue } from '../lib/asmFields'
 import { getErrorMessage } from '../lib/getErrorMessage'
+import { JobSheetModal } from '../components/mo/JobSheetModal'
 import DaysRemainingBadge from '../components/DaysRemainingBadge'
 import { ActualDatesModal, EditActualDatesButton, type ActualDatesValue } from '../components/ActualDatesModal'
 import { dateInputGuardHandlers } from '../lib/dateInputGuard'
@@ -55,6 +56,7 @@ export function MoDetail() {
   const [printing, setPrinting] = useState(false)
   const [printError, setPrintError] = useState<string | null>(null)
   const [printPickerOpen, setPrintPickerOpen] = useState(false)
+  const [jobSheetOpen, setJobSheetOpen] = useState(false) // per-piece job sheets
   // Actual dates are typed by the user, never auto-filled (2026-10-01):
   // 'complete' = IN_PROGRESS → DONE (dates + reason), 'edit' = DONE-only fix.
   const [datesModal, setDatesModal] = useState<'complete' | 'edit' | null>(null)
@@ -178,6 +180,14 @@ export function MoDetail() {
             style={{ height: 34, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: printing ? 'default' : 'pointer', border: '1px solid #C2C2C2', background: '#fff', color: '#333', opacity: printing ? 0.6 : 1 }}
           >
             {printing ? <Loader2 size={14} className="animate-spin" /> : <Printer size={14} />} Print
+          </button>
+          <button
+            onClick={() => setJobSheetOpen(true)}
+            className="flex items-center gap-1.5"
+            title="ใบงาน 1 หน้าต่อชิ้น: รหัสชิ้น + QR, วัสดุ, ขั้นตอนพร้อมช่องลงชื่อ, แบบ, วันต้องเสร็จ, Heat No., สรุปรู"
+            style={{ height: 34, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: '1px solid #C2C2C2', background: '#fff', color: '#333' }}
+          >
+            <Printer size={14} /> พิมพ์ใบงานต่อชิ้น
           </button>
           <DrawingRevBadge moId={moId} />
           {canUpload && (
@@ -346,6 +356,7 @@ export function MoDetail() {
         />
       )}
 
+      {jobSheetOpen && <JobSheetModal moId={moId} moCode={mo.mo_code} onClose={() => setJobSheetOpen(false)} />}
       {printPickerOpen && (
         <PrintSelectModal
           moId={moId}
@@ -672,6 +683,7 @@ function AssembliesTab({ moId, editable }: { moId: number; editable: boolean }) 
   // Pre-shop parts are edited per assembly (2026-10-08) — one at a time.
   const [editing, setEditing] = useState<{ lineId: number; parts: PreshopPart[] } | null>(null)
   const [savingParts, setSavingParts] = useState(false)
+  const [jobSheetAsm, setJobSheetAsm] = useState<string | null>(null) // per-assembly job sheets
   async function saveParts() {
     if (!editing) return
     setSavingParts(true)
@@ -713,6 +725,12 @@ function AssembliesTab({ moId, editable }: { moId: number; editable: boolean }) 
               <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{r.assembly_mark}</span>
               <span className={r.preshop ? 'bg-molten-50 text-molten-600' : 'bg-steel-50 text-steel-800'} style={{ marginLeft: 8, fontSize: 11, fontWeight: 700, padding: '1px 7px', borderRadius: 999 }}>{r.source_label}</span>
               <span style={{ marginLeft: 8, fontSize: 11, color: '#999' }}>{r.parts.length ? `${r.parts.length} part` : 'ยังไม่มี part'}</span>
+              {r.parts.length > 0 && (
+                <button type="button" onClick={() => setJobSheetAsm(r.assembly_mark)} title="พิมพ์ใบงานต่อชิ้น เฉพาะ Assembly นี้"
+                  className="inline-flex items-center gap-1" style={{ marginLeft: 10, height: 24, padding: '0 8px', fontSize: 11.5, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}>
+                  <Printer size={11} /> ใบงาน
+                </button>
+              )}
               {editable && r.preshop && editing?.lineId !== r.id && (
                 <button type="button" onClick={() => { setEditing({ lineId: r.id, parts: r.parts.map(p => ({ part_mark: p.part_mark, profile: p.profile ?? '', grade: p.grade ?? '', length_mm: p.length_mm ?? 0, qty: p.qty_per_set, unit_weight_kg: p.weight_kg ?? 0 })) }); setToggled(s => new Set(s).add(r.id)) }}
                   className="inline-flex items-center gap-1" style={{ marginLeft: 10, height: 24, padding: '0 8px', fontSize: 11.5, fontWeight: 600, borderRadius: 5, border: '1px solid #C2C2C2', background: '#fff', color: '#333', cursor: 'pointer' }}>
@@ -789,6 +807,7 @@ function AssembliesTab({ moId, editable }: { moId: number; editable: boolean }) 
           )}
         </div>
       ))}
+      {jobSheetAsm && <JobSheetModal moId={moId} assemblyMarks={[jobSheetAsm]} scopeLabel={`เฉพาะ Assembly ${jobSheetAsm}`} onClose={() => setJobSheetAsm(null)} />}
     </div>
   )
 }
@@ -1209,6 +1228,7 @@ function WoMarkPickerModal({
 
 function PartsTab({ moId }: { moId: number }) {
   const { data, isLoading } = useMoParts(moId)
+  const [jobSheetPart, setJobSheetPart] = useState<string | null>(null) // per-part job sheets
   if (isLoading) return <Loader2 size={18} className="animate-spin" style={{ color: '#C2C2C2' }} />
   const rows = data ?? []
   if (!rows.length) return <div style={{ color: '#8E8E8E', fontSize: 13 }}>No parts found.</div>
@@ -1230,6 +1250,10 @@ function PartsTab({ moId }: { moId: number }) {
           <div key={r.part_mark} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 80px 60px 120px 1.2fr', borderTop: '1px solid #F0F0F0', fontSize: 13, alignItems: 'center' }}>
             <div style={{ padding: '10px 14px' }}>
               <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#1A1A1A' }}>{r.part_mark}</span>
+              <button type="button" onClick={() => setJobSheetPart(r.part_mark)} title="พิมพ์ใบงานต่อชิ้น เฉพาะ Part Mark นี้" aria-label={`พิมพ์ใบงานต่อชิ้น ${r.part_mark}`}
+                style={{ marginLeft: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#0C447C', padding: 0, display: 'inline-flex', verticalAlign: 'middle' }}>
+                <Printer size={13} />
+              </button>
               {r.assembly_marks.length > 0 && (
                 <div style={{ fontSize: 11, color: '#ABABAB', marginTop: 2 }}>{r.assembly_marks.join(', ')}</div>
               )}
@@ -1253,6 +1277,7 @@ function PartsTab({ moId }: { moId: number }) {
       <div style={{ marginTop: 10, fontSize: 12, color: '#888', textAlign: 'right' }}>
         {rows.length} parts · Total weight: <strong style={{ color: '#333' }}>{totalWeight.toFixed(2)} kg</strong>
       </div>
+      {jobSheetPart && <JobSheetModal moId={moId} partMarks={[jobSheetPart]} scopeLabel={`เฉพาะ Part Mark ${jobSheetPart}`} onClose={() => setJobSheetPart(null)} />}
     </div>
   )
 }

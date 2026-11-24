@@ -47,7 +47,8 @@ let warnedNoWorker = false
 let running = 0
 const queue: (() => void)[] = []
 
-async function slot<T>(task: () => Promise<T>, waitMs: number): Promise<T> {
+// Exported: per-piece job sheets render through these same slots — see job-sheet/job-sheet-render.ts.
+export async function slot<T>(task: () => Promise<T>, waitMs: number): Promise<T> {
   if (running < MAX_WORKERS) running++
   else {
     if (queue.length >= MAX_QUEUED) throw busy()

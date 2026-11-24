@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Plus, Loader2, ChevronDown, GripVertical, Check, X, Pencil } from 'lucide-react'
+import { Plus, Loader2, ChevronDown, GripVertical, Check, X, Pencil, Printer } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   DndContext,
@@ -25,6 +25,7 @@ import { useIsCustomer } from '../hooks/useIsCustomer'
 import type { ProjectZoneDTO } from '../api/types'
 import type { CreateZonePayload } from '../api/project-zones'
 import { dateInputGuardHandlers } from '../lib/dateInputGuard'
+import { JobSheetModal } from '../components/mo/JobSheetModal'
 
 // ── Sortable zone row ───────────────────────────────────────────
 function SortableZoneRow({
@@ -42,6 +43,7 @@ function SortableZoneRow({
   canDeleteSub,
   canEdit,
   showDates,
+  onPrintJobSheets,
 }: {
   zone: any
   index: number
@@ -52,6 +54,7 @@ function SortableZoneRow({
   onDeleteSub: (id: number) => void
   onOpenProgress: (zoneId: number) => void
   onEdit: (zone: any) => void
+  onPrintJobSheets?: (zone: any) => void // job sheet zone batch; omitted = no orders:view
   reorderMode: boolean
   canAddSub: boolean
   canDeleteSub: boolean
@@ -113,6 +116,15 @@ function SortableZoneRow({
         </div>
         {!reorderMode && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {onPrintJobSheets && (
+              <button
+                onClick={e => { e.stopPropagation(); onPrintJobSheets(zone) }}
+                title="พิมพ์ใบงานต่อชิ้น — ทุก MO ที่ยืนยันแล้ว/กำลังผลิตในโซนนี้"
+                style={{ fontSize: 12, color: '#0C447C', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                <Printer size={12} />พิมพ์ใบงานต่อชิ้น
+              </button>
+            )}
             {canEdit && (
               <button
                 onClick={e => { e.stopPropagation(); onEdit(zone) }}
@@ -218,6 +230,9 @@ export function ZoneList() {
   const canUpdateZone = usePermission('project-zones', 'update') && !customer
   const canCreateSub = usePermission('sub-zones', 'create') && !customer
   const canDeleteSub = usePermission('sub-zones', 'delete') && !customer
+  // The job sheet zone batch endpoint needs orders:view (same as the MO print packet).
+  const canPrintJobSheets = usePermission('orders', 'view') && !customer
+  const [jobSheetZone, setJobSheetZone] = useState<{ id: number; code: string; label: string; subZones: { id: number; name: string }[] } | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -428,6 +443,10 @@ export function ZoneList() {
                     canDeleteSub={canDeleteSub}
                     canEdit={canUpdateZone}
                     showDates={!customer}
+                    onPrintJobSheets={canPrintJobSheets ? z => setJobSheetZone({
+                      id: z.id, code: z.code, label: z.label,
+                      subZones: (z.sub_zones ?? []).map((sz: any) => ({ id: sz.id, name: sz.code ? `${sz.code} · ${sz.name}` : sz.name })),
+                    }) : undefined}
                   />
                 ))}
               </SortableContext>
@@ -435,6 +454,15 @@ export function ZoneList() {
           </div>
         )}
       </div>
+
+      {jobSheetZone && (
+        <JobSheetModal
+          zoneId={jobSheetZone.id}
+          subZones={jobSheetZone.subZones}
+          heading={`โซน ${jobSheetZone.code} ${jobSheetZone.label}`}
+          onClose={() => setJobSheetZone(null)}
+        />
+      )}
 
       {/* Add Zone Modal */}
       {zoneModal && !customer && (
