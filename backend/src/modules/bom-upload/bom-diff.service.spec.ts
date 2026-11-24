@@ -92,6 +92,12 @@ function buildDispatchFindMany(dispatches: any[]) {
   })
 }
 
+function buildDispatchFindFirst(dispatches: any[]) {
+  return jest.fn(({ where }: any) => Promise.resolve([...dispatches].sort((a, b) => b.id - a.id).find(d =>
+    d.project_id === where.project_id && d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id &&
+    (d.source ?? 'BOM_UPLOAD') === where.source && d.revision >= where.revision.gte && d.id < where.id.lt) ?? null))
+}
+
 function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
   const { p0Asm, p0Part, p0AsmPart, p1Asm, p1Part, p1AsmPart } = fixtures
 
@@ -134,6 +140,7 @@ function buildPrisma(fixtures: ReturnType<typeof buildMockDataFromFixtures>) {
 
   return {
     bom_dispatch: {
+      findFirst: jest.fn().mockResolvedValue(null),
       findUnique: jest.fn(({ where }: any) => {
         if (where.id === 1) return Promise.resolve(dispatch0)
         if (where.id === 2) return Promise.resolve(dispatch1)
@@ -177,6 +184,7 @@ describe('BomDiffService — fixture-based contract test', () => {
     const dispatch99 = { id: 99, project_id: 10, zone_id: 20, sub_zone_id: null, status: 'pending', uploaded_at: new Date(), revision: 0, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] }
     const noPrevPrisma = {
       bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue(dispatch99),
         findMany: buildDispatchFindMany([dispatch99]),
       },
@@ -261,6 +269,7 @@ describe('BomDiffService — algorithm unit tests', () => {
 
     return {
       bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(({ where }: any) => Promise.resolve(where.id === 1 ? prev : curr)),
         findMany: buildDispatchFindMany([prev, curr]),
       },
@@ -315,6 +324,7 @@ describe('BomDiffService — algorithm unit tests', () => {
       const curr = { id: 2, project_id: 1, zone_id: 1, sub_zone_id: null, status: 'complete', uploaded_at: new Date('2025-02-01'), revision: 1, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }], assembly_total: 1, part_total: 0 }
       return {
         bom_dispatch: {
+          findFirst: jest.fn().mockResolvedValue(null),
           findUnique: jest.fn(({ where }: any) => Promise.resolve(where.id === 1 ? prev : curr)),
           findMany: buildDispatchFindMany([prev, curr]),
         },
@@ -374,6 +384,7 @@ describe('BomDiffService — revision-group aggregation', () => {
     ]
     return {
       bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
         findMany: buildDispatchFindMany(dispatches),
       },
@@ -443,6 +454,7 @@ describe('BomDiffService — revision-group aggregation', () => {
     ]
     const prisma = {
       bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
         findMany: buildDispatchFindMany(dispatches),
       },
@@ -580,6 +592,7 @@ describe('BomDiffService — slot-aware group loading', () => {
     const prisma = {
       ...buildSlotPrisma([dispatchA], []),
       bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn().mockResolvedValue(dispatchA),
         findMany: buildDispatchFindMany([dispatchA]),
       },
@@ -617,6 +630,7 @@ describe('BomDiffService — PRE_SHOP source exclusion (bug fix)', () => {
     ]
     return {
       bom_dispatch: {
+        findFirst: buildDispatchFindFirst(dispatches),
         findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
         findMany: buildDispatchFindMany(dispatches),
       },
@@ -663,6 +677,7 @@ describe('BomDiffService — PRE_SHOP source exclusion (bug fix)', () => {
     ]
     const prisma = {
       bom_dispatch: {
+        findFirst: jest.fn().mockResolvedValue(null),
         findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
         findMany: buildDispatchFindMany(dispatches),
       },
@@ -683,5 +698,123 @@ describe('BomDiffService — PRE_SHOP source exclusion (bug fix)', () => {
     const a1 = result!.assembly_diff.find(r => (r.curr ?? r.prev)!.assembly_mark === 'A1')
     expect(a1!.status).toBe('changed')
     expect(result!.aggregate.weight_kg.delta).toBeCloseTo(20)
+  })
+})
+
+// BOM-page pre-shop revisions diff against the previous BOM-page pre-shop revision (2026-11-24, Tao)
+describe('BomDiffService — BOM-page pre-shop revisions', () => {
+  const D = (id: number, source: string, revision: number) => ({ id, project_id: 43, zone_id: 81, sub_zone_id: null, status: 'complete', source, revision, uploaded_at: new Date(), doc_revisions: [] })
+  function prismaWith(dispatches: ReturnType<typeof D>[], assemblyRows: object[]) {
+    return {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: buildDispatchFindMany(dispatches),
+        findFirst: jest.fn(({ where }: any) => Promise.resolve([...dispatches].reverse().find(d =>
+          d.source === where.source && d.revision >= where.revision.gte && d.id < where.id.lt && d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id) ?? null)),
+      },
+      bom_assembly: { findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(assemblyRows as any, where))) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+  }
+  const rows = [
+    { dispatch_id: 94, assembly_mark: 'CO13', name: 'COLUMN', qty: 1, weight_kg: 176.47, surface_area_m2: 8.4 },
+    { dispatch_id: 94, assembly_mark: 'RF5', name: 'RAFTER', qty: 1, weight_kg: 391.1, surface_area_m2: 14.63 },
+    { dispatch_id: 95, assembly_mark: 'MO-X', name: 'MO pre-shop', qty: 1, weight_kg: 1, surface_area_m2: 1 },
+    { dispatch_id: 96, assembly_mark: 'RF5', name: 'RAFTER', qty: 1, weight_kg: 387.79, surface_area_m2: 14.555 },
+    { dispatch_id: 96, assembly_mark: 'RF10', name: 'RAFTER', qty: 1, weight_kg: 227.78, surface_area_m2: 10.3 },
+  ]
+
+  it('rev 2 diffs against rev 1, skipping an MO pre-shop (revision 0) in between', async () => {
+    const svc = new BomDiffService(prismaWith([D(94, 'PRE_SHOP', 1), D(95, 'PRE_SHOP', 0), D(96, 'PRE_SHOP', 2)], rows) as any)
+    const r = await svc.computeDiff(96)
+    expect(r).not.toBeNull()
+    expect([r!.prev_id, r!.curr_id]).toEqual([94, 96])
+    expect([r!.prev_no, r!.curr_no]).toEqual([1, 2]) // pre-shop: its revisions
+    const kind = (m: string) => r!.assembly_diff.find(x => (x.curr ?? x.prev)!.assembly_mark === m)!.status
+    expect([kind('RF10'), kind('RF5'), kind('CO13')]).toEqual(['added', 'changed', 'removed'])
+    expect(r!.assembly_diff.some(x => (x.curr ?? x.prev)!.assembly_mark === 'MO-X')).toBe(false)
+  })
+
+  it('the first BOM-page pre-shop (rev 1) and an MO pre-shop (rev 0) have nothing to compare', async () => {
+    const svc = new BomDiffService(prismaWith([D(94, 'PRE_SHOP', 1), D(95, 'PRE_SHOP', 0)], rows) as any)
+    expect(await svc.computeDiff(94)).toBeNull()
+    expect(await svc.computeDiff(95)).toBeNull()
+  })
+
+  it('mark renames stay off for pre-shop: findPreviousRevisionGroup is unchanged', async () => {
+    const svc = new BomDiffService(prismaWith([D(94, 'PRE_SHOP', 1), D(96, 'PRE_SHOP', 2)], rows) as any)
+    expect(await svc.findPreviousRevisionGroup(96)).toBeNull()
+  })
+})
+
+// The zone's first full shop compares with its last BOM-page pre-shop revision (2026-11-24, Tao)
+describe('BomDiffService — first full shop vs last pre-shop', () => {
+  const D = (id: number, source: string, revision: number) => ({ id, project_id: 43, zone_id: 81, sub_zone_id: null, status: 'complete', source, revision, uploaded_at: new Date(), doc_revisions: [] })
+  function svcWith(dispatches: ReturnType<typeof D>[]) {
+    const rows = [
+      { dispatch_id: 96, assembly_mark: 'RF5', name: 'RAFTER', qty: 1, weight_kg: 387.79, surface_area_m2: 14.555 },
+      { dispatch_id: 97, assembly_mark: 'MO-X', name: 'MO pre-shop', qty: 1, weight_kg: 1, surface_area_m2: 1 },
+      { dispatch_id: 100, assembly_mark: 'RF5', name: 'RAFTER', qty: 1, weight_kg: 387.79, surface_area_m2: 14.555 },
+      { dispatch_id: 100, assembly_mark: 'CO1', name: 'COLUMN', qty: 1, weight_kg: 200, surface_area_m2: 9 },
+    ]
+    const prisma = {
+      bom_dispatch: {
+        findUnique: jest.fn(({ where }: any) => Promise.resolve(dispatches.find(d => d.id === where.id) ?? null)),
+        findMany: buildDispatchFindMany(dispatches),
+        findFirst: jest.fn(({ where }: any) => Promise.resolve([...dispatches].reverse().find(d =>
+          d.source === where.source && d.revision >= where.revision.gte && d.id < where.id.lt && d.zone_id === where.zone_id && d.sub_zone_id === where.sub_zone_id) ?? null)),
+      },
+      bom_assembly: { findMany: jest.fn(({ where }: any) => Promise.resolve(filterBySlotAwareWhere(rows as any, where))) },
+      bom_part: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
+      bom_assembly_part: { findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const svc = new BomDiffService(prisma as any)
+    jest.spyOn(svc, 'computeVersionLabels').mockImplementation(async ids => new Map(ids.map(id => [id, id === 100 ? '1' : '2'])))
+    return svc
+  }
+
+  it('compares with the latest BOM-page pre-shop, skipping a later MO pre-shop (rev 0)', async () => {
+    const svc = svcWith([D(94, 'PRE_SHOP', 1), D(96, 'PRE_SHOP', 2), D(97, 'PRE_SHOP', 0), D(100, 'BOM_UPLOAD', 3)])
+    const r = await svc.computeDiff(100)
+    expect(r).not.toBeNull()
+    expect([r!.prev_id, r!.curr_id]).toEqual([96, 100])
+    expect([r!.prev_no, r!.curr_no, r!.prev_source]).toEqual([2, 1, 'PRE_SHOP'])
+    const kind = (m: string) => r!.assembly_diff.find(x => (x.curr ?? x.prev)!.assembly_mark === m)!.status
+    expect([kind('CO1'), kind('RF5')]).toEqual(['added', 'unchanged'])
+  })
+
+  it('later full shops still compare with the previous full shop', async () => {
+    const svc = svcWith([D(96, 'PRE_SHOP', 2), D(100, 'BOM_UPLOAD', 3), D(101, 'BOM_UPLOAD', 4)])
+    const r = await svc.computeDiff(101)
+    expect([r!.prev_id, r!.prev_source]).toEqual([100, 'BOM_UPLOAD'])
+  })
+
+  it('a first full shop with no pre-shop has nothing to compare', async () => {
+    const svc = svcWith([D(97, 'PRE_SHOP', 0), D(100, 'BOM_UPLOAD', 1)])
+    expect(await svc.computeDiff(100)).toBeNull()
+  })
+
+  it('mark-rename pairing stays off: findPreviousRevisionGroup is unchanged', async () => {
+    const svc = svcWith([D(96, 'PRE_SHOP', 2), D(100, 'BOM_UPLOAD', 3)])
+    expect(await svc.findPreviousRevisionGroup(100)).toBeNull()
+  })
+})
+
+describe('BomDiffService — version numbers on the diff (2026-11-24, Tao)', () => {
+  it('a full shop diff carries the upload numbers of both sides (v.n → v.n)', async () => {
+    const prisma: any = {
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue({ id: 70, source: 'BOM_UPLOAD', revision: 2 }), findMany: jest.fn().mockResolvedValue([]) },
+      bom_mark_rename: { findMany: jest.fn().mockResolvedValue([]) },
+    }
+    const svc = new BomDiffService(prisma)
+    jest.spyOn(svc, 'findPreviousRevisionGroup').mockResolvedValue({ current: { mainId: 70, accId: 70 }, previous: { mainId: 60, accId: 60 } })
+    jest.spyOn(svc as any, 'loadRevisionGroupData').mockResolvedValue({ assemblies: [], parts: [], junctions: [] })
+    jest.spyOn(svc as any, 'computeAggregate').mockResolvedValue({})
+    jest.spyOn(svc, 'computeVersionLabels').mockResolvedValue(new Map([[60, '5'], [70, '6']]))
+    const r = await svc.computeDiff(70)
+    expect([r!.prev_no, r!.curr_no]).toEqual([5, 6])
   })
 })

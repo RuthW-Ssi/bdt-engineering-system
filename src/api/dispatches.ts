@@ -151,6 +151,9 @@ export interface JunctionDiffItem {
 export interface DispatchDiffDto {
   prev_id: number
   curr_id: number
+  prev_no?: number | null // upload number (full shop) / revision (pre-shop)
+  curr_no?: number | null
+  prev_source?: 'BOM_UPLOAD' | 'PRE_SHOP' // PRE_SHOP when a first full shop compares with the last pre-shop
   warning: string | null
   aggregate: DiffAggregateDto
   assembly_diff: DiffRowDto<AssemblyDiffItemDto>[]
