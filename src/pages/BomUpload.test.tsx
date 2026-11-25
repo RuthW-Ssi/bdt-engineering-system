@@ -37,7 +37,7 @@ vi.mock('../hooks/useBomDispatches', () => ({
   }),
   useZoneUploadMode: () => ({ data: zoneMode.value, isLoading: false }),
 }))
-const zoneMode = vi.hoisted(() => ({ value: undefined as 'combined' | 'separate' | undefined }))
+const zoneMode = vi.hoisted(() => ({ value: undefined as { mode: 'combined' | 'separate' | null; hasFullShop: boolean } | undefined }))
 const afterUpload = vi.hoisted(() => vi.fn())
 vi.mock('../hooks/useRenameStep', () => ({
   useRenameStep: () => ({ dispatchId: null, partsOnly: false, afterUpload, close: vi.fn() }),
@@ -344,10 +344,25 @@ describe('BomUpload — BOM Type on a Full shop zone', () => {
   })
 
   it('a zone with a real BOM hides Pre-shop, even when the link asks for it', () => {
-    zoneMode.value = 'combined'
+    zoneMode.value = { mode: 'combined', hasFullShop: true }
     render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1&type=preshop']}><BomUpload /></MemoryRouter>)
     expect(screen.queryByRole('radio', { name: 'Pre-shop' })).toBeNull()
     expect(screen.getByRole('radio', { name: 'Full shop (BOM)' })).toBeChecked()
+  })
+
+  // 2026-11-25: the pre-shop picks Combined / Separate and its first save locks the zone
+  it('a pre-shop zone keeps Pre-shop, shows the mode choice locked to the pre-shop type', () => {
+    zoneMode.value = { mode: 'separate', hasFullShop: false }
+    render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1&type=preshop']}><BomUpload /></MemoryRouter>)
+    expect(screen.getByRole('radio', { name: 'Pre-shop' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Separate Main + ACC' })).toBeChecked()
+    expect(screen.getByRole('radio', { name: 'Combined' })).toBeDisabled()
+  })
+
+  it('an empty zone offers the mode choice on Pre-shop too', () => {
+    render(<MemoryRouter initialEntries={['/bom/upload?project_id=1&zone_id=1&type=preshop']}><BomUpload /></MemoryRouter>)
+    expect(screen.getByRole('radio', { name: 'Combined' })).toBeEnabled()
+    expect(screen.getByRole('radio', { name: 'Separate Main + ACC' })).toBeEnabled()
   })
 })
 

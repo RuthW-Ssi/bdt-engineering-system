@@ -149,3 +149,47 @@ describe('PreshopEditor', () => {
   })
 })
 
+
+// Separate MAIN + ACC pre-shop (2026-11-25)
+describe('PreshopEditor — Separate MAIN + ACC', () => {
+  it('separate shows Dispatch Note MAIN/ACC and Part list MAIN/ACC slots; combined shows one of each', () => {
+    const { unmount } = render(<PreshopEditor initial={EMPTY_STATE} onSave={vi.fn()} saving={false} uploadMode="separate" />)
+    for (const id of ['slot-dn-main', 'slot-dn-acc', 'slot-pl-main', 'slot-pl-acc']) expect(screen.getByTestId(id)).toBeInTheDocument()
+    unmount()
+    render(<PreshopEditor initial={EMPTY_STATE} onSave={vi.fn()} saving={false} />)
+    expect(screen.getByTestId('slot-dn')).toBeInTheDocument()
+    expect(screen.queryByTestId('slot-dn-acc')).toBeNull()
+  })
+
+  it('Save is disabled while a hand-added row has no slot; picking ACC enables it and sends the slot', () => {
+    const onSave = vi.fn()
+    const s = mergePartList(EMPTY_STATE, [P('P103')], 'MAIN').state
+    render(<PreshopEditor initial={s} onSave={onSave} saving={false} uploadMode="separate" />)
+    fireEvent.click(screen.getByRole('button', { name: /Add assembly/ }))
+    fireEvent.change(screen.getAllByLabelText('Assembly mark')[0], { target: { value: 'RF9' } })
+    drag('P103', 'RF9')
+    const save = screen.getByRole('button', { name: 'Save pre-shop' })
+    expect(save).toBeDisabled()
+    expect(screen.getByText(/เลือก MAIN หรือ ACC: RF9/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Slot RF9'), { target: { value: 'ACC' } })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+    expect(onSave.mock.calls[0][0][0]).toMatchObject({ assembly_mark: 'RF9', slot: 'ACC' })
+  })
+
+  it('a Dispatch Note dropped in the ACC box tags its marks ACC', async () => {
+    importDispatchNote.mockResolvedValue({ filename: 'acc dn.xls', assemblies: [asm('X1', 1)] })
+    render(<PreshopEditor initial={EMPTY_STATE} onSave={vi.fn()} saving={false} uploadMode="separate" />)
+    const input = screen.getByTestId('slot-dn-acc').querySelector('input[type=file]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'acc dn.xls')] } })
+    await waitFor(() => expect(screen.getByTestId('asm-row-X1')).toHaveTextContent('ACC'))
+  })
+
+  it('one Part List loaded → the other box says it is shared', async () => {
+    importPartList.mockResolvedValue({ filename: 'main pl.xlsx', parts: [P('P103')] })
+    render(<PreshopEditor initial={EMPTY_STATE} onSave={vi.fn()} saving={false} uploadMode="separate" />)
+    const input = screen.getByTestId('slot-pl-main').querySelector('input[type=file]') as HTMLInputElement
+    fireEvent.change(input, { target: { files: [new File(['x'], 'main pl.xlsx')] } })
+    await waitFor(() => expect(screen.getByTestId('slot-pl-acc')).toHaveTextContent('ใช้ Part List ร่วมจากช่อง MAIN'))
+  })
+})

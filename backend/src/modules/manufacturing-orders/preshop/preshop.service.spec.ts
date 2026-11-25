@@ -50,6 +50,38 @@ describe('PreshopService.createDispatch', () => {
     expect(tx.bom_dispatch.create.mock.calls[0][0].data).toMatchObject({ source: 'PRE_SHOP', revision: 3 })
   })
 
+  // BOM-page pre-shop Separate (2026-11-25): type + slot stored like a Full shop.
+  it('writes upload_mode and each assembly slot', async () => {
+    const { svc, tx } = make()
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [{ ...BUH13, slot: 'MAIN' }, { ...BUH1A12, slot: 'ACC' }] as any, 1, { revision: 2, uploadMode: 'separate' })
+    expect(tx.bom_dispatch.create.mock.calls[0][0].data).toMatchObject({ upload_mode: 'separate', revision: 2 })
+    expect(tx.bom_assembly.createManyAndReturn.mock.calls[0][0].data.map((a: any) => [a.assembly_mark, a.slot])).toEqual([['BUH1-3', 'MAIN'], ['BUH1A-12', 'ACC']])
+  })
+
+  it('shared Part List: a part linked from MAIN and ACC assemblies is stored with slot MAIN; one used by ACC only is ACC', async () => {
+    const { svc, tx } = make()
+    const accOnly = { part_mark: 'X-p9', profile: 'PL9x90', length_mm: 90, grade: 'SS400', qty: 1, unit_weight_kg: 1 }
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [{ ...BUH13, slot: 'MAIN' }, { ...BUH1A12, slot: 'ACC', parts: [...BUH1A12.parts, accOnly] }] as any, 1, { revision: 2, uploadMode: 'separate' })
+    const parts = tx.bom_part.createManyAndReturn.mock.calls[0][0].data
+    expect(parts.map((p: any) => [p.part_mark, p.slot])).toEqual([['C-f1', 'MAIN'], ['C-wx58', 'MAIN'], ['X-p9', 'ACC']])
+  })
+
+  it("two Part Lists: a part's own slot (its Part List box) wins over the assemblies using it", async () => {
+    const { svc, tx } = make()
+    const f1Acc = { ...BUH13.parts[0], slot: 'ACC' }
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [{ ...BUH13, slot: 'MAIN', parts: [f1Acc, BUH13.parts[1]] }] as any, 1, { revision: 2, uploadMode: 'separate' })
+    const parts = tx.bom_part.createManyAndReturn.mock.calls[0][0].data
+    expect(parts.map((p: any) => [p.part_mark, p.slot])).toEqual([['C-f1', 'ACC'], ['C-wx58', 'MAIN']])
+  })
+
+  it('MO pre-shop (no opts): combined, every slot null', async () => {
+    const { svc, tx } = make()
+    await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [BUH13], 1)
+    expect(tx.bom_dispatch.create.mock.calls[0][0].data).toMatchObject({ upload_mode: 'combined' })
+    expect(tx.bom_assembly.createManyAndReturn.mock.calls[0][0].data[0].slot).toBeNull()
+    expect(tx.bom_part.createManyAndReturn.mock.calls[0][0].data.every((p: any) => p.slot === null)).toBe(true)
+  })
+
   it('keeps revision 0 when no opts', async () => {
     const { svc, tx } = make()
     await svc.createDispatch(tx as any, { project_id: 5, zone_id: 3 }, [BUH13], 1)

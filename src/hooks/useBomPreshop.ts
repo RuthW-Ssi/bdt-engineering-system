@@ -16,6 +16,7 @@ export function useSavePreshop() {
     onSuccess: (_r, body) => {
       qc.invalidateQueries({ queryKey: key(body) })
       qc.invalidateQueries({ queryKey: ['dispatches'] })
+      qc.invalidateQueries({ queryKey: ['zone-upload-mode'] }) // the first pre-shop locks the zone's type (2026-11-25)
     },
   })
 }

@@ -48,7 +48,7 @@ export class MarkRenameService {
     if (!d) throw new NotFoundException('ไม่พบ BOM version นี้')
     const latest = (await this.prisma.bom_assembly.count({ where: { dispatch_id: dispatchId, status: 'ACTIVE' } })) > 0
       || (await this.prisma.bom_part.count({ where: { dispatch_id: dispatchId, status: 'ACTIVE' } })) > 0
-    const groups = await this.diff.findPreviousRevisionGroup(dispatchId)
+    const groups = await this.diff.findPreviousGroup(dispatchId)
     if (!groups) return { d, latest, asm: { disappeared: [] as AsmR[], fresh: [] as AsmR[] }, part: { disappeared: [] as PartR[], fresh: [] as PartR[] }, paired: [] as { kind: string; from_mark: string; to_mark: string }[] }
     const prevW = slotAwareWhere(groups.previous)!
     const currW = slotAwareWhere(groups.current)!
@@ -300,7 +300,7 @@ export class MarkRenameService {
 
   // ── read ────────────────────────────────────────────────────────────────
   private async versionDispatchIds(dispatchId: number): Promise<number[]> {
-    const groups = await this.diff.findPreviousRevisionGroup(dispatchId)
+    const groups = await this.diff.findPreviousGroup(dispatchId)
     return groups ? this.diff.renameDispatchIds(groups) : [dispatchId]
   }
 

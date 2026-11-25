@@ -36,6 +36,8 @@ export class PreshopPartDto {
   @IsString() @Length(0, 20) grade: string
   @IsNumber() @Min(0) @Max(999999) qty: number
   @IsNumber() @Min(0) @Max(999999999) unit_weight_kg: number
+  // BOM-page Separate pre-shop: the Part List box it came from (2026-11-25)
+  @IsOptional() @IsIn(['MAIN', 'ACC']) slot?: 'MAIN' | 'ACC' | null
 }
 
 export class PreshopAssemblyDto {
@@ -51,6 +53,8 @@ export class PreshopAssemblyDto {
   @IsOptional() @IsNumber() @Min(0) @Max(99999999) width_mm?: number | null
   @IsOptional() @IsNumber() @Min(0) @Max(99999999) height_mm?: number | null
   @IsArray() @ArrayMaxSize(500) @ValidateNested({ each: true }) @Type(() => PreshopPartDto) parts: PreshopPartDto[]
+  // BOM-page Separate pre-shop: MAIN or ACC (2026-11-25)
+  @IsOptional() @IsIn(['MAIN', 'ACC']) slot?: 'MAIN' | 'ACC' | null
 }
 
 export class CreateMoDto {
