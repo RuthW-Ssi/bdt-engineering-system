@@ -84,7 +84,8 @@ export function PreshopFileSlots({ mode = 'combined', dn, pl, dnAcc = EMPTY, plA
   const plHint = (mine: SlotState, other: SlotState, otherBox: string) =>
     !mine.file && other.file ? `ใช้ Part List ร่วมจากช่อง ${otherBox}` : 'ไม่มีไฟล์ก็เพิ่ม part เองได้'
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+    // 2 × 2: Dispatch Notes on one row, Part Lists below; one column on a phone
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))', gap: 16 }}>
       <Slot testId="slot-dn-main" label="Dispatch Note MAIN" {...DN} chip="Dispatch Note MAIN" slot={dn} disabled={disabled} onFile={f => onDispatchNote(f, 'MAIN')} onRemove={() => onRemoveDn('MAIN')} />
       <Slot testId="slot-dn-acc" label="Dispatch Note ACC" {...DN} chip="Dispatch Note ACC" slot={dnAcc} disabled={disabled} onFile={f => onDispatchNote(f, 'ACC')} onRemove={() => onRemoveDn('ACC')} />
       <Slot testId="slot-pl-main" label="Part list MAIN (ถ้ามี)" hint={plHint(pl, plAcc, 'ACC')} chip="Part list MAIN" {...PL} slot={pl} disabled={disabled} onFile={f => onPartList(f, 'MAIN')} onRemove={() => onRemovePl('MAIN')} />
