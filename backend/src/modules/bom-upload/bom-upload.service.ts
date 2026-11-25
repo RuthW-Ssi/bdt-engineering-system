@@ -10,6 +10,7 @@ import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
 import { uploadNumbersOf } from './upload-number'
 import { parseDispatchNoteRevs } from '../manufacturing-orders/mo-part/dispatch-note-parser'
+import { assertZoneMode } from './zone-mode'
 import { decideParts, decideRevs, partConflicts, type PartConflict, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFromUpload, type DnRev, type PartReviewRow, type PrevMark, type PrevPart, type RevDecision, type RevEdit, type RevRow } from './mark-rev'
 import { SEPARATE_DOC_TYPES, dnSlotOf, isDispatchNote } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
@@ -48,10 +49,10 @@ export interface JunctionMismatch {
 }
 
 export interface UploadScope { projectId: number; zoneId: number; subZoneId: number | null }
-export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; parts: PartReviewRow[]; part_conflicts: PartConflict[]; dn_only_marks: string[]; dn_warnings: string[] }
+export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; parts: PartReviewRow[]; part_conflicts: PartConflict[]; nc_profile_mismatches: NcProfileMismatch[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreview { unmatchedAssemblyMarks: string[]; unmatchedPartMarks: string[]; review: RevReview }
 /** `partSlots`: the slots whose ACTIVE parts this upload supersedes — null = all (combined). */
-interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; partSlots: ('MAIN' | 'ACC')[] | null; dn: { marks: DnRev[]; warnings: string[] } | null }
+interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; partSlots: ('MAIN' | 'ACC')[] | null; dn: { marks: DnRev[]; warnings: string[] } | null; ncProfileMismatches: NcProfileMismatch[] }
 
 type SlotName = 'MAIN' | 'ACC'
 /** One Part List in a separate upload is shared by MAIN and ACC (2026-11-23, Tao): each part takes the slot of
@@ -74,6 +75,17 @@ export function retagSharedParts<P extends { part_mark: string; slot?: SlotName 
 }
 
 /** Slots an upload supersedes — null = all (combined). Same rule as the save's deactivation. */
+/** What a Rev review was computed against: the newest Full shop or BOM-page pre-shop of the zone. A new one of
+ *  either makes the preview stale (2026-11-25; was Full shop only). */
+export async function reviewHeadId(db: Pick<PrismaService, 'bom_dispatch'> | Prisma.TransactionClient, scope: UploadScope): Promise<number | null> {
+  const d = await db.bom_dispatch.findFirst({
+    where: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, OR: [{ source: 'BOM_UPLOAD' }, { source: 'PRE_SHOP', revision: { gte: 1 } }] },
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  })
+  return d?.id ?? null
+}
+
 export function slotsTouchedOf(rows: { slot?: 'MAIN' | 'ACC' | null }[], uploadMode: 'combined' | 'separate'): ('MAIN' | 'ACC')[] | null {
   return uploadMode === 'combined' ? null : [...new Set(rows.map(r => r.slot).filter((s): s is 'MAIN' | 'ACC' => s != null))]
 }
@@ -88,6 +100,27 @@ const PROCURED_MARK_PATTERN = /(?:^|-)(?:lpx|px)\d/i
 // (plate) profile has one, while angle/pipe/round-bar/H-beam sections (cut by
 // saw, not CNC) never do.
 const isPlateProfile = (profile: string | null | undefined) => (profile ?? '').trim().toUpperCase().startsWith('PL')
+
+/** Plate thickness from "PL16x200" / "PL16" / "pl 10X150"; null if not a plate profile. */
+const plateThickness = (profile: string | null | undefined): number | null => {
+  const m = /^PL\s*(\d+(?:\.\d+)?)/i.exec((profile ?? '').trim())
+  return m ? Number(m[1]) : null
+}
+
+export interface NcProfileMismatch { mark: string; part_list: string; nc: string }
+
+/** Plates whose Part List thickness differs from the NC file's (2026-11-25, Tao). The Part List
+ *  profile is kept either way; this only tells the user. Non-plates aren't compared: the two
+ *  sources write their sizes in different formats. */
+export function ncProfileMismatches(parts: Pick<ParsedPart, 'part_mark' | 'profile'>[], ncMap: Map<string, NcDetail>): NcProfileMismatch[] {
+  const out = new Map<string, NcProfileMismatch>()
+  for (const p of parts) {
+    const nc = ncMap.get(p.part_mark)
+    const a = plateThickness(p.profile), b = plateThickness(nc?.profileBase)
+    if (a != null && b != null && a !== b && !out.has(p.part_mark)) out.set(p.part_mark, { mark: p.part_mark, part_list: p.profile!, nc: nc!.profileBase! })
+  }
+  return [...out.values()]
+}
 
 export function requiresNcFile(part: Pick<ParsedPart, 'profile' | 'part_mark'>): boolean {
   if (PROCURED_MARK_PATTERN.test(part.part_mark)) return false
@@ -140,6 +173,7 @@ export class BomUploadService {
     const prep = this.prepare(files, ncFiles, uploadMode)
     const { parsed, dedupedParts } = prep
     const { zone, subZone } = await this.scopeOf({ projectId, zoneId, subZoneId })
+    await assertZoneMode(this.prisma, { projectId, zoneId, subZoneId }, uploadMode)
 
     // 3. Per-mark revs (2026-10-26): recompute the review server-side, refuse a
     //    stale preview, then validate the user's edits — never trust the client.
@@ -184,12 +218,8 @@ export class BomUploadService {
         // Stale check again inside the transaction (the first one runs before the
         // file I/O): an upload that landed meanwhile makes the reviewed revs stale.
         if (opts.baseDispatchId !== undefined) {
-          const head = await tx.bom_dispatch.findFirst({
-            where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'BOM_UPLOAD' },
-            orderBy: { id: 'desc' },
-            select: { id: true },
-          })
-          if ((head?.id ?? null) !== opts.baseDispatchId) throw new ConflictException(STALE_PREVIEW_MESSAGE)
+          const head = await reviewHeadId(tx, { projectId, zoneId, subZoneId })
+          if (head !== opts.baseDispatchId) throw new ConflictException(STALE_PREVIEW_MESSAGE)
         }
         const latest = await tx.bom_dispatch.findFirst({
           where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
@@ -241,6 +271,9 @@ export class BomUploadService {
         //   plan exists to fix).
         // Assemblies and parts are superseded independently: an
         // assembly-only re-upload must not touch part rows, and vice versa.
+        // The scope has no source filter, so this also closes the zone's
+        // BOM-page pre-shop — per slot, since pre-shop rows carry their slot
+        // (2026-11-25): a MAIN-only Full shop leaves the ACC pre-shop in use.
         if (asmList?.assemblies.length) {
           const slotsTouched = slotsTouchedOf(asmList.assemblies, uploadMode)
 
@@ -252,6 +285,13 @@ export class BomUploadService {
             },
             data: { status: 'INACTIVE' },
           })
+          // A mark of this upload still in the other slot's pre-shop (put there by hand) is replaced too — never ACTIVE twice (2026-11-25)
+          if (slotsTouched) {
+            await tx.bom_assembly.updateMany({
+              where: { status: 'ACTIVE', assembly_mark: { in: asmList.assemblies.map(a => a.assembly_mark) }, dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } },
+              data: { status: 'INACTIVE' },
+            })
+          }
         }
 
         if (dedupedParts.length) {
@@ -265,15 +305,12 @@ export class BomUploadService {
             },
             data: { status: 'INACTIVE' },
           })
-        }
-
-        // A real BOM replaces the zone's BOM-page pre-shop (2026-11-23). In
-        // combined mode the wipe above already covers it; separate mode only
-        // touches MAIN/ACC slots and pre-shop rows have slot null.
-        if (uploadMode === 'separate' && (asmList?.assemblies.length || dedupedParts.length)) {
-          const preshopScope = { status: 'ACTIVE', dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } }
-          await tx.bom_assembly.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
-          await tx.bom_part.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
+          if (slotsTouched) {
+            await tx.bom_part.updateMany({
+              where: { status: 'ACTIVE', part_mark: { in: dedupedParts.map(p => p.part_mark) }, dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } },
+              data: { status: 'INACTIVE' },
+            })
+          }
         }
 
         // bom_assembly rows — batch insert, get IDs back in one round-trip
@@ -517,7 +554,7 @@ export class BomUploadService {
       ...(slotsTouchedOf(dedupedParts, uploadMode) ?? []),
       ...(sharedFrom && dedupedParts.length ? [sharedFrom, ...(slotsTouchedOf(parsed.get('ASSEMBLY_LIST')?.assemblies ?? [], uploadMode) ?? [])] : []),
     ])]
-    return { parsed, dedupedParts, partSlots, dn: this.readDispatchNotes(files) }
+    return { parsed, dedupedParts, partSlots, dn: this.readDispatchNotes(files), ncProfileMismatches: ncProfileMismatches(rawPartList?.parts ?? [], ncMap) }
   }
 
   /** Every Dispatch Note of the upload, merged; each row keeps its slot (MAIN / ACC / null = combined). */
@@ -548,30 +585,53 @@ export class BomUploadService {
     }
   }
 
-  /** The zone's current BOM per mark (its ACTIVE real-upload rows) + which of them this upload removes. */
-  private async loadRevBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null, hasAssemblies: boolean) {
+  /** The zone's current BOM per mark (its ACTIVE real-upload rows) + which of them this upload removes.
+   *  A slot with no Full shop yet takes the latest BOM-page pre-shop's rows instead (2026-11-25). */
+  private async loadRevBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null, hasAssemblies: boolean, marks: string[] = []) {
     const dispatchScope = { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' }
-    const [latest, rows] = await Promise.all([
-      this.prisma.bom_dispatch.findFirst({ where: dispatchScope, orderBy: { id: 'desc' }, select: { id: true } }),
-      this.prisma.bom_assembly.findMany({
-        where: { status: 'ACTIVE', dispatch: dispatchScope },
-        select: {
-          assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true, rev: true, slot: true,
-          assembly_parts: { select: { qty: true, part: { select: { part_mark: true, description: true, profile: true, grade: true, length_mm: true, weight_kg: true } } } },
-        },
-      }),
+    const select = {
+      assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true, rev: true, slot: true,
+      assembly_parts: { select: { qty: true, part: { select: { part_mark: true, description: true, profile: true, grade: true, length_mm: true, weight_kg: true } } } },
+    } as const
+    const [head, rows, pre] = await Promise.all([
+      reviewHeadId(this.prisma, scope),
+      this.prisma.bom_assembly.findMany({ where: { status: 'ACTIVE', dispatch: dispatchScope }, select }),
+      this.preshopBase(scope, slots),
     ])
-    const previous: PrevMark[] = rows.map(r => ({ ...snapshot(r, r.assembly_parts.map(ap => partLine(ap.part, ap.qty))), rev: r.rev, slot: r.slot }))
+    // read by dispatch id, not ACTIVE: an earlier Full shop of the other slot may have closed some of them
+    // + this upload's marks still ACTIVE in the pre-shop's other slot (the save closes them too)
+    const preRows = pre ? await this.prisma.bom_assembly.findMany({
+      where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { OR: [{ slot: { in: pre.slots } }, { status: 'ACTIVE', assembly_mark: { in: marks } }] } : {}) }, select,
+    }) : []
+    const toPrev = (r: (typeof rows)[number], preshop: boolean): PrevMark => ({ ...snapshot(r, r.assembly_parts.map(ap => partLine(ap.part, ap.qty))), rev: r.rev, slot: r.slot, ...(preshop && { preshop: true }) })
+    const previous: PrevMark[] = [...rows.map(r => toPrev(r, false)), ...preRows.map(r => toPrev(r, true))]
     // Same rule as the save's deactivation: no Assembly List → nothing removed;
     // separate mode → only the touched slot(s).
     const removable = (p: PrevMark) => hasAssemblies && (slots == null || (p.slot != null && (slots as string[]).includes(p.slot)))
-    return { baseDispatchId: latest?.id ?? null, previous, removable }
+    return { baseDispatchId: head, previous, removable }
+  }
+
+  /** The latest BOM-page pre-shop and the slots that still have no Full shop (combined: the zone has none). */
+  private async preshopBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null): Promise<{ dispatchId: number; slots: ('MAIN' | 'ACC')[] | null } | null> {
+    const zone = { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId }
+    const pre = await this.prisma.bom_dispatch.findFirst({
+      where: { ...zone, source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' } }, orderBy: { id: 'desc' }, select: { id: true },
+    })
+    if (!pre) return null
+    if (slots == null) {
+      const full = await this.prisma.bom_dispatch.findFirst({ where: { ...zone, source: 'BOM_UPLOAD' }, select: { id: true } })
+      return full ? null : { dispatchId: pre.id, slots: null }
+    }
+    if (!slots.length) return null
+    const onFull = await this.prisma.bom_assembly.findMany({ where: { dispatch: { ...zone, source: 'BOM_UPLOAD' }, slot: { in: slots } }, select: { slot: true }, distinct: ['slot'] })
+    const open = slots.filter(s => !onFull.some(r => r.slot === s))
+    return open.length ? { dispatchId: pre.id, slots: open } : null
   }
 
   private async decide(prep: Prepared, uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<{ decision: RevDecision; baseDispatchId: number | null }> {
     const assemblies = prep.parsed.get('ASSEMBLY_LIST')?.assemblies ?? []
     const junctions = prep.parsed.get('ASSEMBLY_PART_LIST')
-    const base = await this.loadRevBase(scope, slotsTouchedOf(assemblies, uploadMode), assemblies.length > 0)
+    const base = await this.loadRevBase(scope, slotsTouchedOf(assemblies, uploadMode), assemblies.length > 0, assemblies.map(a => a.assembly_mark))
     // Separate mode: each mark keeps its slot so it reads its own slot's Dispatch Note.
     const slotOf = new Map(assemblies.map(a => [a.assembly_mark, a.slot ?? null]))
     let current = snapshotsFromUpload(assemblies, junctions?.assemblyParts ?? [], prep.dedupedParts).map(c => ({ ...c, slot: slotOf.get(c.mark) ?? null }))
@@ -592,10 +652,15 @@ export class BomUploadService {
     const assemblies = prep.parsed.get('ASSEMBLY_LIST')?.assemblies ?? []
     const partSlots = prep.partSlots
     const asmSlots = slotsTouchedOf(assemblies, uploadMode)
-    const rows = await this.prisma.bom_part.findMany({
-      where: { status: 'ACTIVE', dispatch: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' } },
-      select: { id: true, part_mark: true, slot: true, profile: true, grade: true, length_mm: true, weight_kg: true, assembly_parts: { select: { assembly: { select: { status: true, slot: true } } } } },
-    })
+    const select = { id: true, part_mark: true, slot: true, profile: true, grade: true, length_mm: true, weight_kg: true, assembly_parts: { select: { assembly: { select: { status: true, slot: true } } } } } as const
+    const [full, pre] = await Promise.all([
+      this.prisma.bom_part.findMany({ where: { status: 'ACTIVE', dispatch: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' } }, select }),
+      this.preshopBase(scope, partSlots),
+    ])
+    // first Full shop of a slot: that slot's pre-shop parts are the base too (2026-11-25)
+    const rows = pre ? [...full, ...await this.prisma.bom_part.findMany({
+      where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { OR: [{ slot: { in: pre.slots } }, { status: 'ACTIVE', part_mark: { in: prep.dedupedParts.map(p => p.part_mark) } }] } : {}) }, select,
+    })] : full
     const asSlot = (v: string | null | undefined) => (v === 'MAIN' || v === 'ACC' ? v : null)
     // an assembly the save keeps: no Assembly List in this upload, or (separate) its slot isn't uploaded
     const kept = (a: { status: string; slot: string | null }) => a.status === 'ACTIVE' && (!assemblies.length || (asmSlots != null && !(asmSlots as string[]).includes(a.slot ?? '')))
@@ -631,11 +696,12 @@ export class BomUploadService {
   async preview(files: FileInput[], ncFiles: NcFileInput[], uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<UploadPreview> {
     const prep = this.prepare(files, ncFiles, uploadMode)
     await this.scopeOf(scope)
+    await assertZoneMode(this.prisma, scope, uploadMode)
     const { decision, baseDispatchId } = await this.decide(prep, uploadMode, scope)
     const parts = await this.partReview(prep, uploadMode, scope)
     return {
       ...this.junctionMismatchOf(prep.parsed),
-      review: { base_dispatch_id: baseDispatchId, has_dn: decision.has_dn, rows: reviewRows(decision), parts, part_conflicts: partConflicts(prep.parsed.get('PART_LIST')?.parts ?? []), dn_only_marks: decision.dn_only_marks, dn_warnings: prep.dn?.warnings ?? [] },
+      review: { base_dispatch_id: baseDispatchId, has_dn: decision.has_dn, rows: reviewRows(decision), parts, part_conflicts: partConflicts(prep.parsed.get('PART_LIST')?.parts ?? []), nc_profile_mismatches: prep.ncProfileMismatches, dn_only_marks: decision.dn_only_marks, dn_warnings: prep.dn?.warnings ?? [] },
     }
   }
 
@@ -1042,17 +1108,20 @@ export class BomUploadService {
         )
       }
 
+      // Profile: Part List first (2026-11-25, Tao) — the NC line is only "PL16" for a
+      // "PL16x200" plate, so NC-first made a part "change" once its NC file arrived.
+      const profile = p.profile?.trim() ? p.profile : nc.profileBase ?? p.profile
       result.push({
         ...p,
         qty: nc.qty,
         grade: nc.grade ?? p.grade,
-        profile: nc.profileBase ?? p.profile,
+        profile,
         length_mm: nc.lengthMm ?? p.length_mm,
         // Plates: the NC weight line is kg/m² (7.85 × thickness), not per
         // piece — keep the Part List's per-piece weight, else the weight
         // computed from the NC contour. Other profiles unchanged (2026-10-06,
         // memory project_bom_plate_weight_bug).
-        weight_kg: isPlateProfile(nc.profileBase ?? p.profile)
+        weight_kg: isPlateProfile(profile)
           ? p.weight_kg ?? nc.pieceWeightKg ?? undefined
           : nc.weightKg ?? p.weight_kg,
       })
@@ -1183,7 +1252,16 @@ export class BomUploadService {
       select: { id: true },
     })
 
-    const sourceDispatchIds = [prev?.id, placeholder?.id].filter((id): id is number => id != null)
+    // The zone's BOM-page pre-shop too (2026-11-25): a Separate MAIN-only Full shop leaves the ACC pre-shop in use,
+    // so the ACC Full shop's previous dispatch (the MAIN one) doesn't hold the ACC marks' progress.
+    const preshop = await this.prisma.bom_dispatch.findFirst({
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' }, id: { not: dispatchId } },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+
+    // priority on the same mark: previous dispatch, then pre-shop, then placeholder
+    const sourceDispatchIds = [...new Set([prev?.id, preshop?.id, placeholder?.id].filter((id): id is number => id != null))]
     if (!sourceDispatchIds.length) return
 
     // Phase-tracking columns (Sprint 26). Pcs carry forward as absolute
@@ -1226,10 +1304,14 @@ export class BomUploadService {
     // own assemblies are legitimately INACTIVE at this point (deactivated
     // earlier in this same upload transaction) and that's exactly the
     // historical data this query must carry forward from.
-    const matched = prevProgress.filter(p =>
-      assemblyIdByMark.has(p.assembly.assembly_mark) &&
-      (p.assembly.dispatch_id !== placeholder?.id || p.assembly.status === 'ACTIVE'),
-    )
+    // createMany skipDuplicates keeps the first row per assembly → order by source priority
+    const rank = (id: number) => sourceDispatchIds.indexOf(id)
+    const matched = prevProgress
+      .filter(p =>
+        assemblyIdByMark.has(p.assembly.assembly_mark) &&
+        (p.assembly.dispatch_id !== placeholder?.id || p.assembly.status === 'ACTIVE'),
+      )
+      .sort((a, b) => rank(a.assembly.dispatch_id) - rank(b.assembly.dispatch_id))
     const toCreate = matched.map(p => ({
       assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
       cut: p.cut,

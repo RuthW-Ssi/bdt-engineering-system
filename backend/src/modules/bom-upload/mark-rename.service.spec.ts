@@ -77,7 +77,7 @@ function make(o: { asm: Row[]; parts?: Row[]; groups: any; progress?: any[]; pai
     bom_mark_rename_event: { create: jest.fn(({ data }: any) => { events.push(data); return Promise.resolve(data) }), findMany: jest.fn(() => Promise.resolve(events)) },
     $transaction: jest.fn((cb: any) => cb(prisma)),
   }
-  const diff: any = { findPreviousRevisionGroup: jest.fn().mockResolvedValue(o.groups), renameDispatchIds: jest.fn().mockReturnValue([9]) }
+  const diff: any = { findPreviousGroup: jest.fn().mockResolvedValue(o.groups), renameDispatchIds: jest.fn().mockReturnValue([9]) }
   return { svc: new MarkRenameService(prisma, diff), prisma, progress, paint, renames, events }
 }
 
@@ -325,6 +325,9 @@ describe('MarkRenameService.candidates — end-to-end with real BomDiffService (
           if (where.source !== undefined) rows = rows.filter(d => d.source === where.source)
           return Promise.resolve([...rows].sort((a, b) => b.id - a.id))
         }),
+        // the zone's latest BOM-page pre-shop (findPreviousGroup, 2026-11-25)
+        findFirst: jest.fn(({ where }: any) => Promise.resolve([...dispatches].sort((a, b) => b.id - a.id).find(d =>
+          d.zone_id === where.zone_id && d.source === where.source && d.revision >= (where.revision?.gte ?? 0) && d.id < where.id.lt && d.status !== where.status?.not) ?? null)),
       },
       bom_assembly: {
         findMany: jest.fn(({ where }: any) => Promise.resolve(asmRows.filter(r => where.id?.in ? where.id.in.includes(r.id) : matchesSlotAwareWhere(r, where)))),
@@ -363,6 +366,18 @@ describe('MarkRenameService.candidates — end-to-end with real BomDiffService (
     expect(c.parts).toEqual([])
     expect(c.new_assemblies).toEqual([])
     expect(c.new_parts).toEqual([])
+  })
+
+  it('first full shop after a BOM-page pre-shop: the pre-shop mark that is gone is a rename candidate (2026-11-25)', async () => {
+    const dispatches: DRow[] = [
+      { id: 95, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'ready', source: 'PRE_SHOP', revision: 2, doc_revisions: [] },
+      { id: 100, project_id: 16, zone_id: 33, sub_zone_id: null, status: 'complete', source: 'BOM_UPLOAD', revision: 3, doc_revisions: [{ doc_type: 'ASSEMBLY_LIST' }] },
+    ]
+    const asmRows = [A(1, 95, 'RF5', 'INACTIVE'), A(2, 95, 'RF10', 'INACTIVE'), A(11, 100, 'RF5'), A(12, 100, 'RF18')]
+    const { svc } = buildRealPrisma(dispatches, asmRows)
+    const c = await svc.candidates(100)
+    expect(c.assemblies.map(a => a.mark)).toEqual(['RF10'])
+    expect(c.new_assemblies.map(a => a.mark)).toEqual(['RF18'])
   })
 
   it('a real v1 → v2 still produces rename candidates normally, with an unrelated PRE_SHOP dispatch in the mix', async () => {

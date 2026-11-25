@@ -12,7 +12,10 @@ const toNum = (v: string) => (v.trim() === '' ? null : Number(v))
 
 export const PART_DRAG_TYPE = 'text/plain'
 
-export function PreshopAssemblyTable({ state, onChange, dragging }: { state: EditorState; onChange: (s: EditorState) => void; dragging: string | null }) {
+export function PreshopAssemblyTable({ state, onChange, dragging, uploadMode = 'combined' }: { state: EditorState; onChange: (s: EditorState) => void; dragging: string | null; uploadMode?: 'combined' | 'separate' }) {
+  // Separate (2026-11-25): the slot sits under the mark — an extra column squeezed the mark ("ESB-F") or scrolled the table
+  const sep = uploadMode === 'separate'
+  const cols = COLS
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [over, setOver] = useState<string | null>(null)
 
@@ -42,8 +45,8 @@ export function PreshopAssemblyTable({ state, onChange, dragging }: { state: Edi
       </div>
       <div style={{ overflowX: 'auto' }}>
         <div style={{ minWidth: 760 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 6, padding: '6px 0', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-            <span /><span style={HD}>Assembly mark</span><span style={HD}>ชุด</span><span style={HD}>Name</span><span style={HD}>L (mm)</span><span style={HD}>W (mm)</span>
+          <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, padding: '6px 0', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
+            <span /><span style={HD}>{sep ? 'Assembly mark · Slot' : 'Assembly mark'}</span><span style={HD}>ชุด</span><span style={HD}>Name</span><span style={HD}>L (mm)</span><span style={HD}>W (mm)</span>
             <span style={HD}>H (mm)</span><span style={HD}>kg / ชุด</span><span style={HD}>area / ชุด</span><span style={HD}>Part</span><span />
           </div>
           {state.asm.map(a => {
@@ -57,12 +60,21 @@ export function PreshopAssemblyTable({ state, onChange, dragging }: { state: Edi
                 onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(null) }}
                 onDrop={e => drop(e, a.key)}
                 style={{ borderBottom: '1px solid #F0F0F0', borderRadius: 6, outline: `2px solid ${isOver ? '#C8202A' : 'transparent'}`, outlineOffset: -2, background: isOver ? '#FFF5F5' : a.src === 'own' ? '#FFFDF7' : 'transparent' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: COLS, gap: 6, padding: '6px 0', alignItems: 'center' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, padding: '6px 0', alignItems: 'center' }}>
                   <button type="button" aria-label={`${isOpen ? 'Hide' : 'Show'} parts of ${label}`} onClick={() => setOpen(o => ({ ...o, [a.key]: !isOpen }))}
                     style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', color: '#767676', cursor: 'pointer', padding: 0 }}>
                     <ChevronRight size={14} style={{ transition: 'transform .15s', transform: `rotate(${isOpen ? 90 : 0}deg)` }} />
                   </button>
-                  <input aria-label="Assembly mark" style={MONO} value={a.mark} placeholder="mark" onChange={e => patch(a.key, { mark: e.target.value })} />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                    <input aria-label="Assembly mark" style={MONO} value={a.mark} placeholder="mark" onChange={e => patch(a.key, { mark: e.target.value })} />
+                    {sep && (a.src === 'own'
+                      // a hand-added row picks its slot; a file row keeps its Dispatch Note's
+                      ? <select aria-label={`Slot ${a.mark}`} value={a.slot ?? ''} onChange={e => patch(a.key, { slot: (e.target.value || null) as EdAsm['slot'] })}
+                          style={{ ...IN, padding: '2px 4px', fontSize: 11.5, borderColor: a.slot ? '#D4D4D4' : '#C8202A' }}>
+                          <option value="">เลือก</option><option value="MAIN">MAIN</option><option value="ACC">ACC</option>
+                        </select>
+                      : <span style={{ alignSelf: 'flex-start', fontSize: 10.5, fontWeight: 700, color: a.slot === 'ACC' ? '#27500A' : '#0C447C', background: a.slot === 'ACC' ? '#EAF3DE' : '#E6F1FB', borderRadius: 999, padding: '1px 8px' }}>{a.slot ?? '—'}</span>)}
+                  </div>
                   <input aria-label="ชุด" type="number" min={0} style={{ ...IN, borderColor: a.qty > 0 ? '#D4D4D4' : '#C8202A' }} value={a.qty || ''} placeholder="กรอก"
                     onChange={e => patch(a.key, { qty: Number(e.target.value) || 0 })} />
                   <input aria-label="Name" style={IN} value={a.name ?? ''} onChange={e => patch(a.key, { name: e.target.value })} />

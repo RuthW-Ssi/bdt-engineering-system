@@ -123,6 +123,7 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
   const partsStillUsed = removedParts.filter(p => p.still_used).length
   const [partsOpen, setPartsOpen] = useState(true)
   const conflicts = review.part_conflicts ?? []
+  const thickness = review.nc_profile_mismatches ?? []
   // Filters (2026-11-23, Tao): they only hide rows — hidden undecided rows still block save and are still counted
   type Kind = RevReviewDto['rows'][number]['kind']
   const [show, setShow] = useState({ asm: true, part: true, added: true, changed: true, removed: true, unchanged: true })
@@ -182,6 +183,17 @@ export function RevReviewDialog({ review, isUploading, onCancel, onConfirm, allo
               <div key={c.mark}>
                 <span style={{ fontFamily: 'monospace', fontWeight: 600, marginRight: 10 }}>{c.mark}</span>
                 {c.fields.map(f => `${PART_FIELD_LABEL[f.field] ?? f.field} MAIN ${showValue(f.main)} · ACC ${showValue(f.acc)}`).join(', ')}
+              </div>
+            ))}
+          </FoldWarning>
+        )}
+        {thickness.length > 0 && (
+          // Part List profile is kept (2026-11-25, Tao); warn only, save not blocked
+          <FoldWarning title={`⚠ ${thickness.length} part ความหนาใน Part List ไม่ตรงกับไฟล์ NC — ระบบจะใช้ของ Part List`}>
+            {thickness.map(t => (
+              <div key={t.mark}>
+                <span style={{ fontFamily: 'monospace', fontWeight: 600, marginRight: 10 }}>{t.mark}</span>
+                {`Part List ${t.part_list} · NC ${t.nc}`}
               </div>
             ))}
           </FoldWarning>

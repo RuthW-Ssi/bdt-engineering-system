@@ -189,3 +189,83 @@ describe('diffAssemblies (latest saved → what I am about to save)', () => {
     expect(diffAssemblies(SAVED, SAVED)).toEqual([])
   })
 })
+
+// Separate MAIN + ACC pre-shop (2026-11-25): Dispatch Note and Part List per slot, Part List rule as the Full shop page
+describe('pre-shop MAIN / ACC slots', () => {
+  const linked = (s: EditorState) => {
+    let out = s
+    for (const a of s.asm) for (const p of s.parts) out = addLink(out, p.key, a.key)
+    return out
+  }
+
+  it('mergeDispatchNote with slot ACC tags new rows ACC', () => {
+    const s = mergeDispatchNote(empty, [asm('X1', 1)], 'ACC').state
+    expect(s.asm.map(a => [a.mark, a.slot])).toEqual([['X1', 'ACC']])
+  })
+
+  it('marks missing from the ACC Dispatch Note list only ACC rows', () => {
+    let s = mergeDispatchNote(empty, [asm('RF5', 1)], 'MAIN').state
+    s = mergeDispatchNote(s, [asm('X1', 1), asm('X2', 1)], 'ACC').state
+    expect(mergeDispatchNote(s, [asm('X1', 1)], 'ACC').missing).toEqual(['X2'])
+  })
+
+  it('fromSaved keeps each assembly slot', () => {
+    expect(fromSaved([asm('RF5', 1, { slot: 'MAIN' }), asm('X1', 1, { slot: 'ACC' })]).asm.map(a => a.slot)).toEqual(['MAIN', 'ACC'])
+  })
+
+  it('saveErrors separate: own row with no slot → noSlot [mark]; combined never asks', () => {
+    const s: EditorState = { ...empty, asm: [{ key: 'o1', src: 'own', mark: 'RF9', qty: 1, name: null, length_mm: null, width_mm: null, height_mm: null, weight_kg: null, surface_area_m2: null }] }
+    expect(saveErrors(s, 'separate').noSlot).toEqual(['RF9'])
+    expect(saveErrors(s, 'combined').noSlot).toEqual([])
+  })
+
+  it('canSave is false while an assembly has no slot in separate mode', () => {
+    const s = linked({ ...mergePartList(empty, [listPart('p1')], 'MAIN').state, asm: [{ key: 'o1', src: 'own', mark: 'RF9', qty: 1, name: null, length_mm: null, width_mm: null, height_mm: null, weight_kg: null, surface_area_m2: null }] })
+    expect(canSave(saveErrors(s, 'separate'), s)).toBe(false)
+    expect(canSave(saveErrors(s, 'combined'), s)).toBe(true)
+  })
+
+  it('toPayload sends assembly slot in separate mode, null in combined', () => {
+    const s = linked({ ...mergeDispatchNote(empty, [asm('RF5', 1)], 'MAIN').state, parts: mergePartList(empty, [listPart('p1')], 'MAIN').state.parts })
+    expect(toPayload(s, { mode: 'separate', bothPartLists: false })[0].slot).toBe('MAIN')
+    expect(toPayload(s, { mode: 'combined', bothPartLists: false })[0].slot).toBeNull()
+  })
+
+  it("toPayload with both Part Lists sends each part's box slot; with one Part List sends null", () => {
+    let s = mergeDispatchNote(empty, [asm('RF5', 1)], 'MAIN').state
+    s = mergePartList(s, [listPart('p1')], 'MAIN').state
+    s = mergePartList(s, [listPart('x9')], 'ACC').state
+    s = linked(s)
+    const both = toPayload(s, { mode: 'separate', bothPartLists: true })[0].parts
+    expect(both.map(p => [p.part_mark, p.slot])).toEqual([['p1', 'MAIN'], ['x9', 'ACC']])
+    const one = toPayload(s, { mode: 'separate', bothPartLists: false })[0].parts
+    expect(one.every(p => p.slot == null)).toBe(true)
+  })
+
+  it('removing the ACC Part List removes only rows from that box', () => {
+    let s = mergePartList(empty, [listPart('p1')], 'MAIN').state
+    s = mergePartList(s, [listPart('x9')], 'ACC').state
+    expect(removeFileRows(s, 'pl', 'ACC').parts.map(p => p.part_mark)).toEqual(['p1'])
+  })
+
+  it('removing the MAIN Dispatch Note removes only MAIN rows', () => {
+    let s = mergeDispatchNote(empty, [asm('RF5', 1)], 'MAIN').state
+    s = mergeDispatchNote(s, [asm('X1', 1)], 'ACC').state
+    expect(removeFileRows(s, 'dn', 'MAIN').asm.map(a => a.mark)).toEqual(['X1'])
+  })
+})
+
+// "เพิ่มใหม่ N รายการ" counts only what THIS file adds (2026-11-25, live test: ACC DN said 1 because of a MAIN DN row)
+describe('merge result — added count', () => {
+  it('a Dispatch Note adding nothing new reports 0, even when an earlier file added rows', () => {
+    let s = mergeDispatchNote(empty, [asm('CO2', 1)], 'MAIN').state
+    s = mergeDispatchNote(s, [asm('FB1', 1)], 'ACC').state
+    expect(mergeDispatchNote(s, [asm('FB1', 1)], 'ACC').added).toBe(0)
+    expect(mergeDispatchNote(s, [asm('FB1', 1), asm('FB9', 1)], 'ACC').added).toBe(1)
+  })
+
+  it('a Part List counts only its own new parts', () => {
+    const s = mergePartList(empty, [listPart('p1')], 'MAIN').state
+    expect(mergePartList(s, [listPart('p1'), listPart('x9')], 'ACC').added).toBe(1)
+  })
+})

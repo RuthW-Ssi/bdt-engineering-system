@@ -200,11 +200,12 @@ export class BomDiffService {
     // a revision; every upload since gets its own (latest + 1). Bound both
     // cutoffs by the group's full id range, not just this one dispatch's id,
     // so a same-revision sibling with a lower id is never mistaken for
-    // "previous."
+    // "previous." Full shop only (2026-11-25): a pre-shop sharing the revision
+    // number would pull minId below the real previous full shop.
     const sameRevision = await this.prisma.bom_dispatch.findMany({
       where: {
         project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
-        revision: current.revision, status: { not: 'error' },
+        revision: current.revision, status: { not: 'error' }, source: 'BOM_UPLOAD',
       },
       select: { id: true },
     })
@@ -217,6 +218,32 @@ export class BomDiffService {
     if (previousGroup.mainId == null && previousGroup.accId == null) return null
 
     return { current: currentGroup, previous: previousGroup }
+  }
+
+  /** "Previous" for rename pairing, the Rev review's pairs and the diff page (2026-11-25): findPreviousRevisionGroup,
+   *  then each role (main / acc) the current group fills but the previous doesn't takes the zone's latest BOM-page
+   *  pre-shop before the current group — so a slot's first Full shop pairs against its pre-shop. */
+  async findPreviousGroup(id: number): Promise<{ current: EffectiveGroup; previous: EffectiveGroup; previousIsPreshop: boolean } | null> {
+    const d = await this.prisma.bom_dispatch.findUnique({ where: { id } })
+    if (!d) throw new NotFoundException(`Dispatch ${id} not found`)
+    if (d.source === 'PRE_SHOP') return null
+    const full = await this.findPreviousRevisionGroup(id)
+    if (full && full.previous.mainId != null && full.previous.accId != null) return { ...full, previousIsPreshop: false }
+    const current = full?.current ?? await this.resolveEffectiveGroup(d.project_id, d.zone_id, d.sub_zone_id, { lte: id })
+    const ids = groupToIds(current)
+    if (!ids.length) return full && { ...full, previousIsPreshop: false }
+    const pre = await this.prisma.bom_dispatch.findFirst({
+      where: { project_id: d.project_id, zone_id: d.zone_id, sub_zone_id: d.sub_zone_id, source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' }, id: { lt: Math.min(...ids) } },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+    const prev = full?.previous ?? { mainId: null, accId: null }
+    if (!pre) return full && { ...full, previousIsPreshop: false }
+    const previous = {
+      mainId: prev.mainId ?? (current.mainId != null ? pre.id : null),
+      accId: prev.accId ?? (current.accId != null ? pre.id : null),
+    }
+    return { current, previous, previousIsPreshop: groupToIds(previous).every(x => x === pre.id) }
   }
 
   /** Dispatches this version brought in (current group minus previous) — the
@@ -236,7 +263,7 @@ export class BomDiffService {
 
   /** A BOM-page pre-shop (PRE_SHOP, revision ≥ 1) compares with the zone's previous BOM-page pre-shop
    *  revision (2026-11-24, Tao). MO pre-shop (revision 0) has none. Kept apart from
-   *  findPreviousRevisionGroup on purpose: that one also drives mark-rename pairing, which pre-shop doesn't use. */
+   *  findPreviousGroup on purpose: that one also drives mark-rename pairing, which a pre-shop save doesn't use. */
   async findPreviousPreshop(current: { id: number; project_id: number; zone_id: number; sub_zone_id: number | null; source: string; revision: number }):
     Promise<{ current: EffectiveGroup; previous: EffectiveGroup } | null> {
     if (current.source !== 'PRE_SHOP' || current.revision < 1) return null
@@ -252,26 +279,6 @@ export class BomDiffService {
     return { current: { mainId: current.id, accId: current.id }, previous: { mainId: prev.id, accId: prev.id } }
   }
 
-  /** A zone's first full shop (no earlier BOM_UPLOAD) compares with the zone's last BOM-page pre-shop
-   *  revision uploaded before it (2026-11-24, Tao). Diff view only — rename pairing and the Rev review
-   *  keep using findPreviousRevisionGroup, which never sees pre-shop. */
-  async findPreshopBeforeFirstShop(current: { id: number; project_id: number; zone_id: number; sub_zone_id: number | null }):
-    Promise<{ current: EffectiveGroup; previous: EffectiveGroup } | null> {
-    const group = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lte: current.id })
-    const ids = groupToIds(group)
-    if (!ids.length) return null
-    const prev = await this.prisma.bom_dispatch.findFirst({
-      where: {
-        project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
-        source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' }, id: { lt: Math.min(...ids) },
-      },
-      orderBy: { id: 'desc' },
-      select: { id: true },
-    })
-    if (!prev) return null
-    return { current: group, previous: { mainId: prev.id, accId: prev.id } }
-  }
-
   async computeDiff(id: number): Promise<DispatchDiffResult | null> {
     const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id } })
     if (!dispatch) throw new NotFoundException(`Dispatch ${id} not found`)
@@ -279,11 +286,9 @@ export class BomDiffService {
     let prev_source: 'BOM_UPLOAD' | 'PRE_SHOP' = dispatch.source === 'PRE_SHOP' ? 'PRE_SHOP' : 'BOM_UPLOAD'
     if (dispatch.source === 'PRE_SHOP') groups = await this.findPreviousPreshop(dispatch)
     else {
-      groups = await this.findPreviousRevisionGroup(id)
-      if (!groups) {
-        groups = await this.findPreshopBeforeFirstShop(dispatch)
-        prev_source = 'PRE_SHOP'
-      }
+      const g = await this.findPreviousGroup(id)
+      groups = g
+      if (g?.previousIsPreshop) prev_source = 'PRE_SHOP'
     }
     if (!groups) return null
     const { current, previous } = groups
