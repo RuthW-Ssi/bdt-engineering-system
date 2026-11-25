@@ -751,7 +751,7 @@ describe('BomDiffService — BOM-page pre-shop revisions', () => {
 
 // The zone's first full shop compares with its last BOM-page pre-shop revision (2026-11-24, Tao)
 describe('BomDiffService — first full shop vs last pre-shop', () => {
-  const D = (id: number, source: string, revision: number) => ({ id, project_id: 43, zone_id: 81, sub_zone_id: null, status: 'complete', source, revision, uploaded_at: new Date(), doc_revisions: [] })
+  const D = (id: number, source: string, revision: number) => ({ id, project_id: 43, zone_id: 81, sub_zone_id: null, status: 'complete', source, revision, uploaded_at: new Date(), doc_revisions: [] as { doc_type: string }[] })
   function svcWith(dispatches: ReturnType<typeof D>[]) {
     const rows = [
       { dispatch_id: 96, assembly_mark: 'RF5', name: 'RAFTER', qty: 1, weight_kg: 387.79, surface_area_m2: 14.555 },
@@ -800,6 +800,32 @@ describe('BomDiffService — first full shop vs last pre-shop', () => {
   it('mark-rename pairing stays off: findPreviousRevisionGroup is unchanged', async () => {
     const svc = svcWith([D(96, 'PRE_SHOP', 2), D(100, 'BOM_UPLOAD', 3)])
     expect(await svc.findPreviousRevisionGroup(100)).toBeNull()
+  })
+
+  // One "previous" for pairing + diff page (2026-11-25): a role the current group fills but the previous doesn't → the pre-shop
+  const DS = (id: number, source: string, revision: number, docs: string[]) => ({ ...D(id, source, revision), doc_revisions: docs.map(doc_type => ({ doc_type })) })
+  it('findPreviousGroup: combined first Full shop → previous is the latest pre-shop', async () => {
+    const svc = svcWith([D(94, 'PRE_SHOP', 1), D(96, 'PRE_SHOP', 2), D(97, 'PRE_SHOP', 0), D(100, 'BOM_UPLOAD', 3)])
+    expect(await svc.findPreviousGroup(100)).toEqual({ current: { mainId: 100, accId: 100 }, previous: { mainId: 96, accId: 96 }, previousIsPreshop: true })
+  })
+
+  it('findPreviousGroup: separate MAIN-only first upload fills only main from the pre-shop', async () => {
+    const svc = svcWith([D(96, 'PRE_SHOP', 2), DS(100, 'BOM_UPLOAD', 3, ['MAIN_ASSEMBLY_LIST'])])
+    expect(await svc.findPreviousGroup(100)).toEqual({ current: { mainId: 100, accId: null }, previous: { mainId: 96, accId: null }, previousIsPreshop: true })
+  })
+
+  it('findPreviousGroup: mixed previous — MAIN Full shop, then the first ACC upload compares ACC with the pre-shop', async () => {
+    const svc = svcWith([D(96, 'PRE_SHOP', 2), DS(100, 'BOM_UPLOAD', 3, ['MAIN_ASSEMBLY_LIST']), DS(101, 'BOM_UPLOAD', 4, ['ACC_ASSEMBLY_LIST'])])
+    expect(await svc.findPreviousGroup(101)).toEqual({ current: { mainId: 100, accId: 101 }, previous: { mainId: 100, accId: 96 }, previousIsPreshop: false })
+    const r = await svc.computeDiff(101)
+    expect(r!.prev_source).toBe('BOM_UPLOAD')
+  })
+
+  it('findPreviousGroup: later full shops are untouched; no pre-shop → null', async () => {
+    const svc = svcWith([D(96, 'PRE_SHOP', 2), D(100, 'BOM_UPLOAD', 3), D(101, 'BOM_UPLOAD', 4)])
+    expect(await svc.findPreviousGroup(101)).toEqual({ current: { mainId: 101, accId: 101 }, previous: { mainId: 100, accId: 100 }, previousIsPreshop: false })
+    const none = svcWith([D(97, 'PRE_SHOP', 0), D(100, 'BOM_UPLOAD', 1)])
+    expect(await none.findPreviousGroup(100)).toBeNull()
   })
 
   it('a pre-shop with the same revision number never joins the full shop revision group', async () => {
