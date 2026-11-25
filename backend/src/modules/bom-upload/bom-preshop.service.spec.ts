@@ -40,7 +40,7 @@ describe('BomPreshopService.save', () => {
   it('writes revision 1 the first time and supersedes nothing', async () => {
     const { svc, tx, preshop } = make()
     await svc.save(SCOPE, [C01], 1)
-    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 1 })
+    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 1, uploadMode: 'combined' })
     expect(tx.bom_assembly.updateMany).not.toHaveBeenCalled()
   })
 
@@ -49,7 +49,7 @@ describe('BomPreshopService.save', () => {
     const r = await svc.save(SCOPE, [C01], 1)
     expect(tx.bom_assembly.updateMany).toHaveBeenCalledWith({ where: { dispatch_id: 55 }, data: { status: 'INACTIVE' } })
     expect(tx.bom_part.updateMany).toHaveBeenCalledWith({ where: { dispatch_id: 55 }, data: { status: 'INACTIVE' } })
-    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 3 })
+    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 3, uploadMode: 'combined' })
     expect(r).toEqual({ dispatch_id: 900, revision: 3 })
   })
 
@@ -101,7 +101,7 @@ describe('BomPreshopService.save', () => {
   it('saves on top when the Engineer chose to overwrite', async () => {
     const { svc, preshop } = make({ prev: { id: 55, revision: 5 } })
     const r = await svc.save(SCOPE, [C01], 1, { baseRevision: 4, overwrite: true })
-    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 6 })
+    expect((preshop.createDispatch.mock.calls[0] as any[])[4]).toEqual({ revision: 6, uploadMode: 'combined' })
     expect(r.revision).toBe(6)
   })
 
@@ -110,6 +110,38 @@ describe('BomPreshopService.save', () => {
     prisma.bom_dispatch.findFirst.mockResolvedValue({ id: 55, revision: 1, uploaded_at: new Date(), create_user: { name: 'Admin' } })
     prisma.bom_assembly.findMany.mockResolvedValue([])
     await expect(svc.save(SCOPE, [C01], 1, { baseRevision: null })).rejects.toBeInstanceOf(ConflictException)
+  })
+
+  // Separate pre-shop (2026-11-25)
+  it('separate save passes upload_mode separate and each assembly slot', async () => {
+    const { svc, preshop } = make()
+    await svc.save(SCOPE, [{ ...C01, slot: 'MAIN' }, { ...C02, slot: 'ACC' }] as any, 1, { uploadMode: 'separate' })
+    const [, , asm, , opts] = preshop.createDispatch.mock.calls[0] as any[]
+    expect(opts).toEqual({ revision: 1, uploadMode: 'separate' })
+    expect(asm.map((a: any) => [a.assembly_mark, a.slot])).toEqual([['C-01', 'MAIN'], ['C-02', 'ACC']])
+  })
+
+  it('separate save refuses an assembly with no slot', async () => {
+    const { svc, preshop } = make()
+    await expect(svc.save(SCOPE, [{ ...C01, slot: 'MAIN' }, { ...C02, assembly_mark: 'RF9' }] as any, 1, { uploadMode: 'separate' }))
+      .rejects.toThrow(new BadRequestException('เลือก MAIN หรือ ACC ให้ครบทุก assembly: RF9'))
+    expect(preshop.createDispatch).not.toHaveBeenCalled()
+  })
+
+  it('combined save drops assembly and part slots even if they are sent', async () => {
+    const { svc, preshop } = make()
+    await svc.save(SCOPE, [{ ...C01, slot: 'MAIN', parts: [{ ...P101, slot: 'ACC' }] }] as any, 1)
+    const asm = (preshop.createDispatch.mock.calls[0] as any[])[2]
+    expect(asm[0].slot).toBeNull()
+    expect(asm[0].parts[0].slot).toBeNull()
+  })
+
+  it("save refuses a type different from the zone's", async () => {
+    const { svc, tx, preshop } = make()
+    tx.bom_dispatch.findFirst.mockImplementation(((q: any) => Promise.resolve(q.where.OR ? { upload_mode: 'combined' } : null)) as any)
+    await expect(svc.save(SCOPE, [{ ...C01, slot: 'MAIN' }] as any, 1, { uploadMode: 'separate' }))
+      .rejects.toThrow(new BadRequestException('Zone นี้เป็นแบบ Combined — เปลี่ยนแบบกลางทางไม่ได้'))
+    expect(preshop.createDispatch).not.toHaveBeenCalled()
   })
 
   it('takes the per-zone lock before reading the previous revision', async () => {
@@ -131,15 +163,16 @@ describe('BomPreshopService.current', () => {
     const { svc, prisma } = make()
     const d = (v: number) => new Prisma.Decimal(v)
     const part = (p: typeof P101) => ({ part_mark: p.part_mark, profile: p.profile, grade: p.grade, length_mm: d(p.length_mm), weight_kg: d(p.unit_weight_kg) })
-    prisma.bom_dispatch.findFirst.mockResolvedValue({ id: 60, revision: 2, uploaded_at: new Date('2026-11-23T03:00:00Z') })
+    prisma.bom_dispatch.findFirst.mockResolvedValue({ id: 60, revision: 2, upload_mode: 'separate', uploaded_at: new Date('2026-11-23T03:00:00Z') })
     prisma.bom_assembly.findMany.mockResolvedValue([
-      { assembly_mark: 'C-01', name: 'COLUMN', qty: d(4), weight_kg: d(1265.4), surface_area_m2: d(24.6), length_mm: d(8450), width_mm: d(300), height_mm: d(300),
+      { assembly_mark: 'C-01', slot: 'MAIN', name: 'COLUMN', qty: d(4), weight_kg: d(1265.4), surface_area_m2: d(24.6), length_mm: d(8450), width_mm: d(300), height_mm: d(300),
         assembly_parts: [{ qty: d(1), part: part(P101) }, { qty: d(2), part: part(P102) }] },
-      { assembly_mark: 'C-02', name: 'COLUMN', qty: d(2), weight_kg: d(1240.8), surface_area_m2: d(24.1), length_mm: d(8450), width_mm: d(300), height_mm: d(300),
+      { assembly_mark: 'C-02', slot: 'ACC', name: 'COLUMN', qty: d(2), weight_kg: d(1240.8), surface_area_m2: d(24.1), length_mm: d(8450), width_mm: d(300), height_mm: d(300),
         assembly_parts: [{ qty: d(2), part: part(P102) }] },
     ])
     const r = await svc.current(SCOPE)
-    expect(r).toEqual({ dispatch_id: 60, revision: 2, uploaded_at: '2026-11-23T03:00:00.000Z', uploader: null, assemblies: [C01, C02] })
+    // upload_mode + slot per assembly (2026-11-25)
+    expect(r).toEqual({ dispatch_id: 60, revision: 2, upload_mode: 'separate', uploaded_at: '2026-11-23T03:00:00.000Z', uploader: null, assemblies: [{ ...C01, slot: 'MAIN' }, { ...C02, slot: 'ACC' }] })
     expect(prisma.bom_assembly.findMany.mock.calls[0][0].where).toEqual({ dispatch_id: 60, status: 'ACTIVE' })
   })
 })

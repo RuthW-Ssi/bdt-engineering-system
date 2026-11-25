@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { PreshopService } from '../manufacturing-orders/preshop/preshop.service'
 import type { PreshopAssembly } from '../manufacturing-orders/preshop/preshop-pdf-parser'
 import { XlsxParserService } from './xlsx-parser.service'
-import { assertZoneMode } from './zone-mode'
+import { assertZoneMode, type UploadMode } from './zone-mode'
 
 // Pre-shop at the BOM page (2026-11-23, wiki features/bom-preshop-upload-plan).
 // Stored like the MO pre-shop upload (bom_dispatch source PRE_SHOP, via
@@ -60,14 +60,14 @@ export class BomPreshopService {
   }
 
   /** The zone's current BOM-page pre-shop (ACTIVE rows, parts per set), or null. */
-  async current(scope: PreshopScope): Promise<{ dispatch_id: number; revision: number; uploaded_at: string; uploader: string | null; assemblies: PreshopAssembly[] } | null> {
-    const d = await this.prisma.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true, uploaded_at: true, create_user: { select: { name: true } } } })
+  async current(scope: PreshopScope): Promise<{ dispatch_id: number; revision: number; upload_mode: UploadMode; uploaded_at: string; uploader: string | null; assemblies: PreshopAssembly[] } | null> {
+    const d = await this.prisma.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true, upload_mode: true, uploaded_at: true, create_user: { select: { name: true } } } })
     if (!d) return null
     const rows = await this.prisma.bom_assembly.findMany({
       where: { dispatch_id: d.id, status: 'ACTIVE' },
       orderBy: { id: 'asc' },
       select: {
-        assembly_mark: true, name: true, qty: true, weight_kg: true, surface_area_m2: true, length_mm: true, width_mm: true, height_mm: true,
+        assembly_mark: true, slot: true, name: true, qty: true, weight_kg: true, surface_area_m2: true, length_mm: true, width_mm: true, height_mm: true,
         assembly_parts: {
           orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
           select: { qty: true, part: { select: { part_mark: true, profile: true, grade: true, length_mm: true, weight_kg: true } } },
@@ -77,10 +77,11 @@ export class BomPreshopService {
     return {
       dispatch_id: d.id,
       revision: d.revision,
+      upload_mode: d.upload_mode === 'separate' ? 'separate' : 'combined',
       uploaded_at: d.uploaded_at.toISOString(),
       uploader: d.create_user?.name ?? null,
       assemblies: rows.map(a => ({
-        assembly_mark: a.assembly_mark, name: a.name, qty: Number(a.qty ?? 0),
+        assembly_mark: a.assembly_mark, slot: a.slot === 'MAIN' || a.slot === 'ACC' ? a.slot : null, name: a.name, qty: Number(a.qty ?? 0),
         weight_kg: n(a.weight_kg), surface_area_m2: n(a.surface_area_m2), length_mm: n(a.length_mm), width_mm: n(a.width_mm), height_mm: n(a.height_mm),
         parts: a.assembly_parts.map(l => ({
           part_mark: l.part.part_mark, profile: l.part.profile ?? '', length_mm: n(l.part.length_mm) ?? 0, grade: l.part.grade ?? '',
@@ -96,8 +97,16 @@ export class BomPreshopService {
    *  `overwrite` = they saw it and chose to save on top (2026-11-23, Tao). */
   async save(
     scope: PreshopScope, assemblies: PreshopAssembly[], userId: number,
-    opts: { baseRevision?: number | null; overwrite?: boolean } = {},
+    opts: { baseRevision?: number | null; overwrite?: boolean; uploadMode?: UploadMode } = {},
   ): Promise<{ dispatch_id: number; revision: number }> {
+    const uploadMode = opts.uploadMode ?? 'combined'
+    // Separate (2026-11-25): every assembly sits in MAIN or ACC; combined stores no slot at all.
+    if (uploadMode === 'separate') {
+      const noSlot = assemblies.filter(a => a.slot !== 'MAIN' && a.slot !== 'ACC').map(a => a.assembly_mark)
+      if (noSlot.length) throw new BadRequestException(`เลือก MAIN หรือ ACC ให้ครบทุก assembly: ${noSlot.join(', ')}`)
+    } else {
+      assemblies = assemblies.map(a => ({ ...a, slot: null, parts: a.parts.map(p => ({ ...p, slot: null })) }))
+    }
     const noParts = assemblies.filter(a => !a.parts.length).map(a => a.assembly_mark)
     if (noParts.length) throw new BadRequestException(`ใส่ part ให้ครบทุก mark ก่อนบันทึก: ${noParts.join(', ')}`)
     // one bom_part per mark ("first spec wins" in createDispatch) — refuse instead of silently dropping a size
@@ -124,7 +133,7 @@ export class BomPreshopService {
       const prev = await tx.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true } })
       const realBom = await tx.bom_assembly.count({ where: { status: 'ACTIVE', dispatch: { zone_id: scope.zone_id, source: 'BOM_UPLOAD' } } })
       if (realBom > 0) throw new BadRequestException('Zone นี้มี BOM แล้ว — ใช้ BOM จริงแทน pre-shop')
-      await assertZoneMode(tx, { projectId: scope.project_id, zoneId: scope.zone_id, subZoneId: scope.sub_zone_id ?? null }, 'combined')
+      await assertZoneMode(tx, { projectId: scope.project_id, zoneId: scope.zone_id, subZoneId: scope.sub_zone_id ?? null }, uploadMode)
       if (opts.baseRevision !== undefined && !opts.overwrite && (prev?.revision ?? null) !== opts.baseRevision) {
         throw new ConflictException({
           statusCode: 409, code: 'PRESHOP_STALE',
@@ -138,7 +147,7 @@ export class BomPreshopService {
         await tx.bom_part.updateMany({ where: { dispatch_id: prev.id }, data: { status: 'INACTIVE' } })
       }
       const revision = (prev?.revision ?? 0) + 1
-      await this.preshop.createDispatch(tx, scope, assemblies, userId, { revision })
+      await this.preshop.createDispatch(tx, scope, assemblies, userId, { revision, uploadMode })
       // createDispatch returns mark → assembly id; read back the dispatch it just wrote (under the lock)
       const created = await tx.bom_dispatch.findFirst({ where: { ...this.where(scope), revision }, orderBy: { id: 'desc' }, select: { id: true } })
       return { dispatch_id: created!.id, revision }

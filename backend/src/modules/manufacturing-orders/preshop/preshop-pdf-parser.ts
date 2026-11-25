@@ -15,6 +15,7 @@ export interface PreshopPart {
   grade: string
   qty: number // per set
   unit_weight_kg: number
+  slot?: 'MAIN' | 'ACC' | null // its Part List box, sent only when both MAIN and ACC Part Lists were loaded (2026-11-25)
 }
 
 export interface PreshopAssembly {
@@ -27,6 +28,7 @@ export interface PreshopAssembly {
   width_mm?: number | null
   height_mm?: number | null
   parts: PreshopPart[]
+  slot?: 'MAIN' | 'ACC' | null // BOM-page Separate pre-shop (2026-11-25); MO never sets it
   source_file?: string // which uploaded file it came from (display only, not stored)
 }
 

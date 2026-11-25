@@ -15,6 +15,16 @@ const round2 = (v: number) => Math.round(v * 100) / 100
 // unchanged. When the real BOM is uploaded for the zone it supersedes these
 // rows (same zone + mark) and WOs offer "Accept new version" — the link to the
 // real BOM data.
+/** Full shop's shared Part List rule (2026-11-23): the part's own box slot if sent (two Part Lists),
+ *  else the slot of the assemblies using it — MAIN when both use it. Null when nothing has a slot (combined, MO). */
+function partSlotOf(mark: string, assemblies: PreshopAssembly[]): 'MAIN' | 'ACC' | null {
+  const using = assemblies.filter(a => a.parts.some(p => p.part_mark === mark))
+  const own = using.flatMap(a => a.parts).find(p => p.part_mark === mark && p.slot)?.slot
+  if (own) return own
+  if (using.some(a => a.slot === 'MAIN')) return 'MAIN'
+  return using.some(a => a.slot === 'ACC') ? 'ACC' : null
+}
+
 @Injectable()
 export class PreshopService {
   /** Dispatch Note marks → assemblies (the note's WeightKg. covers all sets). */
@@ -56,7 +66,8 @@ export class PreshopService {
     assemblies: PreshopAssembly[],
     userId: number,
     // BOM-page pre-shop saves use revision ≥ 1 (2026-11-23); MO uploads keep 0.
-    opts: { revision?: number } = {},
+    // uploadMode + slots: BOM-page Separate pre-shop (2026-11-25); MO passes neither.
+    opts: { revision?: number; uploadMode?: 'combined' | 'separate' } = {},
   ): Promise<Map<string, number>> {
     const seen = new Set<string>()
     for (const a of assemblies) {
@@ -71,7 +82,7 @@ export class PreshopService {
     const dispatch = await tx.bom_dispatch.create({
       data: {
         project_id: scope.project_id, zone_id: scope.zone_id, sub_zone_id: scope.sub_zone_id ?? null,
-        source: 'PRE_SHOP', status: 'ready', upload_mode: 'combined', revision: opts.revision ?? 0,
+        source: 'PRE_SHOP', status: 'ready', upload_mode: opts.uploadMode ?? 'combined', revision: opts.revision ?? 0,
         assembly_total: assemblies.length,
         part_total: new Set(assemblies.flatMap(a => a.parts.map(p => p.part_mark))).size,
         create_uid: userId, write_uid: userId,
@@ -85,6 +96,7 @@ export class PreshopService {
         qty: new Prisma.Decimal(a.qty),
         weight_kg: dec(a.weight_kg), surface_area_m2: dec(a.surface_area_m2),
         length_mm: dec(a.length_mm), width_mm: dec(a.width_mm), height_mm: dec(a.height_mm),
+        slot: a.slot ?? null,
         create_uid: userId, write_uid: userId,
       })),
       select: { id: true, assembly_mark: true },
@@ -103,6 +115,7 @@ export class PreshopService {
         data: [...parts.values()].map(({ spec, total }) => ({
           dispatch_id: dispatch.id, part_mark: spec.part_mark, profile: spec.profile, grade: spec.grade,
           qty: new Prisma.Decimal(total), length_mm: dec(spec.length_mm), weight_kg: dec(spec.unit_weight_kg),
+          slot: partSlotOf(spec.part_mark, assemblies),
           create_uid: userId, write_uid: userId,
         })),
         select: { id: true, part_mark: true },
