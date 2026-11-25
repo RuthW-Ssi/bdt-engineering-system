@@ -131,7 +131,7 @@ export function BomUpload() {
   const [progress, setProgress] = useState<number | null>(null)
   // BOM Type (2026-11-23, wiki features/bom-preshop-upload-plan): Full shop =
   // the real BOM upload below; Pre-shop = Dispatch Note + Part List editor.
-  const [bomType, setBomType] = useState<'full' | 'preshop'>(() => (searchParams.get('type') === 'preshop' ? 'preshop' : 'full'))
+  const [chosenBomType, setBomType] = useState<'full' | 'preshop'>(() => (searchParams.get('type') === 'preshop' ? 'preshop' : 'full'))
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -144,7 +144,13 @@ export function BomUpload() {
   )
 
   const isModeLocked = !!zoneMode
+  // Opened from the BOM page's Update BOM: the project / zone / sub-zone stay fixed (2026-11-24, Tao)
+  const isUpdate = searchParams.get('update') === '1'
+  const lockedSelect = { background: '#F5F5F5', color: '#555', cursor: 'not-allowed' } as const
   const effectiveMode = isModeLocked ? zoneMode! : uploadMode
+  // A zone with a real BOM (its upload mode is locked; pre-shop never locks it) takes Full shop only —
+  // the server refuses a pre-shop there too (2026-11-24, Tao)
+  const bomType: 'full' | 'preshop' = isModeLocked ? 'full' : chosenBomType
 
   const uploadFlow = useUploadBomWithPreview()
   const preshopScope = activeProject && zoneId
@@ -347,7 +353,7 @@ export function BomUpload() {
         >
           <ArrowLeft size={16} />
         </button>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>Upload BOM</span>
+        <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>{isUpdate ? 'Update BOM' : 'Upload BOM'}</span>
       </div>
 
       {/* Form */}
@@ -359,7 +365,8 @@ export function BomUpload() {
             Project <span style={{ color: '#C8202A' }}>*</span>
           </label>
           <select
-            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: 'white' }}
+            disabled={isUpdate}
+            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: 'white', ...(isUpdate && lockedSelect) }}
             value={activeProject?.id ?? ''}
             onChange={e => {
               const project = projects.find(p => p.id === Number(e.target.value))
@@ -379,8 +386,8 @@ export function BomUpload() {
             Zone <span style={{ color: '#C8202A' }}>*</span>
           </label>
           <select
-            disabled={!activeProject}
-            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${zoneId ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: activeProject ? 'white' : '#F5F5F5' }}
+            disabled={!activeProject || isUpdate}
+            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${zoneId && !isUpdate ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: activeProject ? 'white' : '#F5F5F5', ...(isUpdate && lockedSelect) }}
             value={zoneId}
             onChange={e => handleZoneChange(e.target.value)}
           >
@@ -398,7 +405,7 @@ export function BomUpload() {
             </span>
           </label>
           <select
-            disabled={!zoneId || subZones.length === 0}
+            disabled={!zoneId || subZones.length === 0 || isUpdate}
             style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${subZoneId ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: zoneId && subZones.length > 0 ? 'white' : '#F5F5F5', opacity: !zoneId || subZones.length === 0 ? 0.5 : 1 }}
             value={subZoneId}
             onChange={e => setSubZoneId(e.target.value)}
@@ -414,7 +421,7 @@ export function BomUpload() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>BOM Type</div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {([['full', 'Full shop (BOM)'], ['preshop', 'Pre-shop']] as const).map(([t, label]) => (
+              {([['full', 'Full shop (BOM)'], ['preshop', 'Pre-shop']] as const).filter(([t]) => t === 'full' || !isModeLocked).map(([t, label]) => (
                 <label key={t} style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 16px', borderRadius: 8, fontSize: 13,
                   border: `1px solid ${bomType === t ? '#C8202A' : '#E0E0E0'}`, background: bomType === t ? '#FEF2F2' : 'white', color: '#1F1F1F',

@@ -25,13 +25,15 @@ vi.mock('../hooks/useProjectSelection', () => ({
 vi.mock('../hooks/usePermission', () => ({ usePermission: () => true }))
 
 describe('BomList — pre-shop dispatch', () => {
-  it('tags it as pre-shop, hides Paint and Update BOM, and opens the pre-shop editor', () => {
+  it('tags it as pre-shop, hides Paint; Update BOM opens the pre-shop editor', () => {
     render(<MemoryRouter><BomList /></MemoryRouter>)
     expect(screen.getAllByText('Pre-shop rev 2').length).toBeGreaterThan(0)
     expect(screen.queryByRole('button', { name: 'Paint' })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Update BOM/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Edit pre-shop/ }))
-    expect(navigate).toHaveBeenCalledWith('/bom/upload?project_id=43&zone_id=80&type=preshop')
+    // a zone with any BOM (pre-shop or full shop) is edited, never uploaded again from here (2026-11-24, Tao)
+    expect(screen.queryByRole('button', { name: /Upload BOM/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Edit pre-shop/ })).toBeNull() // one Update BOM button for every zone with a BOM (Tao)
+    fireEvent.click(screen.getByRole('button', { name: /Update BOM/ }))
+    expect(navigate).toHaveBeenCalledWith('/bom/upload?project_id=43&zone_id=80&type=preshop&update=1')
   })
 
   it('opened with the Paint tab asked for, a pre-shop falls back to Tree', () => {
