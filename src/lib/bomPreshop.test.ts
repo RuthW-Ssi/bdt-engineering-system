@@ -254,3 +254,18 @@ describe('pre-shop MAIN / ACC slots', () => {
     expect(removeFileRows(s, 'dn', 'MAIN').asm.map(a => a.mark)).toEqual(['X1'])
   })
 })
+
+// "เพิ่มใหม่ N รายการ" counts only what THIS file adds (2026-11-25, live test: ACC DN said 1 because of a MAIN DN row)
+describe('merge result — added count', () => {
+  it('a Dispatch Note adding nothing new reports 0, even when an earlier file added rows', () => {
+    let s = mergeDispatchNote(empty, [asm('CO2', 1)], 'MAIN').state
+    s = mergeDispatchNote(s, [asm('FB1', 1)], 'ACC').state
+    expect(mergeDispatchNote(s, [asm('FB1', 1)], 'ACC').added).toBe(0)
+    expect(mergeDispatchNote(s, [asm('FB1', 1), asm('FB9', 1)], 'ACC').added).toBe(1)
+  })
+
+  it('a Part List counts only its own new parts', () => {
+    const s = mergePartList(empty, [listPart('p1')], 'MAIN').state
+    expect(mergePartList(s, [listPart('p1'), listPart('x9')], 'ACC').added).toBe(1)
+  })
+})

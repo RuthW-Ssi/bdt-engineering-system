@@ -59,7 +59,7 @@ export function PreshopMergeDialog({ file, result, onCancel, onConfirm }: {
   const byMark = new Map<string, Conflict[]>()
   for (const c of result.conflicts) byMark.set(`${c.kind}:${c.mark}`, [...(byMark.get(`${c.kind}:${c.mark}`) ?? []), c])
   const ready = result.conflicts.every(c => picks[c.id]) && result.missing.every(m => missing[m])
-  const added = result.state.asm.filter(a => a.src === 'dn').length + result.state.parts.filter(p => p.src === 'pl').length
+  const added = result.added
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,.35)', zIndex: 50 }}>

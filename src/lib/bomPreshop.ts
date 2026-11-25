@@ -18,7 +18,8 @@ export interface EdPart { plSlot?: Slot | null; key: string; src: 'saved' | 'pl'
 export interface EdLink { asmKey: string; partKey: string; qty: number } // qty per set
 export interface EditorState { asm: EdAsm[]; parts: EdPart[]; links: EdLink[] }
 export interface Conflict { id: string; kind: 'asm' | 'part'; key: string; mark: string; field: AsmField | PartField; old: string | number | null; new: string | number | null }
-export interface MergeResult { state: EditorState; conflicts: Conflict[]; missing: string[] }
+// added = rows this file brought in (not every file row in the state — 2026-11-25)
+export interface MergeResult { state: EditorState; conflicts: Conflict[]; missing: string[]; added: number }
 export type Pick = 'old' | 'new' | { own: string | number | null } // own = typed by the Engineer (กำหนดเอง)
 
 export const ASM_FIELDS: AsmField[] = ['qty', 'name', 'length_mm', 'width_mm', 'height_mm', 'weight_kg', 'surface_area_m2']
@@ -79,7 +80,7 @@ export function mergeDispatchNote(s: EditorState, incoming: PreshopAssembly[], s
     }
   }
   const missing = s.asm.filter(a => a.src !== 'own' && !inFile.has(a.mark) && (slot == null || a.slot === slot)).map(a => a.mark)
-  return { state: { ...s, asm }, conflicts, missing }
+  return { state: { ...s, asm }, conflicts, missing, added: asm.length - s.asm.length }
 }
 
 /** `slot` = the Part List box (Separate). */
@@ -101,7 +102,7 @@ export function mergePartList(s: EditorState, incoming: PreshopListPart[], slot:
       conflicts.push({ id: `part:${cur.key}:${f}`, kind: 'part', key: cur.key, mark, field: f, old: cur[f], new: v })
     }
   }
-  return { state: { ...s, parts }, conflicts, missing: [] }
+  return { state: { ...s, parts }, conflicts, missing: [], added: parts.length - s.parts.length }
 }
 
 export function applyMerge(r: MergeResult, picks: Record<string, Pick>, remove: string[]): EditorState {
