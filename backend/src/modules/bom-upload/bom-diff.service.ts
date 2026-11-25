@@ -234,8 +234,57 @@ export class BomDiffService {
     return new Map([...n].map(([id, no]) => [id, String(no)]))
   }
 
+  /** A BOM-page pre-shop (PRE_SHOP, revision ≥ 1) compares with the zone's previous BOM-page pre-shop
+   *  revision (2026-11-24, Tao). MO pre-shop (revision 0) has none. Kept apart from
+   *  findPreviousRevisionGroup on purpose: that one also drives mark-rename pairing, which pre-shop doesn't use. */
+  async findPreviousPreshop(current: { id: number; project_id: number; zone_id: number; sub_zone_id: number | null; source: string; revision: number }):
+    Promise<{ current: EffectiveGroup; previous: EffectiveGroup } | null> {
+    if (current.source !== 'PRE_SHOP' || current.revision < 1) return null
+    const prev = await this.prisma.bom_dispatch.findFirst({
+      where: {
+        project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
+        source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' }, id: { lt: current.id },
+      },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+    if (!prev) return null
+    return { current: { mainId: current.id, accId: current.id }, previous: { mainId: prev.id, accId: prev.id } }
+  }
+
+  /** A zone's first full shop (no earlier BOM_UPLOAD) compares with the zone's last BOM-page pre-shop
+   *  revision uploaded before it (2026-11-24, Tao). Diff view only — rename pairing and the Rev review
+   *  keep using findPreviousRevisionGroup, which never sees pre-shop. */
+  async findPreshopBeforeFirstShop(current: { id: number; project_id: number; zone_id: number; sub_zone_id: number | null }):
+    Promise<{ current: EffectiveGroup; previous: EffectiveGroup } | null> {
+    const group = await this.resolveEffectiveGroup(current.project_id, current.zone_id, current.sub_zone_id, { lte: current.id })
+    const ids = groupToIds(group)
+    if (!ids.length) return null
+    const prev = await this.prisma.bom_dispatch.findFirst({
+      where: {
+        project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
+        source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' }, id: { lt: Math.min(...ids) },
+      },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+    if (!prev) return null
+    return { current: group, previous: { mainId: prev.id, accId: prev.id } }
+  }
+
   async computeDiff(id: number): Promise<DispatchDiffResult | null> {
-    const groups = await this.findPreviousRevisionGroup(id)
+    const dispatch = await this.prisma.bom_dispatch.findUnique({ where: { id } })
+    if (!dispatch) throw new NotFoundException(`Dispatch ${id} not found`)
+    let groups: { current: EffectiveGroup; previous: EffectiveGroup } | null
+    let prev_source: 'BOM_UPLOAD' | 'PRE_SHOP' = dispatch.source === 'PRE_SHOP' ? 'PRE_SHOP' : 'BOM_UPLOAD'
+    if (dispatch.source === 'PRE_SHOP') groups = await this.findPreviousPreshop(dispatch)
+    else {
+      groups = await this.findPreviousRevisionGroup(id)
+      if (!groups) {
+        groups = await this.findPreshopBeforeFirstShop(dispatch)
+        prev_source = 'PRE_SHOP'
+      }
+    }
     if (!groups) return null
     const { current, previous } = groups
     const currentIds = groupToIds(current)
@@ -279,9 +328,27 @@ export class BomDiffService {
 
     const aggregate = await this.computeAggregate(previous, current, assembly_diff, part_diff)
 
+    // the newest dispatch of each side names its version
+    const prevTop = Math.max(...previousIds), currTop = Math.max(...currentIds)
+    // pre-shop sides count by revision, full shop sides by upload number
+    const preshopRev = (id: number) => prevDispatches.find(d => d.id === id)?.revision ?? null
+    let prev_no: number | null, curr_no: number | null
+    if (dispatch.source === 'PRE_SHOP') {
+      prev_no = preshopRev(prevTop)
+      curr_no = dispatch.revision
+    } else {
+      const labels = await this.computeVersionLabels(prev_source === 'PRE_SHOP' ? [currTop] : [prevTop, currTop])
+      const num = (id: number) => (labels.has(id) ? Number(labels.get(id)) : null)
+      prev_no = prev_source === 'PRE_SHOP' ? preshopRev(prevTop) : num(prevTop)
+      curr_no = num(currTop)
+    }
+
     return {
       prev_id: previousIds[0],
       curr_id: currentIds[0],
+      prev_no,
+      curr_no,
+      prev_source,
       warning,
       aggregate,
       assembly_diff,

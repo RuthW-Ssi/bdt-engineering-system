@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom'
-import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X, Layers, Pencil } from 'lucide-react'
+import { Upload, RefreshCw, Loader2, Package, RefreshCcw, ArrowUpRight, Search, X, Layers } from 'lucide-react'
 import { useDispatches, useDispatchDetail } from '../hooks/useBomDispatches'
 import { usePaintConfig } from '../hooks/usePaint'
 import type { PaintConfigResponseDto } from '../api/paint'
@@ -668,6 +668,7 @@ export function BomList() {
     zone_id: String(selectedItem.zone_id),
     ...(selectedItem.sub_zone_id != null && { sub_zone_id: String(selectedItem.sub_zone_id) }),
     type: 'preshop',
+    update: '1', // Upload BOM locks project / zone / sub-zone (2026-11-24, Tao)
   })}`
   const contentTabs = isPreshop ? CONTENT_TABS.filter(t => t.id !== 'paint') : CONTENT_TABS
 
@@ -703,18 +704,11 @@ export function BomList() {
           >
             <RefreshCw size={14} />
           </button>
-          {canWrite && isPreshop && preshopPath && (
+          {/* a zone with any BOM is updated, not uploaded again (2026-11-24, Tao): one Update BOM button —
+              full shop opens the Update BOM modal, pre-shop opens Upload BOM on its pre-shop (Full shop can be picked there) */}
+          {!canWrite ? null : allItems.length > 0 && selectedId ? (
             <button
-              onClick={() => navigate(preshopPath)}
-              className="flex items-center gap-1.5 rounded-md text-white"
-              style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#854F0B' }}
-            >
-              <Pencil size={14} />Edit pre-shop
-            </button>
-          )}
-          {!canWrite ? null : allItems.length > 0 && selectedId && !isPreshop ? (
-            <button
-              onClick={() => setShowModal(true)}
+              onClick={() => (isPreshop ? preshopPath && navigate(preshopPath) : setShowModal(true))}
               className="flex items-center gap-1.5 rounded-md text-white"
               style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
             >
