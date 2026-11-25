@@ -346,13 +346,13 @@ export const dispatchesApi = {
       .then(r => r.data)
   },
 
-  getZoneUploadMode(projectId: number, zoneId: number): Promise<'combined' | 'separate' | null> {
-    return apiClient
-      .get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1, source: 'BOM_UPLOAD' } }) // pre-shop never locks the mode
-      .then(r => {
-        const items: DispatchSummaryDto[] = r.data.items ?? []
-        return items.length > 0 ? items[0].upload_mode : null
-      })
+  /** The zone's upload type (2026-11-25): its Full shop's, else its BOM-page pre-shop's; null = not chosen yet. */
+  async getZoneUploadMode(projectId: number, zoneId: number, subZoneId: number | null = null): Promise<{ mode: 'combined' | 'separate' | null; hasFullShop: boolean }> {
+    const r = await apiClient.get('/dispatches', { params: { project_id: projectId, zone_id: zoneId, limit: 1, source: 'BOM_UPLOAD' } })
+    const items: DispatchSummaryDto[] = r.data.items ?? []
+    if (items.length > 0) return { mode: items[0].upload_mode, hasFullShop: true }
+    const pre = await apiClient.get('/bom/preshop', { params: { project_id: projectId, zone_id: zoneId, ...(subZoneId != null && { sub_zone_id: subZoneId }) } })
+    return { mode: pre.data?.upload_mode ?? null, hasFullShop: false }
   },
 
   getRenameCandidates(id: number): Promise<RenameCandidatesDto> {

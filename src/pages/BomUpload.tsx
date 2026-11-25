@@ -141,16 +141,18 @@ export function BomUpload() {
   const { data: zoneMode, isLoading: zoneModeLoading } = useZoneUploadMode(
     activeProject?.id ?? null,
     zoneId ? parseInt(zoneId) : null,
+    subZoneId ? parseInt(subZoneId) : null,
   )
 
-  const isModeLocked = !!zoneMode
+  // One type per zone for its whole life, set by its first Full shop or pre-shop (2026-11-25, Tao)
+  const isModeLocked = !!zoneMode?.mode
+  const hasFullShop = !!zoneMode?.hasFullShop
   // Opened from the BOM page's Update BOM: the project / zone / sub-zone stay fixed (2026-11-24, Tao)
   const isUpdate = searchParams.get('update') === '1'
   const lockedSelect = { background: '#F5F5F5', color: '#555', cursor: 'not-allowed' } as const
-  const effectiveMode = isModeLocked ? zoneMode! : uploadMode
-  // A zone with a real BOM (its upload mode is locked; pre-shop never locks it) takes Full shop only —
-  // the server refuses a pre-shop there too (2026-11-24, Tao)
-  const bomType: 'full' | 'preshop' = isModeLocked ? 'full' : chosenBomType
+  const effectiveMode = isModeLocked ? zoneMode!.mode! : uploadMode
+  // A zone with a real BOM takes Full shop only — the server refuses a pre-shop there too (2026-11-24, Tao)
+  const bomType: 'full' | 'preshop' = hasFullShop ? 'full' : chosenBomType
 
   const uploadFlow = useUploadBomWithPreview()
   const preshopScope = activeProject && zoneId
@@ -222,7 +224,7 @@ export function BomUpload() {
     if (!preshopScope) return
     try {
       // base_revision: the revision this editor started from — the server refuses (409) if someone saved since
-      const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies, base_revision: preshopCurrent.data?.revision ?? null, ...(overwrite && { overwrite: true }) })
+      const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies, base_revision: preshopCurrent.data?.revision ?? null, upload_mode: effectiveMode, ...(overwrite && { overwrite: true }) })
       setConflict(null)
       toast.success(`Pre-shop saved (rev ${res.revision})`)
       // the BOM page remembers its own project — pass the one just saved so the new rev is on screen
@@ -421,7 +423,7 @@ export function BomUpload() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>BOM Type</div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {([['full', 'Full shop (BOM)'], ['preshop', 'Pre-shop']] as const).filter(([t]) => t === 'full' || !isModeLocked).map(([t, label]) => (
+              {([['full', 'Full shop (BOM)'], ['preshop', 'Pre-shop']] as const).filter(([t]) => t === 'full' || !hasFullShop).map(([t, label]) => (
                 <label key={t} style={{
                   display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 16px', borderRadius: 8, fontSize: 13,
                   border: `1px solid ${bomType === t ? '#C8202A' : '#E0E0E0'}`, background: bomType === t ? '#FEF2F2' : 'white', color: '#1F1F1F',
@@ -437,14 +439,14 @@ export function BomUpload() {
               </div>
             )}
           </div>
-        {/* Upload Mode Radio — Full shop only, beside BOM Type (2026-11-23) */}
-        {bomType === 'full' && !zoneModeLoading && (
+        {/* Upload Mode Radio — Full shop and pre-shop (2026-11-25), beside BOM Type */}
+        {!zoneModeLoading && (
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 8 }}>
               BOM Upload Mode
               {isModeLocked && (
                 <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-                  (locked by previous version)
+                  (locked — this zone is already {effectiveMode === 'combined' ? 'Combined' : 'Separate MAIN + ACC'})
                 </span>
               )}
             </label>
@@ -503,11 +505,12 @@ export function BomUpload() {
                   </div>
                 )}
                 <PreshopEditor
-                  key={`${zoneId}-${subZoneId}-${preshopCurrent.data?.dispatch_id ?? 'new'}`}
+                  key={`${zoneId}-${subZoneId}-${effectiveMode}-${preshopCurrent.data?.dispatch_id ?? 'new'}`}
                   initial={preshopCurrent.data ? fromSaved(preshopCurrent.data.assemblies) : EMPTY_STATE}
                   onSave={handleSavePreshop}
                   saving={savePreshop.isPending}
                   canWrite={canWrite}
+                  uploadMode={effectiveMode}
                 />
                 <div>
                   <button onClick={() => navigate('/bom')} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>

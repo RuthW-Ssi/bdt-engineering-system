@@ -16,11 +16,12 @@ const errText = (err: unknown, fallback: string) => {
   return Array.isArray(msg) ? msg.join(', ') : (msg ?? fallback)
 }
 
-export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
+export function PreshopEditor({ initial, onSave, saving, canWrite = true, uploadMode = 'combined' }: {
   initial: EditorState
   onSave: (assemblies: PreshopAssembly[]) => void
   saving: boolean
   canWrite?: boolean
+  uploadMode?: 'combined' | 'separate' // Separate: MAIN/ACC slots (2026-11-25)
 }) {
   const [state, setState] = useState<EditorState>(initial)
   const [dn, setDn] = useState<SlotState>({ file: null, loading: false })
@@ -77,7 +78,7 @@ export function PreshopEditor({ initial, onSave, saving, canWrite = true }: {
   ].filter(Boolean)
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div data-upload-mode={uploadMode} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <PreshopFileSlots dn={dn} pl={pl} disabled={!canWrite || reading}
         onDispatchNote={onDispatchNote} onPartList={onPartList}
         onRemoveDn={() => { setState(s => removeFileRows(s, 'dn')); setDn({ file: null, loading: false }) }}

@@ -43,10 +43,10 @@ export function useDispatchDiffBimModels(
   })
 }
 
-export function useZoneUploadMode(projectId: number | null, zoneId: number | null) {
+export function useZoneUploadMode(projectId: number | null, zoneId: number | null, subZoneId: number | null = null) {
   return useQuery({
-    queryKey: ['zone-upload-mode', projectId, zoneId],
-    queryFn: () => dispatchesApi.getZoneUploadMode(projectId!, zoneId!),
+    queryKey: ['zone-upload-mode', projectId, zoneId, subZoneId],
+    queryFn: () => dispatchesApi.getZoneUploadMode(projectId!, zoneId!, subZoneId),
     enabled: !!projectId && !!zoneId,
     staleTime: 30_000,
   })
