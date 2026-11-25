@@ -200,11 +200,12 @@ export class BomDiffService {
     // a revision; every upload since gets its own (latest + 1). Bound both
     // cutoffs by the group's full id range, not just this one dispatch's id,
     // so a same-revision sibling with a lower id is never mistaken for
-    // "previous."
+    // "previous." Full shop only (2026-11-25): a pre-shop sharing the revision
+    // number would pull minId below the real previous full shop.
     const sameRevision = await this.prisma.bom_dispatch.findMany({
       where: {
         project_id: current.project_id, zone_id: current.zone_id, sub_zone_id: current.sub_zone_id,
-        revision: current.revision, status: { not: 'error' },
+        revision: current.revision, status: { not: 'error' }, source: 'BOM_UPLOAD',
       },
       select: { id: true },
     })

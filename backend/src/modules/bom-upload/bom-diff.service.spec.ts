@@ -801,6 +801,13 @@ describe('BomDiffService — first full shop vs last pre-shop', () => {
     const svc = svcWith([D(96, 'PRE_SHOP', 2), D(100, 'BOM_UPLOAD', 3)])
     expect(await svc.findPreviousRevisionGroup(100)).toBeNull()
   })
+
+  it('a pre-shop with the same revision number never joins the full shop revision group', async () => {
+    const svc = svcWith([D(95, 'PRE_SHOP', 2), D(98, 'BOM_UPLOAD', 1), D(100, 'BOM_UPLOAD', 2)])
+    expect(await svc.findPreviousRevisionGroup(100)).toEqual({ current: { mainId: 100, accId: 100 }, previous: { mainId: 98, accId: 98 } })
+    const r = await svc.computeDiff(100)
+    expect([r!.prev_id, r!.prev_source]).toEqual([98, 'BOM_UPLOAD'])
+  })
 })
 
 describe('BomDiffService — version numbers on the diff (2026-11-24, Tao)', () => {
