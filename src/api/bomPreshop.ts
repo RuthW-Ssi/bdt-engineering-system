@@ -21,6 +21,7 @@ export interface PreshopScope { project_id: number; zone_id: number; sub_zone_id
 export interface PreshopCurrent {
   dispatch_id: number
   revision: number
+  upload_mode: 'combined' | 'separate'
   uploaded_at: string
   uploader: string | null
   assemblies: PreshopAssembly[]
@@ -53,6 +54,6 @@ export async function getPreshop(scope: PreshopScope): Promise<PreshopCurrent | 
 }
 
 /** POST /bom/preshop — save as a new pre-shop revision. */
-export async function savePreshop(body: PreshopScope & { assemblies: PreshopAssembly[]; base_revision: number | null; overwrite?: boolean }): Promise<{ dispatch_id: number; revision: number }> {
+export async function savePreshop(body: PreshopScope & { assemblies: PreshopAssembly[]; base_revision: number | null; upload_mode?: 'combined' | 'separate'; overwrite?: boolean }): Promise<{ dispatch_id: number; revision: number }> {
   return (await apiClient.post('/bom/preshop', body)).data
 }

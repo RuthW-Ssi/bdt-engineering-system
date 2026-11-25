@@ -12,7 +12,9 @@ export type RevWarning = 'CHANGED_NO_REV_UP' | 'REV_UP_NO_CHANGE' | 'DN_REV_LOWE
 export interface Change { field: string; old: string | number | null; new: string | number | null }
 export interface PartLine { part_mark: string; qty: number | null; description: string | null; profile: string | null; grade: string | null; length_mm: number | null; weight_kg: number | null }
 export interface MarkSnapshot { mark: string; qty: number | null; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null; parts: PartLine[] }
-export interface PrevMark extends MarkSnapshot { rev: number; slot: string | null }
+export interface PrevMark extends MarkSnapshot { rev: number; slot: string | null
+  /** from the zone's pre-shop (first Full shop of the slot, 2026-11-25): its rev never carries */
+  preshop?: boolean }
 export interface MarkDiff { fields: Change[]; parts_added: PartLine[]; parts_removed: PartLine[]; parts_changed: { part_mark: string; changes: Change[] }[] }
 export type Slot = 'MAIN' | 'ACC'
 /** slot = which Dispatch Note the row came from (separate mode); null/absent = the combined DN. */
@@ -118,6 +120,11 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
     const base = { mark: c.mark, dn_rev: dnRev, dn_status: d?.status ?? null, in_dn: !!d, dn_cancelled_in_files: isCancelledStatus(d?.status), rename_hint: null, slot: c.slot ?? null }
     if (!p) return { ...base, kind: 'added', prev_rev: null, suggested_rev: dnRev ?? 0, suggested_source: dnRev != null ? 'DISPATCH_NOTE' : 'NEW', warning: null, editable: false, diff: null }
     const diff = markDiff(p, c)
+    // Against a pre-shop (Tao 2026-11-25): rev = Dispatch Note or 0 like a new mark; the kind is information only.
+    if (p.preshop) {
+      const changed = !isUnchanged(diff)
+      return { ...base, kind: changed ? 'changed' : 'unchanged', prev_rev: null, suggested_rev: dnRev ?? 0, suggested_source: dnRev != null ? 'DISPATCH_NOTE' : 'NEW', warning: null, editable: false, diff: changed ? diff : null }
+    }
     if (!isUnchanged(diff)) {
       return dnRev != null && dnRev > p.rev
         ? { ...base, kind: 'changed', prev_rev: p.rev, suggested_rev: dnRev, suggested_source: 'DISPATCH_NOTE', warning: null, editable: true, diff }
@@ -131,7 +138,7 @@ export function decideRevs(input: { current: (MarkSnapshot & { slot?: Slot | nul
   for (const p of input.previous) {
     if (currMarks.has(p.mark) || !input.removable(p)) continue
     const d = dnOf(p.mark, p.slot)
-    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null, slot: p.slot === 'MAIN' || p.slot === 'ACC' ? p.slot : null })
+    rows.push({ mark: p.mark, kind: 'removed', prev_rev: p.preshop ? null : p.rev, suggested_rev: null, suggested_source: null, dn_rev: d?.rev ?? null, dn_status: d?.status ?? null, in_dn: !!d, warning: null, dn_cancelled_in_files: false, rename_hint: null, editable: false, diff: null, slot: p.slot === 'MAIN' || p.slot === 'ACC' ? p.slot : null })
   }
   // DN-only = marks the zone has never had. A removed mark already has its row;
   // a kept mark (slot not uploaded, e.g. MAIN on an ACC-only upload with a

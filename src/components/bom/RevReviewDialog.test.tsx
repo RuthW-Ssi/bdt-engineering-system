@@ -328,3 +328,15 @@ describe('RevReviewDialog — same part in both Part Lists with different data',
     expect(screen.getByRole('button', { name: 'บันทึก' })).toBeEnabled()
   })
 })
+
+describe('RevReviewDialog — plate thickness in Part List ≠ NC file', () => {
+  it('a folded ⚠ box says the Part List is used; expanded, each mark shows both profiles; save is not blocked', () => {
+    render(<RevReviewDialog review={review({ rows: [], nc_profile_mismatches: [{ mark: 'ESB-px1', part_list: 'PL16x200', nc: 'PL12' }] })}
+      isUploading={false} onCancel={vi.fn()} onConfirm={vi.fn()} />)
+    const head = screen.getByRole('button', { name: '⚠ 1 part ความหนาใน Part List ไม่ตรงกับไฟล์ NC — ระบบจะใช้ของ Part List' })
+    expect(screen.queryByText('ESB-px1')).toBeNull()
+    fireEvent.click(head)
+    expect(screen.getByText('ESB-px1').parentElement).toHaveTextContent('Part List PL16x200 · NC PL12')
+    expect(screen.getByRole('button', { name: 'บันทึก' })).toBeEnabled()
+  })
+})

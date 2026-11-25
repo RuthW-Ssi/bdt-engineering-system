@@ -226,6 +226,7 @@ export interface PreshopAssembly {
   width_mm?: number | null
   height_mm?: number | null
   parts: PreshopPart[]
+  slot?: 'MAIN' | 'ACC' | null // BOM-page Separate pre-shop (2026-11-25)
   source_file?: string // the uploaded file it came from (from the server; display only)
   // Upload modal only, never stored (2026-10-08 — Dispatch Note + pre-shop
   // drawing read together): what each file said for this mark, and the
@@ -241,7 +242,7 @@ export interface PreshopAssembly {
 export interface PreshopSourceValues { file: string; qty: number; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null; parts: PreshopPart[] }
 export type PreshopConflictField = 'length_mm' | 'width_mm' | 'height_mm' | 'weight_kg' | 'surface_area_m2' | 'parts'
 
-export interface PreshopPart { part_mark: string; profile: string; length_mm: number; grade: string; qty: number; unit_weight_kg: number } // qty per set
+export interface PreshopPart { part_mark: string; profile: string; length_mm: number; grade: string; qty: number; unit_weight_kg: number; slot?: 'MAIN' | 'ACC' | null } // qty per set; slot = BOM-page pre-shop Part List box (2026-11-25)
 
 /** PUT /mo/:id/lines/:lineId/parts — a pre-shop assembly's whole part list (2026-10-08). */
 export async function updatePreshopParts(id: number, lineId: number, parts: PreshopPart[]): Promise<MoAssemblyRow[]> {
