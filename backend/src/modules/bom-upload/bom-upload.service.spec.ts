@@ -1349,16 +1349,19 @@ describe('BomUploadService — slot-scoped status supersession (write path)', ()
     expect(byMark('Z')[0].slot).toBeNull()
   })
 
-  it('separate-mode real upload supersedes the zone\'s BOM-page pre-shop rows (slot null) — 2026-11-23', async () => {
+  // 2026-11-25 (was: every pre-shop row, slot null): pre-shop rows carry their slot now,
+  // so a MAIN-only Full shop closes only the MAIN pre-shop rows.
+  it('separate-mode real upload supersedes only the uploaded slot of the zone\'s BOM-page pre-shop', async () => {
     const store = makePersistentPrisma()
     store.dispatches.push({ id: 900, project_id: 1, zone_id: 2, sub_zone_id: null, source: 'PRE_SHOP', revision: 1 })
-    store.assemblies.push({ id: 901, dispatch_id: 900, assembly_mark: 'C-01', status: 'ACTIVE', slot: null })
-    store.parts.push({ id: 902, dispatch_id: 900, part_mark: 'P101', status: 'ACTIVE', slot: null })
+    store.assemblies.push({ id: 901, dispatch_id: 900, assembly_mark: 'C-01', status: 'ACTIVE', slot: 'MAIN' })
+    store.assemblies.push({ id: 903, dispatch_id: 900, assembly_mark: 'X1', status: 'ACTIVE', slot: 'ACC' })
+    store.parts.push({ id: 902, dispatch_id: 900, part_mark: 'P101', status: 'ACTIVE', slot: 'MAIN' })
     const parser = makeBranchingParser({ MAIN_ASSEMBLY_LIST: { assemblies: [{ assembly_mark: 'X' }] } })
     const svc = new BomUploadService(store.prisma as any, makeStorage() as any, parser as any, makeMatching() as any, makeDiffService(store.prisma) as any)
     await svc.upload([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST' })], [], 1, 2, null, 1, 'separate')
     expect(store.assemblies.find(a => a.id === 901)!.status).toBe('INACTIVE')
-    expect(store.parts.find(p => p.id === 902)!.status).toBe('INACTIVE')
+    expect(store.assemblies.find(a => a.id === 903)!.status).toBe('ACTIVE')
   })
 
   it('separate-mode Acc-only upload never touches Main-slot rows (the production bug this plan fixes)', async () => {
@@ -2219,6 +2222,19 @@ describe('Rev review — first Full shop vs pre-shop', () => {
     const svc = svcOf(prisma, { assemblies: [A('RF5')] })
     const r = await svc.preview([makeFileInput()], [], 'combined', scope)
     await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1, 'combined', { revs: [], baseDispatchId: r.review.base_dispatch_id })).resolves.toBeDefined()
+  })
+
+  // decision 5: a MAIN-only Full shop closes only the MAIN pre-shop; ACC pre-shop rows stay ACTIVE
+  it('separate MAIN-only Full shop leaves ACC pre-shop rows ACTIVE', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', 'MAIN'), ASM(PRE, 'X1', 'ACC')])
+    const inner = buildInnerPrisma({}, 50)
+    inner.bom_dispatch.findFirst = prisma.bom_dispatch.findFirst as any
+    prisma.$transaction = jest.fn(async (cb: any) => cb(inner))
+    await svcOf(prisma, { assemblies: [A('RF5')] }).upload([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' })], [], 1, 2, null, 1, 'separate')
+    const wheres = inner.bom_assembly.updateMany.mock.calls.map((c: any) => c[0].where)
+    expect(wheres.length).toBeGreaterThan(0)
+    // every deactivation is limited to the uploaded slot — none sweeps the zone's pre-shop as a whole
+    for (const w of wheres) expect(w.slot).toEqual({ in: ['MAIN'] })
   })
 
   it('stale pre-shop: a pre-shop saved after the preview → 409', async () => {

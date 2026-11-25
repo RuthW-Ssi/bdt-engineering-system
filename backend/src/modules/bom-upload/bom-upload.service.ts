@@ -271,6 +271,9 @@ export class BomUploadService {
         //   plan exists to fix).
         // Assemblies and parts are superseded independently: an
         // assembly-only re-upload must not touch part rows, and vice versa.
+        // The scope has no source filter, so this also closes the zone's
+        // BOM-page pre-shop — per slot, since pre-shop rows carry their slot
+        // (2026-11-25): a MAIN-only Full shop leaves the ACC pre-shop in use.
         if (asmList?.assemblies.length) {
           const slotsTouched = slotsTouchedOf(asmList.assemblies, uploadMode)
 
@@ -295,15 +298,6 @@ export class BomUploadService {
             },
             data: { status: 'INACTIVE' },
           })
-        }
-
-        // A real BOM replaces the zone's BOM-page pre-shop (2026-11-23). In
-        // combined mode the wipe above already covers it; separate mode only
-        // touches MAIN/ACC slots and pre-shop rows have slot null.
-        if (uploadMode === 'separate' && (asmList?.assemblies.length || dedupedParts.length)) {
-          const preshopScope = { status: 'ACTIVE', dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } }
-          await tx.bom_assembly.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
-          await tx.bom_part.updateMany({ where: preshopScope, data: { status: 'INACTIVE' } })
         }
 
         // bom_assembly rows — batch insert, get IDs back in one round-trip
