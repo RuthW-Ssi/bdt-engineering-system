@@ -316,6 +316,23 @@ describe('BomUploadService.upload()', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
+  // 2026-11-25: one upload type per zone, enforced on the server too.
+  it('upload refuses separate on a combined zone — nothing stored', async () => {
+    const prisma = makePrisma()
+    prisma.bom_dispatch.findFirst.mockResolvedValue({ upload_mode: 'combined' })
+    const storage = makeStorage()
+    const svc = new BomUploadService(prisma as any, storage as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 99, 'separate')).rejects.toThrow(new BadRequestException('Zone นี้เป็นแบบ Combined — เปลี่ยนแบบกลางทางไม่ได้'))
+    expect(storage.putObject).not.toHaveBeenCalled()
+  })
+
+  it('preview refuses separate on a combined zone', async () => {
+    const prisma = makePrisma()
+    prisma.bom_dispatch.findFirst.mockResolvedValue({ upload_mode: 'combined' })
+    const svc = new BomUploadService(prisma as any, makeStorage() as any, makeParser() as any, makeMatching() as any, makeDiffService(prisma) as any)
+    await expect(svc.preview([makeFileInput()], [], 'separate', { projectId: 1, zoneId: 2, subZoneId: null })).rejects.toThrow(new BadRequestException('Zone นี้เป็นแบบ Combined — เปลี่ยนแบบกลางทางไม่ได้'))
+  })
+
   it('rejects a sub-zone of another zone', async () => {
     const prisma = makePrisma()
     prisma.sub_zone.findUnique.mockResolvedValue({ code: 'SZ9', zone_id: 7 })

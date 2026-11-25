@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service'
 import { PreshopService } from '../manufacturing-orders/preshop/preshop.service'
 import type { PreshopAssembly } from '../manufacturing-orders/preshop/preshop-pdf-parser'
 import { XlsxParserService } from './xlsx-parser.service'
+import { assertZoneMode } from './zone-mode'
 
 // Pre-shop at the BOM page (2026-11-23, wiki features/bom-preshop-upload-plan).
 // Stored like the MO pre-shop upload (bom_dispatch source PRE_SHOP, via
@@ -123,6 +124,7 @@ export class BomPreshopService {
       const prev = await tx.bom_dispatch.findFirst({ where: this.where(scope), orderBy: { id: 'desc' }, select: { id: true, revision: true } })
       const realBom = await tx.bom_assembly.count({ where: { status: 'ACTIVE', dispatch: { zone_id: scope.zone_id, source: 'BOM_UPLOAD' } } })
       if (realBom > 0) throw new BadRequestException('Zone นี้มี BOM แล้ว — ใช้ BOM จริงแทน pre-shop')
+      await assertZoneMode(tx, { projectId: scope.project_id, zoneId: scope.zone_id, subZoneId: scope.sub_zone_id ?? null }, 'combined')
       if (opts.baseRevision !== undefined && !opts.overwrite && (prev?.revision ?? null) !== opts.baseRevision) {
         throw new ConflictException({
           statusCode: 409, code: 'PRESHOP_STALE',

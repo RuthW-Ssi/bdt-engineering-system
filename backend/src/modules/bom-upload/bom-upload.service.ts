@@ -10,6 +10,7 @@ import { BomMatchingService } from './bom-matching.service'
 import { BomDiffService, groupToIds, slotAwareWhere } from './bom-diff.service'
 import { uploadNumbersOf } from './upload-number'
 import { parseDispatchNoteRevs } from '../manufacturing-orders/mo-part/dispatch-note-parser'
+import { assertZoneMode } from './zone-mode'
 import { decideParts, decideRevs, partConflicts, type PartConflict, finalizeRevs, partLine, reviewRows, snapshot, snapshotsFromUpload, type DnRev, type PartReviewRow, type PrevMark, type PrevPart, type RevDecision, type RevEdit, type RevRow } from './mark-rev'
 import { SEPARATE_DOC_TYPES, dnSlotOf, isDispatchNote } from './filename-classifier'
 import type { BomDocType } from './filename-classifier'
@@ -161,6 +162,7 @@ export class BomUploadService {
     const prep = this.prepare(files, ncFiles, uploadMode)
     const { parsed, dedupedParts } = prep
     const { zone, subZone } = await this.scopeOf({ projectId, zoneId, subZoneId })
+    await assertZoneMode(this.prisma, { projectId, zoneId, subZoneId }, uploadMode)
 
     // 3. Per-mark revs (2026-10-26): recompute the review server-side, refuse a
     //    stale preview, then validate the user's edits — never trust the client.
@@ -652,6 +654,7 @@ export class BomUploadService {
   async preview(files: FileInput[], ncFiles: NcFileInput[], uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<UploadPreview> {
     const prep = this.prepare(files, ncFiles, uploadMode)
     await this.scopeOf(scope)
+    await assertZoneMode(this.prisma, scope, uploadMode)
     const { decision, baseDispatchId } = await this.decide(prep, uploadMode, scope)
     const parts = await this.partReview(prep, uploadMode, scope)
     return {
