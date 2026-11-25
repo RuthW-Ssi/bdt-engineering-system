@@ -2123,3 +2123,109 @@ describe('BomUploadService.preview() — rev review', () => {
     expect(r.review.dn_only_marks).toEqual([])
   })
 })
+
+// First Full shop of a slot is reviewed against the zone's latest BOM-page pre-shop (2026-11-25, Tao).
+describe('Rev review — first Full shop vs pre-shop', () => {
+  type D = { id: number; source: string; revision: number }
+  const ASM = (dispatch: D, mark: string, slot: string | null, status = 'ACTIVE', parts: string[] = []) => ({
+    dispatch_id: dispatch.id, _source: dispatch.source, _revision: dispatch.revision, status, slot,
+    assembly_mark: mark, name: 'X', qty: '1.000', weight_kg: '10.000', surface_area_m2: '1.0000', length_mm: null, width_mm: null, height_mm: null, rev: 0,
+    assembly_parts: parts.map(p => ({ qty: '1.000', part: { part_mark: p, description: null, profile: 'H200x100', grade: 'SS400', length_mm: '100.00', weight_kg: '1.000' } })),
+  })
+  const PART = (dispatch: D, mark: string, slot: string | null, usedBy: { status: string; slot: string | null }[] = []) => ({
+    id: dispatch.id * 100 + mark.length, dispatch_id: dispatch.id, _source: dispatch.source, _revision: dispatch.revision, status: 'ACTIVE', slot,
+    part_mark: mark, profile: 'H200x100', grade: 'SS400', length_mm: '100.00', weight_kg: '1.000',
+    assembly_parts: usedBy.map(a => ({ assembly: a })),
+  })
+  const dispatchMatch = (w: any, r: { _source: string; _revision: number }) =>
+    !w || ((w.source === undefined || w.source === r._source) && (w.revision?.gte === undefined || r._revision >= w.revision.gte))
+  function zoneDb(dispatches: D[], asm: any[], parts: any[] = []) {
+    const match = (d: D, w: any) => (w.source === undefined || w.source === d.source)
+      && (w.revision?.gte === undefined || d.revision >= w.revision.gte)
+      && (!w.OR || w.OR.some((o: any) => match(d, o)))
+    const rows = (list: any[], w: any) => list.filter(r =>
+      (w.status === undefined || r.status === w.status) && (w.dispatch_id === undefined || r.dispatch_id === w.dispatch_id)
+      && dispatchMatch(w.dispatch, r) && (!w.slot?.in || w.slot.in.includes(r.slot)))
+    const base = buildPrisma()
+    return makePrisma({
+      bom_dispatch: { ...base.bom_dispatch, findFirst: jest.fn(({ where }: any) => {
+        if (where?.id?.not !== undefined || where?.source === 'BIM_PLACEHOLDER') return Promise.resolve(null)
+        const hit = dispatches.filter(d => match(d, where ?? {})).sort((a, b) => b.id - a.id)[0]
+        return Promise.resolve(hit ? { ...hit, upload_mode: null } : null)
+      }) } as any,
+      bom_assembly: { ...base.bom_assembly, findMany: jest.fn(({ where }: any) => Promise.resolve(where?.dispatch_id === undefined && where?.dispatch === undefined ? [] : rows(asm, where))) } as any,
+      bom_part: { ...(base as any).bom_part, findMany: jest.fn(({ where }: any) => Promise.resolve(where?.dispatch_id === undefined && where?.dispatch === undefined ? [] : rows(parts, where))) } as any,
+    })
+  }
+  const svcOf = (prisma: any, parsed: any) => new BomUploadService(prisma, makeStorage() as any, makeParser(parsed) as any, makeMatching() as any, makeDiffService(prisma) as any)
+  const scope = { projectId: 1, zoneId: 2, subZoneId: null }
+  const A = (mark: string) => ({ assembly_mark: mark, name: 'X', qty: 1, weight_kg: 10, surface_area_m2: 1 })
+  const P = (mark: string) => ({ part_mark: mark, profile: 'H200x100', grade: 'SS400', length_mm: 100, weight_kg: 1, qty: 1 })
+  const MO: D = { id: 40, source: 'PRE_SHOP', revision: 0 }
+  const PRE: D = { id: 95, source: 'PRE_SHOP', revision: 3 }
+  const FULL_MAIN: D = { id: 100, source: 'BOM_UPLOAD', revision: 4 }
+  const removed = (r: { rows: { kind: string; mark: string }[] }) => r.rows.filter(x => x.kind === 'removed').map(x => x.mark).sort()
+
+  it('combined: no Full shop → missing pre-shop mark RF10 and part p3 show as removed', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', null), ASM(PRE, 'RF10', null)], [PART(PRE, 'p1', null), PART(PRE, 'p3', null)])
+    const files = [makeFileInput(), makeFileInput({ docType: 'PART_LIST', originalname: 'part list.xlsx' })]
+    const r = await svcOf(prisma, { assemblies: [A('RF5'), A('RF18')], parts: [P('p1'), P('p4')] }).preview(files, [], 'combined', scope)
+    expect(removed(r.review)).toEqual(['RF10'])
+    expect(r.review.rows.find(x => x.mark === 'RF10')).toMatchObject({ prev_rev: null })
+    expect(r.review.parts.filter(p => p.kind === 'removed').map(p => p.mark)).toEqual(['p3'])
+    expect(r.review.base_dispatch_id).toBe(95)
+  })
+
+  it('combined: second Full shop ignores the pre-shop', async () => {
+    const FULL: D = { id: 100, source: 'BOM_UPLOAD', revision: 4 }
+    const prisma = zoneDb([PRE, FULL], [ASM(PRE, 'RF10', null, 'INACTIVE'), ASM(FULL, 'RF5', null)])
+    const r = await svcOf(prisma, { assemblies: [A('RF5'), A('RF18')] }).preview([makeFileInput()], [], 'combined', scope)
+    expect(removed(r.review)).toEqual([])
+    expect(r.review.base_dispatch_id).toBe(100)
+  })
+
+  it('separate MAIN-only first upload asks only MAIN pre-shop marks', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', 'MAIN'), ASM(PRE, 'RF10', 'MAIN'), ASM(PRE, 'X1', 'ACC')])
+    const r = await svcOf(prisma, { assemblies: [A('RF5')] }).preview([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' })], [], 'separate', scope)
+    expect(removed(r.review)).toEqual(['RF10'])
+  })
+
+  it('acc-later: MAIN on Full shop, ACC first upload → ACC compared with the pre-shop ACC rows', async () => {
+    const prisma = zoneDb([PRE, FULL_MAIN], [ASM(PRE, 'RF10', 'MAIN', 'INACTIVE'), ASM(PRE, 'X1', 'ACC'), ASM(PRE, 'X2', 'ACC'), ASM(FULL_MAIN, 'RF5', 'MAIN')])
+    const r = await svcOf(prisma, { assemblies: [A('X1')] }).preview([makeFileInput({ docType: 'ACC_ASSEMBLY_LIST', originalname: 'acc assembly list.xlsx' })], [], 'separate', scope)
+    expect(removed(r.review)).toEqual(['X2'])
+    // X1 matched its pre-shop row → unchanged, so the review hides it (an unmatched X1 would show as added)
+    expect(r.review.rows.find(x => x.mark === 'X1')).toBeUndefined()
+  })
+
+  it('shared pre-shop part: slot MAIN, used by a kept ACC pre-shop assembly → removed with still_used', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', 'MAIN'), ASM(PRE, 'X1', 'ACC')],
+      [PART(PRE, 'p1', 'MAIN'), PART(PRE, 'pX', 'MAIN', [{ status: 'ACTIVE', slot: 'MAIN' }, { status: 'ACTIVE', slot: 'ACC' }])])
+    const files = [makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' }), makeFileInput({ docType: 'MAIN_PART_LIST', originalname: 'main part list.xlsx' })]
+    const r = await svcOf(prisma, { assemblies: [A('RF5')], parts: [P('p1')] }).preview(files, [], 'separate', scope)
+    expect(r.review.parts.find(p => p.mark === 'pX')).toMatchObject({ kind: 'removed', still_used: true })
+  })
+
+  it('MO pre-shop (revision 0) is never a base', async () => {
+    const prisma = zoneDb([MO], [ASM(MO, 'RF10', null)])
+    const r = await svcOf(prisma, { assemblies: [A('RF5')] }).preview([makeFileInput()], [], 'combined', scope)
+    expect(removed(r.review)).toEqual([])
+    expect(r.review.base_dispatch_id).toBeNull()
+  })
+
+  it('a preview against the pre-shop head is not stale', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', null)])
+    prisma.$transaction = jest.fn(async (cb: any) => cb({ ...buildInnerPrisma({}, 50), bom_dispatch: { ...buildInnerPrisma({}, 50).bom_dispatch, findFirst: prisma.bom_dispatch.findFirst } }))
+    const svc = svcOf(prisma, { assemblies: [A('RF5')] })
+    const r = await svc.preview([makeFileInput()], [], 'combined', scope)
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1, 'combined', { revs: [], baseDispatchId: r.review.base_dispatch_id })).resolves.toBeDefined()
+  })
+
+  it('stale pre-shop: a pre-shop saved after the preview → 409', async () => {
+    const PRE2: D = { id: 96, source: 'PRE_SHOP', revision: 4 }
+    const prisma = zoneDb([PRE, PRE2], [ASM(PRE2, 'RF5', null)])
+    const svc = svcOf(prisma, { assemblies: [A('RF5')] })
+    await expect(svc.upload([makeFileInput()], [], 1, 2, null, 1, 'combined', { revs: [], baseDispatchId: 95 }))
+      .rejects.toThrow(new ConflictException('มีคนอัปโหลด BOM ของ zone นี้ไปแล้วระหว่างที่ตรวจ — กดอัปโหลดใหม่อีกครั้ง'))
+  })
+})

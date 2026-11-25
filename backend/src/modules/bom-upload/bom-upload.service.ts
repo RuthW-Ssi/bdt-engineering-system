@@ -75,6 +75,17 @@ export function retagSharedParts<P extends { part_mark: string; slot?: SlotName 
 }
 
 /** Slots an upload supersedes — null = all (combined). Same rule as the save's deactivation. */
+/** What a Rev review was computed against: the newest Full shop or BOM-page pre-shop of the zone. A new one of
+ *  either makes the preview stale (2026-11-25; was Full shop only). */
+export async function reviewHeadId(db: Pick<PrismaService, 'bom_dispatch'> | Prisma.TransactionClient, scope: UploadScope): Promise<number | null> {
+  const d = await db.bom_dispatch.findFirst({
+    where: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, OR: [{ source: 'BOM_UPLOAD' }, { source: 'PRE_SHOP', revision: { gte: 1 } }] },
+    orderBy: { id: 'desc' },
+    select: { id: true },
+  })
+  return d?.id ?? null
+}
+
 export function slotsTouchedOf(rows: { slot?: 'MAIN' | 'ACC' | null }[], uploadMode: 'combined' | 'separate'): ('MAIN' | 'ACC')[] | null {
   return uploadMode === 'combined' ? null : [...new Set(rows.map(r => r.slot).filter((s): s is 'MAIN' | 'ACC' => s != null))]
 }
@@ -207,12 +218,8 @@ export class BomUploadService {
         // Stale check again inside the transaction (the first one runs before the
         // file I/O): an upload that landed meanwhile makes the reviewed revs stale.
         if (opts.baseDispatchId !== undefined) {
-          const head = await tx.bom_dispatch.findFirst({
-            where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'BOM_UPLOAD' },
-            orderBy: { id: 'desc' },
-            select: { id: true },
-          })
-          if ((head?.id ?? null) !== opts.baseDispatchId) throw new ConflictException(STALE_PREVIEW_MESSAGE)
+          const head = await reviewHeadId(tx, { projectId, zoneId, subZoneId })
+          if (head !== opts.baseDispatchId) throw new ConflictException(STALE_PREVIEW_MESSAGE)
         }
         const latest = await tx.bom_dispatch.findFirst({
           where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId },
@@ -571,24 +578,44 @@ export class BomUploadService {
     }
   }
 
-  /** The zone's current BOM per mark (its ACTIVE real-upload rows) + which of them this upload removes. */
+  /** The zone's current BOM per mark (its ACTIVE real-upload rows) + which of them this upload removes.
+   *  A slot with no Full shop yet takes the latest BOM-page pre-shop's rows instead (2026-11-25). */
   private async loadRevBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null, hasAssemblies: boolean) {
     const dispatchScope = { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' }
-    const [latest, rows] = await Promise.all([
-      this.prisma.bom_dispatch.findFirst({ where: dispatchScope, orderBy: { id: 'desc' }, select: { id: true } }),
-      this.prisma.bom_assembly.findMany({
-        where: { status: 'ACTIVE', dispatch: dispatchScope },
-        select: {
-          assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true, rev: true, slot: true,
-          assembly_parts: { select: { qty: true, part: { select: { part_mark: true, description: true, profile: true, grade: true, length_mm: true, weight_kg: true } } } },
-        },
-      }),
+    const select = {
+      assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true, rev: true, slot: true,
+      assembly_parts: { select: { qty: true, part: { select: { part_mark: true, description: true, profile: true, grade: true, length_mm: true, weight_kg: true } } } },
+    } as const
+    const [head, rows, pre] = await Promise.all([
+      reviewHeadId(this.prisma, scope),
+      this.prisma.bom_assembly.findMany({ where: { status: 'ACTIVE', dispatch: dispatchScope }, select }),
+      this.preshopBase(scope, slots),
     ])
-    const previous: PrevMark[] = rows.map(r => ({ ...snapshot(r, r.assembly_parts.map(ap => partLine(ap.part, ap.qty))), rev: r.rev, slot: r.slot }))
+    // read by dispatch id, not ACTIVE: an earlier Full shop of the other slot may have closed some of them
+    const preRows = pre ? await this.prisma.bom_assembly.findMany({ where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { slot: { in: pre.slots } } : {}) }, select }) : []
+    const toPrev = (r: (typeof rows)[number], preshop: boolean): PrevMark => ({ ...snapshot(r, r.assembly_parts.map(ap => partLine(ap.part, ap.qty))), rev: r.rev, slot: r.slot, ...(preshop && { preshop: true }) })
+    const previous: PrevMark[] = [...rows.map(r => toPrev(r, false)), ...preRows.map(r => toPrev(r, true))]
     // Same rule as the save's deactivation: no Assembly List → nothing removed;
     // separate mode → only the touched slot(s).
     const removable = (p: PrevMark) => hasAssemblies && (slots == null || (p.slot != null && (slots as string[]).includes(p.slot)))
-    return { baseDispatchId: latest?.id ?? null, previous, removable }
+    return { baseDispatchId: head, previous, removable }
+  }
+
+  /** The latest BOM-page pre-shop and the slots that still have no Full shop (combined: the zone has none). */
+  private async preshopBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null): Promise<{ dispatchId: number; slots: ('MAIN' | 'ACC')[] | null } | null> {
+    const zone = { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId }
+    const pre = await this.prisma.bom_dispatch.findFirst({
+      where: { ...zone, source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' } }, orderBy: { id: 'desc' }, select: { id: true },
+    })
+    if (!pre) return null
+    if (slots == null) {
+      const full = await this.prisma.bom_dispatch.findFirst({ where: { ...zone, source: 'BOM_UPLOAD' }, select: { id: true } })
+      return full ? null : { dispatchId: pre.id, slots: null }
+    }
+    if (!slots.length) return null
+    const onFull = await this.prisma.bom_assembly.findMany({ where: { dispatch: { ...zone, source: 'BOM_UPLOAD' }, slot: { in: slots } }, select: { slot: true }, distinct: ['slot'] })
+    const open = slots.filter(s => !onFull.some(r => r.slot === s))
+    return open.length ? { dispatchId: pre.id, slots: open } : null
   }
 
   private async decide(prep: Prepared, uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<{ decision: RevDecision; baseDispatchId: number | null }> {
@@ -615,10 +642,13 @@ export class BomUploadService {
     const assemblies = prep.parsed.get('ASSEMBLY_LIST')?.assemblies ?? []
     const partSlots = prep.partSlots
     const asmSlots = slotsTouchedOf(assemblies, uploadMode)
-    const rows = await this.prisma.bom_part.findMany({
-      where: { status: 'ACTIVE', dispatch: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' } },
-      select: { id: true, part_mark: true, slot: true, profile: true, grade: true, length_mm: true, weight_kg: true, assembly_parts: { select: { assembly: { select: { status: true, slot: true } } } } },
-    })
+    const select = { id: true, part_mark: true, slot: true, profile: true, grade: true, length_mm: true, weight_kg: true, assembly_parts: { select: { assembly: { select: { status: true, slot: true } } } } } as const
+    const [full, pre] = await Promise.all([
+      this.prisma.bom_part.findMany({ where: { status: 'ACTIVE', dispatch: { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' } }, select }),
+      this.preshopBase(scope, partSlots),
+    ])
+    // first Full shop of a slot: that slot's pre-shop parts are the base too (2026-11-25)
+    const rows = pre ? [...full, ...await this.prisma.bom_part.findMany({ where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { slot: { in: pre.slots } } : {}) }, select })] : full
     const asSlot = (v: string | null | undefined) => (v === 'MAIN' || v === 'ACC' ? v : null)
     // an assembly the save keeps: no Assembly List in this upload, or (separate) its slot isn't uploaded
     const kept = (a: { status: string; slot: string | null }) => a.status === 'ACTIVE' && (!assemblies.length || (asmSlots != null && !(asmSlots as string[]).includes(a.slot ?? '')))
