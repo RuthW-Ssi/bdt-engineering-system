@@ -3,8 +3,6 @@ import { ChevronRight, Plus, Trash2, X } from 'lucide-react'
 import { addLink, newKey, type EdAsm, type EditorState } from '../../../lib/bomPreshop'
 
 const COLS = '22px minmax(0,1.3fr) 64px minmax(0,1fr) 76px 64px 64px 80px 84px 56px 30px'
-// Separate (2026-11-25): a Slot column after the mark
-const COLS_SEP = '22px minmax(0,1.3fr) 76px 64px minmax(0,1fr) 76px 64px 64px 80px 84px 56px 30px'
 const MEMBER_COLS = 'minmax(0,1.2fr) minmax(0,1.2fr) 64px 64px 64px 52px 64px 26px'
 const HD: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#767676', textTransform: 'uppercase', letterSpacing: '.04em' }
 const IN: React.CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '4px 6px', fontSize: 12.5, border: '1px solid #D4D4D4', borderRadius: 5, background: '#fff', color: '#1F1F1F' }
@@ -15,8 +13,9 @@ const toNum = (v: string) => (v.trim() === '' ? null : Number(v))
 export const PART_DRAG_TYPE = 'text/plain'
 
 export function PreshopAssemblyTable({ state, onChange, dragging, uploadMode = 'combined' }: { state: EditorState; onChange: (s: EditorState) => void; dragging: string | null; uploadMode?: 'combined' | 'separate' }) {
+  // Separate (2026-11-25): the slot sits under the mark — an extra column squeezed the mark ("ESB-F") or scrolled the table
   const sep = uploadMode === 'separate'
-  const cols = sep ? COLS_SEP : COLS
+  const cols = COLS
   const [open, setOpen] = useState<Record<string, boolean>>({})
   const [over, setOver] = useState<string | null>(null)
 
@@ -47,7 +46,7 @@ export function PreshopAssemblyTable({ state, onChange, dragging, uploadMode = '
       <div style={{ overflowX: 'auto' }}>
         <div style={{ minWidth: 760 }}>
           <div style={{ display: 'grid', gridTemplateColumns: cols, gap: 6, padding: '6px 0', borderBottom: '1px solid #E0E0E0', alignItems: 'center' }}>
-            <span /><span style={HD}>Assembly mark</span>{sep && <span style={HD}>Slot</span>}<span style={HD}>ชุด</span><span style={HD}>Name</span><span style={HD}>L (mm)</span><span style={HD}>W (mm)</span>
+            <span /><span style={HD}>{sep ? 'Assembly mark · Slot' : 'Assembly mark'}</span><span style={HD}>ชุด</span><span style={HD}>Name</span><span style={HD}>L (mm)</span><span style={HD}>W (mm)</span>
             <span style={HD}>H (mm)</span><span style={HD}>kg / ชุด</span><span style={HD}>area / ชุด</span><span style={HD}>Part</span><span />
           </div>
           {state.asm.map(a => {
@@ -66,14 +65,16 @@ export function PreshopAssemblyTable({ state, onChange, dragging, uploadMode = '
                     style={{ width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', color: '#767676', cursor: 'pointer', padding: 0 }}>
                     <ChevronRight size={14} style={{ transition: 'transform .15s', transform: `rotate(${isOpen ? 90 : 0}deg)` }} />
                   </button>
-                  <input aria-label="Assembly mark" style={MONO} value={a.mark} placeholder="mark" onChange={e => patch(a.key, { mark: e.target.value })} />
-                  {sep && (a.src === 'own'
-                    // a hand-added row picks its slot; a file row keeps its Dispatch Note's
-                    ? <select aria-label={`Slot ${a.mark}`} value={a.slot ?? ''} onChange={e => patch(a.key, { slot: (e.target.value || null) as EdAsm['slot'] })}
-                        style={{ ...IN, borderColor: a.slot ? '#D4D4D4' : '#C8202A' }}>
-                        <option value="">เลือก</option><option value="MAIN">MAIN</option><option value="ACC">ACC</option>
-                      </select>
-                    : <span style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>{a.slot ?? '—'}</span>)}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+                    <input aria-label="Assembly mark" style={MONO} value={a.mark} placeholder="mark" onChange={e => patch(a.key, { mark: e.target.value })} />
+                    {sep && (a.src === 'own'
+                      // a hand-added row picks its slot; a file row keeps its Dispatch Note's
+                      ? <select aria-label={`Slot ${a.mark}`} value={a.slot ?? ''} onChange={e => patch(a.key, { slot: (e.target.value || null) as EdAsm['slot'] })}
+                          style={{ ...IN, padding: '2px 4px', fontSize: 11.5, borderColor: a.slot ? '#D4D4D4' : '#C8202A' }}>
+                          <option value="">เลือก</option><option value="MAIN">MAIN</option><option value="ACC">ACC</option>
+                        </select>
+                      : <span style={{ alignSelf: 'flex-start', fontSize: 10.5, fontWeight: 700, color: a.slot === 'ACC' ? '#27500A' : '#0C447C', background: a.slot === 'ACC' ? '#EAF3DE' : '#E6F1FB', borderRadius: 999, padding: '1px 8px' }}>{a.slot ?? '—'}</span>)}
+                  </div>
                   <input aria-label="ชุด" type="number" min={0} style={{ ...IN, borderColor: a.qty > 0 ? '#D4D4D4' : '#C8202A' }} value={a.qty || ''} placeholder="กรอก"
                     onChange={e => patch(a.key, { qty: Number(e.target.value) || 0 })} />
                   <input aria-label="Name" style={IN} value={a.name ?? ''} onChange={e => patch(a.key, { name: e.target.value })} />
