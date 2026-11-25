@@ -1234,7 +1234,16 @@ export class BomUploadService {
       select: { id: true },
     })
 
-    const sourceDispatchIds = [prev?.id, placeholder?.id].filter((id): id is number => id != null)
+    // The zone's BOM-page pre-shop too (2026-11-25): a Separate MAIN-only Full shop leaves the ACC pre-shop in use,
+    // so the ACC Full shop's previous dispatch (the MAIN one) doesn't hold the ACC marks' progress.
+    const preshop = await this.prisma.bom_dispatch.findFirst({
+      where: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 }, status: { not: 'error' }, id: { not: dispatchId } },
+      orderBy: { id: 'desc' },
+      select: { id: true },
+    })
+
+    // priority on the same mark: previous dispatch, then pre-shop, then placeholder
+    const sourceDispatchIds = [...new Set([prev?.id, preshop?.id, placeholder?.id].filter((id): id is number => id != null))]
     if (!sourceDispatchIds.length) return
 
     // Phase-tracking columns (Sprint 26). Pcs carry forward as absolute
@@ -1277,10 +1286,14 @@ export class BomUploadService {
     // own assemblies are legitimately INACTIVE at this point (deactivated
     // earlier in this same upload transaction) and that's exactly the
     // historical data this query must carry forward from.
-    const matched = prevProgress.filter(p =>
-      assemblyIdByMark.has(p.assembly.assembly_mark) &&
-      (p.assembly.dispatch_id !== placeholder?.id || p.assembly.status === 'ACTIVE'),
-    )
+    // createMany skipDuplicates keeps the first row per assembly → order by source priority
+    const rank = (id: number) => sourceDispatchIds.indexOf(id)
+    const matched = prevProgress
+      .filter(p =>
+        assemblyIdByMark.has(p.assembly.assembly_mark) &&
+        (p.assembly.dispatch_id !== placeholder?.id || p.assembly.status === 'ACTIVE'),
+      )
+      .sort((a, b) => rank(a.assembly.dispatch_id) - rank(b.assembly.dispatch_id))
     const toCreate = matched.map(p => ({
       assembly_id: assemblyIdByMark.get(p.assembly.assembly_mark)!,
       cut: p.cut,

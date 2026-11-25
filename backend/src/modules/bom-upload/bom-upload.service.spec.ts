@@ -1686,6 +1686,36 @@ describe('BomUploadService — carryForwardProgress with a placeholder dispatch'
     })
   })
 
+  // Final review fix (2026-11-25): after a MAIN-only Full shop the ACC pre-shop stays in use, so progress typed on it
+  // must reach the ACC Full shop — the previous dispatch (the MAIN Full shop) doesn't have those marks.
+  it('also carries progress from the latest BOM-page pre-shop, the previous Full shop winning on the same mark', async () => {
+    const calls: any[] = []
+    const { service, prisma } = makeService({
+      bom_dispatch: {
+        findFirst: jest.fn((q: any) => {
+          calls.push(q.where)
+          if (q.where.source === 'BIM_PLACEHOLDER') return Promise.resolve(null)
+          if (q.where.source === 'PRE_SHOP') return Promise.resolve({ id: 113 })
+          return Promise.resolve({ id: 114 }) // previous dispatch = the MAIN Full shop
+        }),
+      },
+      bom_assembly_progress: {
+        findMany: jest.fn().mockResolvedValue([
+          progressRow({ id: 1, dispatch_id: 113, assembly_mark: 'ESB-FB1', status: 'ACTIVE' }, 40),
+          progressRow({ id: 2, dispatch_id: 113, assembly_mark: 'ESB-RF1', status: 'INACTIVE' }, 10),
+          progressRow({ id: 3, dispatch_id: 114, assembly_mark: 'ESB-RF1', status: 'INACTIVE' }, 90),
+        ]),
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+    })
+    await (service as any).carryForwardProgress(1234, 1, 10, null, new Map([['ESB-FB1', 900], ['ESB-RF1', 901]]))
+    expect(calls.find(w => w.source === 'PRE_SHOP')).toMatchObject({ zone_id: 10, revision: { gte: 1 }, status: { not: 'error' } })
+    expect(prisma.bom_assembly_progress.findMany.mock.calls[0][0].where.assembly.dispatch_id.in).toEqual(expect.arrayContaining([113, 114]))
+    const data = prisma.bom_assembly_progress.createMany.mock.calls[0][0].data
+    // previous Full shop's row first: createMany skipDuplicates keeps the first row per assembly
+    expect(data.map((d: any) => [d.assembly_id, d.cut])).toEqual([[901, 90], [900, 40], [901, 10]])
+  })
+
   it('does nothing extra when the project has no placeholder dispatch', async () => {
     const { service, prisma } = makeService({})
     const assemblyIdByMark = new Map([['WH-CO-001', 999]])
