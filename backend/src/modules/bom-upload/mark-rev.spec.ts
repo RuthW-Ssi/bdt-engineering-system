@@ -304,3 +304,34 @@ describe('partConflicts', () => {
     expect(partConflicts([p('a', 'MAIN', { length_mm: 650.001, description: '' }), p('a', 'ACC', { length_mm: 650, description: undefined })])).toEqual([])
   })
 })
+
+// First Full shop vs the pre-shop (2026-11-25, Tao): rev = Dispatch Note rev or 0, never prev + 1.
+describe('decideRevs — base is a pre-shop', () => {
+  const rowOf = (d: ReturnType<typeof decideRevs>, mark: string) => d.rows.find(r => r.mark === mark)!
+
+  it('a changed mark against a pre-shop base takes the DN rev, not prev+1', () => {
+    const d = decideRevs({ current: [S('RF5', { weight_kg: 999 })], previous: [PREV('RF5', 0, { preshop: true })], removable: all, dn: [DN('RF5', 2)] })
+    expect(rowOf(d, 'RF5')).toMatchObject({ kind: 'changed', prev_rev: null, suggested_rev: 2, suggested_source: 'DISPATCH_NOTE', warning: null, editable: false })
+    expect(rowOf(d, 'RF5').diff).not.toBeNull()
+  })
+
+  it('no DN → rev 0, source NEW', () => {
+    const d = decideRevs({ current: [S('RF5', { weight_kg: 999 })], previous: [PREV('RF5', 0, { preshop: true })], removable: all, dn: null })
+    expect(rowOf(d, 'RF5')).toMatchObject({ kind: 'changed', prev_rev: null, suggested_rev: 0, suggested_source: 'NEW', editable: false })
+  })
+
+  it('an unchanged mark takes the DN rev too', () => {
+    const d = decideRevs({ current: [S('RF5')], previous: [PREV('RF5', 0, { preshop: true })], removable: all, dn: [DN('RF5', 1)] })
+    expect(rowOf(d, 'RF5')).toMatchObject({ kind: 'unchanged', prev_rev: null, suggested_rev: 1, suggested_source: 'DISPATCH_NOTE', warning: null, editable: false })
+  })
+
+  it('finalizeRevs accepts rev 0 for a changed pre-shop mark', () => {
+    const d = decideRevs({ current: [S('RF5', { weight_kg: 999 })], previous: [PREV('RF5', 0, { preshop: true })], removable: all, dn: null })
+    expect(finalizeRevs(d, []).get('RF5')).toMatchObject({ rev: 0 })
+  })
+
+  it('a removed pre-shop mark has prev_rev null', () => {
+    const d = decideRevs({ current: [S('RF18')], previous: [PREV('RF10', 0, { preshop: true })], removable: all, dn: null })
+    expect(rowOf(d, 'RF10')).toMatchObject({ kind: 'removed', prev_rev: null })
+  })
+})
