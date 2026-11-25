@@ -393,7 +393,7 @@ function VersionNode({
           fontSize: 13, fontWeight: 700, marginBottom: 5,
           color: selected ? '#185FA5' : isLatest ? '#1F1F1F' : '#555',
         }}>
-          {uploadLabel(uploadNo)}
+          {item.source === 'PRE_SHOP' ? `Pre-shop rev ${item.revision}` : uploadLabel(uploadNo)}
         </div>
 
         <div style={{ fontSize: 11, color: '#888', marginBottom: 5 }}>
@@ -661,6 +661,16 @@ export function BomList() {
   }
 
   const selectedItem = allItems.find(i => i.id === selectedId)
+  // Pre-shop (2026-11-23): read-only here, edited at Upload BOM → Pre-shop; no paint config.
+  const isPreshop = selectedItem?.source === 'PRE_SHOP'
+  const preshopPath = selectedItem && `/bom/upload?${new URLSearchParams({
+    project_id: String(selectedItem.project_id),
+    zone_id: String(selectedItem.zone_id),
+    ...(selectedItem.sub_zone_id != null && { sub_zone_id: String(selectedItem.sub_zone_id) }),
+    type: 'preshop',
+    update: '1', // Upload BOM locks project / zone / sub-zone (2026-11-24, Tao)
+  })}`
+  const contentTabs = isPreshop ? CONTENT_TABS.filter(t => t.id !== 'paint') : CONTENT_TABS
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflow: 'hidden' }}>
@@ -678,6 +688,11 @@ export function BomList() {
               <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
                 {detail.part_count ?? 0} part
               </span>
+              {isPreshop && (
+                <span style={{ background: '#FAEEDA', border: '1px solid #F0D9B5', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 600, color: '#854F0B' }}>
+                  Pre-shop rev {selectedItem!.revision}
+                </span>
+              )}
             </>
           )}
         </div>
@@ -689,9 +704,11 @@ export function BomList() {
           >
             <RefreshCw size={14} />
           </button>
+          {/* a zone with any BOM is updated, not uploaded again (2026-11-24, Tao): one Update BOM button —
+              full shop opens the Update BOM modal, pre-shop opens Upload BOM on its pre-shop (Full shop can be picked there) */}
           {!canWrite ? null : allItems.length > 0 && selectedId ? (
             <button
-              onClick={() => setShowModal(true)}
+              onClick={() => (isPreshop ? preshopPath && navigate(preshopPath) : setShowModal(true))}
               className="flex items-center gap-1.5 rounded-md text-white"
               style={{ height: 36, padding: '0 16px', fontSize: 13, fontWeight: 600, background: '#185FA5' }}
             >
@@ -831,7 +848,7 @@ export function BomList() {
 
             {/* Tab bar */}
             <div style={{ display: 'flex', borderBottom: '1px solid #E8E8E8', background: '#fff', flexShrink: 0 }}>
-              {CONTENT_TABS.map(tab => (
+              {contentTabs.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setContentTab(tab.id)}
@@ -888,7 +905,7 @@ export function BomList() {
                 : <PartsTable assemblies={detail?.assemblies ?? []} orphanParts={detail?.orphan_parts ?? []} />
             )}
 
-            {contentTab === 'paint' && (
+            {contentTab === 'paint' && !isPreshop && (
               <PaintTab
                 dispatchId={selectedId}
                 paintConfig={paintConfig}

@@ -60,6 +60,11 @@ export interface DiffAggregate {
 export interface DispatchDiffResult {
   prev_id: number
   curr_id: number
+  /** Version numbers shown as "v.prev → v.curr": upload number for full shop, revision for BOM-page pre-shop (2026-11-24) */
+  prev_no: number | null
+  curr_no: number | null
+  /** Where the previous side came from — PRE_SHOP when a zone's first full shop compares with its last pre-shop (2026-11-24) */
+  prev_source: 'BOM_UPLOAD' | 'PRE_SHOP'
   warning: string | null
   aggregate: DiffAggregate
   assembly_diff: DiffRow<AssemblyDiffItem>[]

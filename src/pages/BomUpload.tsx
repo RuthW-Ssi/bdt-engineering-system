@@ -11,13 +11,18 @@ import { useUploadBomWithPreview, useZoneUploadMode } from '../hooks/useBomDispa
 import { useRenameStep } from '../hooks/useRenameStep'
 import { JunctionMismatchModal } from '../components/bom/JunctionMismatchModal'
 import { RenamePairDialog } from '../components/bom/RenamePairDialog'
-import { RevReviewDialog } from '../components/bom/RevReviewDialog'
+import { RevReviewDialog, type RenameChoice } from '../components/bom/RevReviewDialog'
 import { InfoTip } from '../components/bom/InfoTip'
-import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES } from '../lib/bom/filenameClassifier'
+import { classifyFilename, REQUIRED_MAIN_TYPES, REQUIRED_ACC_TYPES, separateReadiness, sharedPartListNote } from '../lib/bom/filenameClassifier'
 import type { DocType } from '../lib/bom/filenameClassifier'
 import type { FileRejection } from '../components/bom/FileDropzone'
 import type { DispatchDetailDto, RevEdit } from '../api/dispatches'
 import { usePermission } from '../hooks/usePermission'
+import { usePreshopCurrent, useSavePreshop } from '../hooks/useBomPreshop'
+import { PreshopEditor } from '../components/bom/preshop/PreshopEditor'
+import { PreshopConflictDialog } from '../components/bom/preshop/PreshopConflictDialog'
+import { EMPTY_STATE, fromSaved } from '../lib/bomPreshop'
+import type { PreshopAssembly, PreshopCurrent, PreshopStale } from '../api/bomPreshop'
 
 const REQUIRED_BOM_TYPES: DocType[] = ['ASSEMBLY_LIST', 'ASSEMBLY_PART_LIST', 'PART_LIST']
 const NC_FORMATS = ['.nc1']
@@ -124,6 +129,9 @@ export function BomUpload() {
   const [accFiles, setAccFiles] = useState<FileEntry[]>([])
   const [ncFiles, setNcFiles] = useState<File[]>([])
   const [progress, setProgress] = useState<number | null>(null)
+  // BOM Type (2026-11-23, wiki features/bom-preshop-upload-plan): Full shop =
+  // the real BOM upload below; Pre-shop = Dispatch Note + Part List editor.
+  const [chosenBomType, setBomType] = useState<'full' | 'preshop'>(() => (searchParams.get('type') === 'preshop' ? 'preshop' : 'full'))
 
   const { data: zonesData } = useProjectZones(activeProject?.id)
   const zones = zonesData ?? []
@@ -136,9 +144,21 @@ export function BomUpload() {
   )
 
   const isModeLocked = !!zoneMode
+  // Opened from the BOM page's Update BOM: the project / zone / sub-zone stay fixed (2026-11-24, Tao)
+  const isUpdate = searchParams.get('update') === '1'
+  const lockedSelect = { background: '#F5F5F5', color: '#555', cursor: 'not-allowed' } as const
   const effectiveMode = isModeLocked ? zoneMode! : uploadMode
+  // A zone with a real BOM (its upload mode is locked; pre-shop never locks it) takes Full shop only —
+  // the server refuses a pre-shop there too (2026-11-24, Tao)
+  const bomType: 'full' | 'preshop' = isModeLocked ? 'full' : chosenBomType
 
   const uploadFlow = useUploadBomWithPreview()
+  const preshopScope = activeProject && zoneId
+    ? { project_id: activeProject.id, zone_id: Number(zoneId), sub_zone_id: subZoneId ? Number(subZoneId) : null }
+    : null
+  const preshopCurrent = usePreshopCurrent(bomType === 'preshop' ? preshopScope : null)
+  const savePreshop = useSavePreshop()
+  const [conflict, setConflict] = useState<{ current: PreshopCurrent; assemblies: PreshopAssembly[] } | null>(null)
   const renameStep = useRenameStep()
 
   const combined = makeFileHandlers(files, setFiles)
@@ -179,8 +199,9 @@ export function BomUpload() {
   const validAcc = accFiles.filter(e => !e.error && e.detectedType)
 
   const hasAllCombined = REQUIRED_BOM_TYPES.every(t => validCombined.map(e => e.detectedType).includes(t))
-  const hasAllMain = REQUIRED_MAIN_TYPES.every(t => validMain.map(e => e.detectedType).includes(t))
-  const hasAllAcc = REQUIRED_ACC_TYPES.every(t => validAcc.map(e => e.detectedType).includes(t))
+  // one Part List is shared by MAIN and ACC, two = each its own (2026-11-23, Tao)
+  const mainTypes = validMain.map(e => e.detectedType), accTypes = validAcc.map(e => e.detectedType)
+  const separate = separateReadiness(mainTypes, accTypes)
 
   // A DN picked for a slot with none of that slot's own lists is almost
   // certainly a mistake (wrong zone, or the lists were forgotten) — block
@@ -191,10 +212,32 @@ export function BomUpload() {
   const accDnOrphan = accFiles.some(e => !e.error && e.detectedType === 'ACC_DISPATCH_NOTE')
     && !REQUIRED_ACC_TYPES.some(t => validAcc.map(e => e.detectedType).includes(t))
 
-  const bomReady = effectiveMode === 'combined' ? hasAllCombined : (hasAllMain || hasAllAcc)
+  const bomReady = effectiveMode === 'combined' ? hasAllCombined : separate.ready
   const canWrite = usePermission('boms', 'create')
+  const canPair = usePermission('boms', 'update') // pairing renamed marks overwrites progress/paint
   const canSubmit = canWrite && !!zoneId && bomReady && ncFiles.length >= 1 && !mainDnOrphan && !accDnOrphan
     && !uploadFlow.uploadMutation.isPending && !uploadFlow.isPreviewing
+
+  const handleSavePreshop = async (assemblies: PreshopAssembly[], overwrite = false) => {
+    if (!preshopScope) return
+    try {
+      // base_revision: the revision this editor started from — the server refuses (409) if someone saved since
+      const res = await savePreshop.mutateAsync({ ...preshopScope, assemblies, base_revision: preshopCurrent.data?.revision ?? null, ...(overwrite && { overwrite: true }) })
+      setConflict(null)
+      toast.success(`Pre-shop saved (rev ${res.revision})`)
+      // the BOM page remembers its own project — pass the one just saved so the new rev is on screen
+      const q = new URLSearchParams({ project_id: String(preshopScope.project_id), zone_id: String(preshopScope.zone_id), ...(preshopScope.sub_zone_id != null && { sub_zone_id: String(preshopScope.sub_zone_id) }) })
+      navigate(`/bom?${q}`, { state: { selectDispatch: res.dispatch_id } })
+    } catch (err: unknown) {
+      const res = (err as { response?: { status?: number; data?: Partial<PreshopStale> & { message?: string | string[] } } })?.response
+      if (res?.status === 409 && res.data?.code === 'PRESHOP_STALE' && res.data.current) {
+        setConflict({ current: res.data.current, assemblies })
+        return
+      }
+      const msg = res?.data?.message
+      toast.error(Array.isArray(msg) ? msg.join(', ') : (msg ?? 'Save pre-shop failed — please try again'))
+    }
+  }
 
   const handleUploadError = (err: unknown) => {
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
@@ -204,11 +247,12 @@ export function BomUpload() {
 
   // WO BOM-Version Hold (Sprint 20, T10): surface WOs the upload put on hold,
   // mirroring UpdateBomModal.tsx's handleUploadSuccess (same condition, same copy).
-  const handleUploadSuccess = async (res: DispatchDetailDto) => {
+  const handleUploadSuccess = async (res: DispatchDetailDto & { renamesSaved?: boolean }) => {
     if (res.hold_summary && res.hold_summary.held_wo_count > 0) {
       toast.warning(`${res.hold_summary.held_wo_count} WO(s) held due to spec change`)
     }
-    if (await renameStep.afterUpload(res.id)) return
+    // missing marks and parts are decided in the Rev review (2026-11-23); only if pairing them failed, offer it again here
+    if (res.renamesSaved === false && await renameStep.afterUpload(res.id)) return
     navigate(`/bom/dispatch/${res.id}/paint`)
   }
 
@@ -248,15 +292,55 @@ export function BomUpload() {
     }
   }
 
-  const handleConfirmReview = async (revs: RevEdit[]) => {
+  const handleConfirmReview = async (revs: RevEdit[], renames: RenameChoice[]) => {
     try {
-      const res = await uploadFlow.confirmReview(revs)
+      const res = await uploadFlow.confirmReview(revs, renames)
       if (res == null) return
       await handleUploadSuccess(res)
     } catch (err: unknown) {
       handleUploadError(err)
     }
   }
+
+  // NC Files column — beside BOM Files (combined) or under MAIN | ACC (separate)
+  const ncSection = (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+      <div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
+          NC Files <span style={{ color: '#C8202A' }}>*</span>
+          <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
+            .nc1 files from Tekla (canonical source for qty + dimensions)
+          </span>
+        </label>
+        <FileDropzone
+          maxFiles={1500}
+          currentCount={ncFiles.length}
+          acceptedFormats={NC_FORMATS}
+          hint=".nc1 · max 20 MB / file · up to 1500 files"
+          onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
+          disabled={false}
+        />
+      </div>
+
+      {ncFiles.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between" style={{ marginBottom: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E' }}>NC FILES ({ncFiles.length})</span>
+            {/* remove every NC file at once (Tao 2026-11-23) */}
+            <button type="button" onClick={() => setNcFiles([])} style={{ fontSize: 11.5, color: '#C8202A', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Clear all</button>
+          </div>
+          <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
+            {ncFiles.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
+                <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      </div>
+  )
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 56px)', overflowY: 'auto' }}>
@@ -269,11 +353,11 @@ export function BomUpload() {
         >
           <ArrowLeft size={16} />
         </button>
-        <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>Upload BOM</span>
+        <span style={{ fontSize: 16, fontWeight: 600, color: '#1F1F1F' }}>{isUpdate ? 'Update BOM' : 'Upload BOM'}</span>
       </div>
 
       {/* Form */}
-      <div style={{ maxWidth: 640, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ maxWidth: 1240, width: '100%', margin: '0 auto', padding: '32px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Project */}
         <div>
@@ -281,7 +365,8 @@ export function BomUpload() {
             Project <span style={{ color: '#C8202A' }}>*</span>
           </label>
           <select
-            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: 'white' }}
+            disabled={isUpdate}
+            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: '1px solid #E0E0E0', borderRadius: 6, background: 'white', ...(isUpdate && lockedSelect) }}
             value={activeProject?.id ?? ''}
             onChange={e => {
               const project = projects.find(p => p.id === Number(e.target.value))
@@ -301,8 +386,8 @@ export function BomUpload() {
             Zone <span style={{ color: '#C8202A' }}>*</span>
           </label>
           <select
-            disabled={!activeProject}
-            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${zoneId ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: activeProject ? 'white' : '#F5F5F5' }}
+            disabled={!activeProject || isUpdate}
+            style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${zoneId && !isUpdate ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: activeProject ? 'white' : '#F5F5F5', ...(isUpdate && lockedSelect) }}
             value={zoneId}
             onChange={e => handleZoneChange(e.target.value)}
           >
@@ -320,7 +405,7 @@ export function BomUpload() {
             </span>
           </label>
           <select
-            disabled={!zoneId || subZones.length === 0}
+            disabled={!zoneId || subZones.length === 0 || isUpdate}
             style={{ width: '100%', height: 36, padding: '0 10px', fontSize: 13, border: `1px solid ${subZoneId ? '#C8202A' : '#E0E0E0'}`, borderRadius: 6, background: zoneId && subZones.length > 0 ? 'white' : '#F5F5F5', opacity: !zoneId || subZones.length === 0 ? 0.5 : 1 }}
             value={subZoneId}
             onChange={e => setSubZoneId(e.target.value)}
@@ -330,8 +415,30 @@ export function BomUpload() {
           </select>
         </div>
 
-        {/* Upload Mode Radio */}
-        {zoneId && !zoneModeLoading && (
+        {/* BOM Type + Upload Mode on one row */}
+        {zoneId && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', columnGap: 48, rowGap: 16 }}>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#555', marginBottom: 8 }}>BOM Type</div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              {([['full', 'Full shop (BOM)'], ['preshop', 'Pre-shop']] as const).filter(([t]) => t === 'full' || !isModeLocked).map(([t, label]) => (
+                <label key={t} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 16px', borderRadius: 8, fontSize: 13,
+                  border: `1px solid ${bomType === t ? '#C8202A' : '#E0E0E0'}`, background: bomType === t ? '#FEF2F2' : 'white', color: '#1F1F1F',
+                }}>
+                  <input type="radio" name="bom-type" checked={bomType === t} onChange={() => setBomType(t)} style={{ accentColor: '#C8202A' }} />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {bomType === 'preshop' && (
+              <div style={{ fontSize: 11.5, color: '#767676', marginTop: 6 }}>
+                Pre-shop: ยังไม่มี BOM จริง · ใช้ Dispatch Note และ Part list (ถ้ามี) หรือกรอกเองทั้งหมด · บันทึกแต่ละครั้งเป็น rev ใหม่
+              </div>
+            )}
+          </div>
+        {/* Upload Mode Radio — Full shop only, beside BOM Type (2026-11-23) */}
+        {bomType === 'full' && !zoneModeLoading && (
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 8 }}>
               BOM Upload Mode
@@ -373,10 +480,47 @@ export function BomUpload() {
             </div>
           </div>
         )}
+          </div>
+        )}
 
-        {/* BOM Files — Combined */}
+        {/* Pre-shop editor */}
+        {bomType === 'preshop' && zoneId && (
+          preshopCurrent.isLoading
+            ? <div className="flex items-center gap-2" style={{ fontSize: 13, color: '#8E8E8E' }}><Loader2 size={14} className="animate-spin" />Loading pre-shop…</div>
+            : preshopCurrent.isError
+            // an empty editor saved from here would replace the real current revision
+            ? (
+              <div className="flex items-center gap-3" style={{ fontSize: 13, color: '#A01A22', border: '1px solid #F3C7C9', background: '#FDF1F1', borderRadius: 8, padding: '8px 12px' }}>
+                โหลด pre-shop ของ zone นี้ไม่ได้ — ลองใหม่อีกครั้ง
+                <button type="button" onClick={() => preshopCurrent.refetch()} style={{ fontSize: 12.5, fontWeight: 600, color: '#C8202A', background: '#fff', border: '1px solid #E8A0A0', borderRadius: 6, padding: '3px 10px', cursor: 'pointer' }}>Retry</button>
+              </div>
+            )
+            : (
+              <>
+                {preshopCurrent.data && (
+                  <div style={{ fontSize: 12.5, color: '#555' }}>
+                    Pre-shop rev {preshopCurrent.data.revision} · saved {new Date(preshopCurrent.data.uploaded_at).toLocaleString('en-GB')} — แก้ด้วยมือหรืออัปไฟล์ใหม่เพื่อเทียบกับค่าเดิม
+                  </div>
+                )}
+                <PreshopEditor
+                  key={`${zoneId}-${subZoneId}-${preshopCurrent.data?.dispatch_id ?? 'new'}`}
+                  initial={preshopCurrent.data ? fromSaved(preshopCurrent.data.assemblies) : EMPTY_STATE}
+                  onSave={handleSavePreshop}
+                  saving={savePreshop.isPending}
+                  canWrite={canWrite}
+                />
+                <div>
+                  <button onClick={() => navigate('/bom')} style={{ fontSize: 13, color: '#555', background: 'none', border: 'none', cursor: 'pointer' }}>Cancel</button>
+                </div>
+              </>
+            )
+        )}
+
+        {bomType === 'full' && (<>
+        {/* BOM Files + NC Files side by side (2026-11-23, Tao) — like Dispatch Note + Part list in Pre-shop */}
         {effectiveMode === 'combined' && (
-          <BomFileSection
+          <div data-testid="bom-nc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20, alignItems: 'start' }}>
+            <BomFileSection
             label="BOM Files"
             hint="Assembly List, Assembly Part List, Part List (3 files required)"
             maxFiles={3}
@@ -386,12 +530,13 @@ export function BomUpload() {
             onRemove={combined.removeFile}
             onTypeChange={combined.updateType}
           />
+            {ncSection}
+          </div>
         )}
-
-        {/* BOM Files — Separate */}
         {effectiveMode === 'separate' && (
           <>
-            <BomFileSection
+            <div data-testid="main-acc-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 20, alignItems: 'start' }}>
+              <BomFileSection
               label="MAIN BOM Files"
               hint="MAIN Assembly List, MAIN Assembly Part List, MAIN Part List"
               maxFiles={3}
@@ -399,11 +544,12 @@ export function BomUpload() {
               allowedTypes={REQUIRED_MAIN_TYPES}
               dnInfoText={DN_SLOT_INFO_TEXT}
               dnOrphanMessage={mainDnOrphan ? 'ใส่ Dispatch Note ของ Main แล้ว แต่ไม่มีไฟล์ BOM ของ Main' : undefined}
+              sharedNote={sharedPartListNote('MAIN', mainTypes, separate.sharedFrom)}
               onFilesAdded={main.onFilesAdded}
               onRemove={main.removeFile}
               onTypeChange={main.updateType}
             />
-            <BomFileSection
+              <BomFileSection
               label="ACC BOM Files"
               hint="ACC Assembly List, ACC Assembly Part List, ACC Part List"
               maxFiles={3}
@@ -411,43 +557,14 @@ export function BomUpload() {
               allowedTypes={REQUIRED_ACC_TYPES}
               dnInfoText={DN_SLOT_INFO_TEXT}
               dnOrphanMessage={accDnOrphan ? 'ใส่ Dispatch Note ของ Acc แล้ว แต่ไม่มีไฟล์ BOM ของ Acc' : undefined}
+              sharedNote={sharedPartListNote('ACC', accTypes, separate.sharedFrom)}
               onFilesAdded={acc.onFilesAdded}
               onRemove={acc.removeFile}
               onTypeChange={acc.updateType}
             />
-          </>
-        )}
-
-        {/* NC Files */}
-        <div>
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#555', display: 'block', marginBottom: 6 }}>
-            NC Files <span style={{ color: '#C8202A' }}>*</span>
-            <span style={{ fontSize: 11, fontWeight: 400, color: '#8E8E8E', marginLeft: 6 }}>
-              .nc1 files from Tekla (canonical source for qty + dimensions)
-            </span>
-          </label>
-          <FileDropzone
-            maxFiles={1500}
-            currentCount={ncFiles.length}
-            acceptedFormats={NC_FORMATS}
-            hint=".nc1 · max 20 MB / file · up to 1500 files"
-            onFilesAdded={(accepted) => setNcFiles(prev => [...prev, ...accepted])}
-            disabled={false}
-          />
-        </div>
-
-        {ncFiles.length > 0 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: '#8E8E8E', marginBottom: 6 }}>NC FILES ({ncFiles.length})</div>
-            <div style={{ maxHeight: 180, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E0E0E0', borderRadius: 6, padding: '6px', background: '#FAFAFA' }}>
-              {ncFiles.map((f, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', background: 'white', borderRadius: 4, border: '1px solid #ECECEC', fontSize: 12, flexShrink: 0 }}>
-                  <span style={{ color: '#333', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                  <button onClick={() => setNcFiles(prev => prev.filter((_, j) => j !== i))} style={{ fontSize: 11, color: '#8E8E8E', background: 'none', border: 'none', cursor: 'pointer', marginLeft: 8, flexShrink: 0 }}>✕</button>
-                </div>
-              ))}
             </div>
-          </div>
+            {ncSection}
+          </>
         )}
 
         {/* Progress */}
@@ -478,7 +595,19 @@ export function BomUpload() {
                 : <><Upload size={14} />Upload</>}
           </button>
         </div>
+        </>)}
       </div>
+
+      {conflict && (
+        <PreshopConflictDialog
+          current={conflict.current}
+          baseRevision={preshopCurrent.data?.revision ?? null}
+          mine={conflict.assemblies}
+          saving={savePreshop.isPending}
+          onBack={() => setConflict(null)}
+          onOverwrite={() => handleSavePreshop(conflict.assemblies, true)}
+        />
+      )}
 
       {uploadFlow.pendingMismatch && (
         <JunctionMismatchModal
@@ -495,12 +624,14 @@ export function BomUpload() {
           isUploading={uploadFlow.uploadMutation.isPending}
           onCancel={() => { uploadFlow.cancel(); setProgress(null) }}
           onConfirm={handleConfirmReview}
+          allowRename={canPair}
         />
       )}
 
       {renameStep.dispatchId != null && (
         <RenamePairDialog
           dispatchId={renameStep.dispatchId}
+          partsOnly={renameStep.partsOnly}
           onClose={() => { const id = renameStep.dispatchId!; renameStep.close(); navigate(`/bom/dispatch/${id}/paint`) }}
         />
       )}
@@ -519,12 +650,14 @@ interface BomFileSectionProps {
   allowedTypes: DocType[]
   dnInfoText?: string
   dnOrphanMessage?: string
+  /** this box borrows the other box's Part List */
+  sharedNote?: string
   onFilesAdded: (accepted: File[], rejected: FileRejection[]) => void
   onRemove: (index: number) => void
   onTypeChange: (index: number, type: DocType) => void
 }
 
-function BomFileSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, onFilesAdded, onRemove, onTypeChange }: BomFileSectionProps) {
+function BomFileSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText, dnOrphanMessage, sharedNote, onFilesAdded, onRemove, onTypeChange }: BomFileSectionProps) {
   const validCount = files.filter(e => !e.error).length
   // +1 slot: a Dispatch Note can be picked here too, on top of the required files — optional.
   const capacity = maxFiles + 1
@@ -560,6 +693,7 @@ function BomFileSection({ label, hint, maxFiles, files, allowedTypes, dnInfoText
       {dnOrphanMessage && (
         <div style={{ fontSize: 12, color: '#EF4444', marginTop: 6 }}>{dnOrphanMessage}</div>
       )}
+      {sharedNote && <div style={{ fontSize: 12, color: '#555', marginTop: 6 }}>{sharedNote}</div>}
     </div>
   )
 }

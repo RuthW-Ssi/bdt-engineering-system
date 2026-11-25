@@ -25,7 +25,7 @@ describe('BomDiffService.computeDiff with a confirmed pair', () => {
   it('one row "เปลี่ยนชื่อ" instead of removed + added; junctions stay unchanged', async () => {
     const prisma: any = {
       bom_mark_rename: { findMany: jest.fn().mockResolvedValue(renames) },
-      bom_dispatch: { findMany: jest.fn().mockResolvedValue([{ id: 9, status: 'complete' }]) },
+      bom_dispatch: { findUnique: jest.fn().mockResolvedValue({ id: 9, source: 'BOM_UPLOAD', revision: 2 }), findMany: jest.fn().mockResolvedValue([{ id: 9, status: 'complete' }]) },
     }
     const svc = new BomDiffService(prisma)
     jest.spyOn(svc, 'findPreviousRevisionGroup').mockResolvedValue({ current: { mainId: 9, accId: 9 }, previous: { mainId: 5, accId: 5 } })

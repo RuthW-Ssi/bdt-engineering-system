@@ -23,13 +23,25 @@ export const showValue = (v: string | number | null | undefined) => (v == null |
 
 /** One plain line per change: "L 650 → 700", "เพิ่ม part p2", "part p1: Profile A → B". */
 export function diffLines(d: MarkDiffDto | null): string[] {
-  if (!d) return []
-  return [
-    ...d.fields.map(c => `${MARK_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`),
-    ...d.parts_added.map(p => `เพิ่ม part ${p.part_mark}`),
-    ...d.parts_removed.map(p => `ลบ part ${p.part_mark}`),
-    ...d.parts_changed.map(p => `part ${p.part_mark}: ${p.changes.map(c => `${PART_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`).join(', ')}`),
-  ]
+  const g = diffGroups(d)
+  return [...g.assembly, ...g.part]
+}
+
+/** The diff split into the mark's own fields and its parts — each folds on its own in the review (2026-11-23, Tao).
+ *  Both fold by default; the folded lines are `assemblySummary` and `partSummary` ("เพิ่ม 1 · ลบ 16"). */
+export function diffGroups(d: MarkDiffDto | null): { assembly: string[]; part: string[]; assemblySummary: string; partSummary: string } {
+  if (!d) return { assembly: [], part: [], assemblySummary: '', partSummary: '' }
+  return {
+    // folded line names the fields that changed, e.g. "W · kg/ชุด · area/ชุด"
+    assemblySummary: d.fields.map(c => MARK_FIELD_LABEL[c.field] ?? c.field).join(' · '),
+    assembly: d.fields.map(c => `${MARK_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`),
+    part: [
+      ...d.parts_added.map(p => `เพิ่ม part ${p.part_mark}`),
+      ...d.parts_removed.map(p => `ลบ part ${p.part_mark}`),
+      ...d.parts_changed.map(p => `part ${p.part_mark}: ${p.changes.map(c => `${PART_FIELD_LABEL[c.field] ?? c.field} ${showValue(c.old)} → ${showValue(c.new)}`).join(', ')}`),
+    ],
+    partSummary: [d.parts_added.length && `เพิ่ม ${d.parts_added.length}`, d.parts_removed.length && `ลบ ${d.parts_removed.length}`, d.parts_changed.length && `เปลี่ยน ${d.parts_changed.length}`].filter(Boolean).join(' · '),
+  }
 }
 
 /** The review table's "ผล" cell. */
@@ -53,8 +65,8 @@ export const cancelledNote = (r: RevReviewRowDto): string | null =>
 /** Rename hint line (server pairs a new and a removed mark that look like one piece). Pairing itself stays after save. */
 export function renameNote(r: RevReviewRowDto): string | null {
   if (!r.rename_hint) return null
-  if (r.kind === 'added') return `อาจเปลี่ยนชื่อจาก ${r.rename_hint} — จับคู่ชื่อได้หลังบันทึก`
-  return r.kind === 'removed' ? `อาจเปลี่ยนชื่อเป็น ${r.rename_hint}` : null
+  if (r.kind === 'added') return `อาจเปลี่ยน mark จาก ${r.rename_hint}`
+  return r.kind === 'removed' ? `อาจเปลี่ยนเป็น ${r.rename_hint}` : null
 }
 
 /** Review order: a hinted removed row moves right under its new mark; everything else keeps its order. */
@@ -86,4 +98,21 @@ export function revError(r: RevReviewRowDto, text: string): string | null {
   // changed data must raise the rev (WO alerts only on a rev rise)
   if (r.kind === 'changed' && r.prev_rev != null && n <= r.prev_rev) return `ข้อมูลของ mark นี้เปลี่ยน ต้องใส่ rev มากกว่า ${r.prev_rev}`
   return null
+}
+
+// ── A missing mark is deleted or renamed — the user says which, before save (2026-11-23, Tao) ──
+export type MissingDecision = 'delete' | { rename: string }
+
+/** Removed marks the uploaded Dispatch Note still lists (not cancelled) — the Assembly List may be an incomplete export. */
+export function removedStillInDn(rows: Pick<RevReviewRowDto, 'mark' | 'kind' | 'in_dn' | 'dn_cancelled_in_files'>[]): string[] {
+  return rows.filter(r => r.kind === 'removed' && r.in_dn && !r.dn_cancelled_in_files).map(r => r.mark)
+}
+
+/** Removed marks with no decision yet — save stays disabled while any are left. */
+export function missingDecisions(rows: Pick<RevReviewRowDto, 'mark' | 'kind'>[], decisions: Record<string, MissingDecision>): string[] {
+  return rows.filter(r => r.kind === 'removed' && !decisions[r.mark]).map(r => r.mark)
+}
+
+export function renamesFrom(decisions: Record<string, MissingDecision>): { from_mark: string; to_mark: string }[] {
+  return Object.entries(decisions).flatMap(([from, d]) => (typeof d === 'object' ? [{ from_mark: from, to_mark: d.rename }] : []))
 }

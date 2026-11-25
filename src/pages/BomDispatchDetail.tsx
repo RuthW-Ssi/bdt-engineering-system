@@ -12,6 +12,7 @@ import { DiffExportButtons } from '../components/bom/DiffExportButtons'
 import { DiffBimComparePanel } from '../components/bom/DiffBimComparePanel'
 import { RenamePairDialog } from '../components/bom/RenamePairDialog'
 import { RenameHistory } from '../components/bom/RenameHistory'
+import { uploadLabel } from '../lib/bom/markRev'
 import { buildAssemblyStatusMap } from '../lib/bom/diffBimMatch'
 import type { DispatchDiffDto, RenameKind, RenamePairDto, RenameEventDto } from '../api/dispatches'
 
@@ -95,6 +96,18 @@ export function BomDispatchDetail() {
               <span style={{ color: '#C2C2C2' }}>/</span>
               <span style={{ fontSize: 15, fontWeight: 500, color: '#555' }}>{detail.sub_zone.code || detail.sub_zone.name}</span>
             </>
+          )}
+          {/* the two versions compared, "v.5 → v.6" (2026-11-24, Tao); pre-shop keeps the BOM page's amber tag */}
+          {diff && (
+            <span style={{
+              borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 600, marginLeft: 4,
+              ...(detail.source === 'PRE_SHOP'
+                ? { background: '#FAEEDA', border: '1px solid #F0D9B5', color: '#854F0B' }
+                : { background: '#EFF6FF', border: '1px solid #BFDBFE', color: '#1D4ED8' }),
+            }}>
+              {/* a first full shop compared with the last pre-shop names that side — the two count differently */}
+              {`${detail.source !== 'PRE_SHOP' && diff.prev_source === 'PRE_SHOP' ? 'Pre-shop ' : ''}${uploadLabel(diff.prev_no)} → ${uploadLabel(diff.curr_no)}`}
+            </span>
           )}
         </div>
       </div>
