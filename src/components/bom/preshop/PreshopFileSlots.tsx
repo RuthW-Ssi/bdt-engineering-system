@@ -55,21 +55,42 @@ function Slot({ testId, label, hint, chip, chipBg, chipFg, slot, disabled, onFil
   )
 }
 
-export function PreshopFileSlots({ dn, pl, disabled, onDispatchNote, onPartList, onRemoveDn, onRemovePl }: {
+type Box = 'MAIN' | 'ACC' | null
+
+/** Combined: one Dispatch Note + one Part List (box null). Separate (2026-11-25): one of each per MAIN / ACC —
+ *  one Part List in either box is shared by both, two = each its own, as on the Full shop page. */
+export function PreshopFileSlots({ mode = 'combined', dn, pl, dnAcc = EMPTY, plAcc = EMPTY, disabled, onDispatchNote, onPartList, onRemoveDn, onRemovePl }: {
+  mode?: 'combined' | 'separate'
   dn: SlotState
   pl: SlotState
+  dnAcc?: SlotState
+  plAcc?: SlotState
   disabled: boolean
-  onDispatchNote: (f: File) => void
-  onPartList: (f: File) => void
-  onRemoveDn: () => void
-  onRemovePl: () => void
+  onDispatchNote: (f: File, box: Box) => void
+  onPartList: (f: File, box: Box) => void
+  onRemoveDn: (box: Box) => void
+  onRemovePl: (box: Box) => void
 }) {
+  const DN = { chip: 'Dispatch Note', chipBg: '#E6F1FB', chipFg: '#0C447C', hint: 'ไม่มีไฟล์ก็เพิ่ม assembly เองได้' }
+  const PL = { chipBg: '#EAF3DE', chipFg: '#27500A' }
+  if (mode === 'combined') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
+        <Slot testId="slot-dn" label="Dispatch Note" {...DN} slot={dn} disabled={disabled} onFile={f => onDispatchNote(f, null)} onRemove={() => onRemoveDn(null)} />
+        <Slot testId="slot-pl" label="Part list (ถ้ามี)" hint="ไม่มีไฟล์ก็เพิ่ม part เองได้" chip="Part list" {...PL} slot={pl} disabled={disabled} onFile={f => onPartList(f, null)} onRemove={() => onRemovePl(null)} />
+      </div>
+    )
+  }
+  const plHint = (mine: SlotState, other: SlotState, otherBox: string) =>
+    !mine.file && other.file ? `ใช้ Part List ร่วมจากช่อง ${otherBox}` : 'ไม่มีไฟล์ก็เพิ่ม part เองได้'
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-      <Slot testId="slot-dn" label="Dispatch Note" hint="ไม่มีไฟล์ก็เพิ่ม assembly เองได้" chip="Dispatch Note" chipBg="#E6F1FB" chipFg="#0C447C"
-        slot={dn} disabled={disabled} onFile={onDispatchNote} onRemove={onRemoveDn} />
-      <Slot testId="slot-pl" label="Part list (ถ้ามี)" hint="ไม่มีไฟล์ก็เพิ่ม part เองได้" chip="Part list" chipBg="#EAF3DE" chipFg="#27500A"
-        slot={pl} disabled={disabled} onFile={onPartList} onRemove={onRemovePl} />
+      <Slot testId="slot-dn-main" label="Dispatch Note MAIN" {...DN} chip="Dispatch Note MAIN" slot={dn} disabled={disabled} onFile={f => onDispatchNote(f, 'MAIN')} onRemove={() => onRemoveDn('MAIN')} />
+      <Slot testId="slot-dn-acc" label="Dispatch Note ACC" {...DN} chip="Dispatch Note ACC" slot={dnAcc} disabled={disabled} onFile={f => onDispatchNote(f, 'ACC')} onRemove={() => onRemoveDn('ACC')} />
+      <Slot testId="slot-pl-main" label="Part list MAIN (ถ้ามี)" hint={plHint(pl, plAcc, 'ACC')} chip="Part list MAIN" {...PL} slot={pl} disabled={disabled} onFile={f => onPartList(f, 'MAIN')} onRemove={() => onRemovePl('MAIN')} />
+      <Slot testId="slot-pl-acc" label="Part list ACC (ถ้ามี)" hint={plHint(plAcc, pl, 'MAIN')} chip="Part list ACC" {...PL} slot={plAcc} disabled={disabled} onFile={f => onPartList(f, 'ACC')} onRemove={() => onRemovePl('ACC')} />
     </div>
   )
 }
+
+const EMPTY: SlotState = { file: null, loading: false }

@@ -10,8 +10,11 @@ import type { PreshopAssembly, PreshopListPart } from '../api/bomPreshop'
 
 export type AsmField = 'qty' | 'name' | 'length_mm' | 'width_mm' | 'height_mm' | 'weight_kg' | 'surface_area_m2'
 export type PartField = 'profile' | 'grade' | 'length_mm' | 'unit_weight_kg' | 'no'
-export interface EdAsm { key: string; src: 'saved' | 'dn' | 'own'; mark: string; qty: number; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null }
-export interface EdPart { key: string; src: 'saved' | 'pl' | 'own'; part_mark: string; profile: string; grade: string; length_mm: number | null; unit_weight_kg: number | null; no: number | null }
+export type Slot = 'MAIN' | 'ACC'
+// slot: Separate pre-shop only (2026-11-25) — the Dispatch Note it came from, or picked for a hand-added row
+export interface EdAsm { slot?: Slot | null; key: string; src: 'saved' | 'dn' | 'own'; mark: string; qty: number; name: string | null; length_mm: number | null; width_mm: number | null; height_mm: number | null; weight_kg: number | null; surface_area_m2: number | null }
+// plSlot: the Part List box it came from (Separate); null = hand-added / saved / combined
+export interface EdPart { plSlot?: Slot | null; key: string; src: 'saved' | 'pl' | 'own'; part_mark: string; profile: string; grade: string; length_mm: number | null; unit_weight_kg: number | null; no: number | null }
 export interface EdLink { asmKey: string; partKey: string; qty: number } // qty per set
 export interface EditorState { asm: EdAsm[]; parts: EdPart[]; links: EdLink[] }
 export interface Conflict { id: string; kind: 'asm' | 'part'; key: string; mark: string; field: AsmField | PartField; old: string | number | null; new: string | number | null }
@@ -28,9 +31,9 @@ export const newKey = (prefix: string) => `${prefix}${++seq}`
 const blank = (v: unknown) => v == null || (typeof v === 'string' && v.trim() === '')
 const same = (a: unknown, b: unknown) => (blank(a) && blank(b)) || (typeof a === 'string' && typeof b === 'string' ? a.trim() === b.trim() : a === b)
 
-function asmRow(a: PreshopAssembly, src: EdAsm['src']): EdAsm {
+function asmRow(a: PreshopAssembly, src: EdAsm['src'], slot: Slot | null = a.slot ?? null): EdAsm {
   return {
-    key: newKey('a'), src, mark: a.assembly_mark.trim(), qty: a.qty, name: a.name ?? null,
+    key: newKey('a'), src, slot, mark: a.assembly_mark.trim(), qty: a.qty, name: a.name ?? null,
     length_mm: a.length_mm ?? null, width_mm: a.width_mm ?? null, height_mm: a.height_mm ?? null,
     weight_kg: a.weight_kg ?? null, surface_area_m2: a.surface_area_m2 ?? null,
   }
@@ -57,33 +60,37 @@ export function fromSaved(assemblies: PreshopAssembly[]): EditorState {
   return { asm, parts, links }
 }
 
-export function mergeDispatchNote(s: EditorState, incoming: PreshopAssembly[]): MergeResult {
+/** `slot` = the Dispatch Note box (Separate); its marks take that slot, and only that slot's rows can go missing. */
+export function mergeDispatchNote(s: EditorState, incoming: PreshopAssembly[], slot: Slot | null = null): MergeResult {
   const conflicts: Conflict[] = []
   const asm = [...s.asm]
   const inFile = new Set<string>()
   for (const a of incoming) {
     const mark = a.assembly_mark.trim()
     inFile.add(mark)
-    const cur = asm.find(x => x.mark === mark)
-    if (!cur) { asm.push(asmRow(a, 'dn')); continue }
+    const i = asm.findIndex(x => x.mark === mark)
+    if (i < 0) { asm.push(asmRow(a, 'dn', slot)); continue }
+    if (slot) asm[i] = { ...asm[i], slot } // the file is the truth for its slot
+    const cur = asm[i]
     const next = asmRow(a, 'dn')
     for (const f of ASM_FIELDS) {
       if (blank(next[f]) || same(cur[f], next[f])) continue
       conflicts.push({ id: `asm:${cur.key}:${f}`, kind: 'asm', key: cur.key, mark, field: f, old: cur[f], new: next[f] })
     }
   }
-  const missing = s.asm.filter(a => a.src !== 'own' && !inFile.has(a.mark)).map(a => a.mark)
+  const missing = s.asm.filter(a => a.src !== 'own' && !inFile.has(a.mark) && (slot == null || a.slot === slot)).map(a => a.mark)
   return { state: { ...s, asm }, conflicts, missing }
 }
 
-export function mergePartList(s: EditorState, incoming: PreshopListPart[]): MergeResult {
+/** `slot` = the Part List box (Separate). */
+export function mergePartList(s: EditorState, incoming: PreshopListPart[], slot: Slot | null = null): MergeResult {
   const conflicts: Conflict[] = []
   const parts = s.parts.map(p => ({ ...p })) // copies — a cancelled dialog must leave the current state as it was
   for (const p of incoming) {
     const mark = p.part_mark.trim()
     const cur = parts.find(x => x.part_mark === mark)
     if (!cur) {
-      parts.push({ key: newKey('p'), src: 'pl', part_mark: mark, profile: p.profile, grade: p.grade, length_mm: p.length_mm, unit_weight_kg: p.unit_weight_kg, no: p.no })
+      parts.push({ key: newKey('p'), src: 'pl', plSlot: slot, part_mark: mark, profile: p.profile, grade: p.grade, length_mm: p.length_mm, unit_weight_kg: p.unit_weight_kg, no: p.no })
       continue
     }
     for (const f of PART_FIELDS) {
@@ -115,9 +122,10 @@ export function applyMerge(r: MergeResult, picks: Record<string, Pick>, remove: 
   return { asm, parts, links: r.state.links.filter(l => keep.has(l.asmKey)) }
 }
 
-export function removeFileRows(s: EditorState, src: 'dn' | 'pl'): EditorState {
-  const asm = src === 'dn' ? s.asm.filter(a => a.src !== 'dn') : s.asm
-  const parts = src === 'pl' ? s.parts.filter(p => p.src !== 'pl') : s.parts
+/** `slot` (Separate): only the rows that came from that box. */
+export function removeFileRows(s: EditorState, src: 'dn' | 'pl', slot: Slot | null = null): EditorState {
+  const asm = src === 'dn' ? s.asm.filter(a => a.src !== 'dn' || (slot != null && a.slot !== slot)) : s.asm
+  const parts = src === 'pl' ? s.parts.filter(p => p.src !== 'pl' || (slot != null && p.plSlot !== slot)) : s.parts
   const a = new Set(asm.map(x => x.key))
   const p = new Set(parts.map(x => x.key))
   return { asm, parts, links: s.links.filter(l => a.has(l.asmKey) && p.has(l.partKey)) }
@@ -142,14 +150,15 @@ export function usage(s: EditorState, partKey: string): { asmMarks: string[]; pc
   return { asmMarks, pcs, over: part?.no != null && pcs > part.no }
 }
 
-export interface SaveErrors { needsParts: string[]; badSets: string[]; blankMarks: number; dupMarks: string[]; badQty: string[]; incompleteParts: string[]; dupPartMarks: string[] }
+export interface SaveErrors { noSlot: string[]; needsParts: string[]; badSets: string[]; blankMarks: number; dupMarks: string[]; badQty: string[]; incompleteParts: string[]; dupPartMarks: string[] }
 
-export function saveErrors(s: EditorState): SaveErrors {
+export function saveErrors(s: EditorState, mode: 'combined' | 'separate' = 'combined'): SaveErrors {
   const label = (a: EdAsm) => a.mark.trim() || '(no mark)'
   const marks = s.asm.map(a => a.mark.trim()).filter(Boolean)
   const linked = (a: EdAsm) => s.links.filter(l => l.asmKey === a.key && s.parts.some(p => p.key === l.partKey))
   const usedParts = new Set(s.links.filter(l => s.asm.some(a => a.key === l.asmKey)).map(l => l.partKey))
   return {
+    noSlot: mode === 'separate' ? s.asm.filter(a => a.slot !== 'MAIN' && a.slot !== 'ACC').map(label) : [],
     needsParts: s.asm.filter(a => linked(a).length === 0).map(label),
     badSets: s.asm.filter(a => !(a.qty > 0)).map(label),
     blankMarks: s.asm.filter(a => !a.mark.trim()).length,
@@ -167,16 +176,20 @@ export function saveErrors(s: EditorState): SaveErrors {
 }
 
 export function canSave(e: SaveErrors, s: EditorState): boolean {
-  return s.asm.length > 0 && !e.needsParts.length && !e.badSets.length && e.blankMarks === 0 && !e.dupMarks.length && !e.badQty.length && !e.incompleteParts.length && !e.dupPartMarks.length
+  return s.asm.length > 0 && !e.noSlot.length && !e.needsParts.length && !e.badSets.length && e.blankMarks === 0 && !e.dupMarks.length && !e.badQty.length && !e.incompleteParts.length && !e.dupPartMarks.length
 }
 
-export function toPayload(s: EditorState): PreshopAssembly[] {
+/** Separate: each assembly's slot; a part's box slot only when both Part Lists were loaded (else the server
+ *  derives it from the assemblies using it — the Full shop's shared Part List rule). */
+export function toPayload(s: EditorState, opts: { mode: 'combined' | 'separate'; bothPartLists: boolean } = { mode: 'combined', bothPartLists: false }): PreshopAssembly[] {
+  const sep = opts.mode === 'separate'
   return s.asm.map(a => ({
+    slot: sep ? a.slot ?? null : null,
     assembly_mark: a.mark.trim(), name: a.name?.trim() || null, qty: a.qty,
     length_mm: a.length_mm, width_mm: a.width_mm, height_mm: a.height_mm, weight_kg: a.weight_kg, surface_area_m2: a.surface_area_m2,
     parts: s.links.filter(l => l.asmKey === a.key).flatMap(l => {
       const p = s.parts.find(x => x.key === l.partKey)
-      return p ? [{ part_mark: p.part_mark.trim(), profile: p.profile.trim(), grade: p.grade.trim(), length_mm: Number(p.length_mm), unit_weight_kg: Number(p.unit_weight_kg), qty: l.qty }] : []
+      return p ? [{ part_mark: p.part_mark.trim(), profile: p.profile.trim(), grade: p.grade.trim(), length_mm: Number(p.length_mm), unit_weight_kg: Number(p.unit_weight_kg), qty: l.qty, slot: sep && opts.bothPartLists ? p.plSlot ?? null : null }] : []
     }),
   }))
 }
