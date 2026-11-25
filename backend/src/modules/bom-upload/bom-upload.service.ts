@@ -285,6 +285,13 @@ export class BomUploadService {
             },
             data: { status: 'INACTIVE' },
           })
+          // A mark of this upload still in the other slot's pre-shop (put there by hand) is replaced too — never ACTIVE twice (2026-11-25)
+          if (slotsTouched) {
+            await tx.bom_assembly.updateMany({
+              where: { status: 'ACTIVE', assembly_mark: { in: asmList.assemblies.map(a => a.assembly_mark) }, dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } },
+              data: { status: 'INACTIVE' },
+            })
+          }
         }
 
         if (dedupedParts.length) {
@@ -298,6 +305,12 @@ export class BomUploadService {
             },
             data: { status: 'INACTIVE' },
           })
+          if (slotsTouched) {
+            await tx.bom_part.updateMany({
+              where: { status: 'ACTIVE', part_mark: { in: dedupedParts.map(p => p.part_mark) }, dispatch: { project_id: projectId, zone_id: zoneId, sub_zone_id: subZoneId, source: 'PRE_SHOP', revision: { gte: 1 } } },
+              data: { status: 'INACTIVE' },
+            })
+          }
         }
 
         // bom_assembly rows — batch insert, get IDs back in one round-trip
@@ -574,7 +587,7 @@ export class BomUploadService {
 
   /** The zone's current BOM per mark (its ACTIVE real-upload rows) + which of them this upload removes.
    *  A slot with no Full shop yet takes the latest BOM-page pre-shop's rows instead (2026-11-25). */
-  private async loadRevBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null, hasAssemblies: boolean) {
+  private async loadRevBase(scope: UploadScope, slots: ('MAIN' | 'ACC')[] | null, hasAssemblies: boolean, marks: string[] = []) {
     const dispatchScope = { project_id: scope.projectId, zone_id: scope.zoneId, sub_zone_id: scope.subZoneId, source: 'BOM_UPLOAD' }
     const select = {
       assembly_mark: true, name: true, qty: true, length_mm: true, width_mm: true, height_mm: true, weight_kg: true, surface_area_m2: true, rev: true, slot: true,
@@ -586,7 +599,10 @@ export class BomUploadService {
       this.preshopBase(scope, slots),
     ])
     // read by dispatch id, not ACTIVE: an earlier Full shop of the other slot may have closed some of them
-    const preRows = pre ? await this.prisma.bom_assembly.findMany({ where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { slot: { in: pre.slots } } : {}) }, select }) : []
+    // + this upload's marks still ACTIVE in the pre-shop's other slot (the save closes them too)
+    const preRows = pre ? await this.prisma.bom_assembly.findMany({
+      where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { OR: [{ slot: { in: pre.slots } }, { status: 'ACTIVE', assembly_mark: { in: marks } }] } : {}) }, select,
+    }) : []
     const toPrev = (r: (typeof rows)[number], preshop: boolean): PrevMark => ({ ...snapshot(r, r.assembly_parts.map(ap => partLine(ap.part, ap.qty))), rev: r.rev, slot: r.slot, ...(preshop && { preshop: true }) })
     const previous: PrevMark[] = [...rows.map(r => toPrev(r, false)), ...preRows.map(r => toPrev(r, true))]
     // Same rule as the save's deactivation: no Assembly List → nothing removed;
@@ -615,7 +631,7 @@ export class BomUploadService {
   private async decide(prep: Prepared, uploadMode: 'combined' | 'separate', scope: UploadScope): Promise<{ decision: RevDecision; baseDispatchId: number | null }> {
     const assemblies = prep.parsed.get('ASSEMBLY_LIST')?.assemblies ?? []
     const junctions = prep.parsed.get('ASSEMBLY_PART_LIST')
-    const base = await this.loadRevBase(scope, slotsTouchedOf(assemblies, uploadMode), assemblies.length > 0)
+    const base = await this.loadRevBase(scope, slotsTouchedOf(assemblies, uploadMode), assemblies.length > 0, assemblies.map(a => a.assembly_mark))
     // Separate mode: each mark keeps its slot so it reads its own slot's Dispatch Note.
     const slotOf = new Map(assemblies.map(a => [a.assembly_mark, a.slot ?? null]))
     let current = snapshotsFromUpload(assemblies, junctions?.assemblyParts ?? [], prep.dedupedParts).map(c => ({ ...c, slot: slotOf.get(c.mark) ?? null }))
@@ -642,7 +658,9 @@ export class BomUploadService {
       this.preshopBase(scope, partSlots),
     ])
     // first Full shop of a slot: that slot's pre-shop parts are the base too (2026-11-25)
-    const rows = pre ? [...full, ...await this.prisma.bom_part.findMany({ where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { slot: { in: pre.slots } } : {}) }, select })] : full
+    const rows = pre ? [...full, ...await this.prisma.bom_part.findMany({
+      where: { dispatch_id: pre.dispatchId, ...(pre.slots ? { OR: [{ slot: { in: pre.slots } }, { status: 'ACTIVE', part_mark: { in: prep.dedupedParts.map(p => p.part_mark) } }] } : {}) }, select,
+    })] : full
     const asSlot = (v: string | null | undefined) => (v === 'MAIN' || v === 'ACC' ? v : null)
     // an assembly the save keeps: no Assembly List in this upload, or (separate) its slot isn't uploaded
     const kept = (a: { status: string; slot: string | null }) => a.status === 'ACTIVE' && (!assemblies.length || (asmSlots != null && !(asmSlots as string[]).includes(a.slot ?? '')))

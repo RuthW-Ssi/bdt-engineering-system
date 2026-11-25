@@ -1231,6 +1231,8 @@ function makePersistentPrisma() {
         if (!d || !dispatchMatches(d, where.dispatch)) continue
       }
       if (where.slot?.in && !where.slot.in.includes(row.slot)) continue
+      if (where.assembly_mark?.in && !where.assembly_mark.in.includes(row.assembly_mark)) continue
+      if (where.part_mark?.in && !where.part_mark.in.includes(row.part_mark)) continue
       Object.assign(row, data)
       count++
     }
@@ -2176,9 +2178,12 @@ describe('Rev review — first Full shop vs pre-shop', () => {
     const match = (d: D, w: any) => (w.source === undefined || w.source === d.source)
       && (w.revision?.gte === undefined || d.revision >= w.revision.gte)
       && (!w.OR || w.OR.some((o: any) => match(d, o)))
-    const rows = (list: any[], w: any) => list.filter(r =>
+    const one = (r: any, w: any): boolean =>
       (w.status === undefined || r.status === w.status) && (w.dispatch_id === undefined || r.dispatch_id === w.dispatch_id)
-      && dispatchMatch(w.dispatch, r) && (!w.slot?.in || w.slot.in.includes(r.slot)))
+      && dispatchMatch(w.dispatch, r) && (!w.slot?.in || w.slot.in.includes(r.slot))
+      && (!w.assembly_mark?.in || w.assembly_mark.in.includes(r.assembly_mark)) && (!w.part_mark?.in || w.part_mark.in.includes(r.part_mark))
+      && (!w.OR || w.OR.some((o: any) => one(r, o)))
+    const rows = (list: any[], w: any) => list.filter(r => one(r, w))
     const base = buildPrisma()
     return makePrisma({
       bom_dispatch: { ...base.bom_dispatch, findFirst: jest.fn(({ where }: any) => {
@@ -2261,10 +2266,29 @@ describe('Rev review — first Full shop vs pre-shop', () => {
     inner.bom_dispatch.findFirst = prisma.bom_dispatch.findFirst as any
     prisma.$transaction = jest.fn(async (cb: any) => cb(inner))
     await svcOf(prisma, { assemblies: [A('RF5')] }).upload([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' })], [], 1, 2, null, 1, 'separate')
-    const wheres = inner.bom_assembly.updateMany.mock.calls.map((c: any) => c[0].where)
+    // slot-based closes only (the by-mark close of the other slot's pre-shop is tested on its own below)
+    const wheres = inner.bom_assembly.updateMany.mock.calls.map((c: any) => c[0].where).filter((w: any) => !w.assembly_mark)
     expect(wheres.length).toBeGreaterThan(0)
     // every deactivation is limited to the uploaded slot — none sweeps the zone's pre-shop as a whole
     for (const w of wheres) expect(w.slot).toEqual({ in: ['MAIN'] })
+  })
+
+  // Final review fix (2026-11-25): a mark the Engineer put in the ACC pre-shop but Tekla ships in MAIN
+  it('separate MAIN upload: a mark sitting in the ACC pre-shop compares against it instead of showing as added', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', 'MAIN'), ASM(PRE, 'B1', 'ACC')])
+    const r = await svcOf(prisma, { assemblies: [A('RF5'), A('B1')] }).preview([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' })], [], 'separate', scope)
+    expect(r.review.rows.find(x => x.mark === 'B1')).toBeUndefined() // matched → unchanged, hidden
+    expect(removed(r.review)).toEqual([])
+  })
+
+  it('separate MAIN upload closes the ACC pre-shop row of a mark it brings (no mark ACTIVE twice)', async () => {
+    const prisma = zoneDb([PRE], [ASM(PRE, 'RF5', 'MAIN'), ASM(PRE, 'B1', 'ACC')])
+    const inner = buildInnerPrisma({}, 50)
+    inner.bom_dispatch.findFirst = prisma.bom_dispatch.findFirst as any
+    prisma.$transaction = jest.fn(async (cb: any) => cb(inner))
+    await svcOf(prisma, { assemblies: [A('RF5'), A('B1')] }).upload([makeFileInput({ docType: 'MAIN_ASSEMBLY_LIST', originalname: 'main assembly list.xlsx' })], [], 1, 2, null, 1, 'separate')
+    const byMark = inner.bom_assembly.updateMany.mock.calls.map((c: any) => c[0].where).find((w: any) => w.assembly_mark)
+    expect(byMark).toMatchObject({ status: 'ACTIVE', assembly_mark: { in: ['RF5', 'B1'] }, dispatch: { source: 'PRE_SHOP', revision: { gte: 1 } } })
   })
 
   it('stale pre-shop: a pre-shop saved after the preview → 409', async () => {
