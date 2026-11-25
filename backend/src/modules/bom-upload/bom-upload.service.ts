@@ -48,10 +48,10 @@ export interface JunctionMismatch {
 }
 
 export interface UploadScope { projectId: number; zoneId: number; subZoneId: number | null }
-export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; parts: PartReviewRow[]; part_conflicts: PartConflict[]; dn_only_marks: string[]; dn_warnings: string[] }
+export interface RevReview { base_dispatch_id: number | null; has_dn: boolean; rows: RevRow[]; parts: PartReviewRow[]; part_conflicts: PartConflict[]; nc_profile_mismatches: NcProfileMismatch[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreview { unmatchedAssemblyMarks: string[]; unmatchedPartMarks: string[]; review: RevReview }
 /** `partSlots`: the slots whose ACTIVE parts this upload supersedes — null = all (combined). */
-interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; partSlots: ('MAIN' | 'ACC')[] | null; dn: { marks: DnRev[]; warnings: string[] } | null }
+interface Prepared { parsed: Map<BomDocType, ParsedBomFile>; dedupedParts: ParsedPart[]; partSlots: ('MAIN' | 'ACC')[] | null; dn: { marks: DnRev[]; warnings: string[] } | null; ncProfileMismatches: NcProfileMismatch[] }
 
 type SlotName = 'MAIN' | 'ACC'
 /** One Part List in a separate upload is shared by MAIN and ACC (2026-11-23, Tao): each part takes the slot of
@@ -88,6 +88,27 @@ const PROCURED_MARK_PATTERN = /(?:^|-)(?:lpx|px)\d/i
 // (plate) profile has one, while angle/pipe/round-bar/H-beam sections (cut by
 // saw, not CNC) never do.
 const isPlateProfile = (profile: string | null | undefined) => (profile ?? '').trim().toUpperCase().startsWith('PL')
+
+/** Plate thickness from "PL16x200" / "PL16" / "pl 10X150"; null if not a plate profile. */
+const plateThickness = (profile: string | null | undefined): number | null => {
+  const m = /^PL\s*(\d+(?:\.\d+)?)/i.exec((profile ?? '').trim())
+  return m ? Number(m[1]) : null
+}
+
+export interface NcProfileMismatch { mark: string; part_list: string; nc: string }
+
+/** Plates whose Part List thickness differs from the NC file's (2026-11-25, Tao). The Part List
+ *  profile is kept either way; this only tells the user. Non-plates aren't compared: the two
+ *  sources write their sizes in different formats. */
+export function ncProfileMismatches(parts: Pick<ParsedPart, 'part_mark' | 'profile'>[], ncMap: Map<string, NcDetail>): NcProfileMismatch[] {
+  const out = new Map<string, NcProfileMismatch>()
+  for (const p of parts) {
+    const nc = ncMap.get(p.part_mark)
+    const a = plateThickness(p.profile), b = plateThickness(nc?.profileBase)
+    if (a != null && b != null && a !== b && !out.has(p.part_mark)) out.set(p.part_mark, { mark: p.part_mark, part_list: p.profile!, nc: nc!.profileBase! })
+  }
+  return [...out.values()]
+}
 
 export function requiresNcFile(part: Pick<ParsedPart, 'profile' | 'part_mark'>): boolean {
   if (PROCURED_MARK_PATTERN.test(part.part_mark)) return false
@@ -517,7 +538,7 @@ export class BomUploadService {
       ...(slotsTouchedOf(dedupedParts, uploadMode) ?? []),
       ...(sharedFrom && dedupedParts.length ? [sharedFrom, ...(slotsTouchedOf(parsed.get('ASSEMBLY_LIST')?.assemblies ?? [], uploadMode) ?? [])] : []),
     ])]
-    return { parsed, dedupedParts, partSlots, dn: this.readDispatchNotes(files) }
+    return { parsed, dedupedParts, partSlots, dn: this.readDispatchNotes(files), ncProfileMismatches: ncProfileMismatches(rawPartList?.parts ?? [], ncMap) }
   }
 
   /** Every Dispatch Note of the upload, merged; each row keeps its slot (MAIN / ACC / null = combined). */
@@ -635,7 +656,7 @@ export class BomUploadService {
     const parts = await this.partReview(prep, uploadMode, scope)
     return {
       ...this.junctionMismatchOf(prep.parsed),
-      review: { base_dispatch_id: baseDispatchId, has_dn: decision.has_dn, rows: reviewRows(decision), parts, part_conflicts: partConflicts(prep.parsed.get('PART_LIST')?.parts ?? []), dn_only_marks: decision.dn_only_marks, dn_warnings: prep.dn?.warnings ?? [] },
+      review: { base_dispatch_id: baseDispatchId, has_dn: decision.has_dn, rows: reviewRows(decision), parts, part_conflicts: partConflicts(prep.parsed.get('PART_LIST')?.parts ?? []), nc_profile_mismatches: prep.ncProfileMismatches, dn_only_marks: decision.dn_only_marks, dn_warnings: prep.dn?.warnings ?? [] },
     }
   }
 
@@ -1042,17 +1063,20 @@ export class BomUploadService {
         )
       }
 
+      // Profile: Part List first (2026-11-25, Tao) — the NC line is only "PL16" for a
+      // "PL16x200" plate, so NC-first made a part "change" once its NC file arrived.
+      const profile = p.profile?.trim() ? p.profile : nc.profileBase ?? p.profile
       result.push({
         ...p,
         qty: nc.qty,
         grade: nc.grade ?? p.grade,
-        profile: nc.profileBase ?? p.profile,
+        profile,
         length_mm: nc.lengthMm ?? p.length_mm,
         // Plates: the NC weight line is kg/m² (7.85 × thickness), not per
         // piece — keep the Part List's per-piece weight, else the weight
         // computed from the NC contour. Other profiles unchanged (2026-10-06,
         // memory project_bom_plate_weight_bug).
-        weight_kg: isPlateProfile(nc.profileBase ?? p.profile)
+        weight_kg: isPlateProfile(profile)
           ? p.weight_kg ?? nc.pieceWeightKg ?? undefined
           : nc.weightKg ?? p.weight_kg,
       })

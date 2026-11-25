@@ -194,7 +194,9 @@ export interface RevReviewRowDto {
 export interface PartReviewRowDto { mark: string; kind: 'removed' | 'added'; slot: 'MAIN' | 'ACC' | null; rename_hint: string | null; still_used: boolean }
 /** Same part mark in both MAIN and ACC Part Lists with different data — MAIN's row is kept (2026-11-23). */
 export interface PartConflictDto { mark: string; fields: { field: string; main: string | number | null; acc: string | number | null }[] }
-export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; parts?: PartReviewRowDto[]; part_conflicts?: PartConflictDto[]; dn_only_marks: string[]; dn_warnings: string[] }
+/** Plate whose Part List thickness differs from its NC file — the Part List profile is kept (2026-11-25). */
+export interface NcProfileMismatchDto { mark: string; part_list: string; nc: string }
+export interface RevReviewDto { base_dispatch_id: number | null; has_dn: boolean; rows: RevReviewRowDto[]; parts?: PartReviewRowDto[]; part_conflicts?: PartConflictDto[]; nc_profile_mismatches?: NcProfileMismatchDto[]; dn_only_marks: string[]; dn_warnings: string[] }
 export interface UploadPreviewDto extends PreviewJunctionsResult { review: RevReviewDto }
 export interface RevEdit { mark: string; rev: number }
 export interface MarkRevEntryDto {

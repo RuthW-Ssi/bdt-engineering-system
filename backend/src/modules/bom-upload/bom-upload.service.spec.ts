@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, NotFoundException, Logger } from '@nestjs/common'
-import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions, requiresNcFile } from './bom-upload.service'
+import { BomUploadService, FileInput, NcFileInput, findMismatchedJunctions, requiresNcFile, ncProfileMismatches } from './bom-upload.service'
 import { BomDiffService } from './bom-diff.service'
 import * as XLSX from 'xlsx'
 import type { XlsxParserService, ParsedBomFile } from './xlsx-parser.service'
@@ -1851,6 +1851,48 @@ describe('BomUploadService.buildDedupedParts — plate weight', () => {
   })
 })
 
+// 2026-11-25 (Tao): the NC profile line holds only the plate thickness ("PL16"); the Part List
+// has the full size ("PL16x200"). Taking NC's made a part "change" the moment its NC file arrived.
+describe('BomUploadService.buildDedupedParts — profile comes from the Part List', () => {
+  const svc = new BomUploadService({} as any, {} as any, {} as any, {} as any, {} as any)
+  const build = (parts: any[], nc: Record<string, any>) =>
+    (svc as any).buildDedupedParts(parts, new Map(Object.entries(nc)))
+  const ncOf = (o: Partial<Record<string, unknown>>) => ({ partMark: 'X', grade: 'HY370', qty: 1, profileBase: 'PL16', lengthMm: 200, weightKg: 125.6, pieceWeightKg: 3.1, ...o })
+
+  it('keeps the Part List profile when NC has the short form', () => {
+    const [p] = build([{ part_mark: 'ESB-px1', profile: 'PL16x200', qty: 1, weight_kg: 3.1 }], { 'ESB-px1': ncOf({}) })
+    expect(p.profile).toBe('PL16x200')
+  })
+  it('uses the NC profile only when the Part List has none', () => {
+    const [p] = build([{ part_mark: 'ESB-px1', profile: null, qty: 1, weight_kg: 3.1 }], { 'ESB-px1': ncOf({}) })
+    expect(p.profile).toBe('PL16')
+  })
+  it('qty, grade and length still come from NC', () => {
+    const [p] = build([{ part_mark: 'ESB-px1', profile: 'PL16x200', grade: 'SS400', qty: 2, length_mm: 199, weight_kg: 3.1 }], { 'ESB-px1': ncOf({ qty: 3 }) })
+    expect([p.qty, p.grade, p.length_mm]).toEqual([3, 'HY370', 200])
+  })
+})
+
+describe('ncProfileMismatches', () => {
+  const nc = (profileBase: string | null) => ({ partMark: 'X', grade: null, qty: 1, profileBase, lengthMm: null, weightKg: null })
+  const run = (parts: any[], m: Record<string, any>) => ncProfileMismatches(parts, new Map(Object.entries(m)))
+
+  it('flags a plate whose Part List thickness differs from NC', () => {
+    expect(run([{ part_mark: 'A-p1', profile: 'PL16x200' }], { 'A-p1': nc('PL12') })).toEqual([{ mark: 'A-p1', part_list: 'PL16x200', nc: 'PL12' }])
+  })
+  it('same thickness in short and full form is not a mismatch', () => {
+    expect(run([{ part_mark: 'A-p1', profile: 'PL16x200' }, { part_mark: 'A-p2', profile: 'pl 10X150' }], { 'A-p1': nc('PL16'), 'A-p2': nc('PL10') })).toEqual([])
+  })
+  it('skips non-plates, parts without NC and parts with no profile on either side', () => {
+    expect(run([
+      { part_mark: 'A-r1', profile: 'PIPE113.5X2.4' }, { part_mark: 'A-p3', profile: 'PL10x100' }, { part_mark: 'A-p4', profile: null },
+    ], { 'A-r1': nc('PIPE114X3'), 'A-p4': nc('PL10') })).toEqual([])
+  })
+  it('lists each mark once even if the Part List repeats it', () => {
+    expect(run([{ part_mark: 'A-p1', profile: 'PL16x200' }, { part_mark: 'A-p1', profile: 'PL16x200' }], { 'A-p1': nc('PL12') })).toHaveLength(1)
+  })
+})
+
 describe('BomUploadService.preview() — rev review', () => {
   const dnBook = (rows: unknown[][]) => {
     const wb = XLSX.utils.book_new()
@@ -1909,7 +1951,7 @@ describe('BomUploadService.preview() — rev review', () => {
   it('identical re-upload (file decimals vs stored scale) → no review rows (Review Focus 1)', async () => {
     const { svc } = svcWith(parserBy(combinedParsed([fileAsm('B1')])), [active('B1', 2)])
     const r = await svc.preview(combinedFiles(), [], 'combined', scope)
-    expect(r.review).toEqual({ base_dispatch_id: 7, has_dn: false, rows: [], parts: [], part_conflicts: [], dn_only_marks: [], dn_warnings: [] })
+    expect(r.review).toEqual({ base_dispatch_id: 7, has_dn: false, rows: [], parts: [], part_conflicts: [], nc_profile_mismatches: [], dn_only_marks: [], dn_warnings: [] })
     expect(r.unmatchedAssemblyMarks).toEqual([])
   })
 
