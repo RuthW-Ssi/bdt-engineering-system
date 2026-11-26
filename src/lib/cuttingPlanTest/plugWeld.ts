@@ -55,3 +55,33 @@ export function suggestedSettings(joints: SleeveJoint[]): PlugSettings {
   }
   return out
 }
+
+// A pipe mark of a sleeve joint: its holes (suggested or confirmed), the pipe it is joined to and the sleeve. One
+// entry per mark (the first joint it is in): for the bar's 3D and its table.
+export interface PlugAtMark { params: PlugWeld; confirmed: boolean; joinedTo: string; sleeve: string; insertMm: number }
+export function plugAtMarks(joints: SleeveJoint[], settings: PlugSettings): Record<string, PlugAtMark> {
+  const out: Record<string, PlugAtMark> = {}
+  for (const j of joints) for (const [i, p] of j.pipes.entries()) {
+    const s = settings[sizeKey(p.profile)]
+    if (!s) continue
+    const joinedTo = j.pipes.filter((_, k) => k !== i).flatMap(o => o.marks).join(' / ') || 'the other pipe'
+    for (const mark of p.marks) out[mark] ??= { params: s.params, confirmed: s.confirmed, joinedTo, sleeve: j.sleeve.marks.join(' / ') || j.sleeve.profile, insertMm: p.insertMm }
+  }
+  return out
+}
+
+// The joint put together, for its 3D: x runs along the pipes, 0 at the joint. Each pipe is drawn from the joint out
+// past the sleeve's end (not its whole length); the sleeve lies across; holes sit over the sleeve.
+export interface JointSpec {
+  sleeve: { odMm: number; wallMm: number; fromMm: number; toMm: number }
+  pipes: { odMm: number; wallMm: number; side: -1 | 1; shownMm: number; holes: { xMm: number; angleDeg: number; diaMm: number }[] }[]
+}
+export function jointSpec(j: SleeveJoint, settings: PlugSettings): JointSpec {
+  const pipes = j.pipes.slice(0, 2).map((p, i) => {
+    const side = (i === 0 ? -1 : 1) as -1 | 1, wallMm = p.wallMm ?? 3, s = settings[sizeKey(p.profile)]
+    return { odMm: p.odMm, wallMm, side, shownMm: Math.round(p.insertMm * 1.8), holes: s ? holeAngles(s.params).map(angleDeg => ({ xMm: side * s.params.fromEndMm, angleDeg, diaMm: s.params.holeDiaMm })) : [] }
+  })
+  const inside = Math.min(...j.pipes.map(p => p.odMm - 2 * (p.wallMm ?? 3))) // what fits in the smaller pipe
+  const half = j.sleeve.lengthMm / 2
+  return { sleeve: { odMm: Math.min(j.sleeve.odMm, inside), wallMm: j.sleeve.wallMm ?? 3, fromMm: -half, toMm: half }, pipes }
+}
