@@ -4,7 +4,8 @@ import { CuttingPlanTestController } from './cutting-plan-test.controller'
 import { CuttingPlanTestService } from './cutting-plan-test.service'
 import { BomSourceService } from './bom-source'
 import { EndCutService } from './end-cuts'
+import { SleeveJointService } from './sleeve-joints'
 
 // CP-Shape-Test (2026-11-11): kept apart from the Plate / Shape cutting plan module on purpose; no DB.
-@Module({ controllers: [CuttingPlanTestController], providers: [CuttingPlanTestService, BomSourceService, { provide: EndCutService, useFactory: (p: PrismaService) => new EndCutService(p), inject: [PrismaService] }] })
+@Module({ controllers: [CuttingPlanTestController], providers: [CuttingPlanTestService, BomSourceService, { provide: EndCutService, useFactory: (p: PrismaService) => new EndCutService(p), inject: [PrismaService] }, { provide: SleeveJointService, useFactory: (p: PrismaService) => new SleeveJointService(p), inject: [PrismaService] }] })
 export class CuttingPlanTestModule {}

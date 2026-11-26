@@ -1,4 +1,4 @@
-import type { ShapeTestLayout, ShapeTestStock } from '../../api/cutting-plan-test'
+import type { ShapeTestLayout, ShapeTestPartList, ShapeTestStock } from '../../api/cutting-plan-test'
 
 // CP-Shape-Test (2026-11-11, wiki features/cp-shape-test.md)
 
@@ -28,7 +28,22 @@ export function groupByFamily<T extends { profile: string }>(sizes: T[]): { fami
   return FAMILY_ORDER.map(family => ({ family, sizes: sizes.filter(s => familyOf(s.profile) === family) })).filter(g => g.sizes.length)
 }
 // Only pipes have end cuts in the model (BdtPipeCut): cut lengths, saddle nesting and the 3D ends are pipe-only
-export const usesEndCuts = (profile: string) => familyOf(profile) === 'PIPE'
+export const isSleeveSize = (profile: string) => / SL$/.test(profile)
+export const usesEndCuts = (profile: string) => familyOf(profile) === 'PIPE' && !isSleeveSize(profile)
+
+// Sleeve pipes (…SL) as their own size "<pipe> SL" (Tao 2026-11-26: the user picks own size or with their pipe). The
+// models draw a sleeve as an inner sleeve, its outside = its pipe's inside (139.8X5 SL is 129.8 across), so own size is
+// where the screen starts. The backend sends them inside their pipe's size, each part flagged.
+export function splitSleeves(list: ShapeTestPartList): ShapeTestPartList {
+  if (!list.sizes.some(s => s.parts.some(p => p.sleeve))) return list
+  const sizes = list.sizes.flatMap(s => {
+    const sl = s.parts.filter(p => p.sleeve), rest = s.parts.filter(p => !p.sleeve)
+    if (!sl.length) return [s]
+    const own = { ...s, profile: `${s.profile} SL`, parts: sl, kgPerM: null } // its own section, not the pipe's weight
+    return rest.length ? [{ ...s, parts: rest }, own] : [own]
+  })
+  return { ...list, sizes, warnings: list.warnings.map(w => w.replace('sleeve pipes (SL) laid out with it', 'sleeve pipes (SL) laid out as their own size')) }
+}
 // Rods: kerf 10 mm, as in the "BIF all rod 25" CutLogic run (24 Jun 2026); pipes kerf 12 mm, BOX and L too until the
 // factory gives the kerf of the machine that cuts them
 export const defaultKerf = (profile: string) => (familyOf(profile) === 'ROD' ? 10 : 12)
@@ -187,6 +202,8 @@ export function section(profile: string): Section {
     if (fam === 'BOX') return { kind: 'box', heightMm: a, widthMm: b, wallMm: Math.min(t, Math.min(a, b) / 2 - 0.5) }
     return { kind: 'angle', legAMm: a, legBMm: b, thickMm: Math.min(t, Math.min(a, b) - 0.5) }
   }
+  // a sleeve size: the tube that fits inside its pipe (outside = the pipe's inside), same wall
+  if (fam === 'PIPE' && n.length >= 2 && isSleeveSize(profile)) return { kind: 'round', outerMm: Math.round((n[0] - 2 * n[1]) * 100) / 100, wallMm: n[1] }
   if (fam === 'PIPE' && n.length >= 2) return { kind: 'round', outerMm: n[0], wallMm: n[1] }
   return { kind: 'round', outerMm: n[0] ?? 50, wallMm: null }
 }
