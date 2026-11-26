@@ -4,6 +4,7 @@ import {
   getCuttingPlans, getCuttingPlan, getPlateView, previewCuttingPlan, saveCuttingPlan, getStagingUrls, putStagedFile,
   previewShapeCuttingPlan, saveShapeCuttingPlan,
   bulkAssignOrderPartProjectCode, deleteCuttingPlan,
+  getKerfs, saveKerfs, getPrices, getRemnants, useRemnant as postRemnantUse, setCertificate,
   type CuttingPlanPreviewResult, type BulkAssignOrderPartProjectCodePayload, type SaveCuttingPlanPayload, type CuttingPlanDetail,
 } from '../api/cutting-plan'
 
@@ -126,4 +127,21 @@ export function useDeleteCuttingPlan() {
     mutationFn: (id: number) => deleteCuttingPlan(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cutting-plan'] }),
   })
+}
+
+// User test report 2026-11-26
+export function useKerfs() { return useQuery({ queryKey: ['cutting-plan', 'kerfs'], queryFn: getKerfs }) }
+export function usePrices() { return useQuery({ queryKey: ['cutting-plan', 'prices'], queryFn: getPrices, staleTime: 60_000 }) }
+export function useRemnants() { return useQuery({ queryKey: ['cutting-plan', 'remnants'], queryFn: getRemnants }) }
+export function useSaveKerfs() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (rows: Parameters<typeof saveKerfs>[0]) => saveKerfs(rows), onSuccess: () => qc.invalidateQueries({ queryKey: ['cutting-plan'] }) })
+}
+export function useSetCertificate() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: ({ id, certificate }: { id: number; certificate: string | null }) => setCertificate(id, certificate), onSuccess: () => qc.invalidateQueries({ queryKey: ['cutting-plan'] }) })
+}
+export function useRemnantUse() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (body: Parameters<typeof postRemnantUse>[0]) => postRemnantUse(body), onSuccess: () => qc.invalidateQueries({ queryKey: ['cutting-plan', 'remnants'] }) })
 }

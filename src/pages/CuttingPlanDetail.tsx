@@ -16,11 +16,15 @@ import type {
   CuttingPlanNestingRow, CuttingPlanOrderPartRow, CuttingPlanPlateUsageRow, CuttingPlanRemnantRow, CuttingPlanFile,
 } from '../api/cutting-plan'
 import { downloadCuttingPlanFile } from '../api/cutting-plan'
+import type { CuttingPlanPrice } from '../api/cutting-plan'
+import { useKerfs, usePrices } from '../hooks/useCuttingPlan'
+import { kerfFor, priceFor, thb } from '../lib/cuttingPlan/plateMaterial'
+import { CertificateCell, KerfButton, KerfDialog, PlateBalanceCard } from '../components/cuttingPlan/PlateMaterial'
 
 type DataTab = 'nesting' | 'order_parts' | 'plate_usage' | 'remnants' | 'files'
 
 const DATA_TABS: { id: DataTab; label: string }[] = [
-  { id: 'nesting', label: 'Plates' },
+  { id: 'nesting', label: 'Stock plates' },
   { id: 'order_parts', label: 'Order Parts' },
   { id: 'plate_usage', label: 'Plate Usage' },
   { id: 'remnants', label: 'Remnants' },
@@ -93,24 +97,32 @@ function TD({ children, style }: { children: React.ReactNode; style?: React.CSSP
 }
 
 // Each plate (Charge) opens its own page with 3D / 2D / cut simulation when its .dxf is stored.
-function NestingTable({ rows, sheetKg, viewable, onView }: { rows: CuttingPlanNestingRow[]; sheetKg: Map<string, number>; viewable: Set<string>; onView: (plate: string) => void }) {
+// User report 2026-11-26 (Stock Plate tab): Plate ID, Grade, weight, value and material certificate per plate, totals
+function NestingTable({ rows, sheetKg, viewable, onView, prices, canWrite }: { rows: CuttingPlanNestingRow[]; sheetKg: Map<string, number>; viewable: Set<string>; onView: (plate: string) => void; prices: CuttingPlanPrice[] | undefined; canWrite: boolean }) {
   if (rows.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No plates</div>
+  const valueOf = (r: CuttingPlanNestingRow) => { const p = priceFor(prices, r.quality, r.thick_mm), k = sheetKg.get(r.cuttingplan_number); return p == null || k == null ? null : p * k }
+  const totalKg = rows.reduce((n, r) => n + (sheetKg.get(r.cuttingplan_number) ?? 0), 0), nestedKg = rows.reduce((n, r) => n + Number(r.weight_kg ?? 0), 0)
+  const priced = rows.map(valueOf).filter((v): v is number => v != null)
   return (
-    <TableGrid columns="0.9fr 1fr 1.5fr 1fr 1fr 0.9fr 0.6fr 0.5fr">
-      <TH>Plate Number</TH><TH>Mark (Charge)</TH><TH>Quality / Dimensions</TH>
+    <TableGrid columns="0.8fr 1fr 0.7fr 1.2fr 0.9fr 0.9fr 0.9fr 1.2fr 0.7fr 0.5fr 0.4fr">
+      <TH>Plate ID</TH><TH>Mark (Charge)</TH><TH>Grade</TH><TH>Dimensions (mm)</TH>
       {/* the report's plate weight is only the nested area (2026-11-07: 452 kg of a 1,394 kg sheet) */}
       <TH><span className="inline-flex items-center gap-1">Nested weight (kg) <InfoTip label="What is nested weight" text="Weight of the part of the sheet used for nesting (Nesting Dim.). The rest of the sheet becomes remnants." /></span></TH>
       <TH><span className="inline-flex items-center gap-1">Sheet weight (kg) <InfoTip label="What is sheet weight" text="Whole sheet = nested weight + this plate's remnants." /></span></TH>
-      <TH>Nesting %</TH><TH>Parts</TH><TH>3D</TH>
+      <TH><span className="inline-flex items-center gap-1">Value <InfoTip label="What is value" text="Sheet weight × the price per kg in Materials for this grade and thickness. No price in Materials: – no price." /></span></TH>
+      <TH>Material certificate</TH><TH>Nesting %</TH><TH>Parts</TH><TH>3D</TH>
       {rows.map(r => {
         const can = viewable.has(r.cuttingplan_number)
         return (
           <div key={r.id} style={{ display: 'contents' }}>
             <TD>{r.plate_number ?? '—'}</TD>
             <TD style={{ fontFamily: 'monospace' }}>{r.cuttingplan_number}</TD>
-            <TD>{r.quality ?? '—'} · {fmt(r.thick_mm)}×{fmt(r.width_mm)}×{fmt(r.length_mm)} mm</TD>
+            <TD>{r.quality ?? '—'}</TD>
+            <TD>{fmt(r.thick_mm)}×{fmt(r.width_mm)}×{fmt(r.length_mm)}</TD>
             <TD>{fmt(r.weight_kg)}</TD>
             <TD>{fmt(sheetKg.get(r.cuttingplan_number) ?? null)}</TD>
+            <TD>{valueOf(r) == null ? <span style={{ color: '#C2C2C2' }}>– no price</span> : thb(valueOf(r)!)}</TD>
+            <TD style={{ padding: '4px 16px' }}><CertificateCell key={`${r.id}|${r.certificate ?? ''}`} nestingId={r.id} value={r.certificate} canWrite={canWrite} /></TD>
             <TD>{r.nesting_percent != null ? `${fmt(r.nesting_percent)}%` : '—'}</TD>
             <TD>{r.count ?? '—'}</TD>
             <TD>
@@ -125,16 +137,30 @@ function NestingTable({ rows, sheetKg, viewable, onView }: { rows: CuttingPlanNe
           </div>
         )
       })}
+      <div data-testid="plates-total" style={{ display: 'contents', fontWeight: 600 }}>
+        <TD style={{ fontWeight: 600 }}>Total</TD><TD style={{ fontWeight: 600 }}>{`${rows.reduce((n, r) => n + (r.count ?? 1), 0)} plates`}</TD><TD>{''}</TD><TD>{''}</TD>
+        <TD style={{ fontWeight: 600 }}>{fmt(nestedKg)}</TD><TD style={{ fontWeight: 600 }}>{fmt(totalKg)}</TD>
+        <TD style={{ fontWeight: 600 }}>{priced.length ? thb(priced.reduce((a, b) => a + b, 0)) : '—'}{priced.length < rows.length ? <span style={{ color: '#92400E', fontWeight: 400 }}>{` (${rows.length - priced.length} no price)`}</span> : null}</TD>
+        <TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD>
+      </div>
     </TableGrid>
   )
 }
 
-function OrderPartTable({ rows, canWrite }: { rows: CuttingPlanOrderPartRow[]; canWrite: boolean }) {
+function OrderPartTable({ rows: allRows, canWrite }: { rows: CuttingPlanOrderPartRow[]; canWrite: boolean }) {
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [bulkCode, setBulkCode] = useState('')
+  const [query, setQuery] = useState('') // user report 2026-11-26: search a part
   const bulkAssign = useBulkAssignOrderPartProjectCode()
 
-  if (rows.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No order parts</div>
+  if (allRows.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No order parts</div>
+  const q = query.trim().toLowerCase()
+  const rows = q ? allRows.filter(r => [r.drawing_part_no_version_no, r.order_number, r.project_code].some(v => (v ?? '').toLowerCase().includes(q))) : allRows
+  // one row per plate × drawing: nested is that plate's pieces (add up); ordered is the drawing's whole order, written
+  // again on every plate it sits on (count once per drawing)
+  const orderOf = new Map<string, number>()
+  for (const r of rows) { const d = (r.drawing_part_no_version_no ?? '').trim(); orderOf.set(d, Math.max(orderOf.get(d) ?? 0, r.ordered ?? 0)) }
+  const nested = rows.reduce((n, r) => n + (r.nested ?? 0), 0), ordered = [...orderOf.values()].reduce((a, b) => a + b, 0), drawings = orderOf.size
 
   const allSelected = selected.size > 0 && selected.size === rows.length
 
@@ -165,6 +191,14 @@ function OrderPartTable({ rows, canWrite }: { rows: CuttingPlanOrderPartRow[]; c
 
   return (
     <div>
+      <div data-testid="parts-total" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '10px 16px', borderBottom: '1px solid #F3F4F6', flexWrap: 'wrap' }}>
+        <input aria-label="Search parts" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search drawing / part, order or project code"
+          style={{ height: 30, padding: '0 10px', fontSize: 12, border: '1px solid #E0E0E0', borderRadius: 6, width: 300 }} />
+        <span style={{ fontSize: 12, color: '#555' }}>
+          Total parts <b>{nested.toLocaleString('en')}</b> nested of <b>{ordered.toLocaleString('en')}</b> ordered · <b>{drawings.toLocaleString('en')}</b> {drawings === 1 ? 'drawing' : 'drawings'} on <b>{rows.length.toLocaleString('en')}</b> plate rows
+          {q && <span style={{ color: '#8E8E8E' }}>{` (search: ${rows.length} of ${allRows.length} rows)`}</span>}
+        </span>
+      </div>
       {canWrite && selected.size > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', background: '#FEF2F2', borderBottom: '1px solid #FCA5A5' }}>
           <span style={{ fontSize: 12, color: '#991B1B', fontWeight: 600 }}>{selected.size} selected</span>
@@ -230,20 +264,38 @@ function PlateUsageTable({ rows }: { rows: CuttingPlanPlateUsageRow[] }) {
   )
 }
 
-function RemnantTable({ rows }: { rows: CuttingPlanRemnantRow[] }) {
+// User report 2026-11-26 (Remnants tab): Offcut No. (the nesting program's remnant number), its plate, certificate
+// (the plate's), weight and value, totals. Every remnant also sits in the remnant register (Cutting Plan › Remnants).
+function RemnantTable({ rows, plates, prices }: { rows: CuttingPlanRemnantRow[]; plates: CuttingPlanNestingRow[]; prices: CuttingPlanPrice[] | undefined }) {
   if (rows.length === 0) return <div style={{ padding: 20, fontSize: 12, color: '#8E8E8E' }}>No remnants</div>
+  const plateOf = (r: CuttingPlanRemnantRow) => plates.find(p => p.cuttingplan_number === r.cuttingplan_number)
+  const valueOf = (r: CuttingPlanRemnantRow) => { const p = plateOf(r), price = priceFor(prices, p?.quality, p?.thick_mm); return price == null || r.weight_kg == null ? null : price * Number(r.weight_kg) }
+  const totalKg = rows.reduce((n, r) => n + Number(r.weight_kg ?? 0), 0), pieces = rows.reduce((n, r) => n + (r.count ?? 1), 0)
+  const priced = rows.map(valueOf).filter((v): v is number => v != null)
   return (
-    <TableGrid columns="1fr 1fr 1fr 1fr 0.6fr">
-      <TH>Plate Number</TH><TH>Dimensions (mm)</TH><TH>Area (m²)</TH><TH>Weight (kg)</TH><TH>Count</TH>
-      {rows.map(r => (
-        <div key={r.id} style={{ display: 'contents' }}>
-          <TD>{r.plate_number ?? '—'}</TD>
-          <TD>{fmt(r.length_mm)} × {fmt(r.width_mm)}</TD>
-          <TD>{fmt(r.area_m2)}</TD>
-          <TD>{fmt(r.weight_kg)}</TD>
-          <TD>{r.count ?? '—'}</TD>
-        </div>
-      ))}
+    <TableGrid columns="0.8fr 0.8fr 0.9fr 1.1fr 0.7fr 0.8fr 0.5fr 1fr 0.8fr">
+      <TH>Offcut No.</TH><TH>From plate</TH><TH>Grade · thick</TH><TH>Dimensions (mm)</TH><TH>Area (m²)</TH><TH>Weight (kg)</TH><TH>Count</TH><TH>Material certificate</TH><TH>Value</TH>
+      {rows.map(r => {
+        const p = plateOf(r)
+        return (
+          <div key={r.id} style={{ display: 'contents' }}>
+            <TD style={{ fontWeight: 600 }}>{r.plate_number ?? '—'}</TD>
+            <TD>{p?.plate_number ?? '—'}</TD>
+            <TD>{p ? `${p.quality ?? '—'} · ${fmt(p.thick_mm)} mm` : '—'}</TD>
+            <TD>{fmt(r.length_mm)} × {fmt(r.width_mm)}</TD>
+            <TD>{fmt(r.area_m2)}</TD>
+            <TD>{fmt(r.weight_kg)}</TD>
+            <TD>{r.count ?? '—'}</TD>
+            <TD>{p?.certificate || <span style={{ color: '#C2C2C2' }}>—</span>}</TD>
+            <TD>{valueOf(r) == null ? <span style={{ color: '#C2C2C2' }}>– no price</span> : thb(valueOf(r)!)}</TD>
+          </div>
+        )
+      })}
+      <div data-testid="remnants-total" style={{ display: 'contents' }}>
+        <TD style={{ fontWeight: 600 }}>Total</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD><TD>{''}</TD>
+        <TD style={{ fontWeight: 600 }}>{fmt(totalKg)}</TD><TD style={{ fontWeight: 600 }}>{pieces}</TD><TD>{''}</TD>
+        <TD style={{ fontWeight: 600 }}>{priced.length ? thb(priced.reduce((a, b) => a + b, 0)) : '—'}{priced.length < rows.length ? <span style={{ color: '#92400E', fontWeight: 400 }}>{` (${rows.length - priced.length} no price)`}</span> : null}</TD>
+      </div>
     </TableGrid>
   )
 }
@@ -287,8 +339,11 @@ export function CuttingPlanDetail() {
   const cuttingPlanId = id ? parseInt(id) : NaN
   const { data: detail, isLoading, isError } = useCuttingPlan(cuttingPlanId)
   const [dataTab, setDataTab] = useState<DataTab>('nesting')
+  const kerfs = useKerfs(), prices = usePrices()
+  const [kerfOpen, setKerfOpen] = useState(false)
+  const kerfOf = (r: CuttingPlanNestingRow) => kerfFor(kerfs.data, r)
   const [thickness, setThickness] = useState<number | null>(null) // filter picked on the thickness chart
-  const summary = useMemo(() => (detail ? summarizePlan(detail.nestings, detail.remnants) : null), [detail])
+  const summary = useMemo(() => (detail ? summarizePlan(detail.nestings, detail.remnants, kerfs.data ? kerfOf : undefined) : null), [detail, kerfs.data]) // eslint-disable-line react-hooks/exhaustive-deps
   // The thickness picked on the chart filters every tab: child rows and files follow their plate by name.
   const shown = useMemo(() => {
     const all = { nestings: detail?.nestings ?? [], order_parts: detail?.order_parts ?? [], plate_usages: detail?.plate_usages ?? [], remnants: detail?.remnants ?? [], files: detail?.files ?? [] }
@@ -304,7 +359,7 @@ export function CuttingPlanDetail() {
     }
   }, [detail, thickness])
   const sheetKg = useMemo(() => sheetKgByPlate(detail?.nestings ?? [], detail?.remnants ?? []), [detail])
-  const focus = useMemo(() => summarizePlan(shown.nestings, shown.remnants), [shown])
+  const focus = useMemo(() => summarizePlan(shown.nestings, shown.remnants, kerfs.data ? kerfOf : undefined), [shown, kerfs.data]) // eslint-disable-line react-hooks/exhaustive-deps
   const deleteMut = useDeleteCuttingPlan()
   const confirm = useConfirm()
   const canDelete = usePermission('cutting-plan', 'delete')
@@ -394,19 +449,21 @@ export function CuttingPlanDetail() {
         {/* composition of this one plan (not averages): the row counts moved into the tab labels (2026-11-07) */}
         {summary && detail.nestings.length > 0 && (
           <PlanSummaryCharts summary={summary} focus={focus} thickness={thickness}
-            onThickness={setThickness} />
+            onThickness={setThickness} kerf={canWrite ? <KerfButton onClick={() => setKerfOpen(true)} /> : <span />} />
         )}
+        {kerfOpen && <KerfDialog nestings={detail.nestings} kerfs={kerfs.data ?? []} onClose={() => setKerfOpen(false)} />}
+        {detail.nestings.length > 0 && <PlateBalanceCard planLabel={planLabel(detail)} nestings={shown.nestings} remnants={shown.remnants} kerfs={kerfs.data} prices={prices.data} />}
 
         <DataTabsCard tab={dataTab} onTabChange={setDataTab}
           counts={{ nesting: shown.nestings.length, order_parts: shown.order_parts.length, plate_usage: shown.plate_usages.length, remnants: shown.remnants.length, files: shown.files.length }}>
           {dataTab === 'nesting' && (
-            <NestingTable rows={shown.nestings} sheetKg={sheetKg}
+            <NestingTable rows={shown.nestings} sheetKg={sheetKg} prices={prices.data} canWrite={canWrite}
               viewable={new Set((detail.files ?? []).filter(f => f.kind === 'DXF').map(f => f.plate_name))}
               onView={plate => navigate(`/cutting-plan/${detail.id}/plate/${encodeURIComponent(plate)}`)} />
           )}
           {dataTab === 'order_parts' && <OrderPartTable key={thickness ?? 'all'} rows={shown.order_parts} canWrite={canWrite} />}
           {dataTab === 'plate_usage' && <PlateUsageTable rows={shown.plate_usages} />}
-          {dataTab === 'remnants' && <RemnantTable rows={shown.remnants} />}
+          {dataTab === 'remnants' && <RemnantTable rows={shown.remnants} plates={detail.nestings} prices={prices.data} />}
           {dataTab === 'files' && <FileTable files={shown.files} />}
         </DataTabsCard>
         </>)}
