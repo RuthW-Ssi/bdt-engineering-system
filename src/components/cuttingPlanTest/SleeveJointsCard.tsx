@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Check } from 'lucide-react'
+import { SleeveJoint3dDialog } from './SleeveJoint3dDialog'
 import type { SleeveJoint } from '../../api/cutting-plan-test'
 import { plugText, plugWeldProblem, sizeKey } from '../../lib/cuttingPlanTest/plugWeld'
 import type { PlugSettings, PlugWeld } from '../../lib/cuttingPlanTest/plugWeld'
@@ -17,12 +19,14 @@ export function SleeveJointsCard({ source, joints, settings, onChange }: { sourc
   const problemOf = (k: string, p: PlugWeld) => pipesOf(k).map(x => plugWeldProblem(p, x.odMm, x.insertMm)).find(Boolean) ?? null
   const set = (k: string, patch: Partial<PlugWeld>) => onChange({ ...settings, [k]: { params: { ...settings[k].params, ...patch }, confirmed: false } }) // a changed number needs confirming again
   const td = { padding: '6px 12px', whiteSpace: 'nowrap' } as const
+  const [open3d, setOpen3d] = useState<number | null>(null)
   const drawnSame = joints.filter(j => j.sleeveDrawnAtPipeSize).reduce((n, j) => n + j.count, 0)
   return (
     <div data-testid="sleeve-joints" style={{ ...card, padding: 0 }}>
       <div style={{ padding: '10px 12px', fontSize: 14, fontWeight: 600 }}>
         Sleeve joints <span style={{ fontSize: 12, fontWeight: 400, color: '#6B7280' }}>{`· ${joints.reduce((n, j) => n + j.count, 0)} sleeves in the model (${source}) · plug-weld holes per pipe size`}</span>
       </div>
+      <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
         <thead><tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 11 }}>
           {['Pipe size', 'Hole Ø (mm)', 'Holes per pipe end', 'From pipe end (mm)', 'First hole at (°)', 'Holes', ''].map(h => <th key={h} style={{ ...td, fontWeight: 500, borderTop: '1px solid #F3F4F6' }}>{h}{h === 'Holes per pipe end' && <span style={{ marginLeft: 4, display: 'inline-flex', verticalAlign: 'middle' }}><InfoTip label="About plug-weld holes" text="Each pipe of a joint gets this many holes round it, over the sleeve inside, welded full. The numbers start as a suggestion (hole = wall + 8 mm; half way along the sleeve). Check them against the drawing, then Confirm: only confirmed holes are printed on the cutting report." /></span>}</th>)}
@@ -58,26 +62,34 @@ export function SleeveJointsCard({ source, joints, settings, onChange }: { sourc
           })}
         </tbody>
       </table>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, borderTop: '1px solid #E5E7EB' }}>
         <thead><tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 11 }}>
-          {['Joints', 'Sleeve', 'Pipe', 'Sleeve goes in', 'Pipe', 'Sleeve goes in', 'Assemblies'].map((h, i) => <th key={i} style={{ ...td, fontWeight: 500 }}>{h}</th>)}
+          {['Joints', 'Sleeve', 'Pipe', 'Sleeve goes in', 'Pipe', 'Sleeve goes in', 'Assemblies', ''].map((h, i) => <th key={i} style={{ ...td, fontWeight: 500 }}>{h}</th>)}
         </tr></thead>
         <tbody>
           {joints.map((j, i) => (
             <tr key={i} style={{ borderTop: '1px solid #F3F4F6' }}>
               <td style={td}>{`× ${j.count}`}</td>
-              <td style={td}><b>{marksOf(j.sleeve.marks, 'not in the BOM')}</b> <span style={{ color: '#6B7280' }}>{`${j.sleeve.profile} · Ø${mm(j.sleeve.odMm)} · ${mm(j.sleeve.lengthMm)} mm`}</span></td>
+              <td style={{ ...td, whiteSpace: 'normal' }}><b>{marksOf(j.sleeve.marks, 'not in the BOM')}</b> <span style={{ color: '#6B7280' }}>{`${j.sleeve.profile} · Ø${mm(j.sleeve.odMm)} · ${mm(j.sleeve.lengthMm)} mm`}</span></td>
               {[0, 1].flatMap(n => {
                 const p = j.pipes[n]
                 return p
-                  ? [<td key={`p${n}`} style={td}><b>{marksOf(p.marks, 'not in the BOM')}</b> <span style={{ color: '#6B7280' }}>{`Ø${mm(p.odMm)} · ${mm(p.lengthMm)} mm`}</span></td>, <td key={`i${n}`} style={td}>{`${mm(p.insertMm)} mm`}</td>]
+                  ? [<td key={`p${n}`} style={{ ...td, whiteSpace: 'normal' }}><b>{marksOf(p.marks, 'not in the BOM')}</b> <span style={{ color: '#6B7280' }}>{`Ø${mm(p.odMm)} · ${mm(p.lengthMm)} mm`}</span></td>, <td key={`i${n}`} style={td}>{`${mm(p.insertMm)} mm`}</td>]
                   : [<td key={`p${n}`} style={{ ...td, color: '#9CA3AF' }}>—</td>, <td key={`i${n}`} style={td} />]
               })}
               <td style={{ ...td, color: '#6B7280' }}>{j.assemblies.slice(0, 3).join(', ')}{j.assemblies.length > 3 ? `, +${j.assemblies.length - 3}` : ''}</td>
+              <td style={td}>
+                <button aria-label={`3D of the joint of ${marksOf(j.sleeve.marks, j.sleeve.profile)} (${i + 1})`} onClick={() => setOpen3d(i)}
+                  style={{ fontSize: 11, fontWeight: 600, color: '#0C447C', background: 'white', border: '1px solid #C2C2C2', borderRadius: 4, padding: '1px 8px', cursor: 'pointer' }}>3D</button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+      </div>
+      {open3d != null && joints[open3d] && <SleeveJoint3dDialog joint={joints[open3d]} settings={settings} onClose={() => setOpen3d(null)} />}
       {drawnSame > 0 && <div style={{ padding: '8px 12px 12px', fontSize: 11, color: '#92400E' }}>{`${drawnSame} sleeves are drawn in the model at their pipe's own size: check the real sleeve size with the shop.`}</div>}
     </div>
   )

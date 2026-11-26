@@ -5,6 +5,7 @@ import { barPieces, pieceColors, sharedPrefix, splitByMarkSet } from '../../lib/
 import { labelFits } from '../../lib/cuttingPlan/shapeSummary'
 import { ShowAll } from '../cuttingPlan/PlanSummary'
 import { PipeBar3dDialog } from './PipeBar3dDialog'
+import type { PlugAtMark } from '../../lib/cuttingPlanTest/plugWeld'
 
 // CP-Shape-Test: the layouts of one size, as bars drawn to scale (moved out of ShapeTestPanel 2026-11-13).
 const HATCH = 'repeating-linear-gradient(45deg, #E5E7EB 0 4px, #F9FAFB 4px 8px)'
@@ -81,7 +82,7 @@ function BarDims({ n, layout, pieces, kerfMm, bg }: { n: number; layout: ShapeTe
 // for a dimension label lists them (mark, length, × how many in a row). Past a handful of layouts: find a mark, pick a
 // stock length, and the first CAP shown. A layout keeps its number whatever the filter.
 // sleeves: marks of sleeve pipes (…SL, 2026-11-26) laid out with this pipe; they say SL on the bar and in the 3D
-export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white', sleeves }: { profile: string; layouts: ShapeTestLayout[]; kerfMm: number; projectId: number | null; bg?: string; sleeves?: Set<string> }) {
+export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white', sleeves, plug }: { profile: string; layouts: ShapeTestLayout[]; kerfMm: number; projectId: number | null; bg?: string; sleeves?: Set<string>; plug?: Record<string, PlugAtMark> }) {
   const [bar3d, setBar3d] = useState<{ title: string; layout: ShapeTestLayout; marks: string[] } | null>(null)
   const [find, setFind] = useState('')
   const [length, setLength] = useState<number | null>(null)
@@ -94,7 +95,7 @@ export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white', 
   const seg = (on: boolean) => ({ height: 28, padding: '0 10px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: on ? '#1F2937' : 'white', color: on ? 'white' : '#555' }) as const
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {bar3d && <PipeBar3dDialog title={bar3d.title} profile={profile} layout={bar3d.layout} marks={bar3d.marks} kerfMm={kerfMm} projectId={projectId} sleeves={sleeves} onClose={() => setBar3d(null)} />}
+      {bar3d && <PipeBar3dDialog title={bar3d.title} profile={profile} layout={bar3d.layout} marks={bar3d.marks} kerfMm={kerfMm} projectId={projectId} sleeves={sleeves} plug={plug} onClose={() => setBar3d(null)} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {sets.length > 5 && <>
           <div className="relative">
