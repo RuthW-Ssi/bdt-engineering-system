@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { getShapeEndCuts } from '../../api/cutting-plan-test'
 import type { ShapeEndCut, ShapeTestLayout } from '../../api/cutting-plan-test'
-import { barPieces, nestTurn, pieceColors, pipeSection } from '../../lib/cuttingPlanTest/shapeTest'
+import { barPieces, nestTurn, pieceColors, section, usesEndCuts } from '../../lib/cuttingPlanTest/shapeTest'
 import type { PipeBarScene } from './pipeBarScene'
 
 // CP-Shape-Test (Tao 2026-11-12, step 1 of 3D, after BdtPipeCut's "ดู 3D"): one stock bar of a layout: the marks it
@@ -46,14 +46,13 @@ export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, project
     const ro = new ResizeObserver(() => scene.current?.resize(c.clientWidth, c.clientHeight))
     import('./pipeBarScene').then(({ PipeBarScene }) => { // three.js only loads when a bar is opened
       if (gone) return
-      const { outerMm, wallMm } = pipeSection(profile)
       // nested joints: each next piece turned round the axis so its saddle tucks into the previous one (cumulative)
       const turns: number[] = []
       pieces.forEach((p, k) => {
         const prev = pieces[k - 1], g = ends.marks[p.mark]?.grids, gp = prev && ends.marks[prev.mark]?.grids
         turns.push(k && (layout.nestMm?.[k - 1] ?? 0) > 0 && g && gp ? turns[k - 1] + nestTurn(gp, g, kerfMm) : (turns[k - 1] ?? 0))
       })
-      scene.current = new PipeBarScene(c, { stockMm: L, outerMm, wallMm, leftFromMm: leftFrom, pieces: pieces.map((p, k) => ({ fromMm: p.fromMm, toMm: p.toMm, color: colorOf(p.lengthMm), grids: ends.marks[p.mark]?.grids, turnDeg: turns[k] })) })
+      scene.current = new PipeBarScene(c, { stockMm: L, section: section(profile), leftFromMm: leftFrom, pieces: pieces.map((p, k) => ({ fromMm: p.fromMm, toMm: p.toMm, color: colorOf(p.lengthMm), grids: ends.marks[p.mark]?.grids, turnDeg: turns[k] })) })
       scene.current.resize(c.clientWidth, c.clientHeight)
       const picked = pieces.find(x => x.n === selectedRef.current)
       if (picked) scene.current.focus({ fromMm: picked.fromMm, toMm: picked.toMm })
@@ -72,6 +71,7 @@ export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, project
   const btn = (on: boolean) => ({ fontSize: 12, height: 28, padding: '0 10px', borderRadius: 6, border: '1px solid #D1D5DB', background: on ? '#E5E7EB' : 'white', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }) as const
   const td = { padding: '6px 10px', borderTop: '1px solid #F3F4F6' } as const
   const endsOf = (mark: string) => {
+    if (!usesEndCuts(profile)) return { kinds: 'Square', from: 'Cut square (end cuts are for pipes)' }
     if (!projectId) return { kinds: 'Square', from: 'No model (part list file)' }
     if (!ends) return { kinds: '…', from: 'Loading end cuts…' }
     const c = ends.marks[mark]

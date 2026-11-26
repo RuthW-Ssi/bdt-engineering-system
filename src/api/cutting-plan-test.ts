@@ -3,7 +3,7 @@ import { apiClient } from './client'
 // CP-Shape-Test (2026-11-11): test bench, nothing is stored
 export interface ShapeTestPart { mark: string; lengthMm: number; count: number }
 export interface ShapeTestStock { lengthMm: number; qty: number | null } // null = unlimited
-export interface ShapeTestSize { profile: string; grade: string | null; parts: ShapeTestPart[]; zone?: string } // zone: set when laid out per zone
+export interface ShapeTestSize { profile: string; grade: string | null; parts: ShapeTestPart[]; zone?: string; kgPerM?: number | null } // zone: set when laid out per zone; kgPerM: from the source's weights
 export interface ShapeTestPartList { sizes: ShapeTestSize[]; pieces: number; warnings: string[] }
 // One layout = one cutting pattern; marks = which marks its pieces are, in total over the repeats
 export interface ShapeTestLayout {
