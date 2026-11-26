@@ -92,7 +92,10 @@ model res_users {
   mos_written manufacturing_order[] @relation("mo_write")
 
   // Cutting Plan audit
-  cutting_plan_uploads_created cutting_plan_upload[] @relation("cutting_plan_upload_create")
+  cutting_plan_uploads_created cutting_plan_upload[]      @relation("cutting_plan_upload_create")
+  cutting_plan_kerfs_written   cutting_plan_kerf[]        @relation("cutting_plan_kerf_write")
+  cutting_plan_remnant_uses    cutting_plan_remnant_use[] @relation("cutting_plan_remnant_use_create")
+  cutting_plan_changes         cutting_plan_change[]      @relation("cutting_plan_change_user")
 
   // Sprint 23: BIM Viewer audit
   bim_models_created bim_model[] @relation("bim_model_create")
@@ -2315,12 +2318,63 @@ model cutting_plan_nesting {
   start_time_min Decimal? @db.Decimal(10, 2)
   total_time_min Decimal? @db.Decimal(10, 2)
 
+  // User test report 2026-11-26: the plate's material certificate (free text, numbers and letters, edited in the
+  // Plates tab) and its cut length (the DXF's CUT path, measured once when first shown) for the kerf loss
+  certificate   String?  @db.VarChar(100)
+  cut_length_mm Decimal? @db.Decimal(12, 1)
+
   order_parts  cutting_plan_order_part[]
   plate_usages cutting_plan_plate_usage[]
   remnants     cutting_plan_remnant[]
 
   @@index([upload_id])
   @@index([cuttingplan_number])
+}
+
+// User test report 2026-11-26 — kerf of the plate cutter per technology (as the nesting file writes it, e.g.
+// "Plasma [PlainCuttingUnit]") and thickness, set once in the app; Loss = cut length × kerf × thickness × 7.85.
+model cutting_plan_kerf {
+  id         Int       @id @default(autoincrement())
+  technology String    @db.VarChar(60)
+  thick_mm   Decimal   @db.Decimal(8, 2)
+  kerf_mm    Decimal   @db.Decimal(6, 2)
+  write_uid  Int
+  write_user res_users @relation("cutting_plan_kerf_write", fields: [write_uid], references: [id])
+  write_date DateTime  @default(now()) @db.Timestamptz
+
+  @@unique([technology, thick_mm])
+}
+
+// Remnants put back to use (user report 2026-11-26: remnant database for reuse). The register itself is every
+// plate remnant and every shape rest of the stored uploads; this log takes pieces out of it. source = PLATE
+// (cutting_plan_remnant.id) | SHAPE (cutting_plan_shape_layout.id). Soft refs: a deleted upload drops its remnants.
+model cutting_plan_remnant_use {
+  id          Int       @id @default(autoincrement())
+  source      String    @db.VarChar(10)
+  source_id   Int
+  qty         Int
+  note        String?   @db.VarChar(200)
+  create_uid  Int
+  create_user res_users @relation("cutting_plan_remnant_use_create", fields: [create_uid], references: [id])
+  create_date DateTime  @default(now()) @db.Timestamptz
+
+  @@index([source, source_id])
+}
+
+// Field-level history of what users edit on cutting plans (history design standard: old → new, who, when).
+// entity = NESTING (certificate) | KERF (kerf_mm)
+model cutting_plan_change {
+  id             Int       @id @default(autoincrement())
+  entity         String    @db.VarChar(20)
+  entity_id      Int
+  field          String    @db.VarChar(40)
+  old_value      String?   @db.Text
+  new_value      String?   @db.Text
+  changed_by_uid Int
+  changed_by     res_users @relation("cutting_plan_change_user", fields: [changed_by_uid], references: [id])
+  changed_at     DateTime  @default(now()) @db.Timestamptz
+
+  @@index([entity, entity_id, changed_at])
 }
 
 // Orders / Part Specific section — nested-vs-ordered qty per drawing mark.
