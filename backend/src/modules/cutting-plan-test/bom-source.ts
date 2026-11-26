@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../../prisma/prisma.service'
-import { classifyProfile, markGroup } from './profile-family'
+import { classifyProfile, isNotCut, markGroup } from './profile-family'
+import { medianKgPerM } from './part-list'
 import type { PartListResult, PartListSize } from './part-list'
 
 // CP-Shape-Test (2026-11-11): parts for a layout straight from the BOM (active parts of complete dispatches) of the
@@ -17,7 +18,7 @@ export class BomSourceService {
     if (!(await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } }))) throw new NotFoundException(`Project ${projectId} not found`)
     return this.prisma.bom_part.findMany({
       where: { status: 'ACTIVE', dispatch: { project_id: projectId, status: 'complete', ...(zoneIds ? { zone_id: { in: zoneIds } } : {}) } },
-      select: { part_mark: true, profile: true, grade: true, qty: true, length_mm: true, dispatch: { select: { zone_id: true } } },
+      select: { part_mark: true, profile: true, grade: true, qty: true, length_mm: true, weight_kg: true, dispatch: { select: { zone_id: true } } },
     })
   }
 
@@ -42,26 +43,44 @@ export class BomSourceService {
     if (!zoneIds.length) throw new BadRequestException('Pick at least one zone')
     const rows = (await this.rows(projectId, zoneIds)).filter(r => !groups.length || groups.includes(markGroup(r.part_mark)))
     const sizes = new Map<string, PartListSize>()
+    const weights = new Map<string, number[]>() // kg per metre samples per size (weight_kg is per piece)
     const noLength = new Map<string, { marks: string[]; pieces: number }>()
     const spellings = new Map<string, Set<string>>()
     const later = new Map<string, { marks: number; pieces: number }>()
+    const unknown = new Map<string, { marks: Set<string>; pieces: number }>() // not a family, not a plate / bought item
+    const sleeves = new Map<string, { marks: Set<string>; pieces: number }>() // per pipe size
     // One mark = one part, but per-zone exports carry it with slightly different lengths (500 / 500.01 / 499.99) or none
     const byMark = new Map<string, { profile: string; grade: string | null; mark: string; entries: { length: number | null; qty: number }[] }>()
     for (const r of rows) {
       const f = classifyProfile(r.profile)
-      if (!f) continue
       const qty = num(r.qty) ?? 0
+      if (!f) {
+        if (r.profile && !isNotCut(r.profile)) {
+          const raw = String(r.profile).trim(), u = unknown.get(raw) ?? { marks: new Set<string>(), pieces: 0 }
+          u.marks.add(r.part_mark); u.pieces += qty; unknown.set(raw, u)
+        }
+        continue
+      }
       if (!f.enabled) {
         const l = later.get(f.family) ?? { marks: 0, pieces: 0 }
         later.set(f.family, { marks: l.marks + 1, pieces: l.pieces + qty })
         continue
       }
-      if (!spellings.has(f.profile)) spellings.set(f.profile, new Set())
-      spellings.get(f.profile)!.add(String(r.profile).trim())
+      if (f.sleeve) {
+        const s = sleeves.get(f.profile) ?? { marks: new Set<string>(), pieces: 0 }
+        s.marks.add(r.part_mark); s.pieces += qty; sleeves.set(f.profile, s)
+      } else {
+        if (!spellings.has(f.profile)) spellings.set(f.profile, new Set())
+        spellings.get(f.profile)!.add(String(r.profile).trim())
+      }
       const grade = r.grade?.trim() || null
       const k = `${f.profile}|${grade ?? ''}|${r.part_mark}`
       if (!byMark.has(k)) byMark.set(k, { profile: f.profile, grade, mark: r.part_mark, entries: [] })
-      const length = num(r.length_mm)
+      const length = num(r.length_mm), weight = num(r.weight_kg)
+      if (length && length > 0 && weight && weight > 0) {
+        const wk = `${f.profile}|${grade ?? ''}`
+        weights.set(wk, [...(weights.get(wk) ?? []), (weight / length) * 1000])
+      }
       byMark.get(k)!.entries.push({ length: length && length > 0 ? length : null, qty })
     }
 
@@ -76,7 +95,7 @@ export class BomSourceService {
       const distinct = [...new Set(withLength.map(e => e.length!))]
       const put = (lengthMm: number, count: number) => {
         const key = `${profile}|${grade ?? ''}`
-        if (!sizes.has(key)) sizes.set(key, { profile, grade, parts: [] })
+        if (!sizes.has(key)) sizes.set(key, { profile, grade, parts: [], kgPerM: medianKgPerM(weights.get(key) ?? []) })
         sizes.get(key)!.parts.push({ mark, lengthMm, count })
       }
       const lost = (pieces: number) => {
@@ -114,6 +133,8 @@ export class BomSourceService {
     for (const [profile, names] of spellings) {
       if (names.size > 1) warnings.push(`${profile} is written ${names.size} ways in the BOM (${[...names].sort().join(', ')}); counted as one size`)
     }
+    for (const [profile, n] of sleeves) warnings.push(`${profile}: sleeve pipes (SL) laid out with it: ${plural(n.marks.size, 'mark')} (${n.pieces} pcs)`)
+    for (const [raw, n] of unknown) warnings.push(`Unknown profile, not laid out: ${raw} (${plural(n.marks.size, 'mark')}, ${n.pieces} pcs)`)
     if (later.size) warnings.push(`Not laid out yet: ${[...later].map(([f, n]) => `${f} (${plural(n.marks, 'mark')}, ${n.pieces} pcs)`).join(', ')}`)
     return { sizes: out, pieces: out.reduce((n, s) => n + s.parts.reduce((m, p) => m + p.count, 0), 0), warnings }
   }

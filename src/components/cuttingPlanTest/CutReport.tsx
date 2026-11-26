@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { Printer, X } from 'lucide-react'
 import type { ShapeTestResult } from '../../api/cutting-plan-test'
 import { barPieces, pieceColors, sharedPrefix, splitByMarkSet } from '../../lib/cuttingPlanTest/shapeTest'
+import type { Balance } from '../../lib/cuttingPlanTest/shapeTest'
 
 // CP-Shape-Test, POC 2026-11-16: the cutting report for the shop floor, A4, one size per sheet. It replaces what the
 // line reads today (the CutLogic PDF): the stock to prepare, each layout as a bar to scale, the marks in the order
@@ -10,8 +11,12 @@ import { barPieces, pieceColors, sharedPrefix, splitByMarkSet } from '../../lib/
 // nothing is saved. Tao 2026-11-16: the words follow the CutLogic report the floor already reads (Layout n of m, Stocks,
 // Rest, Length, Repeat 7x, # / Description / Length / Count), so nobody has to relearn them. Tao picked the format on a mock-up (title, logo lockup as the MO packet, colour or black and white).
 export interface CutReportSize { profile: string; grade: string | null; zone?: string; kerfMm: number; result: ShapeTestResult }
+// 2026-11-26 user report §4: the material balance for Material Return — issued = parts + remnant + loss, per size
+export interface BalanceRow { profile: string; grade: string | null; zone?: string; stocks: number; kgPerM: number; b: Balance }
 
 const mm = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+const mt = (v: number) => (v / 1000).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const kgs = (v: number) => v.toLocaleString('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
 const CSS = `
 .cr-root{position:fixed;inset:0;z-index:60;background:#E9E9E9;overflow:auto;font-family:"Noto Sans Thai",system-ui,sans-serif;color:#111}
@@ -148,7 +153,7 @@ function Layout({ n, of, layout, marks, kerfMm }: { n: number; of: number; layou
   )
 }
 
-export function CutReport({ source, sizes, onClose }: { source: string; sizes: CutReportSize[]; onClose: () => void }) {
+export function CutReport({ source, sizes, onClose, mode = 'cutting', balance }: { source: string; sizes: CutReportSize[]; onClose: () => void; mode?: 'cutting' | 'balance'; balance?: { minRemnantMm: number | null; rows: BalanceRow[] } }) {
   const [portrait, setPortrait] = useState(false)
   const [colour, setColour] = useState(true)
   useEffect(() => {
@@ -158,10 +163,10 @@ export function CutReport({ source, sizes, onClose }: { source: string; sizes: C
   }, [onClose])
   const printed = new Date().toLocaleDateString('en-GB')
   return createPortal(
-    <div className={`cr-root${portrait ? ' cr-portrait' : ''}${colour ? '' : ' cr-bw'}`} role="dialog" aria-label="Cutting report">
+    <div className={`cr-root${portrait ? ' cr-portrait' : ''}${colour ? '' : ' cr-bw'}`} role="dialog" aria-label={mode === 'balance' ? 'Material balance' : 'Cutting report'}>
       <style>{`${CSS}@page{size:A4 ${portrait ? 'portrait' : 'landscape'};margin:10mm}`}</style>
       <div className="cr-tools">
-        <b>{`Cutting report · ${sizes.length} ${sizes.length === 1 ? 'size' : 'sizes'}`}</b>
+        <b>{`${mode === 'balance' ? 'Material balance' : 'Cutting report'} · ${sizes.length} ${sizes.length === 1 ? 'size' : 'sizes'}`}</b>
         <div className="cr-seg">
           <button aria-pressed={!portrait} onClick={() => setPortrait(false)}>A4 landscape</button>
           <button aria-pressed={portrait} onClick={() => setPortrait(true)}>A4 portrait</button>
@@ -174,7 +179,8 @@ export function CutReport({ source, sizes, onClose }: { source: string; sizes: C
         <button className="cr-btn" onClick={onClose} aria-label="Close report"><X size={14} />Close</button>
       </div>
       <div className="cr-sheets">
-        {sizes.map(s => {
+        {mode === 'balance' && balance && <BalanceSheet source={source} printed={printed} {...balance} />}
+        {mode === 'cutting' && sizes.map(s => {
           const sets = splitByMarkSet(s.result.layouts)
           const pieces = s.result.layouts.reduce((n, l) => n + l.repeat * l.pieces.reduce((a, p) => a + p.count, 0), 0)
           return (
@@ -211,5 +217,59 @@ export function CutReport({ source, sizes, onClose }: { source: string; sizes: C
       </div>
     </div>,
     document.body,
+  )
+}
+
+// One sheet: per size what was issued, what went into parts, the remnants to return (by length) and the loss (kerf +
+// short offcuts), in m and kg; the three after "Issued" add up to it. Signed off by store and production.
+function BalanceSheet({ source, printed, minRemnantMm, rows }: { source: string; printed: string; minRemnantMm: number | null; rows: BalanceRow[] }) {
+  const kgOf = (r: BalanceRow, v: number) => (r.kgPerM * v) / 1000
+  const total = (f: (r: BalanceRow) => number) => rows.reduce((n, r) => n + f(r), 0)
+  return (
+    <article className="cr-sheet" data-testid="cr-balance">
+      <div className="cr-top">
+        <div className="cr-brand">
+          <img src="/assets/logo/powerkeychain-logo.png" alt="Power Keychain logo" />
+          <div><b>SSI BUILDING TECH</b><span>POWER KEYCHAIN</span></div>
+        </div>
+        <h2>MATERIAL BALANCE</h2>
+        <div className="cr-size">{`${rows.length} ${rows.length === 1 ? 'size' : 'sizes'}`}<small>for Material Return</small></div>
+      </div>
+      <div className="cr-meta">
+        <div><span>Parts from</span><b>{source}</b></div>
+        <div><span>Min remnant</span><b>{minRemnantMm ? `${mm(minRemnantMm)} mm` : 'none: every offcut is loss'}</b></div>
+        <div><span>Issued</span><b>{`${total(r => r.stocks).toLocaleString('en-US')} pcs · ${kgs(total(r => kgOf(r, r.b.stockMm)))} kg`}</b></div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Size</th><th>Grade</th><th className="cr-n">Issued pcs</th><th className="cr-n">Issued m</th><th className="cr-n">Issued kg</th>
+          <th className="cr-n">Parts m</th><th className="cr-n">Parts kg</th><th>Remnant to return</th><th className="cr-n">Remnant kg</th>
+          <th className="cr-n">Loss m</th><th className="cr-n">Loss kg</th>
+        </tr></thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={`${r.zone ?? ''}|${r.profile}|${r.grade ?? ''}`}>
+              <td className="cr-m">{r.zone ? `${r.zone} · ${r.profile}` : r.profile}</td><td>{r.grade ?? '—'}</td>
+              <td className="cr-n">{r.stocks.toLocaleString('en-US')}</td><td className="cr-n">{mt(r.b.stockMm)}</td><td className="cr-n">{kgs(kgOf(r, r.b.stockMm))}</td>
+              <td className="cr-n">{mt(r.b.partsMm)}</td><td className="cr-n">{kgs(kgOf(r, r.b.partsMm))}</td>
+              <td>{r.b.remnants.length ? r.b.remnants.map(x => `${mm(x.lengthMm)} × ${x.pcs}`).join(', ') : '—'}</td>
+              <td className="cr-n">{r.b.remnantMm ? kgs(kgOf(r, r.b.remnantMm)) : '—'}</td>
+              <td className="cr-n">{mt(r.b.lossMm)}</td><td className="cr-n">{kgs(kgOf(r, r.b.lossMm))}</td>
+            </tr>
+          ))}
+          <tr>
+            <td className="cr-m">Total</td><td />
+            <td className="cr-n">{total(r => r.stocks).toLocaleString('en-US')}</td><td className="cr-n">{mt(total(r => r.b.stockMm))}</td><td className="cr-n">{kgs(total(r => kgOf(r, r.b.stockMm)))}</td>
+            <td className="cr-n">{mt(total(r => r.b.partsMm))}</td><td className="cr-n">{kgs(total(r => kgOf(r, r.b.partsMm)))}</td>
+            <td /><td className="cr-n">{kgs(total(r => kgOf(r, r.b.remnantMm)))}</td>
+            <td className="cr-n">{mt(total(r => r.b.lossMm))}</td><td className="cr-n">{kgs(total(r => kgOf(r, r.b.lossMm)))}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div className="cr-sign">
+        {['Issued by (store)', 'Returned by (production)', 'Checked by'].map(who => <div key={who}><span>{who}</span><span>Date</span></div>)}
+      </div>
+      <div className="cr-foot"><span>BDT · CP-Shape-Test</span><span>{`Printed ${printed}`}</span></div>
+    </article>
   )
 }
