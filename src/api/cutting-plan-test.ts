@@ -1,7 +1,7 @@
 import { apiClient } from './client'
 
 // CP-Shape-Test (2026-11-11): test bench, nothing is stored
-export interface ShapeTestPart { mark: string; lengthMm: number; count: number }
+export interface ShapeTestPart { mark: string; lengthMm: number; count: number; sleeve?: boolean } // sleeve: a sleeve pipe (…SL) laid out with its pipe
 export interface ShapeTestStock { lengthMm: number; qty: number | null } // null = unlimited
 export interface ShapeTestSize { profile: string; grade: string | null; parts: ShapeTestPart[]; zone?: string; kgPerM?: number | null } // zone: set when laid out per zone; kgPerM: from the source's weights
 export interface ShapeTestPartList { sizes: ShapeTestSize[]; pieces: number; warnings: string[] }
@@ -48,4 +48,11 @@ export interface ShapeEndCut {
 }
 export function getShapeEndCuts(body: { project_id: number; marks: string[] }): Promise<{ source: string | null; marks: Record<string, ShapeEndCut | null> }> {
   return apiClient.post('/cutting-plan-test/shape/end-cuts', body).then(r => r.data)
+}
+
+// 2026-11-26: sleeve joints of a project, from its IFC (which pipes each sleeve pipe joins and how far it goes in)
+export interface SleeveJointPiece { marks: string[]; profile: string; odMm: number; wallMm: number | null; lengthMm: number }
+export interface SleeveJoint { sleeve: SleeveJointPiece; pipes: (SleeveJointPiece & { insertMm: number })[]; count: number; assemblies: string[]; sleeveDrawnAtPipeSize: boolean }
+export async function getSleeveJoints(projectId: number): Promise<{ source: string | null; joints: SleeveJoint[] }> {
+  return (await apiClient.get('/cutting-plan-test/shape/sleeve-joints', { params: { project_id: projectId } })).data
 }

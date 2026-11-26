@@ -50,7 +50,7 @@ export class BomSourceService {
     const unknown = new Map<string, { marks: Set<string>; pieces: number }>() // not a family, not a plate / bought item
     const sleeves = new Map<string, { marks: Set<string>; pieces: number }>() // per pipe size
     // One mark = one part, but per-zone exports carry it with slightly different lengths (500 / 500.01 / 499.99) or none
-    const byMark = new Map<string, { profile: string; grade: string | null; mark: string; entries: { length: number | null; qty: number }[] }>()
+    const byMark = new Map<string, { profile: string; grade: string | null; mark: string; sleeve?: boolean; entries: { length: number | null; qty: number }[] }>()
     for (const r of rows) {
       const f = classifyProfile(r.profile)
       const qty = num(r.qty) ?? 0
@@ -75,7 +75,7 @@ export class BomSourceService {
       }
       const grade = r.grade?.trim() || null
       const k = `${f.profile}|${grade ?? ''}|${r.part_mark}`
-      if (!byMark.has(k)) byMark.set(k, { profile: f.profile, grade, mark: r.part_mark, entries: [] })
+      if (!byMark.has(k)) byMark.set(k, { profile: f.profile, grade, mark: r.part_mark, sleeve: f.sleeve, entries: [] })
       const length = num(r.length_mm), weight = num(r.weight_kg)
       if (length && length > 0 && weight && weight > 0) {
         const wk = `${f.profile}|${grade ?? ''}`
@@ -87,7 +87,7 @@ export class BomSourceService {
     const mm = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 2 })
     const rounded = new Map<string, string[]>(), filled = new Map<string, { marks: string[]; pieces: number }>(), apart = new Map<string, string[]>()
     const add = (m: Map<string, string[]>, k: string, v: string) => m.set(k, [...(m.get(k) ?? []), v])
-    for (const { profile, grade, mark, entries } of byMark.values()) {
+    for (const { profile, grade, mark, sleeve, entries } of byMark.values()) {
       const bad = entries.filter(e => !Number.isInteger(e.qty) || e.qty <= 0)
       const good = entries.filter(e => !bad.includes(e))
       const withLength = good.filter(e => e.length != null)
@@ -96,7 +96,7 @@ export class BomSourceService {
       const put = (lengthMm: number, count: number) => {
         const key = `${profile}|${grade ?? ''}`
         if (!sizes.has(key)) sizes.set(key, { profile, grade, parts: [], kgPerM: medianKgPerM(weights.get(key) ?? []) })
-        sizes.get(key)!.parts.push({ mark, lengthMm, count })
+        sizes.get(key)!.parts.push({ mark, lengthMm, count, ...(sleeve ? { sleeve: true as const } : {}) })
       }
       const lost = (pieces: number) => {
         const n = noLength.get(profile) ?? { marks: [], pieces: 0 }

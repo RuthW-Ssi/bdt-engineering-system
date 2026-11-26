@@ -5,6 +5,7 @@ import { barPieces, pieceColors, sharedPrefix, splitByMarkSet } from '../../lib/
 import { labelFits } from '../../lib/cuttingPlan/shapeSummary'
 import { ShowAll } from '../cuttingPlan/PlanSummary'
 import { PipeBar3dDialog } from './PipeBar3dDialog'
+import type { PlugAtMark } from '../../lib/cuttingPlanTest/plugWeld'
 
 // CP-Shape-Test: the layouts of one size, as bars drawn to scale (moved out of ShapeTestPanel 2026-11-13).
 const HATCH = 'repeating-linear-gradient(45deg, #E5E7EB 0 4px, #F9FAFB 4px 8px)'
@@ -13,7 +14,7 @@ const CAP = 10 // a size can have 50+ layouts: the first ones, then "Show all" (
 
 // Each piece shows its mark(s) only (Tao 2026-11-11: marks rather than sizes; 2026-11-12: lengths go on the dimension
 // lines under the bar, not beside the mark). Colours follow the piece length (pieceColors, as the 3D).
-function LayoutBar({ layout, marks, kerfMm, colorOf }: { layout: ShapeTestLayout; marks: string[]; kerfMm: number; colorOf: (lengthMm: number) => string }) {
+function LayoutBar({ layout, marks, kerfMm, colorOf, sleeves }: { layout: ShapeTestLayout; marks: string[]; kerfMm: number; colorOf: (lengthMm: number) => string; sleeves?: Set<string> }) {
   const L = layout.stockLengthMm
   const segs: { from: number; to: number; kind: 'part' | 'kerf' | 'rest'; length?: number; mark?: string; start?: boolean }[] = []
   // positions as on the bar (a nested saddle piece starts inside the previous one's span, drawn over it)
@@ -27,7 +28,7 @@ function LayoutBar({ layout, marks, kerfMm, colorOf }: { layout: ShapeTestLayout
   return (
     <div role="img" aria-label={`Stock ${mm(L)} mm`} style={{ position: 'relative', height: 26, background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: 4, overflow: 'hidden' }}>
       {segs.map((s, i) => (
-        <div key={i} title={s.kind === 'part' ? `${mm(s.length!)} mm · ${s.mark}` : s.kind === 'rest' ? `Scrap ${mm(s.to - s.from)} mm` : `Kerf ${mm(s.to - s.from)} mm`}
+        <div key={i} title={s.kind === 'part' ? `${mm(s.length!)} mm · ${s.mark}${sleeves?.has(s.mark!) ? ' · sleeve' : ''}` : s.kind === 'rest' ? `Scrap ${mm(s.to - s.from)} mm` : `Kerf ${mm(s.to - s.from)} mm`}
           style={{
             position: 'absolute', top: 0, bottom: 0, left: `${(s.from / L) * 100}%`, width: `${((s.to - s.from) / L) * 100}%`,
             background: s.kind === 'part' ? colorOf(s.length!) : s.kind === 'kerf' ? '#111827' : HATCH,
@@ -35,7 +36,7 @@ function LayoutBar({ layout, marks, kerfMm, colorOf }: { layout: ShapeTestLayout
             // a white line where a piece starts: a nested joint has no kerf strip, and two pieces of one length share a colour
             boxShadow: s.start ? 'inset 2px 0 0 white' : undefined,
           }}>
-          {s.kind === 'part' ? s.mark : ''}
+          {s.kind === 'part' ? <>{s.mark}{sleeves?.has(s.mark!) && <span style={{ marginLeft: 4, padding: '0 3px', borderRadius: 3, background: 'rgba(255,255,255,0.9)', color: '#7C2D12', fontSize: 9, fontWeight: 700, lineHeight: '14px', verticalAlign: 'middle' }}>SL</span>}</> : ''}
         </div>
       ))}
     </div>
@@ -80,7 +81,8 @@ function BarDims({ n, layout, pieces, kerfMm, bg }: { n: number; layout: ShapeTe
 // to use"): lengths and marks are no longer repeated in a table under every bar — only a layout with pieces too short
 // for a dimension label lists them (mark, length, × how many in a row). Past a handful of layouts: find a mark, pick a
 // stock length, and the first CAP shown. A layout keeps its number whatever the filter.
-export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white' }: { profile: string; layouts: ShapeTestLayout[]; kerfMm: number; projectId: number | null; bg?: string }) {
+// sleeves: marks of sleeve pipes (…SL, 2026-11-26) laid out with this pipe; they say SL on the bar and in the 3D
+export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white', sleeves, plug }: { profile: string; layouts: ShapeTestLayout[]; kerfMm: number; projectId: number | null; bg?: string; sleeves?: Set<string>; plug?: Record<string, PlugAtMark> }) {
   const [bar3d, setBar3d] = useState<{ title: string; layout: ShapeTestLayout; marks: string[] } | null>(null)
   const [find, setFind] = useState('')
   const [length, setLength] = useState<number | null>(null)
@@ -93,7 +95,7 @@ export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white' }
   const seg = (on: boolean) => ({ height: 28, padding: '0 10px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: on ? '#1F2937' : 'white', color: on ? 'white' : '#555' }) as const
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {bar3d && <PipeBar3dDialog title={bar3d.title} profile={profile} layout={bar3d.layout} marks={bar3d.marks} kerfMm={kerfMm} projectId={projectId} onClose={() => setBar3d(null)} />}
+      {bar3d && <PipeBar3dDialog title={bar3d.title} profile={profile} layout={bar3d.layout} marks={bar3d.marks} kerfMm={kerfMm} projectId={projectId} sleeves={sleeves} plug={plug} onClose={() => setBar3d(null)} />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {sets.length > 5 && <>
           <div className="relative">
@@ -137,7 +139,7 @@ export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white' }
                   style={{ fontSize: 11, fontWeight: 600, color: '#0C447C', background: 'white', border: '1px solid #C2C2C2', borderRadius: 4, padding: '1px 8px', cursor: 'pointer' }}>3D</button>
               </span>
             </div>
-            <LayoutBar layout={l} marks={marks.map(short)} kerfMm={kerfMm} colorOf={colorOf} />
+            <LayoutBar layout={l} marks={marks.map(short)} kerfMm={kerfMm} colorOf={colorOf} sleeves={sleeves && new Set([...sleeves].map(short))} />
             <BarDims n={n} layout={l} pieces={order} kerfMm={kerfMm} bg={bg} />
             {cramped && (
               <div role="list" aria-label={`Pieces of layout ${n}`} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 14px', marginTop: 6, fontSize: 12, color: '#374151' }}>
@@ -145,6 +147,7 @@ export function LayoutList({ profile, layouts, kerfMm, projectId, bg = 'white' }
                   <span role="listitem" key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
                     <i style={{ width: 8, height: 8, borderRadius: 2, background: colorOf(r.lengthMm) }} />
                     <b style={{ fontWeight: 600, color: '#111827' }}>{short(r.mark)}</b>
+                    {sleeves?.has(r.mark) && <span style={{ fontSize: 10, fontWeight: 700, color: '#7C2D12', background: '#FFEDD5', borderRadius: 3, padding: '0 4px' }}>SL · sleeve</span>}
                     <span style={{ color: '#6B7280' }}>{`${mm(r.lengthMm)} mm${r.count > 1 ? ` × ${r.count}` : ''}`}</span>
                   </span>
                 ))}

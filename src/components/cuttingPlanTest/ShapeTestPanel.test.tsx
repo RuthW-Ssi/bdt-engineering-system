@@ -33,6 +33,7 @@ describe('ShapeTestPanel', () => {
     vi.spyOn(projects.projectsApi, 'listAll').mockResolvedValue([{ id: 7, project_code: '0X222', name: 'Bangna' }] as never)
     vi.spyOn(api, 'optimizeShapeTest').mockImplementation(async body => result(body.parts[0].mark === 'A1' ? 98 : 90))
     vi.spyOn(api, 'getShapeEndCuts').mockResolvedValue({ source: null, marks: {} })
+    vi.spyOn(api, 'getSleeveJoints').mockResolvedValue({ source: null, joints: [] })
   })
   afterEach(() => vi.restoreAllMocks())
 
@@ -311,6 +312,109 @@ describe('ShapeTestPanel', () => {
     const sheet = await screen.findByRole('dialog', { name: 'Material balance' })
     expect(within(sheet).getByText('MATERIAL BALANCE')).toBeInTheDocument()
     expect(within(sheet).getAllByText('L 50X50X5').length).toBeGreaterThan(0)
+  })
+
+  // 2026-11-26: a sleeve pipe (…SL) is laid out with its pipe and says SL wherever its mark is shown
+  it('sleeve pieces carry an SL tag on the bar, in the 3D table and in the cutting report', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 18, warnings: [], sizes: [{ profile: 'PIPE 139.8X5', grade: 'SS400', parts: [{ mark: 'TC-m1', lengthMm: 5000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] }] })
+    vi.mocked(api.optimizeShapeTest).mockResolvedValue({ ...result(97), stocks: 6, layouts: [
+      { stockLengthMm: 12500, repeat: 6, restMm: 6664, cuts: 3, pieces: [{ lengthMm: 5000, count: 1 }, { lengthMm: 400, count: 2 }], marks: [{ mark: 'TC-m1', lengthMm: 5000, pcs: 6 }, { mark: 'TC-m7', lengthMm: 400, pcs: 12 }] }, // 400 of 12,500: too short to label, so listed under the bar
+    ] })
+    await loadFromBom()
+    await screen.findByText('PIPE 139.8X5')
+    fireEvent.click(screen.getByRole('button', { name: 'With their pipe' })) // sleeves start as their own size
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    const btn = await screen.findByRole('button', { name: 'Layouts of PIPE 139.8X5' })
+    fireEvent.click(btn)
+    const bar = screen.getAllByRole('img', { name: 'Stock 12,500 mm' })[0]
+    expect(within(bar).getAllByText('SL').length).toBe(2) // two sleeve pieces on the bar
+    expect(screen.getByText('SL · sleeve')).toBeInTheDocument() // and in the marks listed under the bar
+    fireEvent.click(screen.getByRole('button', { name: '3D of layout 1' }))
+    const d3 = await screen.findByRole('dialog', { name: /PIPE 139.8X5 · layout 1/ })
+    expect(within(d3).getAllByText('SL (sleeve)').length).toBe(2) // both sleeve rows of the bar's table
+    fireEvent.click(within(d3).getByRole('button', { name: 'Close' }))
+    fireEvent.click(within(screen.getByTestId('result-step')).getByRole('button', { name: /Cutting report/ }))
+    const report = await screen.findByRole('dialog', { name: 'Cutting report' })
+    expect(within(report).getByText('TC-m7 · SL (sleeve)')).toBeInTheDocument()
+    expect(within(report).getByText('TC-m1')).toBeInTheDocument()
+  })
+
+  // Tao 2026-11-26: "ทำเป็น option ไปว่าจะแยกหรือรวม" — sleeves are their own size to start with (the model draws them
+  // smaller than their pipe); With their pipe lays them out in the pipe's offcuts. Switching clears the results.
+  it('sleeve pipes: own size by default, or with their pipe; the switch shows only when there are sleeves', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 18, warnings: [], sizes: [{ profile: 'PIPE 139.8X5', grade: 'SS400', parts: [{ mark: 'TC-m1', lengthMm: 5000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] }] })
+    await loadFromBom()
+    expect(await screen.findByTestId('size-PIPE 139.8X5 SL')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Own size' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(api.optimizeShapeTest).toHaveBeenCalledTimes(2))
+    const calls = vi.mocked(api.optimizeShapeTest).mock.calls.map(c => c[0])
+    expect(calls.map(c => c.parts.map(p => p.mark))).toEqual([['TC-m1'], ['TC-m7']])
+    expect(calls[1]).not.toHaveProperty('project_id') // a sleeve is cut square: no model end cuts
+    await waitFor(() => expect(screen.getByTestId('test-totals')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: 'With their pipe' }))
+    expect(screen.queryByTestId('size-PIPE 139.8X5 SL')).toBeNull()
+    expect(screen.queryByTestId('test-totals')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(api.optimizeShapeTest).toHaveBeenCalledTimes(3))
+    expect(vi.mocked(api.optimizeShapeTest).mock.calls[2][0].parts.map(p => p.mark)).toEqual(['TC-m1', 'TC-m7'])
+  })
+
+  it('no sleeve switch when the list has no sleeve pipes', async () => {
+    await loadFromBom()
+    await screen.findByText('PIPE 101.6X2.6')
+    expect(screen.queryByRole('button', { name: 'Own size' })).toBeNull()
+  })
+
+  // Tao 2026-11-26: sleeve joints from the model, plug-weld holes as parameters: suggested first, printed once confirmed
+  it('sleeve joints: suggested plug-weld holes, changed, confirmed, then printed on the cutting report', async () => {
+    vi.mocked(api.getSleeveJoints).mockResolvedValue({ source: 'TENNIS COURT 36X36.ifc', joints: [{
+      sleeve: { marks: ['TC-m7'], profile: 'PIPE 139.8X5 SL', odMm: 129.8, wallMm: 5, lengthMm: 400 }, count: 12, assemblies: ['TC-PS1'], sleeveDrawnAtPipeSize: false,
+      pipes: [{ marks: ['TC-m1'], profile: 'PIPE 139.8X5', odMm: 139.8, wallMm: 5, lengthMm: 8000, insertMm: 197.5 }, { marks: ['TC-m6'], profile: 'PIPE 139.8X5', odMm: 139.8, wallMm: 5, lengthMm: 3579, insertMm: 197.5 }],
+    }] })
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 18, warnings: [], sizes: [{ profile: 'PIPE 139.8X5', grade: 'SS400', parts: [{ mark: 'TC-m1', lengthMm: 5000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] }] })
+    vi.mocked(api.optimizeShapeTest).mockResolvedValue({ ...result(97), stocks: 6, layouts: [{ stockLengthMm: 6000, repeat: 6, restMm: 988, cuts: 1, pieces: [{ lengthMm: 5000, count: 1 }], marks: [{ mark: 'TC-m1', lengthMm: 5000, pcs: 6 }] }] })
+    await loadFromBom()
+    const cardEl = await screen.findByTestId('sleeve-joints')
+    expect(within(cardEl).getByText(/12 sleeves in the model \(TENNIS COURT 36X36.ifc\)/)).toBeInTheDocument()
+    const row = within(cardEl).getByTestId('plug-PIPE 139.8X5')
+    expect(within(row).getByText('Suggested')).toBeInTheDocument()
+    expect(within(row).getByText('4 holes Ø13, 99 mm from the end, at 0° 90° 180° 270°')).toBeInTheDocument()
+    fireEvent.change(within(row).getByLabelText('Hole diameter PIPE 139.8X5'), { target: { value: '14' } })
+    fireEvent.change(within(row).getByLabelText('From pipe end PIPE 139.8X5'), { target: { value: '100' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(screen.getByTestId('test-totals')).toBeInTheDocument())
+    const openReport = async () => { fireEvent.click(within(screen.getByTestId('result-step')).getByRole('button', { name: /Cutting report/ })); return screen.findByRole('dialog', { name: 'Cutting report' }) }
+    let report = await openReport()
+    expect(within(report).queryByText(/Plug weld holes/i)).toBeNull() // not confirmed: nothing printed
+    fireEvent.click(within(report).getByRole('button', { name: 'Close report' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm holes of PIPE 139.8X5' }))
+    expect(within(row).getByText('Confirmed')).toBeInTheDocument()
+    report = await openReport()
+    expect(within(report).getByText('End joined to TC-m6 (sleeve TC-m7 goes in 197.5 mm): 4 holes Ø14, 100 mm from the end, at 0° 90° 180° 270°')).toBeInTheDocument()
+    fireEvent.click(within(report).getByRole('button', { name: 'Close report' }))
+    // the joint in 3D: its pieces and holes are listed (no WebGL in the test browser)
+    fireEvent.click(within(cardEl).getByRole('button', { name: /3D of the joint of TC-m7/ }))
+    const joint3d = await screen.findByRole('dialog', { name: 'Sleeve joint · TC-m7' })
+    expect(within(joint3d).getAllByText(/4 holes Ø14, 100 mm from the end/).length).toBe(2)
+    expect(within(joint3d).getAllByText('· Confirmed').length).toBe(2)
+    fireEvent.click(within(joint3d).getByRole('button', { name: 'Close' }))
+    // the bar's 3D says which pipe pieces carry plug-weld holes
+    fireEvent.click(screen.getByRole('button', { name: 'Layouts of PIPE 139.8X5' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '3D of layout 1' })[0])
+    expect(await screen.findByTestId('bar-plug')).toHaveTextContent('TC-m1 · plug-weld holes at the end joined to TC-m6 (sleeve TC-m7 goes in 197.5 mm): 4 holes Ø14, 100 mm from the end, at 0° 90° 180° 270° Confirmed')
+  })
+
+  // 0X222: 32 sleeves whose BOM profile has no SL — the model says they are sleeves, so they are treated as sleeves too
+  it('a part the model calls a sleeve is a sleeve even when its BOM profile has no SL', async () => {
+    vi.mocked(api.getSleeveJoints).mockResolvedValue({ source: 'M.ifc', joints: [{
+      sleeve: { marks: ['DBN-B5-m190'], profile: 'PIPE 113.5X2.4', odMm: 113.5, wallMm: 2.4, lengthMm: 400 }, count: 24, assemblies: ['A'], sleeveDrawnAtPipeSize: true,
+      pipes: [{ marks: ['DBN-B5-m33'], profile: 'PIPE 113.5X2.4', odMm: 113.5, wallMm: 2.4, lengthMm: 9000, insertMm: 197.5 }],
+    }] })
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 30, warnings: [], sizes: [{ profile: 'PIPE 113.5X2.4', grade: 'SS400', parts: [{ mark: 'DBN-B5-m33', lengthMm: 5000, count: 6 }, { mark: 'DBN-B5-m190', lengthMm: 400, count: 24 }] }] })
+    await loadFromBom()
+    expect(await screen.findByTestId('size-PIPE 113.5X2.4 SL')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Own size' })).toBeInTheDocument()
   })
 
   // Tao 2026-11-12: same calculation, but the layouts can be split per zone or done over all picked zones together

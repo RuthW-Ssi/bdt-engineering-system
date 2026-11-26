@@ -10,7 +10,7 @@ import type { Balance } from '../../lib/cuttingPlanTest/shapeTest'
 // they are cut (the name the operator picks the NC file by). Tao 2026-11-16: no tick boxes, the table takes the full width. Printed from the browser;
 // nothing is saved. Tao 2026-11-16: the words follow the CutLogic report the floor already reads (Layout n of m, Stocks,
 // Rest, Length, Repeat 7x, # / Description / Length / Count), so nobody has to relearn them. Tao picked the format on a mock-up (title, logo lockup as the MO packet, colour or black and white).
-export interface CutReportSize { profile: string; grade: string | null; zone?: string; kerfMm: number; result: ShapeTestResult }
+export interface CutReportSize { profile: string; grade: string | null; zone?: string; kerfMm: number; result: ShapeTestResult; sleeves?: string[]; plugNotes?: { mark: string; text: string }[] } // plugNotes: confirmed plug-weld holes of this size's pipes at sleeve joints // sleeves: sleeve pipe marks (…SL), said SL
 // 2026-11-26 user report §4: the material balance for Material Return — issued = parts + remnant + loss, per size
 export interface BalanceRow { profile: string; grade: string | null; zone?: string; stocks: number; kgPerM: number; b: Balance }
 
@@ -47,6 +47,9 @@ const CSS = `
 .cr-prep ul{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;font:600 12pt "IBM Plex Mono",ui-monospace,monospace}
 .cr-prep li{padding:2mm 6mm;border-right:.4mm solid #1F2937}
 .cr-prep small{font:500 8pt "Noto Sans Thai",system-ui,sans-serif;color:#555}
+.cr-plug{border:.3mm solid #111;padding:1.5mm 3mm;display:flex;gap:4mm;align-items:baseline}
+.cr-plug ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.6mm;font-size:8.5pt}
+.cr-plug li b{font:600 9.5pt "IBM Plex Mono",ui-monospace,monospace;margin-right:3mm}
 .cr-lay{border:.3mm solid #111;padding:2.5mm 3mm 3mm;display:flex;flex-direction:column;gap:2mm;break-inside:avoid}
 .cr-layhead{display:flex;align-items:baseline;gap:5mm;flex-wrap:wrap}
 .cr-layhead .cr-no{font:700 12pt "IBM Plex Mono",ui-monospace,monospace;border:.4mm solid #C8202A;background:#C8202A;color:#fff;padding:0 2mm;display:inline-block;box-sizing:content-box;min-width:calc(var(--cr-digits,2)*1ch);text-align:center}
@@ -91,7 +94,8 @@ const CSS = `
 }
 `
 
-function Layout({ n, of, layout, marks, kerfMm }: { n: number; of: number; layout: CutReportSize['result']['layouts'][number]; marks: string[]; kerfMm: number }) {
+function Layout({ n, of, layout, marks, kerfMm, sleeves }: { n: number; of: number; layout: CutReportSize['result']['layouts'][number]; marks: string[]; kerfMm: number; sleeves?: string[] }) {
+  const isSl = (m: string) => !!sleeves?.includes(m)
   const L = layout.stockLengthMm
   const pct = (v: number) => `${(v / L) * 100}%`
   const colorOf = pieceColors(layout)
@@ -122,7 +126,7 @@ function Layout({ n, of, layout, marks, kerfMm }: { n: number; of: number; layou
             const kerfEnd = Math.min(L, p.toMm + kerfMm, pieces[k + 1]?.fromMm ?? Infinity)
             return [
               <div key={`p${k}`} className={`cr-pc${lengths.indexOf(p.lengthMm) % 2 ? ' cr-alt' : ''}`}
-                style={{ left: pct(p.fromMm), width: pct(Math.min(L, p.toMm) - p.fromMm), ['--pc' as string]: colorOf(p.lengthMm) }}>{p.mark.slice(prefix.length)}</div>,
+                style={{ left: pct(p.fromMm), width: pct(Math.min(L, p.toMm) - p.fromMm), ['--pc' as string]: colorOf(p.lengthMm) }}>{`${p.mark.slice(prefix.length)}${isSl(p.mark) ? ' SL' : ''}`}</div>,
               kerfEnd > p.toMm && <div key={`k${k}`} className="cr-kerf" style={{ left: pct(p.toMm), width: pct(kerfEnd - p.toMm) }} />,
             ]
           })}
@@ -141,7 +145,7 @@ function Layout({ n, of, layout, marks, kerfMm }: { n: number; of: number; layou
           {runs.map((r, row) => (
             <tr key={r.from}>
               <td className="cr-n">{row + 1}</td>
-              <td className="cr-m"><i className="cr-sw" style={{ ['--pc' as string]: colorOf(r.lengthMm) }} />{r.mark}</td>
+              <td className="cr-m"><i className="cr-sw" style={{ ['--pc' as string]: colorOf(r.lengthMm) }} />{isSl(r.mark) ? `${r.mark} · SL (sleeve)` : r.mark}</td>
               <td className="cr-n">{mm(r.lengthMm)}</td>
               <td className="cr-n">{r.to - r.from + 1}</td>
               <td className="cr-n">{((r.to - r.from + 1) * layout.repeat).toLocaleString('en-US')}</td>
@@ -206,7 +210,13 @@ export function CutReport({ source, sizes, onClose, mode = 'cutting', balance }:
                 <span className="cr-lbl">Stocks</span>
                 <ul>{s.result.stockMix.filter(x => x.pieces).map(x => <li key={x.lengthMm}>{`${mm(x.lengthMm)} × ${x.pieces.toLocaleString('en-US')}`}</li>)}</ul>
               </div>
-              {sets.map((set, i) => <Layout key={i} n={i + 1} of={sets.length} layout={set.layout} marks={set.marks} kerfMm={s.kerfMm} />)}
+              {s.plugNotes && s.plugNotes.length > 0 && (
+                <div className="cr-plug" data-testid="cr-plug">
+                  <span className="cr-lbl">Plug weld holes</span>
+                  <ul>{s.plugNotes.map(n => <li key={`${n.mark}|${n.text}`}><b>{n.mark}</b><span>{n.text}</span></li>)}</ul>
+                </div>
+              )}
+              {sets.map((set, i) => <Layout key={i} n={i + 1} of={sets.length} layout={set.layout} marks={set.marks} kerfMm={s.kerfMm} sleeves={s.sleeves} />)}
               <div className="cr-sign">
                 {['Prepared by', 'Cut by', 'Checked by'].map(who => <div key={who}><span>{who}</span><span>Date</span></div>)}
               </div>

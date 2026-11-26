@@ -93,4 +93,12 @@ describe('parsePartList', () => {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Mark', 'Profile', 'No.', 'Grade', 'Length (mm)'], ['P1', 'PL10', 4, 'SS400', 300], ['H1', 'I150X75X5.5X9.5', 2, 'SS400', 6000]]), 'Parts')
     expect(() => parsePartList(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))).toThrow('No pipe, rod, box, L, C or H pieces in this part list (not laid out yet: I (1 mark, 2 pcs))')
   })
+
+  it('a sleeve pipe joins its pipe size and keeps a sleeve flag on its part', () => {
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Mark', 'Profile', 'No.', 'Grade', 'Length (mm)'], ['TC-m1', 'PIPE139.8X5', 6, 'HSS550', 8000], ['TC-m7', 'PIPE 139.8X5 SL', 12, 'HSS550', 400]]), 'Parts')
+    const r = parsePartList(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+    expect(r.sizes.map(s => [s.profile, s.parts])).toEqual([['PIPE 139.8X5', [{ mark: 'TC-m1', lengthMm: 8000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }]]])
+    expect(r.warnings).toEqual(['PIPE 139.8X5: sleeve pipes (SL) laid out with it: 1 mark (12 pcs)'])
+  })
 })

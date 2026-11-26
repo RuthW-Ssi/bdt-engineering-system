@@ -10,7 +10,7 @@ import { classifyProfile, isNotCut } from './profile-family'
 
 export class PartListError extends Error {}
 
-export interface PartListPart { mark: string; lengthMm: number; count: number }
+export interface PartListPart { mark: string; lengthMm: number; count: number; sleeve?: true } // sleeve: a sleeve pipe (…SL) laid out with its pipe
 export interface PartListSize { profile: string; grade: string | null; parts: PartListPart[]; kgPerM: number | null }
 export interface PartListResult { sizes: PartListSize[]; pieces: number; warnings: string[] }
 
@@ -87,14 +87,14 @@ export function parsePartList(buffer: Buffer): PartListResult {
     if (!f) { if (raw.profile && !isNotCut(raw.profile)) tally(unknown, raw.profile, raw.mark, raw.count); continue } // plates, bought items: quiet
     if (!f.enabled) { tally(later, f.family, raw.mark, raw.count); continue }
     if (f.sleeve) tally(sleeves, f.profile, raw.mark, raw.count)
-    const p = { ...raw, profile: f.profile }
+    const p = { ...raw, profile: f.profile, sleeve: f.sleeve }
     const key = `${p.profile}|${p.grade ?? ''}`
     if (!sizes.has(key)) sizes.set(key, { profile: p.profile, grade: p.grade, parts: [], kgPerM: null })
     if (p.kgPerM != null) weights.set(key, [...(weights.get(key) ?? []), p.kgPerM])
     const s = sizes.get(key)!
     const same = s.parts.find(x => x.mark === p.mark && x.lengthMm === p.lengthMm)
     if (same) same.count += p.count
-    else s.parts.push({ mark: p.mark, lengthMm: p.lengthMm, count: p.count })
+    else s.parts.push({ mark: p.mark, lengthMm: p.lengthMm, count: p.count, ...(p.sleeve ? { sleeve: true as const } : {}) })
   }
   for (const [key, s] of sizes) s.kgPerM = medianKgPerM(weights.get(key) ?? [])
   const out = [...sizes.values()].sort((a, b) => a.profile.localeCompare(b.profile) || (a.grade ?? '').localeCompare(b.grade ?? ''))

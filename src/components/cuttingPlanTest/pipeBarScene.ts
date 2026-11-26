@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { sectionExtent } from '../../lib/cuttingPlanTest/shapeTest'
 import type { Section } from '../../lib/cuttingPlanTest/shapeTest'
+import { holeMarks } from './sleeveJointScene'
 
 // CP-Shape-Test 3D (2026-11-12, step 1): one stock bar laid along X, each piece a tube (rod: solid) in its mark's
 // colour with the kerf gaps between, the end leftover in grey and an orange ring at every cut. Step 2: a piece with
@@ -10,7 +11,7 @@ import type { Section } from '../../lib/cuttingPlanTest/shapeTest'
 // 2026-11-26: BOX and L pieces are their real section (hollow box, angle) drawn along the bar, cut square, with an
 // orange frame round the section at every cut. C and H (2026-11-26) the same, the frame round their box.
 export interface EndGrids { LW: number[]; LN: number[]; RW: number[]; RN: number[] }
-export interface BarPiece { fromMm: number; toMm: number; color: string; grids?: EndGrids; turnDeg?: number } // turnDeg: round the axis, to nest
+export interface BarPiece { fromMm: number; toMm: number; color: string; grids?: EndGrids; turnDeg?: number; holes?: { xMm: number; angleDeg: number; diaMm: number }[] } // turnDeg: round the axis, to nest; holes: plug-weld holes (x along the bar)
 export interface BarSpec { stockMm: number; section: Section; pieces: BarPiece[]; leftFromMm: number }
 
 const CUT = 0xf97316
@@ -90,6 +91,9 @@ export class PipeBarScene {
       mark.position.x = x
       root.add(mark)
     }
+
+    // plug-weld holes of a pipe at a sleeve joint (2026-11-26): a dark hole with an orange weld ring on the pipe
+    if (sec.kind === 'round') for (const p of spec.pieces) for (const h of p.holes ?? []) for (const m of holeMarks(h.xMm, sec.outerMm / 2, h.angleDeg, h.diaMm)) root.add(m)
 
     this.controls = new OrbitControls(this.camera, canvas)
     this.controls.enableDamping = true
