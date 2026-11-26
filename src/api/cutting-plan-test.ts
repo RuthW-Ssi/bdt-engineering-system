@@ -1,7 +1,7 @@
 import { apiClient } from './client'
 
 // CP-Shape-Test (2026-11-11): test bench, nothing is stored
-export interface ShapeTestPart { mark: string; lengthMm: number; count: number }
+export interface ShapeTestPart { mark: string; lengthMm: number; count: number; sleeve?: boolean } // sleeve: a sleeve pipe (…SL) laid out with its pipe
 export interface ShapeTestStock { lengthMm: number; qty: number | null } // null = unlimited
 export interface ShapeTestSize { profile: string; grade: string | null; parts: ShapeTestPart[]; zone?: string; kgPerM?: number | null } // zone: set when laid out per zone; kgPerM: from the source's weights
 export interface ShapeTestPartList { sizes: ShapeTestSize[]; pieces: number; warnings: string[] }
