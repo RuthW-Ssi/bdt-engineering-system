@@ -1,14 +1,17 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, FlaskConical, Loader2, Pencil, Play, Plus, Printer, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { getShapeBomSources, optimizeShapeTest, readShapeBomParts, readShapePartList } from '../../api/cutting-plan-test'
+import { getShapeBomSources, getSleeveJoints, optimizeShapeTest, readShapeBomParts, readShapePartList } from '../../api/cutting-plan-test'
 import type { Family } from '../../lib/cuttingPlanTest/shapeTest'
 import type { ShapeTestPartList, ShapeTestResult, ShapeTestStock } from '../../api/cutting-plan-test'
-import { splitByMarkSet, defaultKerf, defaultStock, FAMILY_LABEL, familyOf, groupByFamily, kgPerMetre, materialBalance, MAX_STOCK_MM, maxStockLengths, piecesLaidOut, STOCK_PRESETS, stockProblem, totals, usesEndCuts, yieldLossGrade } from '../../lib/cuttingPlanTest/shapeTest'
+import { splitByMarkSet, defaultKerf, defaultStock, FAMILY_LABEL, familyOf, groupByFamily, kgPerMetre, materialBalance, MAX_STOCK_MM, maxStockLengths, piecesLaidOut, splitSleeves, STOCK_PRESETS, stockProblem, totals, usesEndCuts, yieldLossGrade } from '../../lib/cuttingPlanTest/shapeTest'
 import { useAllProjects } from '../../hooks/useProjects'
 import { InfoTip } from '../bom/InfoTip'
 import { LayoutList } from './LayoutList'
+import { SleeveJointsCard } from './SleeveJointsCard'
+import { plugNotes, suggestedSettings } from '../../lib/cuttingPlanTest/plugWeld'
+import type { PlugSettings } from '../../lib/cuttingPlanTest/plugWeld'
 import { CutReport } from './CutReport'
 import type { LossGrade } from '../../lib/cuttingPlanTest/shapeTest'
 import { getErrorMessage } from '../../lib/getErrorMessage'
@@ -207,11 +210,25 @@ function BomPicker({ onLoaded, onProjectChange }: { onLoaded: (list: ShapeTestPa
 }
 
 export function ShapeTestPanel() {
-  const [list, setList] = useState<ShapeTestPartList | null>(null)
+  const [read, setList] = useState<ShapeTestPartList | null>(null) // as read: sleeves inside their pipe's size
+  const [sleeveMode, setSleeveMode] = useState<'own' | 'with'>('own') // Tao 2026-11-26: the user's call; own size to start
+  const [projectId, setProjectId] = useState<number | null>(null) // BOM source only: for the end cuts in 3D
+  const sleeveJoints = useQuery({ queryKey: ['cp-shape-test', 'sleeve-joints', projectId], queryFn: () => getSleeveJoints(projectId!), enabled: !!projectId })
+  const joints = useMemo(() => (projectId ? sleeveJoints.data?.joints ?? [] : []), [projectId, sleeveJoints.data])
+  // a part the model calls a sleeve is one, whatever its BOM profile says (0X222: 32 sleeves written without SL)
+  const loaded = useMemo(() => {
+    const marks = new Set(joints.flatMap(j => j.sleeve.marks))
+    if (!read || !marks.size) return read
+    return { ...read, sizes: read.sizes.map(s => ({ ...s, parts: s.parts.map(p => (marks.has(p.mark) && !p.sleeve ? { ...p, sleeve: true } : p)) })) }
+  }, [read, joints])
+  const list = useMemo(() => (loaded && sleeveMode === 'own' ? splitSleeves(loaded) : loaded), [loaded, sleeveMode])
+  const hasSleeves = !!loaded?.sizes.some(s => s.parts.some(p => p.sleeve))
+  // sleeve joints of the project (from its model) and the plug-weld holes per pipe size (suggested until confirmed)
+  const [plug, setPlug] = useState<PlugSettings>({})
+  useEffect(() => { setPlug(suggestedSettings(sleeveJoints.data?.joints ?? [])) }, [sleeveJoints.data]) // a project's joints start from the suggestion
   const [fileName, setFileName] = useState('')
   const [reading, setReading] = useState(false)
   const [source, setSource] = useState<'file' | 'bom'>('file')
-  const [projectId, setProjectId] = useState<number | null>(null) // BOM source only: for the end cuts in 3D
   // POC 2026-11-12: saddle nesting (needs the project's end cuts, so BOM source only); lengths always the BOM's
   const [saddleNest, setSaddleNest] = useState(false)
   const [kerfs, setKerfs] = useState<Record<string, number>>({})
@@ -248,8 +265,9 @@ export function ShapeTestPanel() {
 
   const applyList = (r: ShapeTestPartList, label: string, project: number | null = null) => {
     setList(r); setFileName(label); setOpen(null); clear(); setProjectId(project)
-    setStock(Object.fromEntries(r.sizes.map(s => [keyOf(s), defaultStock(s.profile, s.grade)])))
-    setKerfs(Object.fromEntries(r.sizes.map(s => [keyOf(s), defaultKerf(s.profile)])))
+    const sizes = splitSleeves(r).sizes // its sizes cover both sleeve modes: "<pipe>" and "<pipe> SL"
+    setStock(Object.fromEntries(sizes.map(s => [keyOf(s), defaultStock(s.profile, s.grade)])))
+    setKerfs(Object.fromEntries(sizes.map(s => [keyOf(s), defaultKerf(s.profile)])))
   }
 
   // Tao 2026-11-26: the loaded parts and every result belong to one project; another project starts from nothing
@@ -376,8 +394,19 @@ export function ShapeTestPanel() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 28 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#1F1F1F' }}>{FAMILY_LABEL[g.family]}</span>
                       <span style={{ fontSize: 12, color: '#6B7280' }}>{`${g.sizes.length} ${g.sizes.length === 1 ? 'size' : 'sizes'} · ${g.sizes.reduce((n, s) => n + s.parts.reduce((a, p) => a + p.count, 0), 0).toLocaleString('en-US')} pcs`}</span>
-                      {g.family === 'PIPE' && projectId && (
+                      {g.family === 'PIPE' && hasSleeves && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto' }}>
+                          <span style={{ fontSize: 12, color: '#6B7280' }}>Sleeve pipes (SL)</span>
+                          <InfoTip label="About sleeve pipes" text="Own size: sleeves get their own row and their own stock (in the model a sleeve is the tube that fits inside its pipe, so it is smaller). With their pipe: sleeves are cut from the same bars as their pipe, in its offcuts. Use this only when the shop makes sleeves from the same pipe." />
+                          <div style={{ display: 'inline-flex', border: '1px solid #E0E0E0', borderRadius: 6, overflow: 'hidden' }}>
+                            {([['Own size', 'own'], ['With their pipe', 'with']] as const).map(([name, mode]) => (
+                              <button key={mode} aria-pressed={sleeveMode === mode} onClick={() => { if (sleeveMode !== mode) { setSleeveMode(mode); setOpen(null); clear() } }} style={seg(sleeveMode === mode)}>{name}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {g.family === 'PIPE' && projectId && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginLeft: hasSleeves ? 12 : 'auto' }}>
                           <span style={{ fontSize: 12, color: '#6B7280' }}>Saddle ends</span>
                           <InfoTip label="About saddle ends" text="Tip to tip: each piece starts after the tip of the one before, a kerf apart. Nest saddles: a saddle end is turned and tucked into the next one, still a kerf apart, so the pair takes less stock. When nesting takes more stock, the tip-to-tip layouts are shown. Pipes only: other shapes are cut square." />
                           <div style={{ display: 'inline-flex', border: '1px solid #E0E0E0', borderRadius: 6, overflow: 'hidden' }}>
@@ -450,6 +479,8 @@ export function ShapeTestPanel() {
         </div>
       )}
 
+      {list && joints.length > 0 && <SleeveJointsCard source={sleeveJoints.data?.source ?? ''} joints={joints} settings={plug} onChange={setPlug} />}
+
       {/* Result: the type switch and the print button sit with what they act on (Tao 2026-11-26). The report button is
           in sight as soon as parts are loaded, off until a run (Tao 2026-11-16: "why is the print button not there") */}
       {list && (
@@ -476,7 +507,7 @@ export function ShapeTestPanel() {
       )}
       {report && list && (
         <CutReport source={fileName} onClose={() => setReport(false)} mode={report}
-          sizes={shown.map(s => ({ profile: s.profile, grade: s.grade, zone: s.zone, kerfMm: kerfs[keyOf(s)] ?? 12, result: results[keyOf(s)], sleeves: [...(sleevesOf(s) ?? [])] }))}
+          sizes={shown.map(s => ({ profile: s.profile, grade: s.grade, zone: s.zone, kerfMm: kerfs[keyOf(s)] ?? 12, result: results[keyOf(s)], sleeves: [...(sleevesOf(s) ?? [])], plugNotes: plugNotes(joints, plug, s.parts.map(p => p.mark)) }))}
           balance={{ minRemnantMm: minRemnant, rows: bal.map(x => ({ profile: x.s.profile, grade: x.s.grade, zone: x.s.zone, stocks: x.stocks, kgPerM: kgPerMetre(x.s), b: x.b })) }} />
       )}
       {done.length > 0 && (

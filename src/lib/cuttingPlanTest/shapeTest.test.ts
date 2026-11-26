@@ -1,4 +1,5 @@
-import { barGroups, barPieces, splitByMarkSet, defaultKerf, defaultStock, familyOf, maxStockLengths, stockProblem, nestTurn, section, sectionExtent, usesEndCuts, groupByFamily, FAMILY_LABEL, piecesLaidOut, materialBalance, kgPerMetre, totals, yieldLossGrade } from './shapeTest'
+import type { ShapeTestPartList } from '../../api/cutting-plan-test'
+import { barGroups, barPieces, splitByMarkSet, defaultKerf, defaultStock, familyOf, maxStockLengths, stockProblem, nestTurn, section, sectionExtent, usesEndCuts, groupByFamily, FAMILY_LABEL, piecesLaidOut, materialBalance, kgPerMetre, splitSleeves, totals, yieldLossGrade } from './shapeTest'
 
 describe('yieldLossGrade (3% = great, over 5% = bad)', () => {
   it.each([[0, 'great'], [3, 'great'], [3.01, 'ok'], [5, 'ok'], [5.01, 'bad'], [7, 'bad']] as const)('%s%% → %s', (loss, grade) => {
@@ -192,6 +193,38 @@ describe('kgPerMetre', () => {
     expect(kgPerMetre({ profile: 'BOX 100X50X2.3' })).toBeCloseTo(5.25, 1)
     expect(kgPerMetre({ profile: 'L 50X50X5' })).toBeCloseTo(3.73, 1)
     expect(kgPerMetre({ profile: 'H 200X100X5.5X8' })).toBeCloseTo(20.9, 0)
+  })
+})
+
+// 2026-11-26: the models (0X220, 0X222) draw a sleeve pipe as an inner sleeve, its outside = the pipe's inside
+// (139.8X5 SL is 129.8 across). So by default a sleeve is its own size; "with their pipe" is the user's call.
+describe('splitSleeves', () => {
+  const list: ShapeTestPartList = { pieces: 30, warnings: ['PIPE 139.8X5: sleeve pipes (SL) laid out with it: 1 mark (12 pcs)', 'other'], sizes: [
+    { profile: 'PIPE 139.8X5', grade: 'HSS550', kgPerM: 16.6, parts: [{ mark: 'TC-m1', lengthMm: 8000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] },
+    { profile: 'L 50X50X5', grade: 'SS400', parts: [{ mark: 'K1', lengthMm: 900, count: 12 }] },
+  ] }
+  it('takes the sleeve parts out into their own "… SL" size, right after their pipe', () => {
+    const r = splitSleeves(list)
+    expect(r.sizes.map(s => [s.profile, s.grade, s.parts.map(p => p.mark)])).toEqual([
+      ['PIPE 139.8X5', 'HSS550', ['TC-m1']], ['PIPE 139.8X5 SL', 'HSS550', ['TC-m7']], ['L 50X50X5', 'SS400', ['K1']],
+    ])
+    expect(r.sizes[1].parts[0].sleeve).toBe(true)
+    expect(r.sizes[1].kgPerM).toBeNull() // not the pipe's weight: worked out from the sleeve's own section
+    expect(r.pieces).toBe(30)
+    expect(r.warnings).toEqual(['PIPE 139.8X5: sleeve pipes (SL) laid out as their own size: 1 mark (12 pcs)', 'other'])
+  })
+  it('a size that is only sleeves becomes the SL size; a list with no sleeves comes back as it is', () => {
+    const only: ShapeTestPartList = { pieces: 12, warnings: [], sizes: [{ profile: 'PIPE 139.8X5', grade: null, parts: [{ mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] }] }
+    expect(splitSleeves(only).sizes.map(s => s.profile)).toEqual(['PIPE 139.8X5 SL'])
+    const none: ShapeTestPartList = { pieces: 12, warnings: [], sizes: [list.sizes[1]] }
+    expect(splitSleeves(none)).toBe(none)
+  })
+  it('a sleeve size is the tube that fits inside its pipe, cut square', () => {
+    expect(section('PIPE 139.8X5 SL')).toEqual({ kind: 'round', outerMm: 129.8, wallMm: 5 })
+    expect(section('PIPE 216.3X4.5 SL')).toEqual({ kind: 'round', outerMm: 207.3, wallMm: 4.5 })
+    expect(kgPerMetre({ profile: 'PIPE 139.8X5 SL', kgPerM: null })).toBeCloseTo(15.4, 1)
+    expect(usesEndCuts('PIPE 139.8X5 SL')).toBe(false)
+    expect(familyOf('PIPE 139.8X5 SL')).toBe('PIPE')
   })
 })
 

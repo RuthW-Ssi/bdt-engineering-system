@@ -49,3 +49,10 @@ export interface ShapeEndCut {
 export function getShapeEndCuts(body: { project_id: number; marks: string[] }): Promise<{ source: string | null; marks: Record<string, ShapeEndCut | null> }> {
   return apiClient.post('/cutting-plan-test/shape/end-cuts', body).then(r => r.data)
 }
+
+// 2026-11-26: sleeve joints of a project, from its IFC (which pipes each sleeve pipe joins and how far it goes in)
+export interface SleeveJointPiece { marks: string[]; profile: string; odMm: number; wallMm: number | null; lengthMm: number }
+export interface SleeveJoint { sleeve: SleeveJointPiece; pipes: (SleeveJointPiece & { insertMm: number })[]; count: number; assemblies: string[]; sleeveDrawnAtPipeSize: boolean }
+export async function getSleeveJoints(projectId: number): Promise<{ source: string | null; joints: SleeveJoint[] }> {
+  return (await apiClient.get('/cutting-plan-test/shape/sleeve-joints', { params: { project_id: projectId } })).data
+}

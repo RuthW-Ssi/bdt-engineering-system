@@ -9,6 +9,7 @@ import { CuttingPlanTestService } from './cutting-plan-test.service'
 import { BomPartsDto, EndCutsDto, OptimizeShapeDto } from './dto/optimize-shape.dto'
 import { BomSourceService } from './bom-source'
 import { EndCutService } from './end-cuts'
+import { SleeveJointService } from './sleeve-joints'
 
 const MAX_PART_LIST_BYTES = 5 * 1024 * 1024
 
@@ -17,7 +18,7 @@ const MAX_PART_LIST_BYTES = 5 * 1024 * 1024
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('cutting-plan-test')
 export class CuttingPlanTestController {
-  constructor(private readonly svc: CuttingPlanTestService, private readonly bom: BomSourceService, private readonly ends: EndCutService) {}
+  constructor(private readonly svc: CuttingPlanTestService, private readonly bom: BomSourceService, private readonly ends: EndCutService, private readonly sleeves: SleeveJointService) {}
 
   @Post('shape/part-list')
   @RequiresPermission('cutting-plan', 'view')
@@ -55,5 +56,12 @@ export class CuttingPlanTestController {
   @ApiOperation({ summary: 'CP-Shape-Test: real pipe end cuts (from the project IFC) for the marks of one bar — read only' })
   endCuts(@Body() dto: EndCutsDto) {
     return this.ends.endCuts(dto.project_id, [...new Set(dto.marks)])
+  }
+
+  @Get('shape/sleeve-joints')
+  @RequiresPermission('cutting-plan', 'view')
+  @ApiOperation({ summary: 'CP-Shape-Test: sleeve joints of a project (from its IFC): the pipes each sleeve joins and how far it goes in — read only' })
+  sleeveJoints(@Query('project_id', ParseIntPipe) projectId: number) {
+    return this.sleeves.joints(projectId)
   }
 }
