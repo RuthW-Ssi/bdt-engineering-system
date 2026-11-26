@@ -5,6 +5,10 @@ import { downloadCuttingPlanFile } from '../../../api/cutting-plan'
 import type { CuttingPlanDetail, CuttingPlanShapeLayout, CuttingPlanShapeSize } from '../../../api/cutting-plan'
 import { barSegments, labelFits, scrapMm, shapeCharts, shapeSummary, stockMix } from '../../../lib/cuttingPlan/shapeSummary'
 import { ShapeCharts } from './ShapeCharts'
+import { Printer } from 'lucide-react'
+import { shapeSizeBalance } from '../../../lib/cuttingPlan/shapeMaterial'
+import { MaterialBalanceSheet } from '../MaterialBalanceSheet'
+import { planLabel } from '../../../lib/cuttingPlan/planLabel'
 import { getErrorMessage } from '../../../lib/getErrorMessage'
 
 // Cutting Plan Shape detail (2026-11-10): the "cutting layouts" view only — summary cards, one row per size,
@@ -107,6 +111,12 @@ export function ShapePlanView({ detail }: { detail: CuttingPlanDetail }) {
   const sizes = detail.shape_sizes ?? []
   const [open, setOpen] = useState<number | null>(sizes[0]?.id ?? null)
   const sum = shapeSummary(sizes)
+  // user report 2026-11-26: weight per profile, loss (kerf) apart from scrap (Rest), material balance
+  const bal = sizes.map(sz => ({ sz, b: shapeSizeBalance(sz) }))
+  const tot = (f: (x: (typeof bal)[number]['b']) => number | null) => bal.reduce((a, x) => a + (f(x.b) ?? 0), 0)
+  const noWeight = bal.filter(x => x.b.kgPerM == null).map(x => x.sz.profile)
+  const kgs = (v: number | null) => (v == null ? '—' : `${v.toLocaleString('en-US', { maximumFractionDigits: 1 })} kg`)
+  const [print, setPrint] = useState(false)
   const layoutsRef = useRef<HTMLDivElement>(null)
   const showSize = (id: number) => { setOpen(id); requestAnimationFrame(() => layoutsRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })) }
   const pdfOf = (profile: string) => detail.files.find(f => f.kind === 'PDF' && f.plate_name === profile)
@@ -118,17 +128,20 @@ export function ShapePlanView({ detail }: { detail: CuttingPlanDetail }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
+      <div data-testid="shape-totals" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
         {[
           { v: sum.stocks.toLocaleString('en-US'), l: 'Stock pieces' },
           { v: `${sum.stockLengthM.toLocaleString('en-US', { maximumFractionDigits: 1 })} m`, l: 'Stock length used' },
+          { v: kgs(tot(b => b.stockKg)), l: 'Stock weight' },
           { v: sum.parts.toLocaleString('en-US'), l: 'Parts' },
           { v: `${sum.yieldPct.toFixed(2)}%`, l: 'Yield' },
-          { v: metres(sum.scrapM), l: 'Scrap (Rest)' },
-        ].map(c => (
+          { v: metres(sum.scrapM), l: 'Scrap (Rest)', sub: `${kgs(tot(b => b.scrapKg))} · ${tot(b => b.remnantPcs)} pcs kept as remnants` },
+          { v: metres(tot(b => b.lossMm) / 1000), l: 'Loss (kerf)', sub: kgs(tot(b => b.lossKg)) },
+        ].map((c: { v: string; l: string; sub?: string }) => (
           <div key={c.l} style={card}>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#1F1F1F' }}>{c.v}</div>
             <div style={{ fontSize: 12, color: '#6B7280' }}>{c.l}</div>
+            {c.sub && <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{c.sub}</div>}
           </div>
         ))}
       </div>
@@ -139,8 +152,8 @@ export function ShapePlanView({ detail }: { detail: CuttingPlanDetail }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 12 }}>
-              {['Size', 'Grade', 'Parts', 'Stock pieces', 'Stock mix', 'Scrap', 'Yield (CutLogic)', 'PDF'].map(h => (
-                <th key={h} style={{ padding: '10px 12px', fontWeight: 500, textAlign: ['Parts', 'Stock pieces', 'Scrap', 'Yield (CutLogic)'].includes(h) ? 'right' : 'left' }}>{h}</th>
+              {['Size', 'Grade', 'Parts', 'Stock pieces', 'Stock mix', 'kg/m', 'Weight', 'Scrap', 'Loss (kerf)', 'Yield (CutLogic)', 'PDF'].map(h => (
+                <th key={h} style={{ padding: '10px 12px', fontWeight: 500, textAlign: ['Parts', 'Stock pieces', 'kg/m', 'Weight', 'Scrap', 'Loss (kerf)', 'Yield (CutLogic)'].includes(h) ? 'right' : 'left' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -153,7 +166,10 @@ export function ShapePlanView({ detail }: { detail: CuttingPlanDetail }) {
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{s.parts}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{s.stocks}</td>
                 <td style={{ padding: '10px 12px' }}>{stockMix(s.layouts)}</td>
-                <td style={{ padding: '10px 12px', textAlign: 'right' }}>{metres(scrapMm(s.layouts) / 1000)}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right' }}>{shapeSizeBalance(s).kgPerM?.toLocaleString('en-US', { maximumFractionDigits: 2 }) ?? '—'}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>{kgs(shapeSizeBalance(s).stockKg)}</td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>{metres(scrapMm(s.layouts) / 1000)}<div style={{ fontSize: 11, color: '#6B7280' }}>{kgs(shapeSizeBalance(s).scrapKg)}</div></td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>{metres(shapeSizeBalance(s).lossMm / 1000)}<div style={{ fontSize: 11, color: '#6B7280' }}>{kgs(shapeSizeBalance(s).lossKg)}</div></td>
                 <td style={{ padding: '10px 12px', textAlign: 'right' }}>{n(s.yield_pct).toFixed(2)}%</td>
                 <td style={{ padding: '10px 12px' }}>
                   {pdfOf(s.profile) && (
@@ -168,6 +184,48 @@ export function ShapePlanView({ detail }: { detail: CuttingPlanDetail }) {
           </tbody>
         </table>
       </div>
+
+      <div data-testid="shape-balance" style={{ ...card, padding: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>Material balance <span style={{ fontSize: 12, fontWeight: 400, color: '#6B7280' }}>· stock issued = parts + scrap (Rest, kept as remnants) + loss (kerf)</span></div>
+          <button onClick={() => setPrint(true)} style={{ height: 30, padding: '0 12px', fontSize: 12, fontWeight: 600, background: 'white', border: '1px solid #C2C2C2', borderRadius: 6, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Printer size={13} />Print material balance
+          </button>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead><tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 11 }}>
+            {['Size', 'Grade', 'Issued', 'Parts', 'Scrap → remnants', 'Loss (kerf)'].map(h => <th key={h} style={{ padding: '6px 12px', fontWeight: 500, borderTop: '1px solid #F3F4F6' }}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {bal.map(({ sz, b }) => (
+              <tr key={sz.id} style={{ borderTop: '1px solid #F3F4F6' }}>
+                <td style={{ padding: '6px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>{sz.profile}</td><td style={{ padding: '6px 12px' }}>{sz.grade ?? '—'}</td>
+                <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${sz.stocks} pcs · ${metres(b.stockMm / 1000)} · ${kgs(b.stockKg)}`}</td>
+                <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${metres(b.partsMm / 1000)} · ${kgs(b.partsKg)}`}</td>
+                <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${b.remnantPcs} pcs · ${metres(b.scrapMm / 1000)} · ${kgs(b.scrapKg)}`}</td>
+                <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${metres(b.lossMm / 1000)} · ${kgs(b.lossKg)}`}</td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: '1px solid #E5E7EB', fontWeight: 600 }}>
+              <td style={{ padding: '6px 12px' }}>Total</td><td />
+              <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${sum.stocks} pcs · ${metres(tot(b => b.stockMm) / 1000)} · ${kgs(tot(b => b.stockKg))}`}</td>
+              <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${metres(tot(b => b.partsMm) / 1000)} · ${kgs(tot(b => b.partsKg))}`}</td>
+              <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${tot(b => b.remnantPcs)} pcs · ${metres(tot(b => b.scrapMm) / 1000)} · ${kgs(tot(b => b.scrapKg))}`}</td>
+              <td style={{ padding: '6px 12px', whiteSpace: 'nowrap' }}>{`${metres(tot(b => b.lossMm) / 1000)} · ${kgs(tot(b => b.lossKg))}`}</td>
+            </tr>
+          </tbody>
+        </table>
+        {noWeight.length > 0 && <div style={{ padding: '8px 16px 12px', fontSize: 11, color: '#92400E' }}>{`No weight for ${noWeight.join(', ')} (section not recognised)`}</div>}
+      </div>
+      {print && (
+        <MaterialBalanceSheet title="MATERIAL BALANCE · SHAPE" planLabel={planLabel(detail)} onClose={() => setPrint(false)}
+          meta={[{ label: 'Stock issued', value: `${sum.stocks} pcs · ${kgs(tot(b => b.stockKg))}` }, { label: 'Remnants to return', value: `${tot(b => b.remnantPcs)} pcs · ${kgs(tot(b => b.scrapKg))}` }, { label: 'Loss (kerf)', value: kgs(tot(b => b.lossKg)) }]}
+          columns={[{ key: 'p', label: 'Size' }, { key: 'g', label: 'Grade' }, { key: 'n', label: 'Stock pcs', align: 'right' }, { key: 'im', label: 'Issued m', align: 'right' }, { key: 'ik', label: 'Issued kg', align: 'right' },
+            { key: 'pk', label: 'Parts kg', align: 'right' }, { key: 'rn', label: 'Remnant pcs', align: 'right' }, { key: 'rk', label: 'Remnant kg', align: 'right' }, { key: 'lk', label: 'Loss kg', align: 'right' }]}
+          rows={bal.map(({ sz, b }) => ({ p: sz.profile, g: sz.grade ?? '—', n: String(sz.stocks), im: (b.stockMm / 1000).toFixed(2), ik: kgs(b.stockKg).replace(' kg', ''), pk: kgs(b.partsKg).replace(' kg', ''), rn: String(b.remnantPcs), rk: kgs(b.scrapKg).replace(' kg', ''), lk: kgs(b.lossKg).replace(' kg', '') }))}
+          total={{ p: 'Total', n: String(sum.stocks), im: (tot(b => b.stockMm) / 1000).toFixed(2), ik: kgs(tot(b => b.stockKg)).replace(' kg', ''), pk: kgs(tot(b => b.partsKg)).replace(' kg', ''), rn: String(tot(b => b.remnantPcs)), rk: kgs(tot(b => b.scrapKg)).replace(' kg', ''), lk: kgs(tot(b => b.lossKg)).replace(' kg', '') }}
+          notes={['Scrap = CutLogic Rest; every piece is kept in the remnant register (Cutting Plan › Remnants). Loss = the kerf of every cut. Weight = section area × 7.85 g/cm³.']} />
+      )}
 
       {sizes.filter(s => s.id === open).map(s => (
         <div key={s.id} ref={layoutsRef} style={card}>

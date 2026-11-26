@@ -169,6 +169,150 @@ describe('ShapeTestPanel', () => {
     expect(screen.getByText(/BOM 0X222 · Z07 · DBN-A3/)).toBeInTheDocument()
   })
 
+  // Tao 2026-11-26: L and BOX are laid out too; the model end cuts and saddle nesting are pipe-only, so their sizes go
+  // without the project (BOM lengths, no "Not in the model" notes), and the Saddle ends switch needs a pipe in the list
+  const loadFromBom = async () => {
+    wrap(<ShapeTestPanel />)
+    fireEvent.click(screen.getByRole('button', { name: 'From BOM' }))
+    await screen.findByRole('option', { name: /0X222/ })
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: '7' } })
+    fireEvent.click(await screen.findByLabelText('Z07 BIF TO NP Zone 3 · 154 pcs'))
+    fireEvent.click(screen.getByRole('button', { name: 'Load parts' }))
+  }
+  const L_SIZE = { profile: 'L 50X50X5', grade: 'SS400', parts: [{ mark: 'K1', lengthMm: 1200, count: 8 }] }
+
+  it('from BOM: only pipe sizes are sent with the project and the saddle choice', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 20, warnings: [], sizes: [PART_LIST.sizes[1], L_SIZE] })
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    fireEvent.click(screen.getByRole('button', { name: 'Nest saddles' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(api.optimizeShapeTest).toHaveBeenCalledTimes(2))
+    const calls = vi.mocked(api.optimizeShapeTest).mock.calls.map(c => c[0])
+    expect(calls.find(b => b.parts[0].mark === 'B1')).toEqual(expect.objectContaining({ project_id: 7, saddleNest: true }))
+    const l = calls.find(b => b.parts[0].mark === 'K1')!
+    expect(l).not.toHaveProperty('project_id')
+    expect(l).not.toHaveProperty('saddleNest')
+    expect(l.stock).toEqual([{ lengthMm: 6000, qty: null }])
+  })
+
+  it('from BOM: no Saddle ends switch when the list has no pipe', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 8, warnings: [], sizes: [L_SIZE] })
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    expect(screen.queryByRole('button', { name: 'Nest saddles' })).toBeNull()
+  })
+
+  // Tao 2026-11-26 ("ux/ui ไม่ผ่าน"): sizes grouped by type as the CutLogic runs were (one folder per type); the
+  // pipe-only switch sits on the pipe group; printing and totals live in the Result step, one type switch drives both
+  const MIXED = { pieces: 108, warnings: [], sizes: [{ ...L_SIZE }, { ...PART_LIST.sizes[1] }, { profile: 'BOX 100X50X2.3', grade: 'SS400', parts: [{ mark: 'X1', lengthMm: 2984, count: 4 }] }] }
+
+  it('from BOM: sizes are grouped by type, pipe first, the Saddle ends switch on the pipe group', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue(MIXED)
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    const groups = screen.getAllByTestId(/^group-/)
+    expect(groups.map(g => g.getAttribute('data-testid'))).toEqual(['group-PIPE', 'group-BOX', 'group-L'])
+    expect(within(groups[0]).getByText('Pipe')).toBeInTheDocument()
+    expect(within(groups[0]).getByText('1 size · 12 pcs')).toBeInTheDocument()
+    expect(within(groups[0]).getByRole('button', { name: 'Nest saddles' })).toBeInTheDocument()
+    expect(within(groups[2]).getByText('Angle (L)')).toBeInTheDocument()
+    expect(within(groups[2]).queryByRole('button', { name: 'Nest saddles' })).toBeNull()
+  })
+
+  it('Cutting report is in the Result step: in sight once parts are loaded, off until a run', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue(MIXED)
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    const step = screen.getByTestId('result-step')
+    expect(within(step).getByRole('button', { name: /Cutting report/ })).toBeDisabled()
+    expect(within(screen.getByTestId('size-table')).queryByRole('button', { name: /Cutting report/ })).toBeNull()
+  })
+
+  it('Result: the type switch filters the totals and what the cutting report prints', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue(MIXED)
+    vi.mocked(api.optimizeShapeTest).mockImplementation(async body => ({ ...result(95), stocks: body.parts[0].mark === 'K1' ? 2 : 1 }))
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(tile('Stock pieces')).toBe('4'))
+    const step = screen.getByTestId('result-step')
+    fireEvent.click(within(step).getByRole('button', { name: 'Angle (L)' }))
+    expect(tile('Stock pieces')).toBe('2')
+    expect(within(screen.getByTestId('required-stock')).queryByText('BOX 100X50X2.3')).toBeNull()
+    fireEvent.click(within(step).getByRole('button', { name: /Cutting report/ }))
+    const report = await screen.findByRole('dialog', { name: 'Cutting report' })
+    expect(within(report).getAllByText('L 50X50X5').length).toBeGreaterThan(0)
+    expect(within(report).queryByText('BOX 100X50X2.3')).toBeNull()
+  })
+
+  // Tao 2026-11-26: the loaded parts and every result belong to one project; picking another clears them all
+  it('from BOM: picking another project clears the loaded parts and all results', async () => {
+    vi.mocked(projects.projectsApi.listAll).mockResolvedValue([{ id: 7, project_code: '0X222', name: 'Bangna' }, { id: 8, project_code: '0X181', name: 'Thepha' }] as never)
+    vi.mocked(api.readShapeBomParts).mockResolvedValue(MIXED)
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(screen.getByTestId('test-totals')).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Project'), { target: { value: '8' } })
+    expect(screen.queryByTestId('size-table')).toBeNull()
+    expect(screen.queryByTestId('test-totals')).toBeNull()
+    expect(screen.queryByTestId('result-step')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Run layouts' })).toBeNull()
+    expect(screen.queryByText('L 50X50X5')).toBeNull()
+  })
+
+  it('a size whose longest piece is longer than its stock says so and is left out of the run', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 10, warnings: [], sizes: [L_SIZE, { profile: 'BOX 200X200X4.5', grade: 'SS400', parts: [{ mark: 'ESB-m3', lengthMm: 8521, count: 2 }] }] })
+    await loadFromBom()
+    const row = await screen.findByTestId('size-BOX 200X200X4.5')
+    expect(within(row).getByText('Longest piece 8,521 mm: add a longer stock length')).toBeInTheDocument()
+    expect(screen.getByTestId('not-ready')).toHaveTextContent('1 of 2 sizes need stock lengths')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(api.optimizeShapeTest).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(api.optimizeShapeTest).mock.calls[0][0].parts[0].mark).toBe('K1')
+  })
+
+  it('Result says how many pieces were laid out of how many went in, and what a cut is', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue(MIXED)
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(tile('Pieces laid out')).toBe('12 of 24'))
+    expect(screen.getByTestId('pieces-check')).toHaveTextContent('12 pieces missing')
+    expect(within(screen.getByTestId('test-totals')).getByLabelText('About cuts')).toBeInTheDocument()
+  })
+
+  it('an HSS550 size offers no fourth stock length', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 4, warnings: [], sizes: [PART_LIST.sizes[0]] })
+    await loadFromBom()
+    const row = await screen.findByTestId('size-PIPE 101.6X2.6')
+    for (const len of ['12,500', '9,500', '6,013']) fireEvent.click(within(row).getByRole('button', { name: len }))
+    expect(within(row).getAllByLabelText(/Stock \d length/)).toHaveLength(3)
+    expect(within(row).queryByRole('button', { name: '6,000' })).toBeNull()
+    expect(within(row).getByText('Up to 3 lengths for HSS550')).toBeInTheDocument()
+  })
+
+  // 2026-11-26 user report §3–4: weight, loss vs remnant (minimum remnant length), material balance to print
+  it('weight, loss and remnants follow the minimum remnant length; the material balance prints', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 8, warnings: [], sizes: [{ ...L_SIZE, kgPerM: 3.77 }] })
+    await loadFromBom()
+    await screen.findByText('L 50X50X5')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    await waitFor(() => expect(tile('Stock pieces')).toBe('2'))
+    expect(tile('Stock weight')).toBe('45.3 kg') // 12,026 mm × 3.77 kg/m
+    expect(within(screen.getByTestId('test-totals')).queryByText('Remnant')).toBeNull() // no minimum yet: every offcut is loss
+    fireEvent.change(screen.getByLabelText('Min remnant (mm)'), { target: { value: '40' } })
+    expect(tile('Remnant')).toBe('0.1 m') // 2 bars × 50 mm rest
+    const bal = screen.getByTestId('material-balance')
+    expect(within(bal).getByText('L 50X50X5')).toBeInTheDocument()
+    expect(within(bal).getByText('50 × 2')).toBeInTheDocument()
+    fireEvent.click(within(screen.getByTestId('result-step')).getByRole('button', { name: 'Material balance' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Material balance' })
+    expect(within(sheet).getByText('MATERIAL BALANCE')).toBeInTheDocument()
+    expect(within(sheet).getAllByText('L 50X50X5').length).toBeGreaterThan(0)
+  })
+
   // Tao 2026-11-12: same calculation, but the layouts can be split per zone or done over all picked zones together
   const pickTwoZones = async () => {
     wrap(<ShapeTestPanel />)

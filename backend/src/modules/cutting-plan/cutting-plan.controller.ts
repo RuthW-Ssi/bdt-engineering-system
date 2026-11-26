@@ -12,6 +12,8 @@ import { QueryCuttingPlanDto } from './dto/query-cutting-plan.dto'
 import { BulkAssignOrderPartProjectCodeDto } from './dto/bulk-assign-order-part-project-code.dto'
 import { PreviewCuttingPlanDto, SaveCuttingPlanDto, SaveShapeCuttingPlanDto, StagingUrlsDto } from './dto/upload-cutting-plan.dto'
 import { CuttingPlanShapeService, MAX_SHAPE_FILES, MAX_SHAPE_PDF_BYTES } from './shape/cutting-plan-shape.service'
+import { CuttingPlanMaterialService } from './material/cutting-plan-material.service'
+import { SaveKerfsDto, SetCertificateDto, UseRemnantDto } from './dto/cutting-plan-material.dto'
 import { uploadFileName } from './upload-file-name'
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard'
 import { PermissionGuard } from '../../common/guards/permission.guard'
@@ -40,7 +42,7 @@ const UPLOAD_BODY_SCHEMA = {
 @UseGuards(JwtAuthGuard, PermissionGuard)
 @Controller('cutting-plan')
 export class CuttingPlanController {
-  constructor(private readonly svc: CuttingPlanService, private readonly shape: CuttingPlanShapeService) {}
+  constructor(private readonly svc: CuttingPlanService, private readonly shape: CuttingPlanShapeService, private readonly material: CuttingPlanMaterialService) {}
 
   @Post('upload/preview')
   @RequiresPermission('cutting-plan', 'create')
@@ -108,6 +110,56 @@ export class CuttingPlanController {
     res.send(buffer)
   }
 
+  // User test report 2026-11-26 (static paths before ':id')
+  @Get('kerfs')
+  @RequiresPermission('cutting-plan', 'view')
+  @ApiOperation({ summary: 'Plate kerf per cutting technology and thickness (for the loss in Total steel)' })
+  kerfs() {
+    return this.material.kerfs()
+  }
+
+  @Patch('kerfs')
+  @RequiresPermission('cutting-plan', 'update')
+  @ApiOperation({ summary: 'Set / clear plate kerfs; every change is kept old → new' })
+  saveKerfs(@Body() dto: SaveKerfsDto, @CurrentUser() user: JwtPayload) {
+    return this.material.saveKerfs(dto.rows, user.sub)
+  }
+
+  @Get('prices')
+  @RequiresPermission('cutting-plan', 'view')
+  @ApiOperation({ summary: 'Price per kg of plate stock from Materials (grade + thickness)' })
+  prices() {
+    return this.material.prices()
+  }
+
+  @Get('remnants')
+  @RequiresPermission('cutting-plan', 'view')
+  @ApiOperation({ summary: 'Remnant register: every plate remnant and shape rest of the stored plans, less what was used' })
+  remnants() {
+    return this.material.remnants()
+  }
+
+  @Post('remnants/use')
+  @RequiresPermission('cutting-plan', 'update')
+  @ApiOperation({ summary: 'Take remnant pieces out of the register (put back to use)' })
+  useRemnant(@Body() dto: UseRemnantDto, @CurrentUser() user: JwtPayload) {
+    return this.material.useRemnant(dto, user.sub)
+  }
+
+  @Patch('nestings/:nestingId/certificate')
+  @RequiresPermission('cutting-plan', 'update')
+  @ApiOperation({ summary: "Set a plate's material certificate (free text)" })
+  setCertificate(@Param('nestingId', ParseIntPipe) nestingId: number, @Body() dto: SetCertificateDto, @CurrentUser() user: JwtPayload) {
+    return this.material.setCertificate(nestingId, dto.certificate, user.sub)
+  }
+
+  @Get('nestings/:nestingId/history')
+  @RequiresPermission('cutting-plan', 'view')
+  @ApiOperation({ summary: "History of a plate's edited fields (certificate)" })
+  nestingHistory(@Param('nestingId', ParseIntPipe) nestingId: number) {
+    return this.material.history('NESTING', nestingId)
+  }
+
   @Get()
   @RequiresPermission('cutting-plan', 'view')
   @ApiOperation({ summary: 'List cutting plan uploads' })
@@ -119,6 +171,7 @@ export class CuttingPlanController {
   @RequiresPermission('cutting-plan', 'view')
   @ApiOperation({ summary: 'Get one cutting plan upload with its full parsed data' })
   async findOne(@Param('id', ParseIntPipe) id: number) {
+    await this.material.ensureCutLengths(id) // 2026-11-26: plate cut lengths for the kerf loss, measured once
     return this.svc.findOne(id)
   }
 

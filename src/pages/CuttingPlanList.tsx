@@ -11,6 +11,7 @@ import { usePermission } from '../hooks/usePermission'
 import { planLabel } from '../lib/cuttingPlan/planLabel'
 import { CuttingPlanUploadModal } from '../components/cuttingPlan/CuttingPlanUploadModal'
 import { ShapeTestPanel } from '../components/cuttingPlanTest/ShapeTestPanel'
+import { RemnantRegister } from '../components/cuttingPlan/RemnantRegister'
 
 const LIMIT = 10
 
@@ -19,6 +20,7 @@ const LIMIT = 10
 export const TABS = [
   { key: 'plate', label: 'Plate' },
   { key: 'shape', label: 'Shape' },
+  { key: 'remnants', label: 'Remnants' }, // user report 2026-11-26: remnant database for reuse (Plate + Shape)
   { key: 'shape-test', label: 'CP-Shape-Test' },
 ] as const
 type TabKey = (typeof TABS)[number]['key']
@@ -33,6 +35,7 @@ export function CuttingPlanList() {
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = tabFromParam(searchParams.get('tab'))
   const isTest = tab === 'shape-test'
+  const noUploads = isTest || tab === 'remnants' // these tabs list no uploads
   const [search, setSearch] = useState('')
   const [uploadOpen, setUploadOpen] = useState(false)
   const [page, setPage] = useState(1)
@@ -72,14 +75,14 @@ export function CuttingPlanList() {
       <div className="bg-white flex items-center justify-between border-b border-chrome-100 px-6" style={{ height: 56, flexShrink: 0 }}>
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 18, fontWeight: 600, color: '#1F1F1F' }}>Cutting Plan</span>
-          {!isTest && <span style={{ color: '#C2C2C2' }}>·</span>}
-          {!isTest && (
+          {!noUploads && <span style={{ color: '#C2C2C2' }}>·</span>}
+          {!noUploads && (
             <span style={{ background: '#F5F5F5', border: '1px solid #E0E0E0', borderRadius: 999, padding: '2px 10px', fontSize: 12, fontWeight: 500, color: '#555' }}>
               {isLoading ? '...' : `${items.length} uploads`}
             </span>
           )}
         </div>
-        {canCreate && !isTest && (
+        {canCreate && !noUploads && (
           <button
             onClick={() => setUploadOpen(true)}
             className="flex items-center gap-1.5 rounded-md text-white"
@@ -108,6 +111,8 @@ export function CuttingPlanList() {
 
       {isTest ? (
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}><ShapeTestPanel /></div>
+      ) : tab === 'remnants' ? (
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}><RemnantRegister /></div>
       ) : <>
       {/* Plate and Shape (2026-11-10) list their own uploads the same way */}
       <div className="border-b border-chrome-100 px-6 flex items-center gap-3" style={{ minHeight: 48, background: '#F5F5F5', flexShrink: 0, flexWrap: 'wrap', paddingTop: 8, paddingBottom: 8 }}>
@@ -179,7 +184,7 @@ export function CuttingPlanList() {
       </div>
       <PaginationBar page={page} totalPages={totalPages} total={items.length} limit={LIMIT} onChange={setPage} />
       </>}
-      {uploadOpen && !isTest && <CuttingPlanUploadModal initialType={tab} onClose={() => setUploadOpen(false)} />}
+      {uploadOpen && (tab === 'plate' || tab === 'shape') && <CuttingPlanUploadModal initialType={tab} onClose={() => setUploadOpen(false)} />}
     </div>
   )
 }

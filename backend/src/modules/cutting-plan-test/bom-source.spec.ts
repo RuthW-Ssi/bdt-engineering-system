@@ -2,8 +2,8 @@ import { BomSourceService } from './bom-source'
 
 // Rows as Prisma returns them: qty / length_mm are Decimal-like (toString), dispatch carries the zone
 const dec = (v: number | null) => (v == null ? null : { toString: () => String(v) })
-const row = (mark: string, profile: string | null, qty: number, length: number | null, zone = 72, grade: string | null = 'HSS550') =>
-  ({ part_mark: mark, profile, grade, qty: dec(qty), length_mm: dec(length), dispatch: { zone_id: zone } })
+const row = (mark: string, profile: string | null, qty: number, length: number | null, zone = 72, grade: string | null = 'HSS550', weight: number | null = null) =>
+  ({ part_mark: mark, profile, grade, qty: dec(qty), length_mm: dec(length), weight_kg: dec(weight), dispatch: { zone_id: zone } })
 const ROWS = [
   row('DBN-A3-m49', 'PIPE101.6X2.4', 64, 3000.06),
   row('DBN-A3-m44', 'PIPE101.6X2.4', 64, 500),
@@ -12,7 +12,7 @@ const ROWS = [
   row('DBN-A3-m3', 'PIPE165.2x4.5', 4, 12401, 72, 'SS500'),
   row('DBN-A5-p1', 'RODRB25', 10, 2500, 74, 'SS400'),
   row('DBN-A5-p2', 'ROD RB25', 6, null, 74, 'SS400'),
-  row('DBN-A3-x1', 'H200X100X5.5X8', 3, 6000),
+  row('DBN-A3-x1', 'I150X75X5.5X9.5', 3, 6000),
   row('DBN-A3-p9', 'PL10', 40, 300),
 ]
 
@@ -65,8 +65,45 @@ describe('BomSourceService.parts', () => {
     expect(r.warnings).toEqual([
       'ROD RB25: 1 mark (6 pcs) has no length and is left out: DBN-A5-p2',
       'ROD RB25 is written 2 ways in the BOM (ROD RB25, RODRB25); counted as one size',
-      'Not laid out yet: H (1 mark, 3 pcs)',
+      'Not laid out yet: I (1 mark, 3 pcs)',
     ])
+  })
+
+  // 2026-11-26: C and H laid out ("H-" as Tekla writes it too); a sleeve pipe ("…SL") is cut from the same pipe, so it
+  // joins that size and says so; a profile nobody knows is named, not dropped; plates and bought items stay quiet
+  it('C and H are laid out, sleeves join their pipe, unknown profiles are named', async () => {
+    const r = await build([
+      row('AL-m1', 'C150X75X6.5X10', 4, 1556.6, 72, 'SS400'),
+      row('AL-m2', 'H-200X100X5.5X8', 2, 1430, 72, 'SS400'),
+      row('TC-m1', 'PIPE139.8X5', 6, 8000),
+      row('TC-m2', 'PIPE139.8X5SL', 12, 400),
+      row('TC-m2', 'PIPE139.8X5SL', 4, 400, 74),
+      row('TU-1', 'PD50X12.5', 8, 360, 72, 'SS400'),
+      row('TC-m14', 'COUPLING1"THREADR.', 8, 150, 72, 'SS400'),
+      row('X-m1', 'LC100X50X20X2.3', 6, 2000, 72, 'SS400'),
+      row('X-p1', 'PL10', 4, 300, 72, 'SS400'),
+    ]).svc.parts(7, [72, 74], [])
+    expect(r.sizes.map(s => [s.profile, s.grade, s.parts])).toEqual([
+      ['C 150X75X6.5X10', 'SS400', [{ mark: 'AL-m1', lengthMm: 1556.6, count: 4 }]],
+      ['H 200X100X5.5X8', 'SS400', [{ mark: 'AL-m2', lengthMm: 1430, count: 2 }]],
+      ['PIPE 139.8X5', 'HSS550', [{ mark: 'TC-m1', lengthMm: 8000, count: 6 }, { mark: 'TC-m2', lengthMm: 400, count: 16 }]],
+    ])
+    expect(r.warnings).toEqual([
+      'PIPE 139.8X5: sleeve pipes (SL) laid out with it: 1 mark (16 pcs)',
+      'Unknown profile, not laid out: LC100X50X20X2.3 (1 mark, 6 pcs)',
+    ])
+  })
+
+  // 2026-11-26 user report §3: weight per profile — kg per metre from the BOM's weight per piece (Tekla's, corner radii
+  // included), the middle value over the size's rows; null when the BOM has no weights
+  it('each size carries its kg per metre from the BOM weights', async () => {
+    const r = await build([
+      row('A-m1', 'L50X50X5', 4, 1000, 72, 'SS400', 3.77),
+      row('A-m2', 'L50X50X5', 2, 500, 72, 'SS400', 1.885),
+      row('A-m3', 'L50X50X5', 2, 2000, 72, 'SS400', 7.6),
+      row('A-m4', 'RHS100X50X2.3', 2, 3000, 72, 'SS400', null),
+    ]).svc.parts(7, [72], [])
+    expect(r.sizes.map(s => [s.profile, s.kgPerM])).toEqual([['BOX 100X50X2.3', null], ['L 50X50X5', 3.77]])
   })
 
   it('needs at least one zone', async () => {
