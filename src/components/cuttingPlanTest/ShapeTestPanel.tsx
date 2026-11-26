@@ -286,6 +286,8 @@ export function ShapeTestPanel() {
   const shown = ranSizes.filter(s => view === 'ALL' || familyOf(s.profile) === view)
   const done = ranSizes.map(s => results[keyOf(s)])
   const t = totals(shown.map(s => results[keyOf(s)]))
+  // sleeve pipe marks (…SL) laid out with this size, said SL on the bars, in the 3D and the cutting report
+  const sleevesOf = (s: ShapeTestPartList['sizes'][number]) => { const m = s.parts.filter(p => p.sleeve).map(p => p.mark); return m.length ? new Set(m) : undefined }
   const kgOf = (s: ShapeTestPartList['sizes'][number], lengthMm: number) => (kgPerMetre(s) * lengthMm) / 1000
   const balanceOf = (s: ShapeTestPartList['sizes'][number]) => (results[keyOf(s)] ? materialBalance(results[keyOf(s)], minRemnant) : null)
   const bal = shown.map(s => ({ s, b: balanceOf(s)!, stocks: results[keyOf(s)].stocks }))
@@ -438,7 +440,7 @@ export function ShapeTestPanel() {
                 return open === k && r ? [row, (
                   <tr key={`${k}|layouts`}>
                     <td colSpan={cols} data-testid={`layouts-${k}`} style={{ padding: '10px 12px 16px', background: '#F9FAFB', borderTop: '1px solid #F3F4F6' }}>
-                      <LayoutList profile={s.profile} layouts={r.layouts} kerfMm={kerfs[k] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" />
+                      <LayoutList profile={s.profile} layouts={r.layouts} kerfMm={kerfs[k] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" sleeves={sleevesOf(s)} />
                     </td>
                   </tr>
                 )] : [row]
@@ -474,7 +476,7 @@ export function ShapeTestPanel() {
       )}
       {report && list && (
         <CutReport source={fileName} onClose={() => setReport(false)} mode={report}
-          sizes={shown.map(s => ({ profile: s.profile, grade: s.grade, zone: s.zone, kerfMm: kerfs[keyOf(s)] ?? 12, result: results[keyOf(s)] }))}
+          sizes={shown.map(s => ({ profile: s.profile, grade: s.grade, zone: s.zone, kerfMm: kerfs[keyOf(s)] ?? 12, result: results[keyOf(s)], sleeves: [...(sleevesOf(s) ?? [])] }))}
           balance={{ minRemnantMm: minRemnant, rows: bal.map(x => ({ profile: x.s.profile, grade: x.s.grade, zone: x.s.zone, stocks: x.stocks, kgPerM: kgPerMetre(x.s), b: x.b })) }} />
       )}
       {done.length > 0 && (
@@ -573,7 +575,7 @@ export function ShapeTestPanel() {
                   return isOpen ? [row, (
                     <tr key={`${id}|open`}>
                       <td colSpan={byZone ? 6 : 5} data-testid={`req-layouts-${id}`} style={{ padding: '8px 12px 14px', background: '#F9FAFB' }}>
-                        <LayoutList profile={s.profile} layouts={ls} kerfMm={kerfs[keyOf(s)] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" />
+                        <LayoutList profile={s.profile} layouts={ls} kerfMm={kerfs[keyOf(s)] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" sleeves={sleevesOf(s)} />
                       </td>
                     </tr>
                   )] : [row]

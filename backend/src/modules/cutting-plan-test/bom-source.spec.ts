@@ -86,7 +86,7 @@ describe('BomSourceService.parts', () => {
     expect(r.sizes.map(s => [s.profile, s.grade, s.parts])).toEqual([
       ['C 150X75X6.5X10', 'SS400', [{ mark: 'AL-m1', lengthMm: 1556.6, count: 4 }]],
       ['H 200X100X5.5X8', 'SS400', [{ mark: 'AL-m2', lengthMm: 1430, count: 2 }]],
-      ['PIPE 139.8X5', 'HSS550', [{ mark: 'TC-m1', lengthMm: 8000, count: 6 }, { mark: 'TC-m2', lengthMm: 400, count: 16 }]],
+      ['PIPE 139.8X5', 'HSS550', [{ mark: 'TC-m1', lengthMm: 8000, count: 6 }, { mark: 'TC-m2', lengthMm: 400, count: 16, sleeve: true }]],
     ])
     expect(r.warnings).toEqual([
       'PIPE 139.8X5: sleeve pipes (SL) laid out with it: 1 mark (16 pcs)',
