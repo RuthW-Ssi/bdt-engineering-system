@@ -373,6 +373,7 @@ describe('ShapeTestPanel', () => {
       pipes: [{ marks: ['TC-m1'], profile: 'PIPE 139.8X5', odMm: 139.8, wallMm: 5, lengthMm: 8000, insertMm: 197.5 }, { marks: ['TC-m6'], profile: 'PIPE 139.8X5', odMm: 139.8, wallMm: 5, lengthMm: 3579, insertMm: 197.5 }],
     }] })
     vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 18, warnings: [], sizes: [{ profile: 'PIPE 139.8X5', grade: 'SS400', parts: [{ mark: 'TC-m1', lengthMm: 5000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] }] })
+    vi.mocked(api.optimizeShapeTest).mockResolvedValue({ ...result(97), stocks: 6, layouts: [{ stockLengthMm: 6000, repeat: 6, restMm: 988, cuts: 1, pieces: [{ lengthMm: 5000, count: 1 }], marks: [{ mark: 'TC-m1', lengthMm: 5000, pcs: 6 }] }] })
     await loadFromBom()
     const cardEl = await screen.findByTestId('sleeve-joints')
     expect(within(cardEl).getByText(/12 sleeves in the model \(TENNIS COURT 36X36.ifc\)/)).toBeInTheDocument()
@@ -391,6 +392,17 @@ describe('ShapeTestPanel', () => {
     expect(within(row).getByText('Confirmed')).toBeInTheDocument()
     report = await openReport()
     expect(within(report).getByText('End joined to TC-m6 (sleeve TC-m7 goes in 197.5 mm): 4 holes Ø14, 100 mm from the end, at 0° 90° 180° 270°')).toBeInTheDocument()
+    fireEvent.click(within(report).getByRole('button', { name: 'Close report' }))
+    // the joint in 3D: its pieces and holes are listed (no WebGL in the test browser)
+    fireEvent.click(within(cardEl).getByRole('button', { name: /3D of the joint of TC-m7/ }))
+    const joint3d = await screen.findByRole('dialog', { name: 'Sleeve joint · TC-m7' })
+    expect(within(joint3d).getAllByText(/4 holes Ø14, 100 mm from the end/).length).toBe(2)
+    expect(within(joint3d).getAllByText('· Confirmed').length).toBe(2)
+    fireEvent.click(within(joint3d).getByRole('button', { name: 'Close' }))
+    // the bar's 3D says which pipe pieces carry plug-weld holes
+    fireEvent.click(screen.getByRole('button', { name: 'Layouts of PIPE 139.8X5' }))
+    fireEvent.click(screen.getAllByRole('button', { name: '3D of layout 1' })[0])
+    expect(await screen.findByTestId('bar-plug')).toHaveTextContent('TC-m1 · plug-weld holes at the end joined to TC-m6 (sleeve TC-m7 goes in 197.5 mm): 4 holes Ø14, 100 mm from the end, at 0° 90° 180° 270° Confirmed')
   })
 
   // 0X222: 32 sleeves whose BOM profile has no SL — the model says they are sleeves, so they are treated as sleeves too

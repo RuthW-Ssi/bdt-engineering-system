@@ -4,6 +4,8 @@ import { getShapeEndCuts } from '../../api/cutting-plan-test'
 import type { ShapeEndCut, ShapeTestLayout } from '../../api/cutting-plan-test'
 import { barPieces, nestTurn, pieceColors, section, usesEndCuts } from '../../lib/cuttingPlanTest/shapeTest'
 import type { PipeBarScene } from './pipeBarScene'
+import { holeAngles, plugText } from '../../lib/cuttingPlanTest/plugWeld'
+import type { PlugAtMark } from '../../lib/cuttingPlanTest/plugWeld'
 
 // CP-Shape-Test (Tao 2026-11-12, step 1 of 3D, after BdtPipeCut's "ดู 3D"): one stock bar of a layout: the marks it
 // is cut into, where each sits on the bar, and the bar in 3D. Step 2: the real end cuts of each mark from the project's
@@ -12,9 +14,12 @@ const mm = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 2 }
 const KIND: Record<string, string> = { saddle: 'Saddle', slot: 'Slot', straight: 'Straight' }
 const hasWebgl = () => { try { return !!document.createElement('canvas').getContext('webgl2') } catch { return false } }
 
-export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, projectId, onClose, sleeves }: {
-  title: string; profile: string; layout: ShapeTestLayout; marks: string[]; kerfMm: number; projectId: number | null; onClose: () => void; sleeves?: Set<string>
+export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, projectId, onClose, sleeves, plug }: {
+  title: string; profile: string; layout: ShapeTestLayout; marks: string[]; kerfMm: number; projectId: number | null; onClose: () => void; sleeves?: Set<string>; plug?: Record<string, PlugAtMark>
 }) {
+  // plug-weld holes of a pipe at a sleeve joint: drawn at the piece's far end on the bar (which end it is on the
+  // machine is the cutter's to turn; the table says which pipe that end is joined to)
+  const holesOf = (p: { mark: string; fromMm: number; toMm: number }) => { const a = plug?.[p.mark]; return a && p.toMm - p.fromMm > a.params.fromEndMm ? holeAngles(a.params).map(angleDeg => ({ xMm: p.toMm - a.params.fromEndMm, angleDeg, diaMm: a.params.holeDiaMm })) : undefined }
   const pieces = barPieces(layout, marks, kerfMm)
   const L = layout.stockLengthMm
   // what is left starts after the last cut: the layout's scrap (audit 2026-11-13: it started at the last piece, a kerf too long)
@@ -52,7 +57,7 @@ export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, project
         const prev = pieces[k - 1], g = ends.marks[p.mark]?.grids, gp = prev && ends.marks[prev.mark]?.grids
         turns.push(k && (layout.nestMm?.[k - 1] ?? 0) > 0 && g && gp ? turns[k - 1] + nestTurn(gp, g, kerfMm) : (turns[k - 1] ?? 0))
       })
-      scene.current = new PipeBarScene(c, { stockMm: L, section: section(profile), leftFromMm: leftFrom, pieces: pieces.map((p, k) => ({ fromMm: p.fromMm, toMm: p.toMm, color: colorOf(p.lengthMm), grids: ends.marks[p.mark]?.grids, turnDeg: turns[k] })) })
+      scene.current = new PipeBarScene(c, { stockMm: L, section: section(profile), leftFromMm: leftFrom, pieces: pieces.map((p, k) => ({ fromMm: p.fromMm, toMm: p.toMm, color: colorOf(p.lengthMm), grids: ends.marks[p.mark]?.grids, turnDeg: turns[k], holes: holesOf(p) })) })
       scene.current.resize(c.clientWidth, c.clientHeight)
       const picked = pieces.find(x => x.n === selectedRef.current)
       if (picked) scene.current.focus({ fromMm: picked.fromMm, toMm: picked.toMm })
@@ -123,6 +128,17 @@ export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, project
             </tr>
           </tbody>
         </table>
+        {pieces.some(p => plug?.[p.mark]) && (
+          <div data-testid="bar-plug" style={{ fontSize: 12, color: '#374151', display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[...new Set(pieces.filter(p => plug?.[p.mark]).map(p => p.mark))].map(mark => {
+              const a = plug![mark]
+              return <div key={mark}><b>{mark}</b>{` · plug-weld holes at the end joined to ${a.joinedTo} (sleeve ${a.sleeve} goes in ${a.insertMm.toLocaleString('en-US', { maximumFractionDigits: 1 })} mm): ${plugText(a.params)} `}<span style={{ fontWeight: 600, color: a.confirmed ? '#166534' : '#92400E' }}>{a.confirmed ? 'Confirmed' : 'Suggested'}</span>
+                {/* a hole is a dot on a 12 m bar: go close to it */}
+                <button aria-label={`Zoom to the holes of ${mark}`} onClick={() => { const pc = pieces.find(x => x.mark === mark); const h = pc && holesOf(pc); if (h?.length) scene.current?.focus({ fromMm: h[0].xMm - 250, toMm: h[0].xMm + 250 }) }}
+                  style={{ marginLeft: 8, fontSize: 11, color: '#0C447C', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>Zoom to holes</button></div>
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

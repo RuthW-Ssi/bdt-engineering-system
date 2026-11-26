@@ -10,7 +10,7 @@ import { useAllProjects } from '../../hooks/useProjects'
 import { InfoTip } from '../bom/InfoTip'
 import { LayoutList } from './LayoutList'
 import { SleeveJointsCard } from './SleeveJointsCard'
-import { plugNotes, suggestedSettings } from '../../lib/cuttingPlanTest/plugWeld'
+import { plugAtMarks, plugNotes, suggestedSettings } from '../../lib/cuttingPlanTest/plugWeld'
 import type { PlugSettings } from '../../lib/cuttingPlanTest/plugWeld'
 import { CutReport } from './CutReport'
 import type { LossGrade } from '../../lib/cuttingPlanTest/shapeTest'
@@ -226,6 +226,7 @@ export function ShapeTestPanel() {
   // sleeve joints of the project (from its model) and the plug-weld holes per pipe size (suggested until confirmed)
   const [plug, setPlug] = useState<PlugSettings>({})
   useEffect(() => { setPlug(suggestedSettings(sleeveJoints.data?.joints ?? [])) }, [sleeveJoints.data]) // a project's joints start from the suggestion
+  const plugByMark = useMemo(() => plugAtMarks(joints, plug), [joints, plug])
   const [fileName, setFileName] = useState('')
   const [reading, setReading] = useState(false)
   const [source, setSource] = useState<'file' | 'bom'>('file')
@@ -316,7 +317,7 @@ export function ShapeTestPanel() {
   const piecesIn = shown.reduce((n, s) => n + s.parts.reduce((a, p) => a + p.count, 0), 0)
   const piecesOut = shown.reduce((n, s) => n + piecesLaidOut(results[keyOf(s)]), 0)
   const byZone = !!list?.sizes.some(s => s.zone)
-  const cols = (byZone ? 1 : 0) + 12
+  const cols = (byZone ? 1 : 0) + 10 // 2026-11-26: length sits under Pieces, yield under Yield loss (the table ran past the page)
   const notesOf = (k: string) => (results[k]?.notes ?? []).filter(n => !n.startsWith(SOURCE))
   const modelFile = done.flatMap(r => r.notes ?? []).find(n => n.startsWith(SOURCE))?.slice(SOURCE.length)
   // what tip to tip would have taken over what the nest plans take, for the sizes that have both
@@ -325,7 +326,7 @@ export function ShapeTestPanel() {
   const zoneCell = (s: { zone?: string }, pad: string) => byZone && <td style={{ padding: pad, fontWeight: 600, whiteSpace: 'nowrap' }}>{s.zone}</td>
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minWidth: 0 }}>
       <div style={{ ...card, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <FlaskConical size={18} style={{ color: '#7C3AED' }} />
         <div style={{ flex: 1, minWidth: 260 }}>
@@ -378,11 +379,12 @@ export function ShapeTestPanel() {
               {running ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{running ? `Laying out ${Math.min(ran + 1, ready.length)} of ${ready.length}` : 'Run layouts'}
             </button>
           </div>
+          <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 12 }}>
-                {[...(byZone ? ['Zone'] : []), 'Size', 'Grade', 'Pieces', 'Parts length', 'Kerf (mm)', 'Lengths (mm)', 'Required stock', 'Yield', 'Yield loss', 'Cuts', 'Remnant', ''].map(h => (
-                  <th key={h} style={{ padding: '8px 12px', fontWeight: 500, borderTop: '1px solid #F3F4F6' }}>{h}</th>
+                {[...(byZone ? ['Zone'] : []), 'Size', 'Grade', 'Pieces', 'Kerf (mm)', 'Lengths (mm)', 'Required stock', 'Yield loss', 'Cuts', 'Remnant', ''].map(h => (
+                  <th key={h} style={{ padding: '8px 10px', fontWeight: 500, borderTop: '1px solid #F3F4F6' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -429,37 +431,35 @@ export function ShapeTestPanel() {
                 const row = (
                   <tr key={k} data-testid={`size-${s.profile}`} style={{ borderTop: '1px solid #F3F4F6', verticalAlign: 'top', background: open === k ? '#F9FAFB' : 'white' }}>
                     {zoneCell(s, '8px 12px')}
-                    <td style={{ padding: '8px 12px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '8px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>{s.profile}{quiet.length > 0 && <InfoTip label={`Notes for ${s.zone ? `${s.zone} ` : ''}${s.profile}`} text={quiet.join(' · ')} />}</span>
                     </td>
-                    <td style={{ padding: '8px 12px' }}>{s.grade ?? '—'}</td>
-                    <td style={{ padding: '8px 12px' }}>{pieces.toLocaleString('en-US')}</td>
-                    <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{m(length)}</td>
-                    <td style={{ padding: '8px 12px' }}>
+                    <td style={{ padding: '8px 10px' }}>{s.grade ?? '—'}</td>
+                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{pieces.toLocaleString('en-US')}<div style={{ fontSize: 11, color: '#6B7280' }}>{m(length)}</div></td>
+                    <td style={{ padding: '8px 10px' }}>
                       <input type="number" aria-label="Kerf (mm)" value={kerfs[k] ?? 12} min={0} max={20}
                         onChange={e => { setKerfs(p => ({ ...p, [k]: Number(e.target.value) })); clear(k) }} style={{ ...input, width: 52 }} />
                     </td>
-                    <td style={{ padding: '8px 12px' }}><StockEditor stock={stock[k] ?? []} grade={s.grade} onChange={v => { setStock(p => ({ ...p, [k]: v })); clear(k) }} /></td>
+                    <td style={{ padding: '8px 10px' }}><StockEditor stock={stock[k] ?? []} grade={s.grade} onChange={v => { setStock(p => ({ ...p, [k]: v })); clear(k) }} /></td>
                     {r ? <>
-                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontSize: 12 }}>
+                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', fontSize: 12 }}>
                         {r.stockMix.filter(x => x.pieces).map(x => <div key={x.lengthMm}>{`${mm(x.lengthMm)} × ${x.pieces}`}</div>)}
                         <div style={{ color: '#6B7280', fontSize: 11 }}>{kg(kgOf(s, r.stockLengthMm))}</div>
                         {r.tipToTip && r.tipToTip.stockLengthMm > r.stockLengthMm + 1e-6 && <div style={{ color: '#0F766E', fontSize: 11 }}>{`Nesting saves ${m(r.tipToTip.stockLengthMm - r.stockLengthMm)}`}</div>}
                         {r.timedOut && <div style={{ color: '#92400E', fontSize: 11, whiteSpace: 'normal' }}>Search cut short: may not be the fewest stocks</div>}
                         {notes.filter(needsALook).map(n => <div key={n} style={{ color: '#92400E', fontSize: 11, whiteSpace: 'normal', maxWidth: 260 }}>{n}</div>)}
                       </td>
-                      <td style={{ padding: '8px 12px' }}>{r.yieldPct.toFixed(2)}%</td>
-                      <td style={{ padding: '8px 12px' }}><LossBadge lossPct={balanceOf(s)!.lossPct} /></td>
-                      <td style={{ padding: '8px 12px' }}>{r.cuts.toLocaleString('en-US')}</td>
-                      <td style={{ padding: '8px 12px', whiteSpace: 'nowrap', fontSize: 12 }}>{balanceOf(s)!.remnants.length ? balanceOf(s)!.remnants.map(x => <div key={x.lengthMm}>{`${mm(x.lengthMm)} × ${x.pcs}`}</div>) : '—'}</td>
-                      <td style={{ padding: '8px 12px' }}>
+                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}><LossBadge lossPct={balanceOf(s)!.lossPct} /><div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>{`Yield ${r.yieldPct.toFixed(2)}%`}</div></td>
+                      <td style={{ padding: '8px 10px' }}>{r.cuts.toLocaleString('en-US')}</td>
+                      <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', fontSize: 12 }}>{balanceOf(s)!.remnants.length ? balanceOf(s)!.remnants.map(x => <div key={x.lengthMm}>{`${mm(x.lengthMm)} × ${x.pcs}`}</div>) : '—'}</td>
+                      <td style={{ padding: '8px 10px' }}>
                         <button onClick={() => setOpen(open === k ? null : k)} aria-label={`Layouts of ${s.zone ? `${s.zone} ` : ''}${s.profile}`}
                           style={{ fontSize: 12, color: '#0C447C', background: 'none', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                           {open === k ? 'Hide' : 'Layouts'}
                         </button>
                       </td>
                     </> : (
-                      <td colSpan={6} style={{ padding: '8px 12px', fontSize: 12, color: errors[k] ? '#991B1B' : problemOf(s) ? '#92400E' : '#8E8E8E' }}>
+                      <td colSpan={5} style={{ padding: '8px 10px', fontSize: 12, color: errors[k] ? '#991B1B' : problemOf(s) ? '#92400E' : '#8E8E8E' }}>
                         {errors[k] ?? (running === k ? 'Laying out…' : problemOf(s) ?? '—')}
                       </td>
                     )}
@@ -469,13 +469,14 @@ export function ShapeTestPanel() {
                 return open === k && r ? [row, (
                   <tr key={`${k}|layouts`}>
                     <td colSpan={cols} data-testid={`layouts-${k}`} style={{ padding: '10px 12px 16px', background: '#F9FAFB', borderTop: '1px solid #F3F4F6' }}>
-                      <LayoutList profile={s.profile} layouts={r.layouts} kerfMm={kerfs[k] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" sleeves={sleevesOf(s)} />
+                      <LayoutList profile={s.profile} layouts={r.layouts} kerfMm={kerfs[k] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" sleeves={sleevesOf(s)} plug={plugByMark} />
                     </td>
                   </tr>
                 )] : [row]
               })])}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -538,6 +539,7 @@ export function ShapeTestPanel() {
       {shown.length > 0 && (
         <div data-testid="material-balance" style={{ ...card, padding: 0 }}>
           <div style={{ padding: '10px 12px', fontSize: 14, fontWeight: 600 }}>Material balance <span style={{ fontSize: 12, fontWeight: 400, color: '#6B7280' }}>· stock issued = parts + remnant + loss</span></div>
+          <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 12 }}>
               {[...(byZone ? ['Zone'] : []), 'Size', 'Grade', 'Issued', 'Parts', 'Remnant to return', 'Loss'].map(h => <th key={h} style={{ padding: '6px 12px', fontWeight: 500 }}>{h}</th>)}
@@ -568,12 +570,14 @@ export function ShapeTestPanel() {
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
       {done.length > 0 && list && (
         <div data-testid="required-stock" style={{ ...card, padding: 0 }}>
           <div style={{ padding: '10px 12px', fontSize: 14, fontWeight: 600 }}>Required stock <span style={{ fontSize: 12, fontWeight: 400, color: '#6B7280' }}>· what to prepare or buy</span></div>
+          <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ textAlign: 'left', color: '#6B7280', fontSize: 12 }}>
               {[...(byZone ? ['Zone'] : []), 'Size', 'Grade', 'Length', 'Pcs', 'Layouts'].map(h => <th key={h} style={{ padding: '6px 12px', fontWeight: 500, textAlign: h === 'Pcs' || h === 'Layouts' ? 'right' : 'left' }}>{h}</th>)}
@@ -606,7 +610,7 @@ export function ShapeTestPanel() {
                   return isOpen ? [row, (
                     <tr key={`${id}|open`}>
                       <td colSpan={byZone ? 6 : 5} data-testid={`req-layouts-${id}`} style={{ padding: '8px 12px 14px', background: '#F9FAFB' }}>
-                        <LayoutList profile={s.profile} layouts={ls} kerfMm={kerfs[keyOf(s)] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" sleeves={sleevesOf(s)} />
+                        <LayoutList profile={s.profile} layouts={ls} kerfMm={kerfs[keyOf(s)] ?? 12} projectId={usesEndCuts(s.profile) ? projectId : null} bg="#F9FAFB" sleeves={sleevesOf(s)} plug={plugByMark} />
                       </td>
                     </tr>
                   )] : [row]
@@ -619,6 +623,7 @@ export function ShapeTestPanel() {
               </tr>
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
