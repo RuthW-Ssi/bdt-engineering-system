@@ -31,6 +31,15 @@ describe('classifyProfile', () => {
     expect(classifyProfile('PIPE 216.3X4.5 SL')).toMatchObject({ profile: 'PIPE 216.3X4.5', sleeve: true })
   })
 
+  // 2026-11-26: spellings that taking the spaces out does not cover
+  it.each(['PIPE139.8X5-SL', 'PIPE 139.8X5 - SL', 'PIPE139.8X5SLEEVE', 'PIPE139.8X5-SLEEVE', 'pipe 139.8x5 sleeve'])('%s is a sleeve of PIPE 139.8X5', raw => {
+    expect(classifyProfile(raw)).toEqual({ family: 'PIPE', profile: 'PIPE 139.8X5', enabled: true, sleeve: true })
+  })
+
+  it('a pipe that only ends in L or S is not a sleeve', () => {
+    expect(classifyProfile('PIPE139.8X5')).toEqual({ family: 'PIPE', profile: 'PIPE 139.8X5', enabled: true })
+  })
+
   it('plates and bought items are known not to be cut; anything else unknown is not', () => {
     for (const p of ['PL10', 'PL5X150', 'COUPLING 1"THREAD R.', 'PD50X12.5', 'PD25x5', 'TURNBUCKLE M20']) expect(isNotCut(p)).toBe(true)
     for (const p of ['LC100X50X20X2.3', 'PIPE60.5X2.4', 'XYZ']) expect(isNotCut(p)).toBe(false)

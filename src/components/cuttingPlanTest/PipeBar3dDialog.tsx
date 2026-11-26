@@ -12,8 +12,8 @@ const mm = (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 2 }
 const KIND: Record<string, string> = { saddle: 'Saddle', slot: 'Slot', straight: 'Straight' }
 const hasWebgl = () => { try { return !!document.createElement('canvas').getContext('webgl2') } catch { return false } }
 
-export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, projectId, onClose }: {
-  title: string; profile: string; layout: ShapeTestLayout; marks: string[]; kerfMm: number; projectId: number | null; onClose: () => void
+export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, projectId, onClose, sleeves }: {
+  title: string; profile: string; layout: ShapeTestLayout; marks: string[]; kerfMm: number; projectId: number | null; onClose: () => void; sleeves?: Set<string>
 }) {
   const pieces = barPieces(layout, marks, kerfMm)
   const L = layout.stockLengthMm
@@ -95,7 +95,7 @@ export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, project
           <button style={btn(selected == null)} onClick={() => pick(null)}>Whole bar</button>
           {pieces.map(p => (
             <button key={p.n} style={btn(selected === p.n)} onClick={() => pick(p.n)}>
-              <i style={{ width: 10, height: 10, borderRadius: 2, background: colorOf(p.lengthMm) }} />{`${p.n} · ${p.mark}`}
+              <i style={{ width: 10, height: 10, borderRadius: 2, background: colorOf(p.lengthMm) }} />{`${p.n} · ${p.mark}${sleeves?.has(p.mark) ? ' · SL' : ''}`}
             </button>
           ))}
         </div>
@@ -107,7 +107,7 @@ export function PipeBar3dDialog({ title, profile, layout, marks, kerfMm, project
             {pieces.map(p => (
               <tr key={p.n} onClick={() => pick(p.n)} style={{ cursor: 'pointer', background: selected === p.n ? '#F9FAFB' : 'white' }}>
                 <td style={td}>{p.n}</td>
-                <td style={{ ...td, fontWeight: 600 }}><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: colorOf(p.lengthMm), marginRight: 6 }} />{p.mark}</td>
+                <td style={{ ...td, fontWeight: 600 }}><i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: colorOf(p.lengthMm), marginRight: 6 }} />{p.mark}{sleeves?.has(p.mark) && <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 600, color: '#7C2D12' }}>SL (sleeve)</span>}</td>
                 <td style={td}>{mm(p.lengthMm)}</td>
                 <td style={td}>{`${mm(p.fromMm)} – ${mm(p.toMm)}`}</td>
                 <td style={td}>{endsOf(p.mark).kinds}</td>

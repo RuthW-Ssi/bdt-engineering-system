@@ -313,6 +313,30 @@ describe('ShapeTestPanel', () => {
     expect(within(sheet).getAllByText('L 50X50X5').length).toBeGreaterThan(0)
   })
 
+  // 2026-11-26: a sleeve pipe (…SL) is laid out with its pipe and says SL wherever its mark is shown
+  it('sleeve pieces carry an SL tag on the bar, in the 3D table and in the cutting report', async () => {
+    vi.mocked(api.readShapeBomParts).mockResolvedValue({ pieces: 18, warnings: [], sizes: [{ profile: 'PIPE 139.8X5', grade: 'SS400', parts: [{ mark: 'TC-m1', lengthMm: 5000, count: 6 }, { mark: 'TC-m7', lengthMm: 400, count: 12, sleeve: true }] }] })
+    vi.mocked(api.optimizeShapeTest).mockResolvedValue({ ...result(97), stocks: 6, layouts: [
+      { stockLengthMm: 12500, repeat: 6, restMm: 6664, cuts: 3, pieces: [{ lengthMm: 5000, count: 1 }, { lengthMm: 400, count: 2 }], marks: [{ mark: 'TC-m1', lengthMm: 5000, pcs: 6 }, { mark: 'TC-m7', lengthMm: 400, pcs: 12 }] }, // 400 of 12,500: too short to label, so listed under the bar
+    ] })
+    await loadFromBom()
+    await screen.findByText('PIPE 139.8X5')
+    fireEvent.click(screen.getByRole('button', { name: 'Run layouts' }))
+    const btn = await screen.findByRole('button', { name: 'Layouts of PIPE 139.8X5' })
+    fireEvent.click(btn)
+    const bar = screen.getAllByRole('img', { name: 'Stock 12,500 mm' })[0]
+    expect(within(bar).getAllByText('SL').length).toBe(2) // two sleeve pieces on the bar
+    expect(screen.getByText('SL · sleeve')).toBeInTheDocument() // and in the marks listed under the bar
+    fireEvent.click(screen.getByRole('button', { name: '3D of layout 1' }))
+    const d3 = await screen.findByRole('dialog', { name: /PIPE 139.8X5 · layout 1/ })
+    expect(within(d3).getAllByText('SL (sleeve)').length).toBe(2) // both sleeve rows of the bar's table
+    fireEvent.click(within(d3).getByRole('button', { name: 'Close' }))
+    fireEvent.click(within(screen.getByTestId('result-step')).getByRole('button', { name: /Cutting report/ }))
+    const report = await screen.findByRole('dialog', { name: 'Cutting report' })
+    expect(within(report).getByText('TC-m7 · SL (sleeve)')).toBeInTheDocument()
+    expect(within(report).getByText('TC-m1')).toBeInTheDocument()
+  })
+
   // Tao 2026-11-12: same calculation, but the layouts can be split per zone or done over all picked zones together
   const pickTwoZones = async () => {
     wrap(<ShapeTestPanel />)
