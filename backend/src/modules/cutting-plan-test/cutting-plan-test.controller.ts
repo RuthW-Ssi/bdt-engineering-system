@@ -31,7 +31,7 @@ export class CuttingPlanTestController {
 
   @Get('shape/bom-sources')
   @RequiresPermission('cutting-plan', 'view')
-  @ApiOperation({ summary: 'CP-Shape-Test: zones of a project with the BOM pieces (pipe / rod) and mark groups that can be laid out' })
+  @ApiOperation({ summary: 'CP-Shape-Test: zones of a project with the BOM pieces (pipe / rod / box / L / C / H) and mark groups that can be laid out' })
   bomSources(@Query('project_id', ParseIntPipe) projectId: number) {
     return this.bom.sources(projectId)
   }

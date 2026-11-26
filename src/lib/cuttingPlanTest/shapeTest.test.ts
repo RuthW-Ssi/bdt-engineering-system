@@ -1,4 +1,4 @@
-import { barGroups, barPieces, splitByMarkSet, defaultKerf, defaultStock, familyOf, stockProblem, nestTurn, pipeSection, totals, yieldLossGrade } from './shapeTest'
+import { barGroups, barPieces, splitByMarkSet, defaultKerf, defaultStock, familyOf, maxStockLengths, stockProblem, nestTurn, section, sectionExtent, usesEndCuts, groupByFamily, FAMILY_LABEL, piecesLaidOut, materialBalance, kgPerMetre, totals, yieldLossGrade } from './shapeTest'
 
 describe('yieldLossGrade (3% = great, over 5% = bad)', () => {
   it.each([[0, 'great'], [3, 'great'], [3.01, 'ok'], [5, 'ok'], [5.01, 'bad'], [7, 'bad']] as const)('%s%% → %s', (loss, grade) => {
@@ -31,6 +31,23 @@ describe('stockProblem', () => {
     expect(stockProblem([{ lengthMm: 99, qty: null }])).toBe('Stock lengths are 100 to 12,500 mm')
     expect(stockProblem([{ lengthMm: NaN, qty: null }])).toBe('Stock lengths are 100 to 12,500 mm')
   })
+  // 2026-11-26 user test report §5: HSS550 / HSS500 up to 12,500 mm and no more than 3 lengths per size
+  it('HSS550 and HSS500 take at most 3 stock lengths, other grades 6', () => {
+    expect(maxStockLengths('HSS550')).toBe(3)
+    expect(maxStockLengths(' hss500 ')).toBe(3)
+    expect(maxStockLengths('SS400')).toBe(6)
+    expect(maxStockLengths(null)).toBe(6)
+    const four = [6000, 8000, 9500, 12000].map(lengthMm => ({ lengthMm, qty: null }))
+    expect(stockProblem(four, undefined, 3)).toBe('At most 3 stock lengths for this grade')
+    expect(stockProblem(four.slice(0, 3), undefined, 3)).toBeNull()
+  })
+  // 2026-11-26: BOX 200X200X4.5 got 6,000 (SS400) for an 8,521 mm piece and only failed after Run
+  it('a piece longer than every stock length is said before the run', () => {
+    expect(stockProblem([{ lengthMm: 6000, qty: null }], 8521)).toBe('Longest piece 8,521 mm: add a longer stock length')
+    expect(stockProblem([{ lengthMm: 6000, qty: null }, { lengthMm: 9000, qty: null }], 8521)).toBeNull()
+    expect(stockProblem([{ lengthMm: 6000, qty: null }], 6000)).toBeNull()
+    expect(stockProblem([{ lengthMm: 6000, qty: null }])).toBeNull() // no length given: not checked
+  })
 })
 
 describe('family and kerf', () => {
@@ -39,6 +56,22 @@ describe('family and kerf', () => {
     expect(familyOf('ROD RB25')).toBe('ROD')
     expect(defaultKerf('PIPE 101.6X2.6')).toBe(12)
     expect(defaultKerf('ROD RB25')).toBe(10)
+  })
+
+  it('L and BOX are their own families, kerf 12 mm and SS400 = 6,000 mm until the factory says otherwise', () => {
+    expect(familyOf('L 50X50X5')).toBe('L')
+    expect(familyOf('BOX 150X150X4.5')).toBe('BOX')
+    expect(defaultKerf('L 50X50X5')).toBe(12)
+    expect(defaultKerf('BOX 100X50X2.3')).toBe(12)
+    expect(defaultStock('L 50X50X5', 'SS400')).toEqual([{ lengthMm: 6000, qty: null }])
+    expect(defaultStock('BOX 100X50X2.3', 'HY370')).toEqual([])
+  })
+
+  it('only pipes use the model end cuts and saddle nesting', () => {
+    expect(usesEndCuts('PIPE 101.6X2.6')).toBe(true)
+    expect(usesEndCuts('ROD RB25')).toBe(false)
+    expect(usesEndCuts('L 50X50X5')).toBe(false)
+    expect(usesEndCuts('BOX 150X150X4.5')).toBe(false)
   })
 })
 
@@ -111,11 +144,117 @@ describe('barPieces', () => {
   })
 })
 
-describe('pipeSection', () => {
+// 2026-11-26 user test report: "410 items in, 400 out" was the Cuts total — a piece that fills the bar needs no cut
+describe('piecesLaidOut', () => {
+  it('counts every piece on every repeat of every layout, not the cuts', () => {
+    const r = { layouts: [
+      { stockLengthMm: 6000, repeat: 3, restMm: 0, cuts: 0, pieces: [{ lengthMm: 6000, count: 1 }], marks: [] },
+      { stockLengthMm: 6000, repeat: 2, restMm: 50, cuts: 2, pieces: [{ lengthMm: 2000, count: 2 }, { lengthMm: 1900, count: 0 }], marks: [] },
+    ] }
+    expect(piecesLaidOut(r as never)).toBe(7)
+  })
+})
+
+// 2026-11-26 user report §3 (Tao: "ตามนั้นเลย"): loss = kerf + offcuts shorter than the minimum remnant; an offcut at
+// least that long is a remnant, kept. Stock = parts + remnant + loss, always.
+describe('materialBalance', () => {
+  // 3 bars of 6,000: two cut 2 × 2,963 (+ 2 kerf of 12, rest 50), one cut 2 × 2,440 (+ 24 kerf, rest 1,096)
+  const r = { stockLengthMm: 18000, partsLengthMm: 16732, nestedMm: 0, layouts: [
+    { stockLengthMm: 6000, repeat: 2, restMm: 50, cuts: 2, pieces: [{ lengthMm: 2963, count: 2 }], marks: [] },
+    { stockLengthMm: 6000, repeat: 1, restMm: 1096, cuts: 2, pieces: [{ lengthMm: 2440, count: 2 }], marks: [] },
+  ] }
+  it('no minimum remnant: every offcut is loss, kerf is what is left over', () => {
+    const b = materialBalance(r as never, null)
+    expect([b.stockMm, b.partsMm, b.offcutMm, b.remnantMm, b.kerfMm]).toEqual([18000, 16732, 1196, 0, 72])
+    expect(b.lossMm).toBe(1268)
+    expect(b.lossPct).toBeCloseTo((1268 / 18000) * 100)
+  })
+  it('with a minimum: offcuts at least that long are remnants, listed by length', () => {
+    const b = materialBalance(r as never, 1000)
+    expect(b.remnantMm).toBe(1096)
+    expect(b.remnants).toEqual([{ lengthMm: 1096, pcs: 1 }])
+    expect(b.offcutMm).toBe(100)
+    expect(b.lossMm).toBe(172)
+    expect(b.partsMm + b.remnantMm + b.lossMm).toBe(b.stockMm)
+  })
+  it('nested saddles take less steel than their BOM lengths: parts count what they take', () => {
+    const b = materialBalance({ ...r, nestedMm: 200 } as never, null)
+    expect(b.partsMm).toBe(16532)
+    expect(b.partsMm + b.remnantMm + b.lossMm).toBe(18000)
+  })
+})
+
+describe('kgPerMetre', () => {
+  it("the size's own weight first, else its section (area × 7.85 g/cm³)", () => {
+    expect(kgPerMetre({ profile: 'L 50X50X5', kgPerM: 3.77 })).toBe(3.77)
+    expect(kgPerMetre({ profile: 'PIPE 101.6X2.4', kgPerM: null })).toBeCloseTo(5.87, 1)
+    expect(kgPerMetre({ profile: 'ROD RB25' })).toBeCloseTo(3.853, 2)
+    expect(kgPerMetre({ profile: 'BOX 100X50X2.3' })).toBeCloseTo(5.25, 1)
+    expect(kgPerMetre({ profile: 'L 50X50X5' })).toBeCloseTo(3.73, 1)
+    expect(kgPerMetre({ profile: 'H 200X100X5.5X8' })).toBeCloseTo(20.9, 0)
+  })
+})
+
+describe('groupByFamily', () => {
+  it('pipe, rod, box, angle, in that order, sizes kept in their order inside a group; empty groups left out', () => {
+    const sizes = [{ profile: 'BOX 100X50X2.3' }, { profile: 'L 50X50X5' }, { profile: 'PIPE 60.5X2.4' }, { profile: 'BOX 150X150X4.5' }, { profile: 'PIPE 101.6X2.6' }]
+    expect(groupByFamily(sizes).map(g => [g.family, g.sizes.map(s => s.profile)])).toEqual([
+      ['PIPE', ['PIPE 60.5X2.4', 'PIPE 101.6X2.6']],
+      ['BOX', ['BOX 100X50X2.3', 'BOX 150X150X4.5']],
+      ['L', ['L 50X50X5']],
+    ])
+    expect(FAMILY_LABEL.L).toBe('Angle (L)')
+  })
+
+  it('channels and H-beams come after the angles', () => {
+    const sizes = [{ profile: 'H 200X100X5.5X8' }, { profile: 'C 150X75X6.5X10' }, { profile: 'L 40X40X3' }, { profile: 'PIPE 25X2.3' }]
+    expect(groupByFamily(sizes).map(g => g.family)).toEqual(['PIPE', 'L', 'C', 'H'])
+    expect(FAMILY_LABEL.C).toBe('Channel (C)')
+    expect(FAMILY_LABEL.H).toBe('H-beam')
+    expect(defaultKerf('H 200X100X5.5X8')).toBe(12)
+    expect(usesEndCuts('C 150X75X6.5X10')).toBe(false)
+  })
+})
+
+describe('section', () => {
   it('outer diameter and wall of a pipe; a rod is solid', () => {
-    expect(pipeSection('PIPE 60.5X2.4')).toEqual({ outerMm: 60.5, wallMm: 2.4 })
-    expect(pipeSection('PIPE 165.2x4.5')).toEqual({ outerMm: 165.2, wallMm: 4.5 })
-    expect(pipeSection('ROD RB25')).toEqual({ outerMm: 25, wallMm: null })
+    expect(section('PIPE 60.5X2.4')).toEqual({ kind: 'round', outerMm: 60.5, wallMm: 2.4 })
+    expect(section('PIPE 165.2x4.5')).toEqual({ kind: 'round', outerMm: 165.2, wallMm: 4.5 })
+    expect(section('ROD RB25')).toEqual({ kind: 'round', outerMm: 25, wallMm: null })
+  })
+
+  it('a box is height × width × wall; a square box gives one side twice', () => {
+    expect(section('BOX 100X50X2.3')).toEqual({ kind: 'box', heightMm: 100, widthMm: 50, wallMm: 2.3 })
+    expect(section('BOX 150X150X4.5')).toEqual({ kind: 'box', heightMm: 150, widthMm: 150, wallMm: 4.5 })
+    expect(section('BOX 100X3.2')).toEqual({ kind: 'box', heightMm: 100, widthMm: 100, wallMm: 3.2 })
+  })
+
+  it('an angle is leg × leg × thickness; an equal angle may give one leg', () => {
+    expect(section('L 50X50X5')).toEqual({ kind: 'angle', legAMm: 50, legBMm: 50, thickMm: 5 })
+    expect(section('L 100X75X7')).toEqual({ kind: 'angle', legAMm: 100, legBMm: 75, thickMm: 7 })
+    expect(section('L 65X6')).toEqual({ kind: 'angle', legAMm: 65, legBMm: 65, thickMm: 6 })
+  })
+
+  it('a wall too thick for the section is held to a solid-looking but valid one', () => {
+    const b = section('BOX 20X20X15')
+    expect(b.kind === 'box' && b.wallMm < 10).toBe(true)
+    const a = section('L 20X20X30')
+    expect(a.kind === 'angle' && a.thickMm < 20).toBe(true)
+  })
+
+  it('an H-beam and a channel are H × B × web × flange; fewer numbers fall back to one thickness', () => {
+    expect(section('H 200X100X5.5X8')).toEqual({ kind: 'h', heightMm: 200, widthMm: 100, webMm: 5.5, flangeMm: 8 })
+    expect(section('C 150X75X6.5X10')).toEqual({ kind: 'channel', heightMm: 150, widthMm: 75, webMm: 6.5, flangeMm: 10 })
+    expect(section('C 100X50X5')).toEqual({ kind: 'channel', heightMm: 100, widthMm: 50, webMm: 5, flangeMm: 5 })
+    const thin = section('H 300X150')
+    expect(thin.kind === 'h' && thin.webMm > 0 && thin.flangeMm > 0 && thin.flangeMm < 75).toBe(true)
+  })
+
+  it('the largest side frames the camera', () => {
+    expect(sectionExtent(section('H 200X100X5.5X8'))).toBe(200)
+    expect(sectionExtent(section('PIPE 60.5X2.4'))).toBe(60.5)
+    expect(sectionExtent(section('BOX 100X50X2.3'))).toBe(100)
+    expect(sectionExtent(section('L 100X75X7'))).toBe(100)
   })
 })
 

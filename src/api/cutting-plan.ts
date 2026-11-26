@@ -49,6 +49,8 @@ export interface CuttingPlanNestingRow {
   quantity: number | null
   start_time_min: number | null
   total_time_min: number | null
+  certificate?: string | null // user report 2026-11-26: free text, edited in the Plates tab
+  cut_length_mm?: number | string | null // the DXF's cut path (null: no .dxf stored)
 }
 
 export interface CuttingPlanOrderPartRow {
@@ -250,3 +252,24 @@ export async function bulkAssignOrderPartProjectCode(
 export async function deleteCuttingPlan(id: number): Promise<{ deleted: boolean }> {
   return (await apiClient.delete(`/cutting-plan/${id}`)).data
 }
+
+// User test report 2026-11-26 — kerf, prices, certificate, remnant register (Plate / Shape tabs)
+export interface CuttingPlanKerf { id: number; technology: string; thick_mm: number | string; kerf_mm: number | string; write_user: { id: number; name: string } | null; write_date: string }
+export interface CuttingPlanPrice { grade: string; thick_mm: number; thb_per_kg: number; material: string }
+export interface CuttingPlanRemnant {
+  source: 'PLATE' | 'SHAPE'; source_id: number; kind: 'PLATE' | 'SHAPE'; offcut_no: string; from_plate: string | null
+  profile: string | null; grade: string | null; thick_mm: number | null; length_mm: number | null; width_mm: number | null; stock_length_mm?: number | null
+  weight_kg: number | null; qty: number; used: number; available: number; certificate: string | null
+  upload_id: number; project_code: string | null; zone: string | null; uploaded: string
+}
+export interface CuttingPlanChange { id: number; field: string; old_value: string | null; new_value: string | null; changed_at: string; changed_by: { id: number; name: string } | null }
+
+export async function getKerfs(): Promise<CuttingPlanKerf[]> { return (await apiClient.get('/cutting-plan/kerfs')).data }
+export async function saveKerfs(rows: { technology: string; thick_mm: number; kerf_mm: number | null }[]): Promise<CuttingPlanKerf[]> {
+  return (await apiClient.patch('/cutting-plan/kerfs', { rows })).data
+}
+export async function getPrices(): Promise<CuttingPlanPrice[]> { return (await apiClient.get('/cutting-plan/prices')).data }
+export async function getRemnants(): Promise<CuttingPlanRemnant[]> { return (await apiClient.get('/cutting-plan/remnants')).data }
+export async function useRemnant(body: { source: 'PLATE' | 'SHAPE'; source_id: number; qty: number; note?: string }) { return (await apiClient.post('/cutting-plan/remnants/use', body)).data }
+export async function setCertificate(nestingId: number, certificate: string | null) { return (await apiClient.patch(`/cutting-plan/nestings/${nestingId}/certificate`, { certificate })).data }
+export async function getNestingHistory(nestingId: number): Promise<CuttingPlanChange[]> { return (await apiClient.get(`/cutting-plan/nestings/${nestingId}/history`)).data }

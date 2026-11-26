@@ -5,7 +5,7 @@ import type { PlanSummary } from '../../lib/cuttingPlan/planSummary'
 // 2026-11-11: a plan with 12 thicknesses (as the real 99-plate plan) must not stretch the cards beside it
 const THICK = [5, 6, 8, 9, 10, 12, 14, 16, 20, 25, 32, 35]
 const s: PlanSummary = {
-  plates: 99, steelKg: 83000, partsKg: 70000, scrapKg: 8100, remnantKg: 4900, machineMin: 3924,
+  plates: 99, steelKg: 83000, partsKg: 70000, scrapKg: 8100, remnantKg: 4900, machineMin: 3924, lossKg: null, lossMissing: 0,
   byThickness: THICK.map(t => ({ thick: t, plates: 8, kg: 7000, minutes: 300 })),
   plateSizes: [{ thick: 6, width: 1480, length: 10000, plates: 13 }], remnantPieces: 25, remnantM2: 55.2,
   remnantSizes: [{ thick: 20, width: 240, length: 12000, pieces: 1 }],

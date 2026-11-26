@@ -1,6 +1,7 @@
 // What one cutting plan is made of (2026-11-07): where its steel goes and which plate thicknesses
 // it uses. One plan = one project zone, so this is composition (parts of a whole), never averages.
 import type { CuttingPlanNestingRow, CuttingPlanRemnantRow } from '../../api/cutting-plan'
+import { plateLossKg } from './plateMaterial'
 
 export interface ThicknessGroup { thick: number; plates: number; kg: number; minutes: number }
 export interface PlateSize { thick: number; width: number; length: number; plates: number }
@@ -12,7 +13,9 @@ export interface PlanSummary {
   // weight + remnants = thickness × width × length × 7.85 on every one.
   steelKg: number
   partsKg: number // nested piece × nesting % (= the report's net)
-  scrapKg: number // nested piece − parts (= gross − net: kerf, skeleton, offcuts)
+  scrapKg: number // nested piece − parts − loss (= gross − net: skeleton, offcuts; and kerf where no kerf is set)
+  lossKg: number | null // user report 2026-11-26: kerf loss (cut length × kerf × thickness), null when not worked out
+  lossMissing: number // plates whose loss could not be worked out (no kerf set or no .dxf): theirs stays in scrap
   remnantKg: number
   byThickness: ThicknessGroup[] // thinnest first: thickness is an ordered scale, not a ranking
   machineMin: number // planned machine time from each plate's report
@@ -24,8 +27,8 @@ export interface PlanSummary {
 
 const n = (v: number | string | null | undefined) => (v == null || v === '' ? 0 : Number(v) || 0)
 
-export function summarizePlan(nestings: CuttingPlanNestingRow[], remnants: CuttingPlanRemnantRow[]): PlanSummary {
-  let pieceKg = 0, partsKg = 0, plates = 0, machineMin = 0
+export function summarizePlan(nestings: CuttingPlanNestingRow[], remnants: CuttingPlanRemnantRow[], kerfOf?: (r: CuttingPlanNestingRow) => number | null): PlanSummary {
+  let pieceKg = 0, partsKg = 0, plates = 0, machineMin = 0, lossKg = 0, lossMissing = 0
   const groups = new Map<number, ThicknessGroup>()
   const stock = new Map<string, PlateSize>()
   const thickOf = new Map<string, number>() // plate name → thickness, for its remnants
@@ -34,7 +37,13 @@ export function summarizePlan(nestings: CuttingPlanNestingRow[], remnants: Cutti
     const kg = n(r.weight_kg)
     plates += count
     pieceKg += kg
-    partsKg += (kg * n(r.nesting_percent)) / 100
+    const parts = (kg * n(r.nesting_percent)) / 100
+    partsKg += parts
+    if (kerfOf) {
+      const loss = plateLossKg(r, kerfOf(r))
+      if (loss == null) lossMissing += count
+      else lossKg += Math.min(loss, Math.max(0, kg - parts)) // never more than the plate's scrap
+    }
     const minutes = n(r.total_time_min)
     machineMin += minutes
     const thick = n(r.thick_mm)
@@ -71,7 +80,9 @@ export function summarizePlan(nestings: CuttingPlanNestingRow[], remnants: Cutti
     plates,
     steelKg: pieceKg + remnantKg,
     partsKg,
-    scrapKg: Math.max(0, pieceKg - partsKg),
+    scrapKg: Math.max(0, pieceKg - partsKg - lossKg),
+    lossKg: kerfOf ? lossKg : null,
+    lossMissing,
     remnantKg,
     byThickness: [...groups.values()].sort((a, b) => a.thick - b.thick),
     machineMin,

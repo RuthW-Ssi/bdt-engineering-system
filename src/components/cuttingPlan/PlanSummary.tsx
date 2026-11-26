@@ -7,6 +7,7 @@ import type { PlanSummary } from '../../lib/cuttingPlan/planSummary'
 export const BLUE = '#2a78d6' // parts, and the single thickness series
 const AQUA = '#1baf7a' // remnants
 export const GRAY = '#C9C8C3' // scrap
+const AMBER = '#D97706' // loss (kerf), user report 2026-11-26
 export const INK = '#1F1F1F', MUTED = '#8E8E8E'
 
 const tons = (kg: number) => (kg / 1000).toLocaleString('en', { maximumFractionDigits: 1 })
@@ -45,11 +46,12 @@ export function ShowAll({ total, noun, open, onToggle }: { total: number; noun: 
 }
 
 // scope = '' for the whole plan, or the picked thickness ('6 mm')
-function SteelBar({ s, scope }: { s: PlanSummary; scope: string }) {
+function SteelBar({ s, scope, kerf }: { s: PlanSummary; scope: string; kerf?: React.ReactNode }) {
   const segs = [
     { label: 'Parts', kg: s.partsKg, color: BLUE, note: 'plate weight × nesting %' },
     { label: 'Remnants (reusable)', kg: s.remnantKg, color: AQUA, note: 'rest of the sheet, from the Remnants tab' },
-    { label: 'Scrap', kg: s.scrapKg, color: GRAY, note: 'gross − net of the nested area' },
+    { label: 'Scrap', kg: s.scrapKg, color: GRAY, note: 'skeleton and offcuts of the nested area' },
+    { label: 'Loss', kg: s.lossKg ?? 0, color: AMBER, note: 'kerf: cut length × kerf × thickness' },
   ].filter(x => x.kg > 0)
   return (
     <Card title={`${scope ? `Steel · ${scope}` : 'Total steel'} · ${tons(s.steelKg)} t · ${plates(s.plates)}`}>
@@ -72,6 +74,12 @@ function SteelBar({ s, scope }: { s: PlanSummary; scope: string }) {
           </span>
         ))}
       </div>
+      {kerf && (
+        <div data-testid="loss-note" style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, fontSize: 11, color: s.lossMissing ? '#92400E' : MUTED }}>
+          <span>{s.lossKg == null ? 'Loss: kerf not loaded' : s.lossMissing ? `Loss not worked out for ${s.lossMissing} of ${s.plates} plates (kerf not set or no .dxf): their kerf is still in Scrap` : 'Loss = cut length (.dxf) × kerf × thickness'}</span>
+          {kerf}
+        </div>
+      )}
     </Card>
   )
 }
@@ -179,16 +187,17 @@ function PlateSizeCard({ s, scope }: { s: PlanSummary; scope: string }) {
 
 // summary = whole plan (the thickness chart always shows every thickness so you can switch);
 // focus = the picked thickness only, or the whole plan when none is picked.
-export function PlanSummaryCharts({ summary, focus, thickness, onThickness }: {
+export function PlanSummaryCharts({ summary, focus, thickness, onThickness, kerf }: {
   summary: PlanSummary
   focus: PlanSummary
   thickness: number | null
   onThickness: (t: number | null) => void
+  kerf?: React.ReactNode // the kerf settings button (user report 2026-11-26)
 }) {
   const scope = thickness == null ? '' : `${thickness} mm`
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, flexShrink: 0 }}>
-      <SteelBar s={focus} scope={scope} />
+      <SteelBar s={focus} scope={scope} kerf={kerf} />
       {/* the two lists stack beside the chart and share its height */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.5fr) minmax(0, 1fr)', gap: 12 }}>
         <ThicknessBars s={summary} selected={thickness} onSelect={onThickness} />

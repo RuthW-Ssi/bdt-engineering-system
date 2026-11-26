@@ -12,10 +12,25 @@ export const yieldLossGrade = (lossPct: number): LossGrade => (lossPct <= 3 ? 'g
 export const MAX_STOCK_MM = 12500
 export const STOCK_PRESETS = [6000, 6013, 9500, 10000, 12500]
 
-// Laid out now: PIPE and ROD (the backend's profile-family.ts lists the shapes prepared for later)
-export type Family = 'PIPE' | 'ROD' | 'OTHER'
-export const familyOf = (profile: string): Family => (profile.startsWith('PIPE') ? 'PIPE' : profile.startsWith('ROD') ? 'ROD' : 'OTHER')
-// Rods: kerf 10 mm, as in the "BIF all rod 25" CutLogic run (24 Jun 2026); pipes kerf 12 mm
+// Laid out now: PIPE, ROD, BOX, L, C, H (the backend's profile-family.ts names them so: "BOX 100X50X2.3", "L 50X50X5",
+// "C 150X75X6.5X10", "H 200X100X5.5X8")
+export type Family = 'PIPE' | 'ROD' | 'BOX' | 'L' | 'C' | 'H' | 'OTHER'
+const FAMILIES: Family[] = ['PIPE', 'ROD', 'BOX', 'L', 'C', 'H']
+export const familyOf = (profile: string): Family => {
+  const f = profile.split(' ')[0] as Family
+  return FAMILIES.includes(f) ? f : 'OTHER'
+}
+// Sizes grouped by type, as the CutLogic runs were (one run per type: "all pipe zone 3", "all rod 25") — each type
+// goes to its own machine, so the screen and the cutting report split there (Tao 2026-11-26)
+export const FAMILY_ORDER: Family[] = [...FAMILIES, 'OTHER']
+export const FAMILY_LABEL: Record<Family, string> = { PIPE: 'Pipe', ROD: 'Rod', BOX: 'Box', L: 'Angle (L)', C: 'Channel (C)', H: 'H-beam', OTHER: 'Other' }
+export function groupByFamily<T extends { profile: string }>(sizes: T[]): { family: Family; sizes: T[] }[] {
+  return FAMILY_ORDER.map(family => ({ family, sizes: sizes.filter(s => familyOf(s.profile) === family) })).filter(g => g.sizes.length)
+}
+// Only pipes have end cuts in the model (BdtPipeCut): cut lengths, saddle nesting and the 3D ends are pipe-only
+export const usesEndCuts = (profile: string) => familyOf(profile) === 'PIPE'
+// Rods: kerf 10 mm, as in the "BIF all rod 25" CutLogic run (24 Jun 2026); pipes kerf 12 mm, BOX and L too until the
+// factory gives the kerf of the machine that cuts them
 export const defaultKerf = (profile: string) => (familyOf(profile) === 'ROD' ? 10 : 12)
 const isBar = (profile: string) => /^(ROD)?(DB|RB)\d/.test(profile.toUpperCase().replace(/\s+/g, ''))
 export function defaultStock(profile: string, grade?: string | null): ShapeTestStock[] {
@@ -23,14 +38,49 @@ export function defaultStock(profile: string, grade?: string | null): ShapeTestS
   return lengthMm ? [{ lengthMm, qty: null }] : []
 }
 // Why a size cannot be laid out yet (it is skipped by a run), or null
-export function stockProblem(stock: ShapeTestStock[]): string | null {
+// longestMm: the size's longest piece, said before the run when no stock length holds it (2026-11-26: BOX 200 got the
+// SS400 6,000 for an 8,521 mm piece and only failed after Run)
+// User test report 2026-11-26 §5: HSS550 / HSS500 pipe is ordered cut to length, up to 12,500 mm, no more than 3 lengths
+// per size. Other grades: the 6 the backend takes.
+export const maxStockLengths = (grade?: string | null) => (/^HSS5[05]0$/.test(grade?.trim().toUpperCase() ?? '') ? 3 : 6)
+export function stockProblem(stock: ShapeTestStock[], longestMm?: number, maxLengths = 6): string | null {
   if (!stock.length) return 'Enter a stock length'
+  if (stock.length > maxLengths) return `At most ${maxLengths} stock lengths for this grade`
   if (stock.some(s => !(s.lengthMm >= 100 && s.lengthMm <= MAX_STOCK_MM))) return `Stock lengths are 100 to ${MAX_STOCK_MM.toLocaleString('en-US')} mm`
+  if (longestMm != null && stock.every(s => s.lengthMm < longestMm)) return `Longest piece ${longestMm.toLocaleString('en-US', { maximumFractionDigits: 2 })} mm: add a longer stock length`
   return null
 }
 
 // nestedMm (saddle nesting): BOM length that tucked into other pieces; the yield counts what the parts take up on the bars
 interface Totals { stocks: number; stockLengthMm: number; partsLengthMm: number; nestedMm?: number; scrapMm: number; cuts: number }
+// Pieces on the bars: every piece of every repeat (2026-11-26 user report read the Cuts total, 400, as the pieces out of
+// 410 in — a piece that fills the bar or ends at its end needs no cut)
+export const piecesLaidOut = (r: { layouts: ShapeTestLayout[] }) =>
+  r.layouts.reduce((n, l) => n + l.repeat * l.pieces.reduce((a, p) => a + p.count, 0), 0)
+
+// Where the stock goes (user report 2026-11-26 §3, Tao: "ตามนั้นเลย"): parts, remnants (offcuts at least minRemnantMm long,
+// kept for later) and loss (kerf + shorter offcuts). Kerf is what is left once parts and offcuts are taken out, so the
+// three always add up to the stock, nested layouts included (parts count the steel they take, not their BOM length).
+export interface Balance { stockMm: number; partsMm: number; offcutMm: number; kerfMm: number; remnantMm: number; lossMm: number; lossPct: number; remnants: { lengthMm: number; pcs: number }[] }
+export function materialBalance(r: { stockLengthMm: number; partsLengthMm: number; nestedMm?: number; layouts: ShapeTestLayout[] }, minRemnantMm: number | null): Balance {
+  const partsMm = r.partsLengthMm - (r.nestedMm ?? 0)
+  const byLength = new Map<number, number>()
+  let offcutMm = 0, remnantMm = 0
+  for (const l of r.layouts) {
+    if (l.restMm <= 0) continue
+    if (minRemnantMm != null && minRemnantMm > 0 && l.restMm >= minRemnantMm) {
+      remnantMm += l.restMm * l.repeat
+      byLength.set(l.restMm, (byLength.get(l.restMm) ?? 0) + l.repeat)
+    } else offcutMm += l.restMm * l.repeat
+  }
+  const kerfMm = Math.max(0, r.stockLengthMm - partsMm - offcutMm - remnantMm)
+  const lossMm = r.stockLengthMm - partsMm - remnantMm
+  return {
+    stockMm: r.stockLengthMm, partsMm, offcutMm, kerfMm, remnantMm, lossMm, lossPct: r.stockLengthMm ? (lossMm / r.stockLengthMm) * 100 : 0,
+    remnants: [...byLength].sort((a, b) => b[0] - a[0]).map(([lengthMm, pcs]) => ({ lengthMm, pcs })),
+  }
+}
+
 export function totals(results: Totals[]) {
   const t = results.reduce<Required<Totals>>((a, r) => ({
     stocks: a.stocks + r.stocks, stockLengthMm: a.stockLengthMm + r.stockLengthMm, partsLengthMm: a.partsLengthMm + r.partsLengthMm,
@@ -114,13 +164,34 @@ export function nestTurn(prev: Grids, next: Grids, kerfMm: number) {
   return best.turn
 }
 
-// "PIPE 60.5X2.4" → outer 60.5, wall 2.4; "ROD RB25" → solid 25
-export function pipeSection(profile: string): { outerMm: number; wallMm: number | null } {
-  const pipe = /(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)/.exec(profile)
-  if (pipe && familyOf(profile) === 'PIPE') return { outerMm: Number(pipe[1]), wallMm: Number(pipe[2]) }
-  const d = /(\d+(?:\.\d+)?)/.exec(profile)
-  return { outerMm: d ? Number(d[1]) : 50, wallMm: null }
+// The cross-section the 3D draws. "PIPE 60.5X2.4" → round, wall 2.4; "ROD RB25" → round, solid; "BOX 100X50X2.3" →
+// box h 100 × b 50, wall 2.3 ("BOX 100X3.2" = square); "L 100X75X7" → angle, legs 100 and 75, 7 thick ("L 65X6" = equal)
+export type Section =
+  | { kind: 'round'; outerMm: number; wallMm: number | null }
+  | { kind: 'box'; heightMm: number; widthMm: number; wallMm: number }
+  | { kind: 'angle'; legAMm: number; legBMm: number; thickMm: number }
+  | { kind: 'h' | 'channel'; heightMm: number; widthMm: number; webMm: number; flangeMm: number }
+export function section(profile: string): Section {
+  const n = (profile.match(/\d+(?:\.\d+)?/g) ?? []).map(Number)
+  const fam = familyOf(profile)
+  // "H 200X100X5.5X8" / "C 150X75X6.5X10": height × width × web × flange; "C 100X50X5" one thickness for both; with
+  // only H × B the thicknesses are a guess for the picture (the layout never uses them)
+  if ((fam === 'H' || fam === 'C') && n.length >= 2) {
+    const [h, b] = n
+    const web = n[2] ?? Math.max(3, h / 35), flange = n[3] ?? n[2] ?? Math.max(4, h / 25)
+    return { kind: fam === 'H' ? 'h' : 'channel', heightMm: h, widthMm: b, webMm: Math.min(web, b - 0.5), flangeMm: Math.min(flange, h / 2 - 0.5) }
+  }
+  if ((fam === 'BOX' || fam === 'L') && n.length >= 2) {
+    const [a, b, t] = n.length >= 3 ? n : [n[0], n[0], n[1]]
+    // a wall too thick for the size would turn the outline inside out: keep it inside
+    if (fam === 'BOX') return { kind: 'box', heightMm: a, widthMm: b, wallMm: Math.min(t, Math.min(a, b) / 2 - 0.5) }
+    return { kind: 'angle', legAMm: a, legBMm: b, thickMm: Math.min(t, Math.min(a, b) - 0.5) }
+  }
+  if (fam === 'PIPE' && n.length >= 2) return { kind: 'round', outerMm: n[0], wallMm: n[1] }
+  return { kind: 'round', outerMm: n[0] ?? 50, wallMm: null }
 }
+// The section's largest side, to frame the camera and size the cut marks
+export const sectionExtent = (s: Section) => (s.kind === 'round' ? s.outerMm : s.kind === 'angle' ? Math.max(s.legAMm, s.legBMm) : Math.max(s.heightMm, s.widthMm))
 
 // The prefix every mark of a layout shares (up to its last "-", e.g. DBN-B2-), said once above the layout
 export function sharedPrefix(marks: string[]) {
@@ -129,3 +200,13 @@ export function sharedPrefix(marks: string[]) {
   for (const m of marks) while (!m.startsWith(p)) p = p.slice(0, -1)
   return p.slice(0, p.lastIndexOf('-') + 1)
 }
+
+// kg per metre (user report 2026-11-26: weight per profile): the size's own value (BOM / part list weight per piece ÷
+// length, Tekla's, corner radii in), else its section area × 7.85 g/cm³ (no corner radii: a few % off)
+export function sectionAreaMm2(s: Section): number {
+  if (s.kind === 'round') { const ri = s.wallMm == null ? 0 : Math.max(0, s.outerMm / 2 - s.wallMm); return Math.PI * ((s.outerMm / 2) ** 2 - ri ** 2) }
+  if (s.kind === 'box') return s.heightMm * s.widthMm - Math.max(0, s.heightMm - 2 * s.wallMm) * Math.max(0, s.widthMm - 2 * s.wallMm)
+  if (s.kind === 'angle') return s.thickMm * (s.legAMm + s.legBMm - s.thickMm)
+  return 2 * s.widthMm * s.flangeMm + (s.heightMm - 2 * s.flangeMm) * s.webMm
+}
+export const kgPerMetre = (size: { profile: string; kgPerM?: number | null }) => size.kgPerM ?? Math.round(sectionAreaMm2(section(size.profile)) * 0.00785 * 1000) / 1000
