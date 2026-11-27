@@ -149,7 +149,7 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
 
     const result = await svc.findAllTeams()
 
-    expect(findMany).toHaveBeenCalledWith({ orderBy: { id: 'asc' } })
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: { id: 'asc' } }))
     expect(result).toHaveLength(1)
   })
 
@@ -160,7 +160,7 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
 
     await svc.createTeam({ code: 'TEAM-B', name: 'Team B', team_type: 'internal' })
 
-    expect(create).toHaveBeenCalledWith({ data: { code: 'TEAM-B', name: 'Team B', team_type: 'internal', active: true } })
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: { code: 'TEAM-B', name: 'Team B', team_type: 'internal', active: true } }))
   })
 
   it('throws NotFoundException updating a missing team', async () => {
@@ -178,7 +178,7 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
 
     await svc.updateTeam(3, { active: false })
 
-    expect(update).toHaveBeenCalledWith({ where: { id: 3 }, data: { active: false } })
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3 }, data: { active: false } }))
   })
 
   // WO codes carry IN/EX from team_type at creation (2026-10-01), so the type is
@@ -206,11 +206,11 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
     const svc = new MachinesService(prisma, {} as any)
 
     await svc.updateTeam(3, { team_type: 'external' })
-    expect(update).toHaveBeenCalledWith({ where: { id: 3 }, data: { team_type: 'external' } })
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 3 }, data: { team_type: 'external' } }))
 
     count.mockResolvedValue(5)
     await svc.updateTeam(3, { team_type: 'internal', name: 'Renamed' })
-    expect(update).toHaveBeenLastCalledWith({ where: { id: 3 }, data: { name: 'Renamed', team_type: 'internal' } })
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ where: { id: 3 }, data: { name: 'Renamed', team_type: 'internal' } }))
   })
 
   it('throws NotFoundException deleting a missing team', async () => {
@@ -243,5 +243,39 @@ describe('MachinesService.findAllTeams / createTeam / updateTeam', () => {
     await svc.deleteTeam(5)
 
     expect(prisma.team.delete).toHaveBeenCalledWith({ where: { id: 5 } })
+  })
+})
+
+// Mimics Prisma's `select` projection so these tests check what the handler
+// actually returns, not just what the mock was primed with.
+function project(row: Record<string, unknown>, select?: Record<string, unknown>) {
+  return select ? Object.fromEntries(Object.entries(row).filter(([k]) => select[k])) : row
+}
+
+describe('MachinesService team responses (security F-001, 2026-10-04)', () => {
+  const row = {
+    id: 7, code: 'EXT-01', name: 'Ext Crew', team_type: 'external', skills: [], active: true,
+    created_at: new Date('2026-10-01'), default_headcount: 4, rate: '350', rate_unit: 'THB/hr',
+  }
+  const prisma: any = {
+    team: {
+      findMany: jest.fn(async ({ select }) => [project(row, select)]),
+      findUnique: jest.fn().mockResolvedValue(row),
+      create: jest.fn(async ({ select }) => project(row, select)),
+      update: jest.fn(async ({ select }) => project(row, select)),
+    },
+  }
+  const svc = new MachinesService(prisma, {} as any)
+
+  it.each([
+    ['findAllTeams', () => svc.findAllTeams().then(teams => teams[0])],
+    ['createTeam', () => svc.createTeam({ code: 'EXT-01', name: 'Ext Crew', team_type: 'external' })],
+    ['updateTeam', () => svc.updateTeam(7, { name: 'Ext Crew' })],
+  ])('%s returns no rate / rate_unit but keeps the fields the UI reads', async (_name, call) => {
+    const team = await call()
+
+    expect(team).not.toHaveProperty('rate')
+    expect(team).not.toHaveProperty('rate_unit')
+    expect(team).toMatchObject({ id: 7, code: 'EXT-01', name: 'Ext Crew', team_type: 'external', active: true })
   })
 })
